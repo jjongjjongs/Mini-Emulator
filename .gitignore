@@ -1,0 +1,20 @@
+# Gradle / Android Studio
+.gradle/
+build/
+/local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 서명 키 — 절대 커밋하지 마세요
+keystore.properties
+release/
+*.jks
+*.keystore
+
+# 빌드 결과물
+*.apk
+*.aab
