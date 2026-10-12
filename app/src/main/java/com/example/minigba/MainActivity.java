@@ -1061,7 +1061,8 @@ public final class MainActivity extends Activity {
         }
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(file);
-        File file2 = new File(getFilesDir(), "saves");
+        // Saves live in a per-core folder; see saveFileFor().
+        File file2 = new File(saveDir(), coreFor(file));
         File file3 = new File(file2, sanitizeSaveBaseName + ".sav");
         File file4 = new File(file2, sanitizeSaveBaseName + ".state");
         if ((!saveFileFor.equals(file3) && file3.exists()) || (!stateFileFor.equals(file4) && file4.exists())) {
@@ -1523,6 +1524,11 @@ public final class MainActivity extends Activity {
             migrateLegacyFile(legacySaveFileFor(file), saveFileFor(file));
             migrateLegacyFile(legacyStateFileFor(file), stateFileFor(file));
         }
+        // Renaming in 0.0.1 moved saves to the top-level saves folder instead of
+        // the per-core one, so the game no longer found them. Move them back.
+        String saveBaseName = saveBaseNameFor(file);
+        migrateLegacyFile(new File(saveDir(), saveBaseName + ".sav"), saveFileFor(file));
+        migrateLegacyFile(new File(saveDir(), saveBaseName + ".state"), stateFileFor(file));
     }
 
     private void migrateLegacyFile(File file, File file2) {
