@@ -26,7 +26,7 @@ final class ArcadeJoystickView extends View {
         setFocusable(false);
     }
 
-    @Override // android.view.View
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float min = Math.min(getWidth(), getHeight());
@@ -62,7 +62,7 @@ final class ArcadeJoystickView extends View {
         canvas.drawOval(new RectF(f6 - (0.1f * min), f7 - (0.12f * min), f6 + (min * 0.045f), f7 - f8), this.paint);
     }
 
-    @Override // android.view.View
+    @Override
     public boolean onTouchEvent(MotionEvent motionEvent) {
         int actionMasked = motionEvent.getActionMasked();
         int i = 0;

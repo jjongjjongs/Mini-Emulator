@@ -46,7 +46,7 @@ final class SpeedButtonView extends View {
         invalidate();
     }
 
-    @Override // android.view.View
+    @Override
     protected void onDraw(Canvas canvas) {
         int i;
         int i2;
@@ -132,7 +132,7 @@ final class SpeedButtonView extends View {
         canvas.drawPath(path2, this.icon);
     }
 
-    @Override // android.view.View
+    @Override
     public boolean onTouchEvent(MotionEvent motionEvent) {
         int actionMasked = motionEvent.getActionMasked();
         if (actionMasked == 0) {

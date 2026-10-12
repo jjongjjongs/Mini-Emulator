@@ -21,7 +21,6 @@ import com.seleuco.mame4droid.Emulator;
 import java.io.File;
 import java.io.IOException;
 import java.util.Locale;
-import java.util.function.Predicate;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -46,7 +45,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private boolean surfaceReady;
     private SurfaceView surfaceView;
 
-    @Override // android.app.Activity
+    @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         boolean z = getSharedPreferences("settings", 0).getInt("orientation_mode", 0) == 1;
@@ -144,17 +143,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout2.addView(this.surfaceView, new FrameLayout.LayoutParams(-1, -1, 17));
         frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(dp(320), dp(214), 17));
         addLandscapeControls(frameLayout);
-        frameLayout.addOnLayoutChangeListener(new View.OnLayoutChangeListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda18
-            @Override // android.view.View.OnLayoutChangeListener
-            public final void onLayoutChange(View view, int i2, int i3, int i4, int i5, int i6, int i7, int i8, int i9) {
-                GameActivity.this.m8lambda$createLandscapeContent$0$comexampleminigbaGameActivity(i, frameLayout2, view, i2, i3, i4, i5, i6, i7, i8, i9);
-            }
-        });
+        frameLayout.addOnLayoutChangeListener((view, i2, i3, i4, i5, i6, i7, i8, i9) -> fitLandscapeScreen(i, frameLayout2, view, i2, i3, i4, i5, i6, i7, i8, i9));
         linearLayout.addView(frameLayout, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         setContentView(linearLayout);
     }
 
-    /* synthetic */ void m8lambda$createLandscapeContent$0$comexampleminigbaGameActivity(int i, FrameLayout frameLayout, View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+    private void fitLandscapeScreen(int i, FrameLayout frameLayout, View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
         int width = right - left;
         int height = bottom - top;
         if (width <= 0 || height <= 0) {
@@ -201,29 +195,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private View createDirectionControl() {
         if (!this.coreId.equals("gba")) {
-            return new ArcadeJoystickView(this, new ArcadeJoystickView.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda10
-                @Override // com.example.minigba.ArcadeJoystickView.Listener
-                public final void onDirectionMaskChanged(int i) {
-                    GameActivity.this.m6lambda$createDirectionControl$1$comexampleminigbaGameActivity(i);
-                }
-            });
+            return new ArcadeJoystickView(this, this::onDirectionChanged);
         }
-        return new DPadView(this, new DPadView.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda12
-            @Override // com.example.minigba.DPadView.Listener
-            public final void onDirectionMaskChanged(int i) {
-                GameActivity.this.m7lambda$createDirectionControl$2$comexampleminigbaGameActivity(i);
-            }
-        });
+        return new DPadView(this, this::onDirectionChanged);
     }
 
-    /* renamed from: lambda$createDirectionControl$1$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m6lambda$createDirectionControl$1$comexampleminigbaGameActivity(int i) {
-        this.buttonMask = i | (this.buttonMask & (-241));
-        updateInput();
-    }
-
-    /* renamed from: lambda$createDirectionControl$2$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m7lambda$createDirectionControl$2$comexampleminigbaGameActivity(int i) {
+    private void onDirectionChanged(int i) {
         this.buttonMask = i | (this.buttonMask & (-241));
         updateInput();
     }
@@ -233,12 +210,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeActionButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4) {
-        TouchButton touchButton = new TouchButton(this, str, i, new TouchButton.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda19
-            @Override // com.example.minigba.TouchButton.Listener
-            public final void onButtonChanged(int i5, boolean z) {
-                GameActivity.this.m3x1fe3fe04(i5, z);
-            }
-        }, i4);
+        TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed, i4);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(66), dp(66));
         layoutParams.gravity = 8388629;
         layoutParams.setMargins(0, 0, i2, 0);
@@ -246,8 +218,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(touchButton, layoutParams);
     }
 
-    /* renamed from: lambda$addLandscapeActionButton$3$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m3x1fe3fe04(int i, boolean z) {
+    private void setButtonPressed(int i, boolean z) {
         if (z) {
             this.buttonMask = i | this.buttonMask;
         } else {
@@ -257,12 +228,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeArcadeButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4) {
-        TouchButton touchButton = new TouchButton(this, str, i, new TouchButton.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda20
-            @Override // com.example.minigba.TouchButton.Listener
-            public final void onButtonChanged(int i5, boolean z) {
-                GameActivity.this.m4xc2963889(i5, z);
-            }
-        }, i4);
+        TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed, i4);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(54), dp(54));
         layoutParams.gravity = 8388629;
         layoutParams.setMargins(0, 0, dp(i2), 0);
@@ -270,17 +236,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(touchButton, layoutParams);
     }
 
-    /* renamed from: lambda$addLandscapeArcadeButton$4$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m4xc2963889(int i, boolean z) {
-        if (z) {
-            this.buttonMask = i | this.buttonMask;
-        } else {
-            this.buttonMask = (~i) & this.buttonMask;
-        }
-        updateInput();
-    }
-
-    @Override // android.app.Activity
+    @Override
     protected void onPause() {
         super.onPause();
         if (isMame139()) {
@@ -294,7 +250,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    @Override // android.app.Activity
+    @Override
     protected void onResume() {
         super.onResume();
         if (isMame139()) {
@@ -307,7 +263,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    @Override // android.app.Activity
+    @Override
     protected void onDestroy() {
         if (isMame139() && isFinishing()) {
             Emulator.stop();
@@ -325,12 +281,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         super.onDestroy();
     }
 
-    @Override // android.app.Activity
+    @Override
     public void onBackPressed() {
         showBackExitDialog();
     }
 
-    @Override // android.view.SurfaceHolder.Callback
+    @Override
     public void surfaceCreated(SurfaceHolder surfaceHolder) {
         this.surfaceReady = true;
         this.activeSurfaceHolder = surfaceHolder;
@@ -348,7 +304,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    @Override // android.view.SurfaceHolder.Callback
+    @Override
     public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i2, int i3) {
         if (this.surfaceReady) {
             return;
@@ -356,7 +312,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         startCore(surfaceHolder.getSurface());
     }
 
-    @Override // android.view.SurfaceHolder.Callback
+    @Override
     public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
         if (this.activeSurfaceHolder == surfaceHolder) {
             this.surfaceReady = false;
@@ -372,7 +328,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    @Override // android.app.Activity, android.content.ComponentCallbacks
+    @Override
     public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
         this.landscapeMode = configuration.orientation == 2;
@@ -459,30 +415,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean zipContains(File file, final String str) {
-        if (file != null && file.isFile()) {
-            try {
-                ZipFile zipFile = new ZipFile(file);
-                try {
-                    if (zipFile.getEntry(str) == null) {
-                        boolean anyMatch = zipFile.stream().anyMatch(new Predicate() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda16
-                            @Override // java.util.function.Predicate
-                            public final boolean test(Object obj) {
-                                boolean equalsIgnoreCase;
-                                equalsIgnoreCase = new File(((ZipEntry) obj).getName()).getName().equalsIgnoreCase(str);
-                                return equalsIgnoreCase;
-                            }
-                        });
-                        zipFile.close();
-                        return anyMatch;
-                    }
-                    zipFile.close();
-                    return true;
-                } finally {
-                }
-            } catch (IOException unused) {
-            }
+        if (file == null || !file.isFile()) {
+            return false;
         }
-        return false;
+        try (ZipFile zipFile = new ZipFile(file)) {
+            if (zipFile.getEntry(str) != null) {
+                return true;
+            }
+            return zipFile.stream().anyMatch(entry -> new File(entry.getName()).getName().equalsIgnoreCase(str));
+        } catch (IOException unused) {
+            return false;
+        }
     }
 
     private LinearLayout createTopBar() {
@@ -491,38 +434,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         linearLayout.setGravity(16);
         linearLayout.setPadding(dp(16), dp(4), dp(16), dp(4));
         linearLayout.setBackgroundColor(Color.rgb(218, 215, 207));
-        addTopButton(linearLayout, 0, "저장", new View.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda2
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                GameActivity.this.m9lambda$createTopBar$6$comexampleminigbaGameActivity(view);
-            }
-        });
-        addTopButton(linearLayout, 1, "재시작", new View.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda3
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                GameActivity.this.m10lambda$createTopBar$7$comexampleminigbaGameActivity(view);
-            }
-        });
+        addTopButton(linearLayout, 0, "저장", view -> onSaveClicked());
+        addTopButton(linearLayout, 1, "재시작", view -> onResetClicked());
         if (this.landscapeMode) {
             addTopSpeedButton(linearLayout);
         }
-        addTopButton(linearLayout, 3, "화면 회전", new View.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda4
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                GameActivity.this.m11lambda$createTopBar$8$comexampleminigbaGameActivity(view);
-            }
-        });
-        addTopButton(linearLayout, 2, "메뉴", new View.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda5
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                GameActivity.this.m12lambda$createTopBar$9$comexampleminigbaGameActivity(view);
-            }
-        });
+        addTopButton(linearLayout, 3, "화면 회전", view -> toggleOrientation());
+        addTopButton(linearLayout, 2, "메뉴", view -> showGameMenu());
         return linearLayout;
     }
 
-    /* renamed from: lambda$createTopBar$6$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m9lambda$createTopBar$6$comexampleminigbaGameActivity(View view) {
+    private void onSaveClicked() {
         if (isMame139()) {
             Emulator.saveState();
             Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
@@ -534,8 +456,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    /* renamed from: lambda$createTopBar$7$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m10lambda$createTopBar$7$comexampleminigbaGameActivity(View view) {
+    private void onResetClicked() {
         if (isMame139()) {
             Toast.makeText(this, "MAME 0.139 재시작은 ROM 목록에서 다시 실행하세요.", 0).show();
             return;
@@ -547,23 +468,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    /* renamed from: lambda$createTopBar$8$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m11lambda$createTopBar$8$comexampleminigbaGameActivity(View view) {
-        toggleOrientation();
-    }
-
-    /* renamed from: lambda$createTopBar$9$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m12lambda$createTopBar$9$comexampleminigbaGameActivity(View view) {
-        showGameMenu();
-    }
-
     private void addTopSpeedButton(LinearLayout linearLayout) {
-        SpeedButtonView speedButtonView = new SpeedButtonView(this, new SpeedButtonView.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda1
-            @Override // com.example.minigba.SpeedButtonView.Listener
-            public final void onChanged(int i) {
-                GameActivity.this.m5lambda$addTopSpeedButton$10$comexampleminigbaGameActivity(i);
-            }
-        });
+        SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
         this.fastForwardButton = speedButtonView;
         speedButtonView.setMultiplier(this.speedMultiplier);
         this.fastForwardButton.setContentDescription("배속");
@@ -572,8 +478,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         linearLayout.addView(this.fastForwardButton, layoutParams);
     }
 
-    /* renamed from: lambda$addTopSpeedButton$10$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m5lambda$addTopSpeedButton$10$comexampleminigbaGameActivity(int i) {
+    private void onSpeedChanged(int i) {
         this.speedMultiplier = i;
         long j = this.nativeHandle;
         if (j != 0) {
@@ -632,12 +537,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4, int i5, int i6, int i7) {
-        View touchButton = new TouchButton(this, str, i, new TouchButton.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda0
-            @Override // com.example.minigba.TouchButton.Listener
-            public final void onButtonChanged(int i8, boolean z) {
-                GameActivity.this.m0lambda$addButton$11$comexampleminigbaGameActivity(i8, z);
-            }
-        }, i7);
+        View touchButton = new TouchButton(this, str, i, this::setButtonPressed, i7);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(i5, i6);
         layoutParams.gravity = i2;
         int max = Math.max(0, i3);
@@ -645,23 +545,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(touchButton, layoutParams);
     }
 
-    /* renamed from: lambda$addButton$11$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m0lambda$addButton$11$comexampleminigbaGameActivity(int i, boolean z) {
-        if (z) {
-            this.buttonMask = i | this.buttonMask;
-        } else {
-            this.buttonMask = (~i) & this.buttonMask;
-        }
-        updateInput();
-    }
-
     private void addFastForwardButton(FrameLayout frameLayout) {
-        SpeedButtonView speedButtonView = new SpeedButtonView(this, new SpeedButtonView.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda17
-            @Override // com.example.minigba.SpeedButtonView.Listener
-            public final void onChanged(int i) {
-                GameActivity.this.m2lambda$addFastForwardButton$12$comexampleminigbaGameActivity(i);
-            }
-        });
+        SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
         this.fastForwardButton = speedButtonView;
         speedButtonView.setMultiplier(this.speedMultiplier);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(42));
@@ -670,37 +555,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(this.fastForwardButton, layoutParams);
     }
 
-    /* renamed from: lambda$addFastForwardButton$12$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m2lambda$addFastForwardButton$12$comexampleminigbaGameActivity(int i) {
-        this.speedMultiplier = i;
-        long j = this.nativeHandle;
-        if (j != 0) {
-            NativeGba.setSpeedMultiplier(j, i);
-        }
-    }
-
     private void addCenterButton(FrameLayout frameLayout, String str, int i, int i2) {
-        TouchButton touchButton = new TouchButton(this, str, i, new TouchButton.Listener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda9
-            @Override // com.example.minigba.TouchButton.Listener
-            public final void onButtonChanged(int i3, boolean z) {
-                GameActivity.this.m1lambda$addCenterButton$13$comexampleminigbaGameActivity(i3, z);
-            }
-        });
+        TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(34));
         layoutParams.gravity = 81;
         layoutParams.setMargins(0, 0, 0, dp(72));
         touchButton.setTranslationX(dp(i2));
         frameLayout.addView(touchButton, layoutParams);
-    }
-
-    /* renamed from: lambda$addCenterButton$13$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m1lambda$addCenterButton$13$comexampleminigbaGameActivity(int i, boolean z) {
-        if (z) {
-            this.buttonMask = i | this.buttonMask;
-        } else {
-            this.buttonMask = (~i) & this.buttonMask;
-        }
-        updateInput();
     }
 
     private void updateInput() {
@@ -732,23 +593,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         strArr[4] = "재시작";
         strArr[5] = this.landscapeMode ? "세로 화면으로 전환" : "가로 화면으로 전환";
         strArr[6] = "ROM 목록으로 나가기";
-        AlertDialog create = new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini GBA" : "Mini Arcade").setItems(strArr, new DialogInterface.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda7
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                GameActivity.this.m18lambda$showGameMenu$14$comexampleminigbaGameActivity(dialogInterface, i);
-            }
-        }).create();
-        create.setOnDismissListener(new DialogInterface.OnDismissListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda8
-            @Override // android.content.DialogInterface.OnDismissListener
-            public final void onDismiss(DialogInterface dialogInterface) {
-                GameActivity.this.m19lambda$showGameMenu$15$comexampleminigbaGameActivity(dialogInterface);
-            }
-        });
+        AlertDialog create = new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini GBA" : "Mini Arcade").setItems(strArr, (dialogInterface, i) -> onGameMenuItemSelected(dialogInterface, i)).create();
+        create.setOnDismissListener(dialog -> resumeUnlessExiting());
         create.show();
     }
 
-    /* renamed from: lambda$showGameMenu$14$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m18lambda$showGameMenu$14$comexampleminigbaGameActivity(DialogInterface dialogInterface, int i) {
+    private void onGameMenuItemSelected(DialogInterface dialogInterface, int i) {
         if (i == 0) {
             dialogInterface.dismiss();
             return;
@@ -819,8 +669,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    /* renamed from: lambda$showGameMenu$15$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m19lambda$showGameMenu$15$comexampleminigbaGameActivity(DialogInterface dialogInterface) {
+    private void resumeUnlessExiting() {
         if (!this.menuExiting && isMame139()) {
             Emulator.resume();
         } else {
@@ -844,34 +693,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         }
         this.menuExiting = false;
-        AlertDialog create = new AlertDialog.Builder(this).setTitle("게임으로 돌아갈까요?").setMessage("아니오를 누르면 현재 게임을 저장하고 ROM 목록으로 나갑니다.").setNegativeButton("예", new DialogInterface.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda11
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                GameActivity.this.m13lambda$showBackExitDialog$16$comexampleminigbaGameActivity(dialogInterface, i);
-            }
-        }).setPositiveButton("아니오", new DialogInterface.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda13
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                GameActivity.this.m14lambda$showBackExitDialog$17$comexampleminigbaGameActivity(dialogInterface, i);
-            }
-        }).create();
-        create.setOnCancelListener(new DialogInterface.OnCancelListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda14
-            @Override // android.content.DialogInterface.OnCancelListener
-            public final void onCancel(DialogInterface dialogInterface) {
-                GameActivity.this.m15lambda$showBackExitDialog$18$comexampleminigbaGameActivity(dialogInterface);
-            }
-        });
-        create.setOnDismissListener(new DialogInterface.OnDismissListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda15
-            @Override // android.content.DialogInterface.OnDismissListener
-            public final void onDismiss(DialogInterface dialogInterface) {
-                GameActivity.this.m16lambda$showBackExitDialog$19$comexampleminigbaGameActivity(dialogInterface);
-            }
-        });
+        AlertDialog create = new AlertDialog.Builder(this).setTitle("게임으로 돌아갈까요?").setMessage("아니오를 누르면 현재 게임을 저장하고 ROM 목록으로 나갑니다.").setNegativeButton("예", (dialog, which) -> resumeEmulation()).setPositiveButton("아니오", (dialog, which) -> saveAndExit()).create();
+        create.setOnCancelListener(dialog -> resumeEmulation());
+        create.setOnDismissListener(dialog -> resumeUnlessExiting());
         create.show();
     }
 
-    /* renamed from: lambda$showBackExitDialog$16$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m13lambda$showBackExitDialog$16$comexampleminigbaGameActivity(DialogInterface dialogInterface, int i) {
+    private void resumeEmulation() {
         if (isMame139()) {
             Emulator.resume();
             return;
@@ -882,8 +710,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    /* renamed from: lambda$showBackExitDialog$17$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m14lambda$showBackExitDialog$17$comexampleminigbaGameActivity(DialogInterface dialogInterface, int i) {
+    private void saveAndExit() {
         this.menuExiting = true;
         if (isMame139()) {
             Emulator.stop();
@@ -896,45 +723,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         finish();
     }
 
-    /* renamed from: lambda$showBackExitDialog$18$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m15lambda$showBackExitDialog$18$comexampleminigbaGameActivity(DialogInterface dialogInterface) {
-        if (isMame139()) {
-            Emulator.resume();
-            return;
-        }
-        long j = this.nativeHandle;
-        if (j != 0) {
-            NativeGba.pause(j, false);
-        }
-    }
-
-    /* renamed from: lambda$showBackExitDialog$19$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m16lambda$showBackExitDialog$19$comexampleminigbaGameActivity(DialogInterface dialogInterface) {
-        if (!this.menuExiting && isMame139()) {
-            Emulator.resume();
-        } else {
-            if (this.menuExiting) {
-                return;
-            }
-            long j = this.nativeHandle;
-            if (j != 0) {
-                NativeGba.pause(j, false);
-            }
-        }
-    }
-
     private void showFatalError(String str) {
-        new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini GBA" : "Mini Arcade").setMessage(str).setPositiveButton(17039370, new DialogInterface.OnClickListener() { // from class: com.example.minigba.GameActivity$$ExternalSyntheticLambda6
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                GameActivity.this.m17lambda$showFatalError$20$comexampleminigbaGameActivity(dialogInterface, i);
-            }
-        }).show();
-    }
-
-    /* renamed from: lambda$showFatalError$20$com-example-minigba-GameActivity, reason: not valid java name */
-    /* synthetic */ void m17lambda$showFatalError$20$comexampleminigbaGameActivity(DialogInterface dialogInterface, int i) {
-        finish();
+        new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini GBA" : "Mini Arcade").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
     }
 
     private int dp(int i) {

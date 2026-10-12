@@ -13,7 +13,6 @@ import android.view.SurfaceHolder;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -122,18 +121,13 @@ public final class Emulator {
             final String str2 = context.getApplicationInfo().nativeLibraryDir;
             final String str3 = file2.getAbsolutePath() + File.separator;
             running = true;
-            Thread thread = new Thread(new Runnable() { // from class: com.seleuco.mame4droid.Emulator$$ExternalSyntheticLambda0
-                @Override // java.lang.Runnable
-                public final void run() {
-                    Emulator.lambda$start$0(str2, str3, parentFile, file);
-                }
-            }, "MAME139-Main");
+            Thread thread = new Thread(() -> runEngine(str2, str3, parentFile, file), "MAME139-Main");
             thread.setPriority(10);
             thread.start();
         }
     }
 
-    static /* synthetic */ void lambda$start$0(String str, String str2, File file, File file2) {
+    private static void runEngine(String str, String str2, File file, File file2) {
         try {
             init(str, str2);
             nativeReady = true;
@@ -149,10 +143,12 @@ public final class Emulator {
             setValueStr(7, file2.getName());
             Log.i("MiniMAME139", "Starting " + file2.getName() + " from " + file);
             runT();
+        } catch (Throwable th) {
+            Log.e("MiniMAME139", "MAME 0.139 engine stopped", th);
         } finally {
-            try {
-            } finally {
-            }
+            nativeReady = false;
+            running = false;
+            endAudio();
         }
     }
 
@@ -354,111 +350,68 @@ public final class Emulator {
             throw new IOException("MAME 0.139 데이터 폴더를 만들 수 없습니다.");
         }
         String str = file.getCanonicalPath() + File.separator;
-        InputStream open = context.getAssets().open("mame139/files.zip");
-        try {
-            ZipInputStream zipInputStream = new ZipInputStream(new BufferedInputStream(open));
-            try {
-                byte[] bArr = new byte[32768];
-                while (true) {
-                    ZipEntry nextEntry = zipInputStream.getNextEntry();
-                    if (nextEntry != null) {
-                        File file3 = new File(file, nextEntry.getName());
-                        if (!file3.getCanonicalPath().startsWith(str)) {
-                            throw new IOException("잘못된 MAME 데이터 경로입니다.");
+        try (InputStream open = context.getAssets().open("mame139/files.zip");
+             ZipInputStream zipInputStream = new ZipInputStream(new BufferedInputStream(open))) {
+            byte[] bArr = new byte[32768];
+            while (true) {
+                ZipEntry nextEntry = zipInputStream.getNextEntry();
+                if (nextEntry == null) {
+                    break;
+                }
+                File file3 = new File(file, nextEntry.getName());
+                if (!file3.getCanonicalPath().startsWith(str)) {
+                    throw new IOException("잘못된 MAME 데이터 경로입니다.");
+                }
+                if (nextEntry.isDirectory()) {
+                    if (!file3.exists() && !file3.mkdirs()) {
+                        throw new IOException("MAME 데이터 폴더 생성 실패: " + nextEntry.getName());
+                    }
+                    continue;
+                }
+                File parentFile = file3.getParentFile();
+                if (parentFile != null && !parentFile.exists() && !parentFile.mkdirs()) {
+                    throw new IOException("MAME 데이터 폴더 생성 실패: " + parentFile);
+                }
+                try (BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(new FileOutputStream(file3))) {
+                    while (true) {
+                        int read = zipInputStream.read(bArr);
+                        if (read == -1) {
+                            break;
                         }
-                        if (nextEntry.isDirectory()) {
-                            if (!file3.exists() && !file3.mkdirs()) {
-                                throw new IOException("MAME 데이터 폴더 생성 실패: " + nextEntry.getName());
-                            }
-                        } else {
-                            File parentFile = file3.getParentFile();
-                            if (parentFile != null && !parentFile.exists() && !parentFile.mkdirs()) {
-                                throw new IOException("MAME 데이터 폴더 생성 실패: " + parentFile);
-                            }
-                            BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(new FileOutputStream(file3));
-                            while (true) {
-                                try {
-                                    int read = zipInputStream.read(bArr);
-                                    if (read == -1) {
-                                        break;
-                                    } else {
-                                        bufferedOutputStream.write(bArr, 0, read);
-                                    }
-                                } finally {
-                                }
-                            }
-                            bufferedOutputStream.close();
-                        }
-                    } else {
-                        zipInputStream.close();
-                        if (open != null) {
-                            open.close();
-                        }
-                        if (!file2.createNewFile() && !file2.isFile()) {
-                            throw new IOException("MAME 데이터 준비 상태를 저장할 수 없습니다.");
-                        }
-                        return;
+                        bufferedOutputStream.write(bArr, 0, read);
                     }
                 }
-            } finally {
             }
-        } catch (Throwable th) {
-            if (open != null) {
-                try {
-                    open.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
-                }
-            }
-            throw th;
+        }
+        if (!file2.createNewFile() && !file2.isFile()) {
+            throw new IOException("MAME 데이터 준비 상태를 저장할 수 없습니다.");
         }
     }
 
     private static void syncRegisteredBios(Context context, File file) throws IOException {
-        File[] listFiles = new File(new File(context.getFilesDir(), "system"), "mame/bios").listFiles(new FileFilter() { // from class: com.seleuco.mame4droid.Emulator$$ExternalSyntheticLambda1
-            @Override // java.io.FileFilter
-            public final boolean accept(File file2) {
-                return Emulator.lambda$syncRegisteredBios$1(file2);
-            }
-        });
+        File[] listFiles = new File(new File(context.getFilesDir(), "system"), "mame/bios").listFiles(
+                bios -> bios.isFile() && bios.getName().toLowerCase().endsWith(".zip"));
         if (listFiles == null) {
             return;
         }
         byte[] bArr = new byte[32768];
         for (File file2 : listFiles) {
             File file3 = new File(file, file2.getName());
-            if (!file3.isFile() || file3.length() != file2.length() || file3.lastModified() < file2.lastModified()) {
-                BufferedInputStream bufferedInputStream = new BufferedInputStream(new FileInputStream(file2));
-                try {
-                    BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(new FileOutputStream(file3));
-                    while (true) {
-                        try {
-                            int read = bufferedInputStream.read(bArr);
-                            if (read == -1) {
-                                break;
-                            } else {
-                                bufferedOutputStream.write(bArr, 0, read);
-                            }
-                        } finally {
-                        }
+            if (file3.isFile() && file3.length() == file2.length() && file3.lastModified() >= file2.lastModified()) {
+                continue;
+            }
+            try (BufferedInputStream bufferedInputStream = new BufferedInputStream(new FileInputStream(file2));
+                 BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(new FileOutputStream(file3))) {
+                while (true) {
+                    int read = bufferedInputStream.read(bArr);
+                    if (read == -1) {
+                        break;
                     }
-                    bufferedOutputStream.close();
-                    bufferedInputStream.close();
-                    file3.setLastModified(file2.lastModified());
-                } catch (Throwable th) {
-                    try {
-                        bufferedInputStream.close();
-                    } catch (Throwable th2) {
-                        th.addSuppressed(th2);
-                    }
-                    throw th;
+                    bufferedOutputStream.write(bArr, 0, read);
                 }
             }
+            file3.setLastModified(file2.lastModified());
         }
-    }
-
-    static /* synthetic */ boolean lambda$syncRegisteredBios$1(File file) {
-        return file.isFile() && file.getName().toLowerCase().endsWith(".zip");
     }
 
     private static void setValue(int i, int i2) {

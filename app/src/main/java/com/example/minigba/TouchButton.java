@@ -61,7 +61,7 @@ final class TouchButton extends View {
         setFocusable(false);
     }
 
-    @Override // android.view.View
+    @Override
     protected void onDraw(Canvas canvas) {
         int i;
         int rgb;
@@ -158,7 +158,7 @@ final class TouchButton extends View {
         this.highlight.setStyle(Paint.Style.STROKE);
     }
 
-    @Override // android.view.View
+    @Override
     public boolean onTouchEvent(MotionEvent motionEvent) {
         int actionMasked = motionEvent.getActionMasked();
         if (actionMasked == 0 || actionMasked == 5) {

@@ -41,7 +41,7 @@ final class TopIconButtonView extends View {
         setFocusable(true);
     }
 
-    @Override // android.view.View
+    @Override
     protected void onDraw(Canvas canvas) {
         int i;
         int i2;
@@ -129,7 +129,7 @@ final class TopIconButtonView extends View {
         canvas.drawPath(path, this.icon);
     }
 
-    @Override // android.view.View
+    @Override
     public boolean onTouchEvent(MotionEvent motionEvent) {
         int actionMasked = motionEvent.getActionMasked();
         if (actionMasked == 0) {
@@ -150,7 +150,7 @@ final class TopIconButtonView extends View {
         return true;
     }
 
-    @Override // android.view.View
+    @Override
     public boolean performClick() {
         super.performClick();
         return true;

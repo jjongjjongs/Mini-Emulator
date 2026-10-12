@@ -34,7 +34,7 @@ final class ControlPanelView extends View {
         paint3.setStrokeCap(Paint.Cap.ROUND);
     }
 
-    @Override // android.view.View
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float width = getWidth();

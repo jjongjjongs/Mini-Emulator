@@ -23,7 +23,6 @@ import android.widget.Toast;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -37,7 +36,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.function.Function;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -71,7 +69,7 @@ public final class MainActivity extends Activity {
     private static final String[] SCREEN_MODE_LABELS = {"전체 화면", "프레임", "컴팩트"};
     private static final byte[] GBA_LOGO = {36, -1, -82, 81, 105, -102, -94, 33, 61, -124, -126, 10, -124, -28, 9, -83, 17, 36, -117, -104, -64, -127, Byte.MAX_VALUE, 33, -93, 82, -66, 25, -109, 9, -50, 32, 16, 70, 74, 74, -8, 39, 49, -20, 88, -57, -24, 51, -126, -29, -50, -65, -123, -12, -33, -108, -50, 75, 9, -63, -108, 86, -118, -64, 19, 114, -89, -4, -97, -124, 77, 115, -93, -54, -102, 97, 88, -105, -93, 39, -4, 3, -104, 118, 35, 29, -57, 97, 3, 4, -82, 86, -65, 56, -124, 0, 64, -89, 14, -3, -1, 82, -2, 3, 111, -107, 48, -15, -105, -5, -64, -123, 96, -42, Byte.MIN_VALUE, 37, -87, 99, -66, 3, 1, 78, 56, -30, -7, -94, 52, -1, -69, 62, 3, 68, 120, 0, -112, -53, -120, 17, 58, -108, 101, -64, 124, 99, -121, -16, 60, -81, -42, 37, -28, -117, 56, 10, -84, 114, 33, -44, -8, 7};
 
-    @Override // android.app.Activity
+    @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         LinearLayout linearLayout = new LinearLayout(this);
@@ -105,32 +103,12 @@ public final class MainActivity extends Activity {
         linearLayout5.setOrientation(0);
         LinearLayout linearLayout6 = new LinearLayout(this);
         linearLayout6.setOrientation(0);
-        linearLayout4.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(224, 247, 251), Color.rgb(34, 166, 197), new View.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda5
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                MainActivity.this.m30lambda$onCreate$0$comexampleminigbaMainActivity(view);
-            }
-        }), fullCardParams());
-        LinearLayout createActionCard = createActionCard("GBA BIOS", biosFile().exists() ? "등록됨" : "등록 안 됨", "BIOS", Color.rgb(255, 232, 232), Color.rgb(239, 84, 103), new View.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda6
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                MainActivity.this.m31lambda$onCreate$1$comexampleminigbaMainActivity(view);
-            }
-        });
+        linearLayout4.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(224, 247, 251), Color.rgb(34, 166, 197), view -> openRomPicker()), fullCardParams());
+        LinearLayout createActionCard = createActionCard("GBA BIOS", biosFile().exists() ? "등록됨" : "등록 안 됨", "BIOS", Color.rgb(255, 232, 232), Color.rgb(239, 84, 103), view -> openBiosPicker());
         this.biosStatusView = (TextView) createActionCard.getTag();
         linearLayout5.addView(createActionCard, fullCardParams());
-        linearLayout6.addView(createActionCard("ROM 검사", "파일 기본 검사", "OK", Color.rgb(229, 234, 255), Color.rgb(98, 111, 204), new View.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda7
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                MainActivity.this.m32lambda$onCreate$2$comexampleminigbaMainActivity(view);
-            }
-        }), cardGridParams(true));
-        LinearLayout createActionCard2 = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], "VIEW", Color.rgb(232, 247, 235), Color.rgb(55, 188, 116), new View.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda8
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                MainActivity.this.m33lambda$onCreate$3$comexampleminigbaMainActivity(view);
-            }
-        });
+        linearLayout6.addView(createActionCard("ROM 검사", "파일 기본 검사", "OK", Color.rgb(229, 234, 255), Color.rgb(98, 111, 204), view -> checkImportedRoms()), cardGridParams(true));
+        LinearLayout createActionCard2 = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], "VIEW", Color.rgb(232, 247, 235), Color.rgb(55, 188, 116), view -> cycleScreenMode(view));
         this.screenModeStatusView = (TextView) createActionCard2.getTag();
         linearLayout6.addView(createActionCard2, cardGridParams(false));
         linearLayout3.addView(linearLayout4, new LinearLayout.LayoutParams(-1, -2));
@@ -162,23 +140,7 @@ public final class MainActivity extends Activity {
         setContentView(linearLayout);
     }
 
-    /* renamed from: lambda$onCreate$0$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m30lambda$onCreate$0$comexampleminigbaMainActivity(View view) {
-        openRomPicker();
-    }
-
-    /* renamed from: lambda$onCreate$1$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m31lambda$onCreate$1$comexampleminigbaMainActivity(View view) {
-        openBiosPicker();
-    }
-
-    /* renamed from: lambda$onCreate$2$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m32lambda$onCreate$2$comexampleminigbaMainActivity(View view) {
-        checkImportedRoms();
-    }
-
-    /* renamed from: lambda$onCreate$3$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m33lambda$onCreate$3$comexampleminigbaMainActivity(View view) {
+    private void cycleScreenMode(View view) {
         int screenMode = screenMode() + 1;
         String[] strArr = SCREEN_MODE_LABELS;
         int length = screenMode % strArr.length;
@@ -190,7 +152,7 @@ public final class MainActivity extends Activity {
         showMessage("화면 모드: " + strArr[length]);
     }
 
-    @Override // android.app.Activity
+    @Override
     protected void onResume() {
         super.onResume();
         updateHomeStatusCards();
@@ -368,12 +330,7 @@ public final class MainActivity extends Activity {
         int i = 10;
         textView.setPadding(0, dp(8), 0, dp(10));
         linearLayout.addView(textView);
-        File[] listFiles = mameBiosDir().listFiles(new FileFilter() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda22
-            @Override // java.io.FileFilter
-            public final boolean accept(File file) {
-                return MainActivity.lambda$showMameBiosManager$4(file);
-            }
-        });
+        File[] listFiles = mameBiosDir().listFiles(MainActivity::isZipFile);
         if (listFiles == null || listFiles.length == 0) {
             TextView textView2 = new TextView(this);
             textView2.setText("아직 등록된 MAME BIOS가 없습니다.");
@@ -383,14 +340,7 @@ public final class MainActivity extends Activity {
             textView2.setPadding(0, dp(24), 0, dp(24));
             linearLayout.addView(textView2);
         } else {
-            Arrays.sort(listFiles, Comparator.comparing(new Function() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda23
-                @Override // java.util.function.Function
-                public final Object apply(Object obj) {
-                    String lowerCase;
-                    lowerCase = ((File) obj).getName().toLowerCase(Locale.US);
-                    return lowerCase;
-                }
-            }));
+            Arrays.sort(listFiles, Comparator.comparing((File f) -> f.getName().toLowerCase(Locale.US)));
             int length = listFiles.length;
             int i2 = 0;
             while (i2 < length) {
@@ -410,12 +360,7 @@ public final class MainActivity extends Activity {
                 textView4.setTextSize(12.0f);
                 textView4.setPadding(0, dp(2), 0, 0);
                 linearLayout2.addView(textView4);
-                linearLayout2.setOnLongClickListener(new View.OnLongClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda24
-                    @Override // android.view.View.OnLongClickListener
-                    public final boolean onLongClick(View view) {
-                        return MainActivity.this.m37lambda$showMameBiosManager$6$comexampleminigbaMainActivity(file, alertDialogArr, view);
-                    }
-                });
+                linearLayout2.setOnLongClickListener(view -> onMameBiosLongClick(file, alertDialogArr, view));
                 linearLayout.addView(linearLayout2);
                 View view = new View(this);
                 view.setBackgroundColor(Color.rgb(105, 110, 116));
@@ -432,42 +377,25 @@ public final class MainActivity extends Activity {
         linearLayout.addView(textView5);
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(linearLayout, new FrameLayout.LayoutParams(-1, -2));
-        AlertDialog create = new AlertDialog.Builder(this).setTitle("MAME BIOS 관리").setView(scrollView).setNegativeButton("닫기", (DialogInterface.OnClickListener) null).setPositiveButton("BIOS 가져오기", new DialogInterface.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda1
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i3) {
-                MainActivity.this.m38lambda$showMameBiosManager$7$comexampleminigbaMainActivity(dialogInterface, i3);
-            }
-        }).create();
+        AlertDialog create = new AlertDialog.Builder(this).setTitle("MAME BIOS 관리").setView(scrollView).setNegativeButton("닫기", (DialogInterface.OnClickListener) null).setPositiveButton("BIOS 가져오기", (dialogInterface, i3) -> openMameBiosPicker()).create();
         alertDialogArr[0] = create;
         create.show();
     }
 
-    static /* synthetic */ boolean lambda$showMameBiosManager$4(File file) {
+    private static boolean isZipFile(File file) {
         return file.isFile() && file.getName().toLowerCase(Locale.US).endsWith(".zip");
     }
 
-    /* renamed from: lambda$showMameBiosManager$6$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ boolean m37lambda$showMameBiosManager$6$comexampleminigbaMainActivity(File file, AlertDialog[] alertDialogArr, View view) {
+    private boolean onMameBiosLongClick(File file, AlertDialog[] alertDialogArr, View view) {
         confirmDeleteMameBios(file, alertDialogArr[0]);
         return true;
     }
 
-    /* renamed from: lambda$showMameBiosManager$7$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m38lambda$showMameBiosManager$7$comexampleminigbaMainActivity(DialogInterface dialogInterface, int i) {
-        openMameBiosPicker();
-    }
-
     private void confirmDeleteMameBios(final File file, final AlertDialog alertDialog) {
-        new AlertDialog.Builder(this).setTitle("MAME BIOS 삭제").setMessage(file.getName() + "을(를) 삭제할까요?").setNegativeButton("취소", (DialogInterface.OnClickListener) null).setPositiveButton("삭제", new DialogInterface.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda9
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                MainActivity.this.m22lambda$confirmDeleteMameBios$8$comexampleminigbaMainActivity(file, alertDialog, dialogInterface, i);
-            }
-        }).show();
+        new AlertDialog.Builder(this).setTitle("MAME BIOS 삭제").setMessage(file.getName() + "을(를) 삭제할까요?").setNegativeButton("취소", (DialogInterface.OnClickListener) null).setPositiveButton("삭제", (dialogInterface, i) -> deleteMameBiosConfirmed(file, alertDialog, dialogInterface, i)).show();
     }
 
-    /* renamed from: lambda$confirmDeleteMameBios$8$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m22lambda$confirmDeleteMameBios$8$comexampleminigbaMainActivity(File file, AlertDialog alertDialog, DialogInterface dialogInterface, int i) {
+    private void deleteMameBiosConfirmed(File file, AlertDialog alertDialog, DialogInterface dialogInterface, int i) {
         if (deleteMameBios(file)) {
             showMessage("MAME BIOS를 삭제했습니다.");
             updateHomeStatusCards();
@@ -492,7 +420,7 @@ public final class MainActivity extends Activity {
         return !file.exists() || file.delete();
     }
 
-    @Override // android.app.Activity
+    @Override
     protected void onActivityResult(int i, int i2, Intent intent) {
         super.onActivityResult(i, i2, intent);
         if (i2 != -1 || intent == null) {
@@ -648,31 +576,22 @@ public final class MainActivity extends Activity {
                 throw new IOException("BIOS 폴더를 만들 수 없습니다");
             }
             File file = new File(systemDir, "gba_bios.bin");
-            InputStream openInputStream = getContentResolver().openInputStream(uri);
-            try {
-                FileOutputStream fileOutputStream = new FileOutputStream(file);
-                try {
-                    if (openInputStream == null) {
-                        throw new IOException("선택한 BIOS 파일을 열 수 없습니다");
-                    }
-                    copy(openInputStream, fileOutputStream);
-                    fileOutputStream.close();
-                    if (openInputStream != null) {
-                        openInputStream.close();
-                    }
-                    if (file.length() != 16384) {
-                        if (!file.delete()) {
-                            file.deleteOnExit();
-                        }
-                        throw new IOException("GBA BIOS는 16KB 파일이어야 합니다.");
-                    }
-                    showMessage("GBA BIOS를 가져왔습니다.");
-                    updateHomeStatusCards();
-                    updateNote();
-                } finally {
+            try (InputStream openInputStream = getContentResolver().openInputStream(uri);
+                 FileOutputStream fileOutputStream = new FileOutputStream(file)) {
+                if (openInputStream == null) {
+                    throw new IOException("선택한 BIOS 파일을 열 수 없습니다");
                 }
-            } finally {
+                copy(openInputStream, fileOutputStream);
             }
+            if (file.length() != 16384) {
+                if (!file.delete()) {
+                    file.deleteOnExit();
+                }
+                throw new IOException("GBA BIOS는 16KB 파일이어야 합니다.");
+            }
+            showMessage("GBA BIOS를 가져왔습니다.");
+            updateHomeStatusCards();
+            updateNote();
         } catch (IOException e) {
             showError("BIOS 가져오기 실패: " + e.getMessage());
         }
@@ -685,36 +604,27 @@ public final class MainActivity extends Activity {
                 throw new IOException("BIOS 폴더를 만들 수 없습니다");
             }
             File neoGeoBiosFile = neoGeoBiosFile();
-            InputStream openInputStream = getContentResolver().openInputStream(uri);
-            try {
-                FileOutputStream fileOutputStream = new FileOutputStream(neoGeoBiosFile);
-                try {
-                    if (openInputStream == null) {
-                        throw new IOException("선택한 BIOS 파일을 열 수 없습니다");
-                    }
-                    copy(openInputStream, fileOutputStream);
-                    fileOutputStream.close();
-                    if (openInputStream != null) {
-                        openInputStream.close();
-                    }
-                    if (neoGeoBiosFile.length() == 0) {
-                        if (!neoGeoBiosFile.delete()) {
-                            neoGeoBiosFile.deleteOnExit();
-                        }
-                        throw new IOException("비어 있는 BIOS 파일입니다");
-                    }
-                    File romDir = romDir();
-                    if (!romDir.exists() && !romDir.mkdirs()) {
-                        throw new IOException("ROM 폴더를 만들 수 없습니다");
-                    }
-                    prepareNeoGeoBiosForArcade(neoGeoBiosFile, new File(romDir, "neogeo.zip"));
-                    showMessage("Neo Geo BIOS를 가져왔습니다.");
-                    updateHomeStatusCards();
-                    updateNote();
-                } finally {
+            try (InputStream openInputStream = getContentResolver().openInputStream(uri);
+                 FileOutputStream fileOutputStream = new FileOutputStream(neoGeoBiosFile)) {
+                if (openInputStream == null) {
+                    throw new IOException("선택한 BIOS 파일을 열 수 없습니다");
                 }
-            } finally {
+                copy(openInputStream, fileOutputStream);
             }
+            if (neoGeoBiosFile.length() == 0) {
+                if (!neoGeoBiosFile.delete()) {
+                    neoGeoBiosFile.deleteOnExit();
+                }
+                throw new IOException("비어 있는 BIOS 파일입니다");
+            }
+            File romDir = romDir();
+            if (!romDir.exists() && !romDir.mkdirs()) {
+                throw new IOException("ROM 폴더를 만들 수 없습니다");
+            }
+            prepareNeoGeoBiosForArcade(neoGeoBiosFile, new File(romDir, "neogeo.zip"));
+            showMessage("Neo Geo BIOS를 가져왔습니다.");
+            updateHomeStatusCards();
+            updateNote();
         } catch (IOException e) {
             showError("Neo Geo BIOS 가져오기 실패: " + e.getMessage());
         }
@@ -800,25 +710,13 @@ public final class MainActivity extends Activity {
             return;
         }
         linearLayout.removeAllViews();
-        File[] listFiles = romDir().listFiles(new FileFilter() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda14
-            @Override // java.io.FileFilter
-            public final boolean accept(File file) {
-                return MainActivity.this.m34lambda$refreshLibrary$9$comexampleminigbaMainActivity(file);
-            }
-        });
+        File[] listFiles = romDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
             this.emptyView.setVisibility(0);
             return;
         }
         this.emptyView.setVisibility(8);
-        Arrays.sort(listFiles, new Comparator() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda15
-            @Override // java.util.Comparator
-            public final int compare(Object obj, Object obj2) {
-                int compareRomsForLibrary;
-                compareRomsForLibrary = MainActivity.this.compareRomsForLibrary((File) obj, (File) obj2);
-                return compareRomsForLibrary;
-            }
-        });
+        Arrays.sort(listFiles, this::compareRomsForLibrary);
         for (File file : listFiles) {
             LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
             layoutParams.setMargins(0, 0, 0, dp(10));
@@ -826,8 +724,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    /* renamed from: lambda$refreshLibrary$9$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ boolean m34lambda$refreshLibrary$9$comexampleminigbaMainActivity(File file) {
+    private boolean isRomFile(File file) {
         return file.isFile() && isSupportedRom(file);
     }
 
@@ -839,18 +736,8 @@ public final class MainActivity extends Activity {
         linearLayout.setBackground(rounded(-1, dp(8)));
         linearLayout.setClickable(true);
         linearLayout.setElevation(dp(2));
-        linearLayout.setOnClickListener(new View.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda18
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                MainActivity.this.m25lambda$createRomRow$10$comexampleminigbaMainActivity(file, view);
-            }
-        });
-        linearLayout.setOnLongClickListener(new View.OnLongClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda19
-            @Override // android.view.View.OnLongClickListener
-            public final boolean onLongClick(View view) {
-                return MainActivity.this.m26lambda$createRomRow$11$comexampleminigbaMainActivity(file, view);
-            }
-        });
+        linearLayout.setOnClickListener(view -> launchGame(file));
+        linearLayout.setOnLongClickListener(view -> onRomLongClick(file));
         migrateSaveFileIfNeeded(file);
         String displayGameNameFor = displayGameNameFor(file);
         LinearLayout linearLayout2 = new LinearLayout(this);
@@ -869,18 +756,8 @@ public final class MainActivity extends Activity {
         textView2.setTextSize(13.0f);
         textView2.setTypeface(Typeface.DEFAULT_BOLD);
         textView2.setBackground(rounded(Color.rgb(28, 178, 206), dp(17)));
-        textView2.setOnClickListener(new View.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda20
-            @Override // android.view.View.OnClickListener
-            public final void onClick(View view) {
-                MainActivity.this.m27lambda$createRomRow$12$comexampleminigbaMainActivity(file, view);
-            }
-        });
-        textView2.setOnLongClickListener(new View.OnLongClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda21
-            @Override // android.view.View.OnLongClickListener
-            public final boolean onLongClick(View view) {
-                return MainActivity.this.m28lambda$createRomRow$13$comexampleminigbaMainActivity(file, view);
-            }
-        });
+        textView2.setOnClickListener(view -> launchGame(file));
+        textView2.setOnLongClickListener(view -> onRomLongClick(file));
         linearLayout2.addView(textView, new LinearLayout.LayoutParams(0, -2, 1.0f));
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(dp(70), dp(34));
         layoutParams.setMargins(dp(10), 0, 0, 0);
@@ -914,24 +791,7 @@ public final class MainActivity extends Activity {
         return linearLayout;
     }
 
-    /* renamed from: lambda$createRomRow$10$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m25lambda$createRomRow$10$comexampleminigbaMainActivity(File file, View view) {
-        launchGame(file);
-    }
-
-    /* renamed from: lambda$createRomRow$11$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ boolean m26lambda$createRomRow$11$comexampleminigbaMainActivity(File file, View view) {
-        showRomActions(file);
-        return true;
-    }
-
-    /* renamed from: lambda$createRomRow$12$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m27lambda$createRomRow$12$comexampleminigbaMainActivity(File file, View view) {
-        launchGame(file);
-    }
-
-    /* renamed from: lambda$createRomRow$13$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ boolean m28lambda$createRomRow$13$comexampleminigbaMainActivity(File file, View view) {
+    private boolean onRomLongClick(File file) {
         showRomActions(file);
         return true;
     }
@@ -949,16 +809,10 @@ public final class MainActivity extends Activity {
         arrayList.add("세이브 삭제");
         arrayList.add("ROM 삭제");
         final String[] strArr = (String[]) arrayList.toArray(new String[0]);
-        new AlertDialog.Builder(this).setTitle(displayGameNameFor(file)).setItems(strArr, new DialogInterface.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda10
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                MainActivity.this.m39lambda$showRomActions$14$comexampleminigbaMainActivity(strArr, file, dialogInterface, i);
-            }
-        }).show();
+        new AlertDialog.Builder(this).setTitle(displayGameNameFor(file)).setItems(strArr, (dialogInterface, i) -> onRomActionSelected(strArr, file, dialogInterface, i)).show();
     }
 
-    /* renamed from: lambda$showRomActions$14$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m39lambda$showRomActions$14$comexampleminigbaMainActivity(String[] strArr, File file, DialogInterface dialogInterface, int i) {
+    private void onRomActionSelected(String[] strArr, File file, DialogInterface dialogInterface, int i) {
         String str = strArr[i];
         if (str.equals("실행")) {
             launchGame(file);
@@ -1001,16 +855,10 @@ public final class MainActivity extends Activity {
         } else if (coreFor.equals("mame2003plus")) {
             i = 1;
         }
-        new AlertDialog.Builder(this).setTitle("실행 코어 선택").setSingleChoiceItems(strArr, i, new DialogInterface.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda11
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i2) {
-                MainActivity.this.m36lambda$showCorePicker$15$comexampleminigbaMainActivity(file, strArr2, dialogInterface, i2);
-            }
-        }).show();
+        new AlertDialog.Builder(this).setTitle("실행 코어 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
     }
 
-    /* renamed from: lambda$showCorePicker$15$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m36lambda$showCorePicker$15$comexampleminigbaMainActivity(File file, String[] strArr, DialogInterface dialogInterface, int i) {
+    private void onCoreSelected(File file, String[] strArr, DialogInterface dialogInterface, int i) {
         romPrefs().edit().putString("core:" + file.getName(), strArr[i]).apply();
         dialogInterface.dismiss();
         refreshLibrary();
@@ -1060,7 +908,6 @@ public final class MainActivity extends Activity {
     }
 
     private void exportSave(Uri uri) {
-        ZipOutputStream zipOutputStream;
         File file = this.pendingSaveRom;
         if (file == null) {
             showError("세이브 내보내기 실패: 선택된 세이브가 없습니다");
@@ -1072,35 +919,18 @@ public final class MainActivity extends Activity {
             showError("세이브 내보내기 실패: 세이브 파일이 없습니다");
             return;
         }
-        try {
-            OutputStream openOutputStream = getContentResolver().openOutputStream(uri);
-            if (openOutputStream == null) {
-                zipOutputStream = null;
-            } else {
-                try {
-                    zipOutputStream = new ZipOutputStream(openOutputStream);
-                } finally {
-                }
+        try (OutputStream openOutputStream = getContentResolver().openOutputStream(uri);
+             ZipOutputStream zipOutputStream = openOutputStream == null ? null : new ZipOutputStream(openOutputStream)) {
+            if (zipOutputStream == null) {
+                throw new IOException("저장할 위치를 열 수 없습니다");
             }
-            try {
-                if (zipOutputStream == null) {
-                    throw new IOException("저장할 위치를 열 수 없습니다");
-                }
-                if (saveFileFor.exists()) {
-                    writeZipEntry(zipOutputStream, saveFileFor, saveFileFor.getName());
-                }
-                if (stateFileFor.exists()) {
-                    writeZipEntry(zipOutputStream, stateFileFor, stateFileFor.getName());
-                }
-                showMessage("세이브 백업을 내보냈습니다.");
-                if (zipOutputStream != null) {
-                    zipOutputStream.close();
-                }
-                if (openOutputStream != null) {
-                    openOutputStream.close();
-                }
-            } finally {
+            if (saveFileFor.exists()) {
+                writeZipEntry(zipOutputStream, saveFileFor, saveFileFor.getName());
             }
+            if (stateFileFor.exists()) {
+                writeZipEntry(zipOutputStream, stateFileFor, stateFileFor.getName());
+            }
+            showMessage("세이브 백업을 내보냈습니다.");
         } catch (IOException e) {
             showError("세이브 내보내기 실패: " + e.getMessage());
         }
@@ -1121,33 +951,20 @@ public final class MainActivity extends Activity {
             importSaveBackup(uri);
             return;
         }
-        try {
-            InputStream openInputStream = getContentResolver().openInputStream(uri);
-            try {
-                FileOutputStream fileOutputStream = new FileOutputStream(this.pendingSaveFile);
-                try {
-                    if (openInputStream == null) {
-                        throw new IOException("선택한 세이브 파일을 열 수 없습니다");
-                    }
-                    copy(openInputStream, fileOutputStream);
-                    showMessage("게임 내 세이브를 가져왔습니다.");
-                    refreshLibrary();
-                    fileOutputStream.close();
-                    if (openInputStream != null) {
-                        openInputStream.close();
-                    }
-                } finally {
-                }
-            } finally {
+        try (InputStream openInputStream = getContentResolver().openInputStream(uri);
+             FileOutputStream fileOutputStream = new FileOutputStream(this.pendingSaveFile)) {
+            if (openInputStream == null) {
+                throw new IOException("선택한 세이브 파일을 열 수 없습니다");
             }
+            copy(openInputStream, fileOutputStream);
+            showMessage("게임 내 세이브를 가져왔습니다.");
+            refreshLibrary();
         } catch (IOException e) {
             showError("세이브 가져오기 실패: " + e.getMessage());
         }
     }
 
     private void importSaveBackup(Uri uri) {
-        ZipInputStream zipInputStream;
-        File file;
         File file2 = this.pendingSaveRom;
         if (file2 == null) {
             showError("세이브 가져오기 실패: 선택된 ROM이 없습니다");
@@ -1155,79 +972,50 @@ public final class MainActivity extends Activity {
         }
         File saveFileFor = saveFileFor(file2);
         File stateFileFor = stateFileFor(this.pendingSaveRom);
-        try {
-            InputStream openInputStream = getContentResolver().openInputStream(uri);
-            if (openInputStream == null) {
-                zipInputStream = null;
-            } else {
-                try {
-                    zipInputStream = new ZipInputStream(openInputStream);
-                } finally {
+        try (InputStream openInputStream = getContentResolver().openInputStream(uri);
+             ZipInputStream zipInputStream = openInputStream == null ? null : new ZipInputStream(openInputStream)) {
+            if (zipInputStream == null) {
+                throw new IOException("선택한 백업 파일을 열 수 없습니다");
+            }
+            int i = 0;
+            while (true) {
+                ZipEntry nextEntry = zipInputStream.getNextEntry();
+                if (nextEntry == null) {
+                    break;
+                }
+                if (nextEntry.isDirectory()) {
+                    continue;
+                }
+                String lowerCase = new File(nextEntry.getName()).getName().toLowerCase(Locale.US);
+                File file;
+                if (lowerCase.endsWith(".sav")) {
+                    file = saveFileFor;
+                } else {
+                    file = lowerCase.endsWith(".state") ? stateFileFor : null;
+                }
+                if (file != null) {
+                    File parentFile = file.getParentFile();
+                    if (parentFile != null && !parentFile.exists() && !parentFile.mkdirs()) {
+                        throw new IOException("세이브 폴더를 만들 수 없습니다");
+                    }
+                    try (FileOutputStream fileOutputStream = new FileOutputStream(file)) {
+                        copy(zipInputStream, fileOutputStream);
+                    }
+                    i++;
                 }
             }
-            try {
-                if (zipInputStream == null) {
-                    throw new IOException("선택한 백업 파일을 열 수 없습니다");
-                }
-                int i = 0;
-                while (true) {
-                    ZipEntry nextEntry = zipInputStream.getNextEntry();
-                    if (nextEntry == null) {
-                        if (i == 0) {
-                            throw new IOException("백업 안에 .sav 또는 .state 파일이 없습니다");
-                        }
-                        showMessage("세이브 백업을 가져왔습니다.");
-                        refreshLibrary();
-                        if (zipInputStream != null) {
-                            zipInputStream.close();
-                        }
-                        if (openInputStream != null) {
-                            openInputStream.close();
-                            return;
-                        }
-                        return;
-                    }
-                    if (!nextEntry.isDirectory()) {
-                        String lowerCase = new File(nextEntry.getName()).getName().toLowerCase(Locale.US);
-                        if (lowerCase.endsWith(".sav")) {
-                            file = saveFileFor;
-                        } else {
-                            file = lowerCase.endsWith(".state") ? stateFileFor : null;
-                        }
-                        if (file != null) {
-                            File parentFile = file.getParentFile();
-                            if (parentFile != null && !parentFile.exists() && !parentFile.mkdirs()) {
-                                throw new IOException("세이브 폴더를 만들 수 없습니다");
-                            }
-                            FileOutputStream fileOutputStream = new FileOutputStream(file);
-                            try {
-                                copy(zipInputStream, fileOutputStream);
-                                fileOutputStream.close();
-                                i++;
-                            } finally {
-                            }
-                        }
-                    }
-                }
-            } finally {
+            if (i == 0) {
+                throw new IOException("백업 안에 .sav 또는 .state 파일이 없습니다");
             }
+            showMessage("세이브 백업을 가져왔습니다.");
+            refreshLibrary();
         } catch (IOException e) {
             showError("세이브 가져오기 실패: " + e.getMessage());
         }
     }
 
     private void confirmDeleteSave(final File file) {
-        new AlertDialog.Builder(this).setTitle("세이브를 삭제할까요?").setMessage("이 ROM의 .sav 파일과 빠른 저장 파일을 삭제합니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, new DialogInterface.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda2
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                MainActivity.this.m24lambda$confirmDeleteSave$16$comexampleminigbaMainActivity(file, dialogInterface, i);
-            }
-        }).show();
-    }
-
-    /* renamed from: lambda$confirmDeleteSave$16$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m24lambda$confirmDeleteSave$16$comexampleminigbaMainActivity(File file, DialogInterface dialogInterface, int i) {
-        deleteSave(file);
+        new AlertDialog.Builder(this).setTitle("세이브를 삭제할까요?").setMessage("이 ROM의 .sav 파일과 빠른 저장 파일을 삭제합니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> deleteSave(file)).show();
     }
 
     private void deleteSave(File file) {
@@ -1261,16 +1049,10 @@ public final class MainActivity extends Activity {
         editText.setInputType(8193);
         editText.setText(displayGameNameFor(file));
         editText.setSelectAllOnFocus(true);
-        new AlertDialog.Builder(this).setTitle("게임/세이브 이름").setView(editText).setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, new DialogInterface.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda4
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                MainActivity.this.m35lambda$renameGameAndSave$17$comexampleminigbaMainActivity(editText, file, dialogInterface, i);
-            }
-        }).show();
+        new AlertDialog.Builder(this).setTitle("게임/세이브 이름").setView(editText).setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> applyRename(editText, file, dialogInterface, i)).show();
     }
 
-    /* renamed from: lambda$renameGameAndSave$17$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m35lambda$renameGameAndSave$17$comexampleminigbaMainActivity(EditText editText, File file, DialogInterface dialogInterface, int i) {
+    private void applyRename(EditText editText, File file, DialogInterface dialogInterface, int i) {
         String trim = editText.getText().toString().trim();
         String sanitizeSaveBaseName = sanitizeSaveBaseName(trim);
         if (trim.isEmpty()) {
@@ -1306,7 +1088,6 @@ public final class MainActivity extends Activity {
         }
     }
 
-    /* JADX INFO: Access modifiers changed from: private */
     public int compareRomsForLibrary(File file, File file2) {
         boolean isFavorite = isFavorite(file);
         if (isFavorite != isFavorite(file2)) {
@@ -1337,16 +1118,10 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmDeleteRom(final File file) {
-        new AlertDialog.Builder(this).setTitle("ROM을 삭제할까요?").setMessage("Mini Emulator 안에 가져온 복사본만 삭제합니다. 원본 파일은 그대로 둡니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, new DialogInterface.OnClickListener() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda16
-            @Override // android.content.DialogInterface.OnClickListener
-            public final void onClick(DialogInterface dialogInterface, int i) {
-                MainActivity.this.m23lambda$confirmDeleteRom$18$comexampleminigbaMainActivity(file, dialogInterface, i);
-            }
-        }).show();
+        new AlertDialog.Builder(this).setTitle("ROM을 삭제할까요?").setMessage("Mini Emulator 안에 가져온 복사본만 삭제합니다. 원본 파일은 그대로 둡니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> deleteRomConfirmed(file, dialogInterface, i)).show();
     }
 
-    /* renamed from: lambda$confirmDeleteRom$18$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ void m23lambda$confirmDeleteRom$18$comexampleminigbaMainActivity(File file, DialogInterface dialogInterface, int i) {
+    private void deleteRomConfirmed(File file, DialogInterface dialogInterface, int i) {
         if (file.delete()) {
             romPrefs().edit().remove("title:" + file.getName()).remove("save:" + file.getName()).remove("favorite:" + file.getName()).remove("recent:" + file.getName()).remove("core:" + file.getName()).apply();
             showMessage("ROM을 삭제했습니다.");
@@ -1362,31 +1137,14 @@ public final class MainActivity extends Activity {
             throw new IOException("ROM 폴더를 만들 수 없습니다");
         }
         File uniqueFile = uniqueFile(romDir, sanitizeFileName(str));
-        InputStream openInputStream = getContentResolver().openInputStream(uri);
-        try {
-            FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile);
-            try {
-                if (openInputStream == null) {
-                    throw new IOException("선택한 파일을 열 수 없습니다");
-                }
-                copy(openInputStream, fileOutputStream);
-                fileOutputStream.close();
-                if (openInputStream != null) {
-                    openInputStream.close();
-                }
-                return finalizeImportedRom(uniqueFile, baseNameWithoutExtension(str));
-            } finally {
+        try (InputStream openInputStream = getContentResolver().openInputStream(uri);
+             FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile)) {
+            if (openInputStream == null) {
+                throw new IOException("선택한 파일을 열 수 없습니다");
             }
-        } catch (Throwable th) {
-            if (openInputStream != null) {
-                try {
-                    openInputStream.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
-                }
-            }
-            throw th;
+            copy(openInputStream, fileOutputStream);
         }
+        return finalizeImportedRom(uniqueFile, baseNameWithoutExtension(str));
     }
 
     private File copyArcadeRomToAppStorage(Uri uri, String str) throws IOException {
@@ -1395,41 +1153,24 @@ public final class MainActivity extends Activity {
             throw new IOException("ROM 폴더를 만들 수 없습니다");
         }
         File uniqueFile = uniqueFile(romDir, sanitizeFileName(str));
-        InputStream openInputStream = getContentResolver().openInputStream(uri);
-        try {
-            FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile);
-            try {
-                if (openInputStream == null) {
-                    throw new IOException("선택한 ZIP 파일을 열 수 없습니다");
-                }
-                copy(openInputStream, fileOutputStream);
-                fileOutputStream.close();
-                if (openInputStream != null) {
-                    openInputStream.close();
-                }
-                if (uniqueFile.length() == 0) {
-                    if (!uniqueFile.delete()) {
-                        uniqueFile.deleteOnExit();
-                    }
-                    throw new IOException("비어 있는 ZIP 파일입니다");
-                }
-                File finalizeImportedRom = finalizeImportedRom(uniqueFile, baseNameWithoutExtension(str));
-                if (finalizeImportedRom != null) {
-                    romPrefs().edit().putString("core:" + finalizeImportedRom.getName(), "fbneo").apply();
-                }
-                return finalizeImportedRom;
-            } finally {
+        try (InputStream openInputStream = getContentResolver().openInputStream(uri);
+             FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile)) {
+            if (openInputStream == null) {
+                throw new IOException("선택한 ZIP 파일을 열 수 없습니다");
             }
-        } catch (Throwable th) {
-            if (openInputStream != null) {
-                try {
-                    openInputStream.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
-                }
-            }
-            throw th;
+            copy(openInputStream, fileOutputStream);
         }
+        if (uniqueFile.length() == 0) {
+            if (!uniqueFile.delete()) {
+                uniqueFile.deleteOnExit();
+            }
+            throw new IOException("비어 있는 ZIP 파일입니다");
+        }
+        File finalizeImportedRom = finalizeImportedRom(uniqueFile, baseNameWithoutExtension(str));
+        if (finalizeImportedRom != null) {
+            romPrefs().edit().putString("core:" + finalizeImportedRom.getName(), "fbneo").apply();
+        }
+        return finalizeImportedRom;
     }
 
     private List<File> copyZippedRomsToAppStorage(Uri uri, String str) throws IOException {
@@ -1441,40 +1182,29 @@ public final class MainActivity extends Activity {
         if (openInputStream == null) {
             throw new IOException("선택한 ZIP 파일을 열 수 없습니다");
         }
-        ArrayList arrayList = new ArrayList();
-        ZipInputStream zipInputStream = new ZipInputStream(openInputStream);
-        while (true) {
-            try {
+        List<File> arrayList = new ArrayList<>();
+        try (ZipInputStream zipInputStream = new ZipInputStream(openInputStream)) {
+            while (true) {
                 ZipEntry nextEntry = zipInputStream.getNextEntry();
                 if (nextEntry == null) {
                     break;
                 }
-                if (!nextEntry.isDirectory()) {
-                    String name = new File(nextEntry.getName()).getName();
-                    if (name.toLowerCase(Locale.US).endsWith(".gba")) {
-                        File uniqueFile = uniqueFile(romDir, sanitizeFileName(name));
-                        FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile);
-                        try {
-                            copy(zipInputStream, fileOutputStream);
-                            fileOutputStream.close();
-                            File finalizeImportedRom = finalizeImportedRom(uniqueFile, baseNameWithoutExtension(name));
-                            if (finalizeImportedRom != null) {
-                                arrayList.add(finalizeImportedRom);
-                            }
-                        } finally {
-                        }
+                if (nextEntry.isDirectory()) {
+                    continue;
+                }
+                String name = new File(nextEntry.getName()).getName();
+                if (name.toLowerCase(Locale.US).endsWith(".gba")) {
+                    File uniqueFile = uniqueFile(romDir, sanitizeFileName(name));
+                    try (FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile)) {
+                        copy(zipInputStream, fileOutputStream);
+                    }
+                    File finalizeImportedRom = finalizeImportedRom(uniqueFile, baseNameWithoutExtension(name));
+                    if (finalizeImportedRom != null) {
+                        arrayList.add(finalizeImportedRom);
                     }
                 }
-            } catch (Throwable th) {
-                try {
-                    zipInputStream.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
-                }
-                throw th;
             }
         }
-        zipInputStream.close();
         if (arrayList.isEmpty()) {
             throw new IOException(str + " 안에서 새 .gba 파일을 찾지 못했습니다");
         }
@@ -1495,12 +1225,7 @@ public final class MainActivity extends Activity {
     }
 
     private File findRomByCrc(String str, File file) {
-        File[] listFiles = romDir().listFiles(new FileFilter() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda0
-            @Override // java.io.FileFilter
-            public final boolean accept(File file2) {
-                return MainActivity.this.m29lambda$findRomByCrc$19$comexampleminigbaMainActivity(file2);
-            }
-        });
+        File[] listFiles = romDir().listFiles(this::isRomFile);
         if (listFiles == null) {
             return null;
         }
@@ -1510,11 +1235,6 @@ public final class MainActivity extends Activity {
             }
         }
         return null;
-    }
-
-    /* renamed from: lambda$findRomByCrc$19$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ boolean m29lambda$findRomByCrc$19$comexampleminigbaMainActivity(File file) {
-        return file.isFile() && isSupportedRom(file);
     }
 
     private void storeRomMetadata(File file, String str, String str2) {
@@ -1558,19 +1278,10 @@ public final class MainActivity extends Activity {
 
     private void writeZipEntry(ZipOutputStream zipOutputStream, File file, String str) throws IOException {
         zipOutputStream.putNextEntry(new ZipEntry(str));
-        FileInputStream fileInputStream = new FileInputStream(file);
-        try {
+        try (FileInputStream fileInputStream = new FileInputStream(file)) {
             copy(fileInputStream, zipOutputStream);
-            fileInputStream.close();
-            zipOutputStream.closeEntry();
-        } catch (Throwable th) {
-            try {
-                fileInputStream.close();
-            } catch (Throwable th2) {
-                th.addSuppressed(th2);
-            }
-            throw th;
         }
+        zipOutputStream.closeEntry();
     }
 
     private List<File> singletonOrEmpty(File file) {
@@ -1582,56 +1293,28 @@ public final class MainActivity extends Activity {
     }
 
     private String displayNameFor(Uri uri) {
-        int columnIndex;
-        String string;
-        Cursor query = getContentResolver().query(uri, null, null, null, null);
-        if (query != null) {
-            try {
-                if (query.moveToFirst() && (columnIndex = query.getColumnIndex("_display_name")) >= 0 && (string = query.getString(columnIndex)) != null) {
-                    if (!string.isEmpty()) {
-                        if (query != null) {
-                            query.close();
-                        }
+        try (Cursor query = getContentResolver().query(uri, null, null, null, null)) {
+            if (query != null && query.moveToFirst()) {
+                int columnIndex = query.getColumnIndex("_display_name");
+                if (columnIndex >= 0) {
+                    String string = query.getString(columnIndex);
+                    if (string != null && !string.isEmpty()) {
                         return string;
                     }
                 }
-            } catch (Throwable th) {
-                if (query != null) {
-                    try {
-                        query.close();
-                    } catch (Throwable th2) {
-                        th.addSuppressed(th2);
-                    }
-                }
-                throw th;
             }
-        }
-        if (query != null) {
-            query.close();
         }
         String lastPathSegment = uri.getLastPathSegment();
         return lastPathSegment == null ? "선택한파일.gba" : lastPathSegment;
     }
 
     private void checkImportedRoms() {
-        File[] listFiles = romDir().listFiles(new FileFilter() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda12
-            @Override // java.io.FileFilter
-            public final boolean accept(File file) {
-                return MainActivity.this.m21lambda$checkImportedRoms$20$comexampleminigbaMainActivity(file);
-            }
-        });
+        File[] listFiles = romDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
             showMessage("검사할 ROM이 없습니다.");
             return;
         }
-        Arrays.sort(listFiles, Comparator.comparing(new Function() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda13
-            @Override // java.util.function.Function
-            public final Object apply(Object obj) {
-                String lowerCase;
-                lowerCase = ((File) obj).getName().toLowerCase(Locale.US);
-                return lowerCase;
-            }
-        }));
+        Arrays.sort(listFiles, Comparator.comparing((File f) -> f.getName().toLowerCase(Locale.US)));
         StringBuilder sb = new StringBuilder();
         HashMap hashMap = new HashMap();
         int i = 0;
@@ -1657,39 +1340,25 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("ROM 호환성 검사").setMessage(str).setPositiveButton(17039370, (DialogInterface.OnClickListener) null).show();
     }
 
-    /* renamed from: lambda$checkImportedRoms$20$com-example-minigba-MainActivity, reason: not valid java name */
-    /* synthetic */ boolean m21lambda$checkImportedRoms$20$comexampleminigbaMainActivity(File file) {
-        return file.isFile() && isSupportedRom(file);
-    }
-
     private RomCheck checkRomFile(File file) {
-        ZipEntry nextEntry;
-        if (file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
-            try {
-                ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file));
-                do {
-                    try {
-                        nextEntry = zipInputStream.getNextEntry();
-                        if (nextEntry == null) {
-                            RomCheck romCheck = new RomCheck(false, "비어 있는 ZIP 파일");
-                            zipInputStream.close();
-                            return romCheck;
-                        }
-                    } finally {
-                    }
-                } while (nextEntry.isDirectory());
-                RomCheck romCheck2 = new RomCheck(true, coreDisplayName(coreFor(file)) + " ZIP 읽기 가능");
-                zipInputStream.close();
-                return romCheck2;
-            } catch (IOException unused) {
-                return new RomCheck(false, "ZIP 읽기 실패");
-            }
+        if (!file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
+            return checkRomHeader(file);
         }
-        return checkRomHeader(file);
+        try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
+            ZipEntry nextEntry;
+            do {
+                nextEntry = zipInputStream.getNextEntry();
+                if (nextEntry == null) {
+                    return new RomCheck(false, "비어 있는 ZIP 파일");
+                }
+            } while (nextEntry.isDirectory());
+            return new RomCheck(true, coreDisplayName(coreFor(file)) + " ZIP 읽기 가능");
+        } catch (IOException unused) {
+            return new RomCheck(false, "ZIP 읽기 실패");
+        }
     }
 
     private RomCheck checkRomHeader(File file) {
-        boolean z;
         if (file.length() < 192) {
             return new RomCheck(false, "파일이 너무 작음");
         }
@@ -1697,45 +1366,32 @@ public final class MainActivity extends Activity {
             return new RomCheck(false, "표준 32MB GBA ROM보다 큼");
         }
         byte[] bArr = new byte[192];
-        try {
-            FileInputStream fileInputStream = new FileInputStream(file);
-            try {
-                if (fileInputStream.read(bArr) != 192) {
-                    RomCheck romCheck = new RomCheck(false, "GBA 헤더를 끝까지 읽을 수 없음");
-                    fileInputStream.close();
-                    return romCheck;
-                }
-                fileInputStream.close();
-                int i = 0;
-                while (true) {
-                    byte[] bArr2 = GBA_LOGO;
-                    if (i >= bArr2.length) {
-                        z = true;
-                        break;
-                    }
-                    if (bArr[i + 4] != bArr2[i]) {
-                        z = false;
-                        break;
-                    }
-                    i++;
-                }
-                int i2 = 0;
-                for (int i3 = 160; i3 <= 188; i3++) {
-                    i2 = (i2 - (bArr[i3] & 255)) & 255;
-                }
-                boolean z2 = (bArr[189] & 255) == ((i2 + (-25)) & 255);
-                if (z && z2) {
-                    return new RomCheck(true, "헤더 정상");
-                }
-                if (!z) {
-                    return new RomCheck(false, "Nintendo 로고/헤더 불일치");
-                }
-                return new RomCheck(false, "헤더 체크섬 불일치");
-            } finally {
+        try (FileInputStream fileInputStream = new FileInputStream(file)) {
+            if (fileInputStream.read(bArr) != 192) {
+                return new RomCheck(false, "GBA 헤더를 끝까지 읽을 수 없음");
             }
         } catch (IOException unused) {
             return new RomCheck(false, "읽기 실패");
         }
+        boolean z = true;
+        for (int i = 0; i < GBA_LOGO.length; i++) {
+            if (bArr[i + 4] != GBA_LOGO[i]) {
+                z = false;
+                break;
+            }
+        }
+        int i2 = 0;
+        for (int i3 = 160; i3 <= 188; i3++) {
+            i2 = (i2 - (bArr[i3] & 255)) & 255;
+        }
+        boolean z2 = (bArr[189] & 255) == ((i2 + (-25)) & 255);
+        if (z && z2) {
+            return new RomCheck(true, "헤더 정상");
+        }
+        if (!z) {
+            return new RomCheck(false, "Nintendo 로고/헤더 불일치");
+        }
+        return new RomCheck(false, "헤더 체크섬 불일치");
     }
 
     private void updateNote() {
@@ -1777,17 +1433,8 @@ public final class MainActivity extends Activity {
         return new File(new File(systemDir(), "mame"), "bios");
     }
 
-    static /* synthetic */ boolean lambda$mameBiosStatus$22(File file) {
-        return file.isFile() && file.getName().toLowerCase(Locale.US).endsWith(".zip");
-    }
-
     private String mameBiosStatus() {
-        File[] listFiles = mameBiosDir().listFiles(new FileFilter() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda3
-            @Override // java.io.FileFilter
-            public final boolean accept(File file) {
-                return MainActivity.lambda$mameBiosStatus$22(file);
-            }
-        });
+        File[] listFiles = mameBiosDir().listFiles(MainActivity::isZipFile);
         int length = listFiles == null ? 0 : listFiles.length;
         if (length == 0) {
             return "등록 안 됨";
@@ -1825,38 +1472,27 @@ public final class MainActivity extends Activity {
     }
 
     private boolean isReadableZip(File file) {
-        try {
-            ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file));
-            try {
-                boolean z = zipInputStream.getNextEntry() != null;
-                zipInputStream.close();
-                return z;
-            } finally {
-            }
+        try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
+            return zipInputStream.getNextEntry() != null;
         } catch (IOException unused) {
             return false;
         }
     }
 
     private boolean zipContainsEntry(File file, String str) {
-        ZipEntry nextEntry;
         if (!file.isFile()) {
             return false;
         }
-        try {
-            ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file));
-            do {
-                try {
-                    nextEntry = zipInputStream.getNextEntry();
-                    if (nextEntry == null) {
-                        zipInputStream.close();
-                        return false;
-                    }
-                } finally {
+        try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
+            while (true) {
+                ZipEntry nextEntry = zipInputStream.getNextEntry();
+                if (nextEntry == null) {
+                    return false;
                 }
-            } while (!new File(nextEntry.getName().replace('\\', '/')).getName().equalsIgnoreCase(str));
-            zipInputStream.close();
-            return true;
+                if (new File(nextEntry.getName().replace('\\', '/')).getName().equalsIgnoreCase(str)) {
+                    return true;
+                }
+            }
         } catch (IOException unused) {
             return false;
         }
@@ -1913,19 +1549,10 @@ public final class MainActivity extends Activity {
     }
 
     private boolean copyFile(File file, File file2) {
-        try {
-            FileInputStream fileInputStream = new FileInputStream(file);
-            try {
-                FileOutputStream fileOutputStream = new FileOutputStream(file2);
-                try {
-                    copy(fileInputStream, fileOutputStream);
-                    fileOutputStream.close();
-                    fileInputStream.close();
-                    return true;
-                } finally {
-                }
-            } finally {
-            }
+        try (FileInputStream fileInputStream = new FileInputStream(file);
+             FileOutputStream fileOutputStream = new FileOutputStream(file2)) {
+            copy(fileInputStream, fileOutputStream);
+            return true;
         } catch (IOException unused) {
             return false;
         }
@@ -1960,12 +1587,7 @@ public final class MainActivity extends Activity {
 
     private void migrateKnownArcadeRoms() {
         File romDir = romDir();
-        File[] listFiles = romDir.listFiles(new FileFilter() { // from class: com.example.minigba.MainActivity$$ExternalSyntheticLambda17
-            @Override // java.io.FileFilter
-            public final boolean accept(File file) {
-                return MainActivity.lambda$migrateKnownArcadeRoms$23(file);
-            }
-        });
+        File[] listFiles = romDir.listFiles(MainActivity::isZipFile);
         if (listFiles == null) {
             return;
         }
@@ -2000,175 +1622,138 @@ public final class MainActivity extends Activity {
         }
     }
 
-    static /* synthetic */ boolean lambda$migrateKnownArcadeRoms$23(File file) {
-        return file.isFile() && file.getName().toLowerCase(Locale.US).endsWith(".zip");
-    }
-
     private void normalizeTecmoWorldCup98Package(File file) {
-        try {
-            ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file));
-            byte[] bArr = null;
-            byte[] bArr2 = null;
+        byte[] bArr = null;
+        byte[] bArr2 = null;
+        try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
             while (true) {
-                try {
-                    ZipEntry nextEntry = zipInputStream.getNextEntry();
-                    if (nextEntry == null) {
-                        break;
+                ZipEntry nextEntry = zipInputStream.getNextEntry();
+                if (nextEntry == null) {
+                    break;
+                }
+                if (nextEntry.isDirectory()) {
+                    continue;
+                }
+                String lowerCase = new File(nextEntry.getName().replace('\\', '/')).getName().toLowerCase(Locale.US);
+                if (lowerCase.equals("twcup98.zip") || lowerCase.equals("stvbios.zip")) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    copy(zipInputStream, byteArrayOutputStream);
+                    if (lowerCase.equals("twcup98.zip")) {
+                        bArr = byteArrayOutputStream.toByteArray();
+                    } else {
+                        bArr2 = byteArrayOutputStream.toByteArray();
                     }
-                    if (!nextEntry.isDirectory()) {
-                        String lowerCase = new File(nextEntry.getName().replace('\\', '/')).getName().toLowerCase(Locale.US);
-                        if (lowerCase.equals("twcup98.zip") || lowerCase.equals("stvbios.zip")) {
-                            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                            copy(zipInputStream, byteArrayOutputStream);
-                            if (lowerCase.equals("twcup98.zip")) {
-                                bArr = byteArrayOutputStream.toByteArray();
-                            } else {
-                                bArr2 = byteArrayOutputStream.toByteArray();
-                            }
-                        }
-                    }
-                } finally {
                 }
             }
-            zipInputStream.close();
-            if (bArr != null) {
-                writeBytesAtomically(file, bArr);
-            }
-            if (bArr2 != null) {
-                writeBytesAtomically(new File(file.getParentFile(), "stvbios.zip"), bArr2);
-            }
         } catch (IOException unused) {
+            return;
+        }
+        if (bArr != null) {
+            writeBytesAtomically(file, bArr);
+        }
+        if (bArr2 != null) {
+            writeBytesAtomically(new File(file.getParentFile(), "stvbios.zip"), bArr2);
         }
     }
 
     private void removeMergedBiosEntries(File file, File file2) {
-        if (file.isFile() && file2.isFile()) {
-            ArrayList arrayList = new ArrayList();
-            try {
-                ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file2));
+        if (!file.isFile() || !file2.isFile()) {
+            return;
+        }
+        List<String> biosEntries = new ArrayList<>();
+        try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file2))) {
+            while (true) {
+                ZipEntry nextEntry = zipInputStream.getNextEntry();
+                if (nextEntry == null) {
+                    break;
+                }
+                if (!nextEntry.isDirectory()) {
+                    biosEntries.add(new File(nextEntry.getName().replace('\\', '/')).getName().toLowerCase(Locale.US));
+                }
+            }
+        } catch (IOException unused) {
+            return;
+        }
+        if (biosEntries.isEmpty()) {
+            return;
+        }
+        File file3 = new File(file.getParentFile(), file.getName() + ".clean");
+        try {
+            try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file));
+                 ZipOutputStream zipOutputStream = new ZipOutputStream(new FileOutputStream(file3))) {
                 while (true) {
-                    try {
-                        ZipEntry nextEntry = zipInputStream.getNextEntry();
-                        if (nextEntry == null) {
-                            break;
-                        } else if (!nextEntry.isDirectory()) {
-                            arrayList.add(new File(nextEntry.getName().replace('\\', '/')).getName().toLowerCase(Locale.US));
+                    ZipEntry nextEntry2 = zipInputStream.getNextEntry();
+                    if (nextEntry2 == null) {
+                        break;
+                    }
+                    if (!biosEntries.contains(new File(nextEntry2.getName().replace('\\', '/')).getName().toLowerCase(Locale.US))) {
+                        zipOutputStream.putNextEntry(new ZipEntry(nextEntry2.getName()));
+                        if (!nextEntry2.isDirectory()) {
+                            copy(zipInputStream, zipOutputStream);
                         }
-                    } finally {
-                        try {
-                            zipInputStream.close();
-                        } catch (Throwable th) {
-                            th.addSuppressed(th);
-                        }
+                        zipOutputStream.closeEntry();
                     }
                 }
-                zipInputStream.close();
-                if (arrayList.isEmpty()) {
-                    return;
-                }
-                File file3 = new File(file.getParentFile(), file.getName() + ".clean");
-                try {
-                    zipInputStream = new ZipInputStream(new FileInputStream(file));
-                    try {
-                        ZipOutputStream zipOutputStream = new ZipOutputStream(new FileOutputStream(file3));
-                        while (true) {
-                            try {
-                                ZipEntry nextEntry2 = zipInputStream.getNextEntry();
-                                if (nextEntry2 == null) {
-                                    break;
-                                }
-                                if (!arrayList.contains(new File(nextEntry2.getName().replace('\\', '/')).getName().toLowerCase(Locale.US))) {
-                                    zipOutputStream.putNextEntry(new ZipEntry(nextEntry2.getName()));
-                                    if (!nextEntry2.isDirectory()) {
-                                        copy(zipInputStream, zipOutputStream);
-                                    }
-                                    zipOutputStream.closeEntry();
-                                }
-                            } finally {
-                            }
-                        }
-                        zipOutputStream.close();
-                        zipInputStream.close();
-                        if (!copyFile(file3, file) || file3.delete()) {
-                            return;
-                        }
-                        file3.deleteOnExit();
-                    } finally {
-                    }
-                } catch (IOException unused) {
-                    if (!file3.exists() || file3.delete()) {
-                        return;
-                    }
-                    file3.deleteOnExit();
-                }
-            } catch (IOException unused2) {
+            }
+            if (copyFile(file3, file) && !file3.delete()) {
+                file3.deleteOnExit();
+            }
+        } catch (IOException unused) {
+            if (file3.exists() && !file3.delete()) {
+                file3.deleteOnExit();
             }
         }
     }
 
     private void mergeArcadeBiosIntoRom(File file, File file2) {
-        if (file.exists() && file2.exists()) {
-            File file3 = new File(file.getParentFile(), file.getName() + ".merged");
-            ArrayList arrayList = new ArrayList();
-            try {
-                ZipOutputStream zipOutputStream = new ZipOutputStream(new FileOutputStream(file3));
-                try {
-                    copyZipEntries(file, zipOutputStream, arrayList);
-                    copyZipEntries(file2, zipOutputStream, arrayList);
-                    zipOutputStream.close();
-                    if (file3.length() == 0 || (file.exists() && !file.delete())) {
-                        if (file3.delete()) {
-                            return;
-                        }
-                        file3.deleteOnExit();
-                    } else {
-                        if (file3.renameTo(file)) {
-                            return;
-                        }
-                        copyFile(file3, file);
-                        if (file3.delete()) {
-                            return;
-                        }
-                        file3.deleteOnExit();
-                    }
-                } finally {
+        if (!file.exists() || !file2.exists()) {
+            return;
+        }
+        File file3 = new File(file.getParentFile(), file.getName() + ".merged");
+        List<String> arrayList = new ArrayList<>();
+        try {
+            try (ZipOutputStream zipOutputStream = new ZipOutputStream(new FileOutputStream(file3))) {
+                copyZipEntries(file, zipOutputStream, arrayList);
+                copyZipEntries(file2, zipOutputStream, arrayList);
+            }
+            if (file3.length() == 0 || (file.exists() && !file.delete())) {
+                if (!file3.delete()) {
+                    file3.deleteOnExit();
                 }
-            } catch (IOException unused) {
-                if (file3.delete()) {
-                    return;
-                }
+                return;
+            }
+            if (file3.renameTo(file)) {
+                return;
+            }
+            copyFile(file3, file);
+            if (!file3.delete()) {
+                file3.deleteOnExit();
+            }
+        } catch (IOException unused) {
+            if (!file3.delete()) {
                 file3.deleteOnExit();
             }
         }
     }
 
     private void copyZipEntries(File file, ZipOutputStream zipOutputStream, List<String> list) throws IOException {
-        ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file));
-        while (true) {
-            try {
+        try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
+            while (true) {
                 ZipEntry nextEntry = zipInputStream.getNextEntry();
-                if (nextEntry != null) {
-                    if (!nextEntry.isDirectory()) {
-                        String name = new File(nextEntry.getName().replace('\\', '/')).getName();
-                        String lowerCase = name.toLowerCase(Locale.US);
-                        if (!name.isEmpty() && !list.contains(lowerCase)) {
-                            list.add(lowerCase);
-                            zipOutputStream.putNextEntry(new ZipEntry(name));
-                            copy(zipInputStream, zipOutputStream);
-                            zipOutputStream.closeEntry();
-                        }
-                    }
-                } else {
-                    zipInputStream.close();
+                if (nextEntry == null) {
                     return;
                 }
-            } catch (Throwable th) {
-                try {
-                    zipInputStream.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
+                if (nextEntry.isDirectory()) {
+                    continue;
                 }
-                throw th;
+                String name = new File(nextEntry.getName().replace('\\', '/')).getName();
+                String lowerCase = name.toLowerCase(Locale.US);
+                if (!name.isEmpty() && !list.contains(lowerCase)) {
+                    list.add(lowerCase);
+                    zipOutputStream.putNextEntry(new ZipEntry(name));
+                    copy(zipInputStream, zipOutputStream);
+                    zipOutputStream.closeEntry();
+                }
             }
         }
     }
@@ -2176,32 +1761,26 @@ public final class MainActivity extends Activity {
     private void writeBytesAtomically(File file, byte[] bArr) {
         File file2 = new File(file.getParentFile(), file.getName() + ".importing");
         try {
-            FileOutputStream fileOutputStream = new FileOutputStream(file2);
-            try {
+            try (FileOutputStream fileOutputStream = new FileOutputStream(file2)) {
                 fileOutputStream.write(bArr);
-                fileOutputStream.close();
-                if (file.exists() && !file.delete()) {
-                    if (file2.delete()) {
-                        return;
-                    }
-                    file2.deleteOnExit();
-                } else {
-                    if (file2.renameTo(file)) {
-                        return;
-                    }
-                    copyFile(file2, file);
-                    if (file2.delete()) {
-                        return;
-                    }
+            }
+            if (file.exists() && !file.delete()) {
+                if (!file2.delete()) {
                     file2.deleteOnExit();
                 }
-            } finally {
-            }
-        } catch (IOException unused) {
-            if (file2.delete()) {
                 return;
             }
-            file2.deleteOnExit();
+            if (file2.renameTo(file)) {
+                return;
+            }
+            copyFile(file2, file);
+            if (!file2.delete()) {
+                file2.deleteOnExit();
+            }
+        } catch (IOException unused) {
+            if (!file2.delete()) {
+                file2.deleteOnExit();
+            }
         }
     }
 
@@ -2297,69 +1876,53 @@ public final class MainActivity extends Activity {
     }
 
     private void prepareNeoGeoBiosForArcade(File file, File file2) throws IOException {
-        ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file));
         boolean z = false;
         byte[] bArr = null;
-        while (true) {
-            try {
+        try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
+            while (true) {
                 ZipEntry nextEntry = zipInputStream.getNextEntry();
                 if (nextEntry == null) {
                     break;
                 }
-                if (!nextEntry.isDirectory()) {
-                    String lowerCase = new File(nextEntry.getName()).getName().toLowerCase(Locale.US);
-                    if (lowerCase.equals("mame.sm1")) {
-                        z = true;
-                    } else if (bArr == null && (lowerCase.equals("sm1.sm1") || lowerCase.equals("sm1.bin") || lowerCase.equals("ng-sm1.rom"))) {
-                        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                        copy(zipInputStream, byteArrayOutputStream);
-                        bArr = byteArrayOutputStream.toByteArray();
-                    }
+                if (nextEntry.isDirectory()) {
+                    continue;
                 }
-            } catch (Throwable th) {
-                try {
-                    zipInputStream.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
+                String lowerCase = new File(nextEntry.getName()).getName().toLowerCase(Locale.US);
+                if (lowerCase.equals("mame.sm1")) {
+                    z = true;
+                } else if (bArr == null && (lowerCase.equals("sm1.sm1") || lowerCase.equals("sm1.bin") || lowerCase.equals("ng-sm1.rom"))) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    copy(zipInputStream, byteArrayOutputStream);
+                    bArr = byteArrayOutputStream.toByteArray();
                 }
-                throw th;
             }
         }
-        zipInputStream.close();
         File file3 = new File(file2.getParentFile(), file2.getName() + ".tmp");
         try {
-            ZipInputStream zipInputStream2 = new ZipInputStream(new FileInputStream(file));
-            try {
-                ZipOutputStream zipOutputStream = new ZipOutputStream(new FileOutputStream(file3));
+            try (ZipInputStream zipInputStream2 = new ZipInputStream(new FileInputStream(file));
+                 ZipOutputStream zipOutputStream = new ZipOutputStream(new FileOutputStream(file3))) {
                 while (true) {
-                    try {
-                        ZipEntry nextEntry2 = zipInputStream2.getNextEntry();
-                        if (nextEntry2 == null) {
-                            break;
-                        }
-                        zipOutputStream.putNextEntry(new ZipEntry(nextEntry2.getName()));
-                        if (!nextEntry2.isDirectory()) {
-                            copy(zipInputStream2, zipOutputStream);
-                        }
-                        zipOutputStream.closeEntry();
-                    } finally {
+                    ZipEntry nextEntry2 = zipInputStream2.getNextEntry();
+                    if (nextEntry2 == null) {
+                        break;
                     }
+                    zipOutputStream.putNextEntry(new ZipEntry(nextEntry2.getName()));
+                    if (!nextEntry2.isDirectory()) {
+                        copy(zipInputStream2, zipOutputStream);
+                    }
+                    zipOutputStream.closeEntry();
                 }
                 if (!z && bArr != null) {
                     zipOutputStream.putNextEntry(new ZipEntry("mame.sm1"));
                     zipOutputStream.write(bArr);
                     zipOutputStream.closeEntry();
                 }
-                zipOutputStream.close();
-                zipInputStream2.close();
-                if (!copyFile(file3, file2)) {
-                    throw new IOException("BIOS를 아케이드 ROM 폴더에 준비할 수 없습니다");
-                }
-                if (file3.delete()) {
-                    return;
-                }
+            }
+            if (!copyFile(file3, file2)) {
+                throw new IOException("BIOS를 아케이드 ROM 폴더에 준비할 수 없습니다");
+            }
+            if (!file3.delete()) {
                 file3.deleteOnExit();
-            } finally {
             }
         } catch (IOException e) {
             if (!file3.delete()) {
@@ -2427,36 +1990,25 @@ public final class MainActivity extends Activity {
 
     private String readGbaHeaderTitle(File file) {
         byte[] bArr = new byte[12];
-        try {
-            FileInputStream fileInputStream = new FileInputStream(file);
-            try {
-                if (fileInputStream.skip(160L) == 160) {
-                    if (fileInputStream.read(bArr) == 12) {
-                        fileInputStream.close();
-                        StringBuilder sb = new StringBuilder();
-                        for (int i = 0; i < 12; i++) {
-                            int i2 = bArr[i] & 255;
-                            if (i2 == 0 || i2 == 255) {
-                                break;
-                            }
-                            if (i2 >= 32 && i2 <= 126) {
-                                sb.append((char) i2);
-                            }
-                        }
-                        String trim = sb.toString().trim();
-                        if (trim.isEmpty()) {
-                            return null;
-                        }
-                        return trim;
-                    }
-                }
-                fileInputStream.close();
+        try (FileInputStream fileInputStream = new FileInputStream(file)) {
+            if (fileInputStream.skip(160L) != 160 || fileInputStream.read(bArr) != 12) {
                 return null;
-            } finally {
             }
         } catch (IOException unused) {
             return null;
         }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 12; i++) {
+            int i2 = bArr[i] & 255;
+            if (i2 == 0 || i2 == 255) {
+                break;
+            }
+            if (i2 >= 32 && i2 <= 126) {
+                sb.append((char) i2);
+            }
+        }
+        String trim = sb.toString().trim();
+        return trim.isEmpty() ? null : trim;
     }
 
     private SharedPreferences romPrefs() {
@@ -2498,25 +2050,16 @@ public final class MainActivity extends Activity {
     private String crc32Hex(File file) throws IOException {
         CRC32 crc32 = new CRC32();
         byte[] bArr = new byte[65536];
-        FileInputStream fileInputStream = new FileInputStream(file);
-        while (true) {
-            try {
+        try (FileInputStream fileInputStream = new FileInputStream(file)) {
+            while (true) {
                 int read = fileInputStream.read(bArr);
-                if (read != -1) {
-                    crc32.update(bArr, 0, read);
-                } else {
-                    fileInputStream.close();
-                    return String.format(Locale.US, "%08X", Long.valueOf(crc32.getValue()));
+                if (read == -1) {
+                    break;
                 }
-            } catch (Throwable th) {
-                try {
-                    fileInputStream.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
-                }
-                throw th;
+                crc32.update(bArr, 0, read);
             }
         }
+        return String.format(Locale.US, "%08X", Long.valueOf(crc32.getValue()));
     }
 
     private static final class RomCheck {

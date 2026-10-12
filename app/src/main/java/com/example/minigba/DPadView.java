@@ -64,7 +64,7 @@ final class DPadView extends View {
         setFocusable(false);
     }
 
-    @Override // android.view.View
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float width = getWidth();
@@ -89,7 +89,7 @@ final class DPadView extends View {
         drawArrow(canvas, (width - f2) - f5, f4, 16);
     }
 
-    @Override // android.view.View
+    @Override
     public boolean onTouchEvent(MotionEvent motionEvent) {
         int actionMasked = motionEvent.getActionMasked();
         if (actionMasked == 1 || actionMasked == 3) {
