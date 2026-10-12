@@ -1,0 +1,76 @@
+name: Build APK
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Native bridge host test
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lld llvm > /dev/null
+          ./native-test/run.sh
+
+      # Release signing needs these repository secrets:
+      #   KEYSTORE_BASE64  base64 of minigba-release.jks
+      #   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+      - name: Build signed release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          mkdir -p release
+          echo "$KEYSTORE_BASE64" | base64 -d > release/minigba-release.jks
+          {
+            echo "storeFile=release/minigba-release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          ./gradlew --no-daemon assembleRelease
+          rm -f keystore.properties release/minigba-release.jks
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MiniGBA-apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
