@@ -46,8 +46,16 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        if: env.KEYSTORE_BASE64 != ''
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            if [ "$IS_TAG" = "true" ]; then
+              echo "::error::Release tags need the keystore secrets"
+              exit 1
+            fi
+            echo "Keystore secrets not set; skipping the release build"
+            exit 0
+          fi
           mkdir -p release
           echo "$KEYSTORE_BASE64" | base64 -d > release/minigba-release.jks
           {
@@ -59,18 +67,41 @@ jobs:
           ./gradlew --no-daemon assembleRelease
           rm -f keystore.properties release/minigba-release.jks
 
+      # Updates only install over the existing app when signed by the same key.
+      - name: Check release signing certificate
+        env:
+          EXPECTED_CERT_SHA256: 9ee14763d21fbb7c085a1e92e487255a1a5e89260259c7812ded52d28535e8e4
+        run: |
+          apk=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
+          if [ -z "$apk" ]; then
+            echo "No release APK"
+            exit 0
+          fi
+          certs=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk")
+          echo "$certs"
+          echo "$certs" | grep -qi "SHA-256 digest: $EXPECTED_CERT_SHA256" || {
+            echo "::error::Release APK is not signed with the original MiniGBA key"
+            exit 1
+          }
+
+      - name: Name APKs
+        run: |
+          version=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" app/build.gradle)
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/MiniGBA-$version-debug.apk"
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk "dist/MiniGBA-$version.apk"
+          fi
+          ls -l dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: MiniGBA-apk
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+          path: dist/*.apk
           if-no-files-found: error
 
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
+          files: dist/MiniGBA-*.apk
