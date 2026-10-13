@@ -92,17 +92,17 @@ jobs:
       - name: Name APKs
         run: |
           version=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" app/build.gradle)
-          mkdir -p dist
+          mkdir -p dist/release
           cp app/build/outputs/apk/debug/app-debug.apk "dist/MiniGBA-$version-debug.apk"
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/build/outputs/apk/release/app-release.apk "dist/MiniGBA-$version.apk"
+            cp app/build/outputs/apk/release/app-release.apk "dist/release/MiniGBA-$version.apk"
           fi
-          ls -l dist
+          ls -lR dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: MiniGBA-apk
-          path: dist/*.apk
+          path: dist/**/*.apk
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -112,4 +112,6 @@ jobs:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
           name: Mini GBA ${{ inputs.release_tag || github.ref_name }}
-          files: dist/MiniGBA-*.apk
+          # Only the signed APK; the debug build cannot update an installed copy.
+          files: dist/release/MiniGBA-*.apk
+          fail_on_unmatched_files: true
