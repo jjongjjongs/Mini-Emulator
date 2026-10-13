@@ -52,7 +52,7 @@ GitHub Actions는 엔진을 캐시해 두고 `cores/build-cores.sh`가 바뀔 �
 | 아케이드 | `roms_arcade` | MAME 2003-Plus 기본, 게임별로 FBNeo 선택 가능 | `system/mame/bios/*.zip` (실행 전에 ROM 폴더로 복사) |
 | PlayStation | `roms_ps` | PCSX ReARMed | `system/*.bin` 512KB (선택, 없으면 HLE) |
 
-- 두 아케이드 엔진은 ZIP **파일 이름**으로 게임을 찾습니다. 그래서 앱이 ZIP 안 파일의 CRC로 롬셋을 알아보고(`assets/romsets.gz`, `cores/gen-romsets.py`로 생성) `neobombe.zip`처럼 롬셋 이름으로 바꿔 둡니다. 목록에는 원래 이름이 그대로 보입니다. 롬셋 버전에 맞는 엔진도 자동으로 고르고, 파일이 부족하거나 지원하지 않는 게임이면 실행 전에 알려 줍니다.
+- 두 아케이드 엔진은 ZIP **파일 이름**으로 게임을 찾습니다. 그래서 앱이 ZIP 안 파일의 CRC로 롬셋을 알아보고(`assets/romsets.bin`, `cores/gen-romsets.py`로 생성) `neobombe.zip`처럼 롬셋 이름으로 바꿔 둡니다. 목록에는 원래 이름이 그대로 보입니다. 롬셋 버전에 맞는 엔진도 자동으로 고르고, 파일이 부족하거나 지원하지 않는 게임이면 실행 전에 알려 줍니다.
 - PlayStation 게임은 `.cue`+`.bin`, `.chd`, `.pbp`, `.m3u`, `.iso`를 지원합니다. 파일 여러 개나 폴더째로 가져올 수 있고, `.cue` 없는 `.bin`에는 `.cue`를, `(Disc 1)`·`(Disc 2)` 같은 여러 장 게임에는 `.m3u`를 자동으로 만듭니다.
 - 게임 중 메뉴에서 아날로그 스틱(DualShock)을 켜고 끌 수 있고(게임별로 기억), `.m3u` 게임은 디스크를 바꿀 수 있습니다.
 - 메모리카드는 `saves/ps/<게임 이름>.sav`에 게임별로 저장됩니다.

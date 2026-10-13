@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds app/src/main/assets/romsets.gz, the romset index the app uses to
+"""Builds app/src/main/assets/romsets.bin, the romset index the app uses to
 recognise arcade ZIPs by their contents (CRC32) instead of their file name.
 
 Both cores look games up by ZIP file name, so a ROM saved as e.g. "봄버맨.zip"
@@ -8,7 +8,7 @@ matching set here and renames the file.
 
 Usage: ./cores/gen-romsets.py   (downloads the DATs for the pinned commits)
 
-Output, gzip text, one section per core:
+Output (gzip text; not named .gz because the Android build unpacks those), one section per core:
   #<core>
   !bios\t<crcs of BIOS sets, ignored when matching>
   <set>\t<parent or ->\t<own crcs, comma separated>\t<crcs shared with parent>
@@ -16,7 +16,7 @@ Output, gzip text, one section per core:
 import gzip, os, re, sys, urllib.parse, urllib.request, xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "..", "app", "src", "main", "assets", "romsets.gz")
+OUT = os.path.join(HERE, "..", "app", "src", "main", "assets", "romsets.bin")
 
 
 def pinned(name):

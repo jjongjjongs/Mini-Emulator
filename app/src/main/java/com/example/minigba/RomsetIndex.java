@@ -64,7 +64,7 @@ final class RomsetIndex {
     private static synchronized Map<String, CoreSets> load(Context context) {
         if (cores == null) {
             try {
-                cores = parse(context.getAssets().open("romsets.gz"));
+                cores = parse(context.getAssets().open("romsets.bin"));
             } catch (IOException e) {
                 // Without the index every ROM is simply left as it is.
                 cores = new HashMap<>();
@@ -114,6 +114,11 @@ final class RomsetIndex {
             crcs[i] = (int) Long.parseLong(parts[i], 16);
         }
         return crcs;
+    }
+
+    // False when the index could not be read; ROMs are then launched unchecked.
+    static boolean isAvailable(Context context) {
+        return !load(context).isEmpty();
     }
 
     // CRCs come from the ZIP's central directory, so nothing is decompressed.

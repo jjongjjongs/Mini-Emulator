@@ -87,6 +87,14 @@ jobs:
           rm -f keystore.properties release/minigba-release.jks
 
       # Updates only install over the existing app when signed by the same key.
+      - name: Check APK contents
+        run: |
+          for apk in app/build/outputs/apk/*/*.apk; do
+            for entry in assets/romsets.bin lib/arm64-v8a/libpcsx_rearmed_libretro_android.so lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so; do
+              unzip -l "$apk" | grep -q " $entry\$" || { echo "::error::$apk is missing $entry"; exit 1; }
+            done
+          done
+
       - name: Check release signing certificate
         env:
           EXPECTED_CERT_SHA256: 9ee14763d21fbb7c085a1e92e487255a1a5e89260259c7812ded52d28535e8e4

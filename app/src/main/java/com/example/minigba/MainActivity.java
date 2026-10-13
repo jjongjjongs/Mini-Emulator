@@ -955,7 +955,10 @@ public final class MainActivity extends Activity {
                         i3++;
                     } else {
                         i++;
-                        RomsetResult romset = resolveRomset(imported);
+                        RomsetResult romset = RomsetIndex.isAvailable(this) ? resolveRomset(imported) : null;
+                        if (romset == null) {
+                            continue;
+                        }
                         if (romset.match == null) {
                             sb.append(displayNameFor).append(": 엔진이 알아볼 수 없는 ROM입니다 (지원하지 않는 게임이거나 일부 파일만 있음)\n");
                         } else if (romset.renameConflict != null) {
@@ -1795,6 +1798,9 @@ public final class MainActivity extends Activity {
     }
 
     private RomCheck checkArcadeRomset(File file) {
+        if (!RomsetIndex.isAvailable(this)) {
+            return isReadableZip(file) ? new RomCheck(true, "ZIP 읽기 가능") : new RomCheck(false, "ZIP 읽기 실패");
+        }
         int[] crcs = RomsetIndex.zipCrcs(file);
         if (crcs.length == 0) {
             return new RomCheck(false, "ZIP 읽기 실패");
@@ -1817,6 +1823,10 @@ public final class MainActivity extends Activity {
     }
 
     private void launchArcadeGame(File file) {
+        if (!RomsetIndex.isAvailable(this)) {
+            startGameActivity(file);
+            return;
+        }
         RomsetResult result = resolveRomset(file);
         final File resolved = result.file;
         if (!resolved.equals(file)) {
