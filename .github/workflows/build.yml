@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a GitHub release with this tag (e.g. v0.0.2). Leave empty to only build.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -46,7 +51,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '' }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
             if [ "$IS_TAG" = "true" ]; then
@@ -101,7 +106,10 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Mini GBA ${{ inputs.release_tag || github.ref_name }}
           files: dist/MiniGBA-*.apk
