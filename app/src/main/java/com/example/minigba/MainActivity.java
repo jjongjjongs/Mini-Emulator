@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
     private LinearLayout romList;
     private TextView screenModeStatusView;
     private static final String[] SCREEN_MODE_LABELS = {"전체 화면", "프레임", "컴팩트"};
+    private static final int STATUS_TEXT_COLOR = Color.rgb(101, 112, 124);
     private static final byte[] GBA_LOGO = {36, -1, -82, 81, 105, -102, -94, 33, 61, -124, -126, 10, -124, -28, 9, -83, 17, 36, -117, -104, -64, -127, Byte.MAX_VALUE, 33, -93, 82, -66, 25, -109, 9, -50, 32, 16, 70, 74, 74, -8, 39, 49, -20, 88, -57, -24, 51, -126, -29, -50, -65, -123, -12, -33, -108, -50, 75, 9, -63, -108, 86, -118, -64, 19, 114, -89, -4, -97, -124, 77, 115, -93, -54, -102, 97, 88, -105, -93, 39, -4, 3, -104, 118, 35, 29, -57, 97, 3, 4, -82, 86, -65, 56, -124, 0, 64, -89, 14, -3, -1, 82, -2, 3, 111, -107, 48, -15, -105, -5, -64, -123, 96, -42, Byte.MIN_VALUE, 37, -87, 99, -66, 3, 1, 78, 56, -30, -7, -94, 52, -1, -69, 62, 3, 68, 120, 0, -112, -53, -120, 17, 58, -108, 101, -64, 124, 99, -121, -16, 60, -81, -42, 37, -28, -117, 56, 10, -84, 114, 33, -44, -8, 7};
 
     @Override
@@ -97,23 +98,19 @@ public final class MainActivity extends Activity {
         LinearLayout linearLayout3 = new LinearLayout(this);
         linearLayout3.setOrientation(1);
         linearLayout3.setPadding(0, dp(8), 0, dp(4));
-        LinearLayout linearLayout4 = new LinearLayout(this);
-        linearLayout4.setOrientation(0);
-        LinearLayout linearLayout5 = new LinearLayout(this);
-        linearLayout5.setOrientation(0);
-        LinearLayout linearLayout6 = new LinearLayout(this);
-        linearLayout6.setOrientation(0);
-        linearLayout4.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(224, 247, 251), Color.rgb(34, 166, 197), view -> openRomPicker()), fullCardParams());
-        LinearLayout createActionCard = createActionCard("GBA BIOS", biosFile().exists() ? "등록됨" : "등록 안 됨", "BIOS", Color.rgb(255, 232, 232), Color.rgb(239, 84, 103), view -> openBiosPicker());
-        this.biosStatusView = (TextView) createActionCard.getTag();
-        linearLayout5.addView(createActionCard, fullCardParams());
-        linearLayout6.addView(createActionCard("ROM 검사", "파일 기본 검사", "OK", Color.rgb(229, 234, 255), Color.rgb(98, 111, 204), view -> checkImportedRoms()), cardGridParams(true));
-        LinearLayout createActionCard2 = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], "VIEW", Color.rgb(232, 247, 235), Color.rgb(55, 188, 116), view -> cycleScreenMode(view));
-        this.screenModeStatusView = (TextView) createActionCard2.getTag();
-        linearLayout6.addView(createActionCard2, cardGridParams(false));
-        linearLayout3.addView(linearLayout4, new LinearLayout.LayoutParams(-1, -2));
-        linearLayout3.addView(linearLayout5, new LinearLayout.LayoutParams(-1, -2));
-        linearLayout3.addView(linearLayout6, new LinearLayout.LayoutParams(-1, -2));
+        // The four home actions sit in one row as app-style icons.
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(0);
+        actionRow.setPadding(0, dp(6), 0, dp(6));
+        actionRow.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
+        LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> openBiosPicker());
+        this.biosStatusView = (TextView) biosTile.getTag();
+        actionRow.addView(biosTile, actionTileParams());
+        actionRow.addView(createActionCard("ROM 검사", "기본 검사", "OK", Color.rgb(98, 111, 204), view -> checkImportedRoms()), actionTileParams());
+        LinearLayout screenModeTile = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], "VIEW", Color.rgb(55, 188, 116), view -> cycleScreenMode(view));
+        this.screenModeStatusView = (TextView) screenModeTile.getTag();
+        actionRow.addView(screenModeTile, actionTileParams());
+        linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
         TextView textView3 = new TextView(this);
         this.emptyView = textView3;
         textView3.setText("아직 가져온 ROM이 없습니다.");
@@ -163,7 +160,9 @@ public final class MainActivity extends Activity {
     private void updateHomeStatusCards() {
         TextView textView = this.biosStatusView;
         if (textView != null) {
-            textView.setText(biosFile().exists() ? "등록됨" : "등록 안 됨");
+            textView.setText(biosStatusText());
+            // Missing BIOS is highlighted so it stands out in the icon row.
+            textView.setTextColor(biosFile().exists() ? STATUS_TEXT_COLOR : Color.rgb(239, 84, 103));
         }
         TextView textView2 = this.neoGeoBiosStatusView;
         if (textView2 != null) {
@@ -179,56 +178,49 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private LinearLayout createActionCard(String str, String str2, String str3, int i, int i2, View.OnClickListener onClickListener) {
-        LinearLayout linearLayout = new LinearLayout(this);
-        linearLayout.setOrientation(1);
-        linearLayout.setGravity(17);
-        linearLayout.setPadding(dp(7), dp(7), dp(7), dp(7));
-        linearLayout.setBackground(rounded(i, dp(8)));
-        linearLayout.setClickable(true);
-        linearLayout.setOnClickListener(onClickListener);
-        linearLayout.setElevation(dp(2));
-        TextView textView = new TextView(this);
-        textView.setText(str3);
-        textView.setGravity(17);
-        textView.setTextColor(-1);
-        textView.setTextSize(str3.length() > 3 ? 8.0f : 11.0f);
-        textView.setTypeface(Typeface.DEFAULT_BOLD);
-        textView.setBackground(rounded(i2, dp(18)));
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(dp(36), dp(36));
-        layoutParams.setMargins(0, 0, 0, dp(4));
-        linearLayout.addView(textView, layoutParams);
-        TextView textView2 = new TextView(this);
-        textView2.setText(str);
-        textView2.setGravity(17);
-        textView2.setTextColor(Color.rgb(55, 65, 76));
-        textView2.setTextSize(13.0f);
-        textView2.setTypeface(Typeface.DEFAULT_BOLD);
-        textView2.setSingleLine(false);
-        linearLayout.addView(textView2, new LinearLayout.LayoutParams(-1, -2));
-        TextView textView3 = new TextView(this);
-        textView3.setText(str2);
-        textView3.setGravity(17);
-        textView3.setTextColor(Color.rgb(101, 112, 124));
-        textView3.setTextSize(11.0f);
-        textView3.setSingleLine(false);
-        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, -2);
-        layoutParams2.setMargins(0, dp(1), 0, 0);
-        linearLayout.addView(textView3, layoutParams2);
-        linearLayout.setTag(textView3);
-        return linearLayout;
+    private LinearLayout createActionCard(String title, String status, String iconLabel, int iconColor, View.OnClickListener onClickListener) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(1);
+        tile.setGravity(49);
+        tile.setPadding(0, dp(4), 0, dp(4));
+        tile.setClickable(true);
+        tile.setOnClickListener(onClickListener);
+        TextView icon = new TextView(this);
+        icon.setText(iconLabel);
+        icon.setGravity(17);
+        icon.setTextColor(-1);
+        icon.setTextSize(iconLabel.length() > 3 ? 12.0f : 14.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setBackground(rounded(iconColor, dp(16)));
+        icon.setElevation(dp(2));
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(56), dp(56));
+        iconParams.setMargins(0, dp(2), 0, dp(6));
+        tile.addView(icon, iconParams);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setGravity(17);
+        titleView.setTextColor(Color.rgb(55, 65, 76));
+        titleView.setTextSize(12.0f);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setSingleLine(true);
+        tile.addView(titleView, new LinearLayout.LayoutParams(-1, -2));
+        TextView statusView = new TextView(this);
+        statusView.setText(status);
+        statusView.setGravity(17);
+        statusView.setTextColor(STATUS_TEXT_COLOR);
+        statusView.setTextSize(10.0f);
+        statusView.setSingleLine(true);
+        tile.addView(statusView, new LinearLayout.LayoutParams(-1, -2));
+        tile.setTag(statusView);
+        return tile;
     }
 
-    private LinearLayout.LayoutParams cardGridParams(boolean z) {
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, dp(94), 1.0f);
-        layoutParams.setMargins(z ? 0 : dp(4), 0, z ? dp(4) : 0, dp(8));
-        return layoutParams;
+    private LinearLayout.LayoutParams actionTileParams() {
+        return new LinearLayout.LayoutParams(0, -2, 1.0f);
     }
 
-    private LinearLayout.LayoutParams fullCardParams() {
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, dp(94));
-        layoutParams.setMargins(0, 0, 0, dp(8));
-        return layoutParams;
+    private String biosStatusText() {
+        return biosFile().exists() ? "등록됨" : "등록 안 됨";
     }
 
     private LinearLayout.LayoutParams biosGridParams(int i) {
