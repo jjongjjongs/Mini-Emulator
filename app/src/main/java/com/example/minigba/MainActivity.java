@@ -57,6 +57,7 @@ public final class MainActivity extends Activity {
     private static final String PREF_MODE = "mode";
     private static final String PREF_REMEMBER_MODE = "remember_mode";
     private static final String PREF_ARCADE_CORE = "arcade_default_core";
+    private static final String PREF_NEOGEO_CORE = "neogeo_default_core";
     private static final String[] ARCADE_CORE_IDS = {"mame2003plus", "fbneo"};
     private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드)", "FinalBurn Neo (Neo Geo · CPS 등)"};
     private static final String MODE_GBA = "gba";
@@ -347,8 +348,8 @@ public final class MainActivity extends Activity {
             this.biosStatusView = (TextView) biosTile.getTag();
             actionRow.addView(biosTile, actionTileParams());
         }
-        if ("arcade".equals(this.currentMode)) {
-            LinearLayout engineTile = createActionCard("엔진", shortCoreName(defaultArcadeCore()), "ENG", Color.rgb(245, 158, 11), view -> showDefaultCorePicker());
+        if ("arcade".equals(this.currentMode) || "neogeo".equals(this.currentMode)) {
+            LinearLayout engineTile = createActionCard("엔진", shortCoreName(defaultCoreFor(this.currentMode)), "ENG", Color.rgb(245, 158, 11), view -> showDefaultCorePicker());
             this.engineStatusView = (TextView) engineTile.getTag();
             actionRow.addView(engineTile, actionTileParams());
         } else if (MODE_PS.equals(this.currentMode)) {
@@ -546,7 +547,7 @@ public final class MainActivity extends Activity {
             }
         }
         if (this.engineStatusView != null) {
-            this.engineStatusView.setText(shortCoreName(defaultArcadeCore()));
+            this.engineStatusView.setText(shortCoreName(defaultCoreFor(this.currentMode)));
         }
         TextView textView3 = this.mameBiosStatusView;
         if (textView3 != null) {
@@ -1997,10 +1998,12 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("실행 엔진 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
     }
 
+    // Engine for games in this mode; a game whose romset fits only the other engine still switches to it.
     private void showDefaultCorePicker() {
-        int checked = "fbneo".equals(defaultArcadeCore()) ? 1 : 0;
-        new AlertDialog.Builder(this).setTitle("기본 엔진").setSingleChoiceItems(ARCADE_CORE_LABELS, checked, (dialog, which) -> {
-            settingsPrefs().edit().putString(PREF_ARCADE_CORE, ARCADE_CORE_IDS[which]).apply();
+        final String key = "neogeo".equals(this.currentMode) ? PREF_NEOGEO_CORE : PREF_ARCADE_CORE;
+        int checked = "fbneo".equals(defaultCoreFor(this.currentMode)) ? 1 : 0;
+        new AlertDialog.Builder(this).setTitle("기본 엔진").setNeutralButton("ROM 검사", (dialog, which) -> checkImportedRoms()).setSingleChoiceItems(ARCADE_CORE_LABELS, checked, (dialog, which) -> {
+            settingsPrefs().edit().putString(key, ARCADE_CORE_IDS[which]).apply();
             dialog.dismiss();
             updateHomeStatusCards();
             refreshLibrary();
@@ -2829,7 +2832,7 @@ public final class MainActivity extends Activity {
     private void syncNeoGeoBiosInto(File dir) {
         File bios = neoGeoBiosFile();
         File target = new File(dir, "neogeo.zip");
-        if (!bios.exists() || (target.exists() && target.lastModified() >= bios.lastModified())) {
+        if (!bios.exists() || (target.exists() && target.lastModified() >= bios.lastModified() && zipContainsEntry(target, "mamelo.lo"))) {
             return;
         }
         try {
@@ -3175,8 +3178,12 @@ public final class MainActivity extends Activity {
         zipOutputStream.closeEntry();
     }
 
+    // MAME 2003-Plus expects the old MAME names mame.sm1 and mamelo.lo (the first 64KB of
+    // 000-lo.lo), which current neogeo.zip sets no longer include.
     private void prepareNeoGeoBiosForArcade(File file, File file2) throws IOException {
         boolean z = false;
+        boolean hasMameLo = false;
+        byte[] zoomTable = null;
         byte[] bArr = null;
         try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
             while (true) {
@@ -3190,6 +3197,12 @@ public final class MainActivity extends Activity {
                 String lowerCase = new File(nextEntry.getName()).getName().toLowerCase(Locale.US);
                 if (lowerCase.equals("mame.sm1")) {
                     z = true;
+                } else if (lowerCase.equals("mamelo.lo")) {
+                    hasMameLo = true;
+                } else if (zoomTable == null && (lowerCase.equals("000-lo.lo") || lowerCase.equals("ng-lo.rom") || lowerCase.equals("lo.lo"))) {
+                    ByteArrayOutputStream zoom = new ByteArrayOutputStream();
+                    copy(zipInputStream, zoom);
+                    zoomTable = zoom.toByteArray();
                 } else if (bArr == null && (lowerCase.equals("sm1.sm1") || lowerCase.equals("sm1.bin") || lowerCase.equals("ng-sm1.rom"))) {
                     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
                     copy(zipInputStream, byteArrayOutputStream);
@@ -3215,6 +3228,11 @@ public final class MainActivity extends Activity {
                 if (!z && bArr != null) {
                     zipOutputStream.putNextEntry(new ZipEntry("mame.sm1"));
                     zipOutputStream.write(bArr);
+                    zipOutputStream.closeEntry();
+                }
+                if (!hasMameLo && zoomTable != null && zoomTable.length >= 65536) {
+                    zipOutputStream.putNextEntry(new ZipEntry("mamelo.lo"));
+                    zipOutputStream.write(zoomTable, 0, 65536);
                     zipOutputStream.closeEntry();
                 }
             }
@@ -3317,7 +3335,7 @@ public final class MainActivity extends Activity {
     private String coreFor(File file) {
         String mode = modeForFile(file);
         if ("neogeo".equals(mode)) {
-            return romPrefs().getString("core:" + file.getName(), "fbneo");
+            return romPrefs().getString("core:" + file.getName(), defaultCoreFor("neogeo"));
         }
         if ("arcade".equals(mode)) {
             return romPrefs().getString("core:" + file.getName(), defaultArcadeCore());
@@ -3326,6 +3344,10 @@ public final class MainActivity extends Activity {
             return MODE_PS;
         }
         return MODE_GBA;
+    }
+
+    private String defaultCoreFor(String mode) {
+        return "neogeo".equals(mode) ? settingsPrefs().getString(PREF_NEOGEO_CORE, "fbneo") : defaultArcadeCore();
     }
 
     private String defaultArcadeCore() {
