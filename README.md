@@ -17,6 +17,7 @@ libretro 코어를 쓰는 안드로이드용 에뮬레이터 앱입니다. 앱�
 | mGBA 코어 (`app/src/main/jniLibs/arm64-v8a/libmgba_libretro_android.so`) | [libretro/mgba](https://github.com/libretro/mgba)(MPL 2.0)를 빌드한 바이너리로, APK에 들어 있던 것을 그대로 씁니다. |
 | Neo Geo · 아케이드 엔진 | [FinalBurn Neo](https://github.com/libretro/FBNeo)와 [MAME 2003-Plus](https://github.com/libretro/mame2003-plus-libretro)를 `cores/build-cores.sh`로 직접 빌드합니다(커밋 고정, 저장소에는 바이너리를 넣지 않음). 둘 다 비상업용 라이선스입니다. |
 | MAME 2010 엔진 | [MAME 2010](https://github.com/libretro/mame2010-libretro)(MAME 0.139, 비상업용)을 `cores/build-mame2010.sh`로 빌드합니다. 빌드가 길어서 CI에서 따로 캐시합니다. |
+| MAME 2015 엔진 | [MAME 2015](https://github.com/libretro/mame2015-libretro)(비상업용)를 `cores/build-mame2015.sh`로 빌드합니다. ARM64용 재컴파일러가 없어 `-nodrc`(해석 실행)로 돌립니다(ST-V 측정에서 C 백엔드보다 2.5배 빠름). CI에서 따로 캐시합니다. |
 | 매니페스트, 리소스, `assets/` | APK에서 그대로 복원했습니다. |
 
 알아둘 점:
@@ -41,6 +42,7 @@ Android Studio(Android SDK, NDK 26.1, CMake 3.22.1)에서 엽니다. 처음 한 
 ```bash
 ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125 ./cores/build-cores.sh
 ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125 ./cores/build-mame2010.sh
+ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125 ./cores/build-mame2015.sh
 ./gradlew assembleDebug
 ```
 
@@ -51,8 +53,8 @@ GitHub Actions는 엔진을 캐시해 두고 `cores/build-cores.sh`가 바뀔 �
 | 모드 | 폴더 (`files/` 아래) | 엔진 | BIOS |
 |---|---|---|---|
 | GBA | `roms` | mGBA | `system/gba_bios.bin` (선택) |
-| Neo Geo | `roms_neogeo` | FinalBurn Neo 기본, 게임별로 MAME 2003-Plus · MAME 2010 선택 가능 | `system/neogeo.zip` (필수) |
-| 아케이드 | `roms_arcade` | MAME 2003-Plus 기본, 게임별로 FBNeo · MAME 2010 선택 가능 | `system/mame/bios/*.zip` (실행 전에 ROM 폴더로 복사) |
+| Neo Geo | `roms_neogeo` | FinalBurn Neo 기본, 게임별로 MAME 2003-Plus · MAME 2010 · MAME 2015 선택 가능 | `system/neogeo.zip` (필수) |
+| 아케이드 | `roms_arcade` | MAME 2003-Plus 기본, 게임별로 FBNeo · MAME 2010 · MAME 2015 선택 가능 | `system/mame/bios/*.zip` (실행 전에 ROM 폴더로 복사) |
 
 - 아케이드 엔진들은 ZIP **파일 이름**으로 게임을 찾습니다. 그래서 앱이 ZIP 안 파일의 CRC로 롬셋을 알아보고(`assets/romsets.bin`, `cores/gen-romsets.py`로 생성) `neobombe.zip`처럼 롬셋 이름으로 바꿔 둡니다. 목록에는 원래 이름이 그대로 보입니다. 롬셋 버전에 맞는 엔진도 자동으로 고르고, 파일이나 기판 BIOS(`psarc95.zip` 등)가 부족하거나 지원하지 않는 게임이면 실행 전에 알려 줍니다. ROM으로 가져온 기판 BIOS ZIP은 MAME BIOS로 등록됩니다. 엔진의 게임 목록에서 아직 동작하지 않는(preliminary) 게임으로 표시된 경우 실행 전에 알려 주고, 동작하는 엔진이 있으면 그쪽을 고릅니다.
 - BIOS 타일에서 **폴더째 등록**을 고르면 폴더 안의 파일을 종류별로 나눠 등록합니다: `gba_bios.bin` → GBA, `neogeo.zip` → Neo Geo, 알려진 기판 BIOS ZIP(`pgm.zip`, `stvbios.zip` 등) → MAME. MAME 타일에서 고르면 폴더의 ZIP을 모두 MAME BIOS로 등록합니다.

@@ -32,6 +32,8 @@ SOURCES = [
                      "mame2003-plus.xml" % pinned("MAME2003P")),
     ("mame2010", "https://raw.githubusercontent.com/libretro/mame2010-libretro/%s/metadata/"
                  "mame2010.xml" % pinned("MAME2010", "build-mame2010.sh")),
+    ("mame2015", "https://raw.githubusercontent.com/libretro/mame2015-libretro/%s/metadata/"
+                 "mame2015-xml.zip" % pinned("MAME2015", "build-mame2015.sh")),
 ]
 
 
