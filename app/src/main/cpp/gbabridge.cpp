@@ -9,8 +9,14 @@
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <jni.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/stat.h>
+#include <ucontext.h>
+#include <unistd.h>
+#include <unwind.h>
 
 #include <atomic>
 #include <chrono>
@@ -18,6 +24,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -48,15 +55,7 @@ enum : int {
     kButtonD = 2048,
     kButtonE = 4096,
     kButtonF = 8192,
-    // PlayStation-only buttons.
-    kButtonL2 = 16384,
-    kButtonR2 = 32768,
-    kButtonL3 = 65536,
-    kButtonR3 = 131072,
 };
-
-// PCSX ReARMed's DualShock device id (RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1)).
-constexpr unsigned kDeviceDualShock = (1 + 1) << 8 | RETRO_DEVICE_ANALOG;
 
 constexpr int kDefaultSampleRate = 32768;
 constexpr double kDefaultFps = 59.64;
@@ -90,18 +89,13 @@ struct Core {
     size_t (*retroSerializeSize)() = nullptr;
     bool (*retroSerialize)(void*, size_t) = nullptr;
     bool (*retroUnserialize)(const void*, size_t) = nullptr;
-    // Optional: only some cores export it.
-    void (*retroSetControllerPortDevice)(unsigned, unsigned) = nullptr;
-    retro_disk_control_callback diskControl{};
-    bool hasDiskControl = false;
 
-    std::thread thread;
+    pthread_t thread{};
+    bool threadStarted = false;
     std::atomic<bool> running{false};
     std::atomic<bool> paused{false};
     std::atomic<int> speedMultiplier{1};
     std::atomic<int> inputMask{0};
-    // Left X/Y and right X/Y analog axes, -32767..32767.
-    std::atomic<int> analog[4] = {{0}, {0}, {0}, {0}};
     // Guards window, which the UI thread can swap while the core draws.
     std::mutex videoMutex;
     // Guards every call into the core.
@@ -214,7 +208,6 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "mamearcade") return "libmamearcade_libretro_android.so";
     if (coreId == "mame2003plus") return "libmame2003_plus_libretro_android.so";
     if (coreId == "mame2010") return "libmame2010_libretro_android.so";
-    if (coreId == "ps") return "libpcsx_rearmed_libretro_android.so";
     return nullptr;
 }
 
@@ -249,11 +242,6 @@ bool loadCoreSymbols(Core* core) {
            loadSymbol(lib, core->retroSerializeSize, "retro_serialize_size") &&
            loadSymbol(lib, core->retroSerialize, "retro_serialize") &&
            loadSymbol(lib, core->retroUnserialize, "retro_unserialize");
-}
-
-void loadOptionalSymbols(Core* core) {
-    core->retroSetControllerPortDevice = reinterpret_cast<void (*)(unsigned, unsigned)>(
-        dlsym(core->library, "retro_set_controller_port_device"));
 }
 
 // ---- Save data -------------------------------------------------------------
@@ -346,6 +334,202 @@ void loadSram(Core* core) {
     }
 }
 
+// ---- Crash report ----------------------------------------------------------
+//
+// A core that crashes takes the game process down with it. To make that
+// diagnosable on a phone, the last log lines and the crash location are
+// written to files/last_crash.txt, which the game list shows next time.
+
+namespace crash {
+
+constexpr int kLines = 48;
+constexpr int kLineLength = 240;
+char gLines[kLines][kLineLength];
+std::atomic<unsigned> gNextLine{0};
+char gPath[512];
+char gContext[512];
+bool gInstalled = false;
+struct sigaction gPrevious[NSIG];
+const int kSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT};
+
+void remember(const char* text) {
+    if (text == nullptr || *text == '\0') {
+        return;
+    }
+    unsigned slot = gNextLine.fetch_add(1) % kLines;
+    snprintf(gLines[slot], kLineLength, "%s", text);
+    size_t length = strlen(gLines[slot]);
+    while (length > 0 && (gLines[slot][length - 1] == '\n' || gLines[slot][length - 1] == '\r')) {
+        gLines[slot][--length] = '\0';
+    }
+}
+
+void writeText(int fd, const char* text) {
+    size_t length = strlen(text);
+    while (length > 0) {
+        ssize_t written = write(fd, text, length);
+        if (written <= 0) {
+            return;
+        }
+        text += written;
+        length -= static_cast<size_t>(written);
+    }
+}
+
+void describeAddress(int fd, const char* label, uintptr_t address) {
+    char line[512];
+    Dl_info info{};
+    if (address != 0 && dladdr(reinterpret_cast<void*>(address), &info) != 0 && info.dli_fname != nullptr) {
+        const char* file = strrchr(info.dli_fname, '/');
+        file = file == nullptr ? info.dli_fname : file + 1;
+        uintptr_t base = reinterpret_cast<uintptr_t>(info.dli_fbase);
+        if (info.dli_sname != nullptr) {
+            snprintf(line, sizeof(line), "%s %s+0x%zx (%s+0x%zx)\n", label, file, static_cast<size_t>(address - base),
+                     info.dli_sname, static_cast<size_t>(address - reinterpret_cast<uintptr_t>(info.dli_saddr)));
+        } else {
+            snprintf(line, sizeof(line), "%s %s+0x%zx\n", label, file, static_cast<size_t>(address - base));
+        }
+    } else {
+        snprintf(line, sizeof(line), "%s 0x%zx\n", label, static_cast<size_t>(address));
+    }
+    writeText(fd, line);
+}
+
+struct Unwind {
+    int fd;
+    int frames;
+};
+
+_Unwind_Reason_Code unwindFrame(struct _Unwind_Context* context, void* arg) {
+    auto* state = static_cast<Unwind*>(arg);
+    uintptr_t pc = _Unwind_GetIP(context);
+    if (pc == 0 || state->frames >= 24) {
+        return _URC_END_OF_STACK;
+    }
+    char label[16];
+    snprintf(label, sizeof(label), "  #%02d", state->frames++);
+    describeAddress(state->fd, label, pc);
+    return _URC_NO_REASON;
+}
+
+std::atomic<bool> gReported{false};
+
+void handler(int signal, siginfo_t* info, void* context) {
+    // Only the first fault is reported; the abort that often follows would overwrite it.
+    int fd = gReported.exchange(true) ? -1 : open(gPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        char line[768];
+        snprintf(line, sizeof(line), "signal %d code %d fault addr %p\n%s\n", signal, info != nullptr ? info->si_code : 0,
+                 info != nullptr ? info->si_addr : nullptr, gContext);
+        writeText(fd, line);
+#if defined(__aarch64__)
+        auto* uc = static_cast<ucontext_t*>(context);
+        describeAddress(fd, "pc", uc->uc_mcontext.pc);
+        describeAddress(fd, "lr", uc->uc_mcontext.regs[30]);
+#elif defined(__x86_64__)
+        auto* uc = static_cast<ucontext_t*>(context);
+        describeAddress(fd, "pc", static_cast<uintptr_t>(uc->uc_mcontext.gregs[REG_RIP]));
+#else
+        (void) context;
+#endif
+        writeText(fd, "backtrace:\n");
+        Unwind state{fd, 0};
+        _Unwind_Backtrace(unwindFrame, &state);
+        writeText(fd, "log:\n");
+        unsigned next = gNextLine.load();
+        unsigned first = next > kLines ? next - kLines : 0;
+        for (unsigned i = first; i < next; ++i) {
+            writeText(fd, gLines[i % kLines]);
+            writeText(fd, "\n");
+        }
+        close(fd);
+    }
+    // Hand the signal to the previous handler (the system crash reporter).
+    sigaction(signal, &gPrevious[signal], nullptr);
+    if (signal == SIGABRT) {
+        raise(signal);
+    }
+}
+
+// The handler runs on its own stack so a stack overflow can still be reported.
+void useAlternateStack() {
+    static thread_local bool done = false;
+    if (done) {
+        return;
+    }
+    done = true;
+    stack_t stack{};
+    stack.ss_size = 64 * 1024;
+    stack.ss_sp = malloc(stack.ss_size);
+    if (stack.ss_sp != nullptr) {
+        sigaltstack(&stack, nullptr);
+    }
+}
+
+#ifdef __ANDROID__
+// Cores also print to stdout/stderr, which Android drops; keep those lines too.
+void captureStdio() {
+    int fds[2];
+    if (pipe(fds) != 0) {
+        return;
+    }
+    setvbuf(stdout, nullptr, _IOLBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    dup2(fds[1], STDOUT_FILENO);
+    dup2(fds[1], STDERR_FILENO);
+    close(fds[1]);
+    std::thread([fd = fds[0]]() {
+        char buffer[1024];
+        std::string pending;
+        ssize_t count;
+        while ((count = read(fd, buffer, sizeof(buffer))) > 0) {
+            pending.append(buffer, static_cast<size_t>(count));
+            size_t newline;
+            while ((newline = pending.find('\n')) != std::string::npos) {
+                std::string line = pending.substr(0, newline);
+                remember(line.c_str());
+                __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", line.c_str());
+                pending.erase(0, newline + 1);
+            }
+        }
+    }).detach();
+}
+#endif
+
+void install(const std::string& systemDir, const std::string& coreId, const std::string& romPath) {
+    std::string filesDir = systemDir;
+    size_t slash = filesDir.find_last_of('/');
+    if (slash != std::string::npos) {
+        filesDir.resize(slash);
+    }
+    snprintf(gPath, sizeof(gPath), "%s/last_crash.txt", filesDir.c_str());
+    size_t nameStart = romPath.find_last_of('/');
+    snprintf(gContext, sizeof(gContext), "core %s, rom %s", coreId.c_str(),
+             nameStart == std::string::npos ? romPath.c_str() : romPath.c_str() + nameStart + 1);
+    useAlternateStack();
+    if (gInstalled) {
+        return;
+    }
+    gInstalled = true;
+#ifdef __ANDROID__
+    captureStdio();
+#else
+    // Desktop JVMs use SIGSEGV themselves; the host test opts in explicitly.
+    if (getenv("MINIGBA_CRASH_REPORT") == nullptr) {
+        return;
+    }
+#endif
+    struct sigaction action{};
+    action.sa_sigaction = handler;
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&action.sa_mask);
+    for (int signal : kSignals) {
+        sigaction(signal, &action, &gPrevious[signal]);
+    }
+}
+
+}  // namespace crash
+
 // ---- libretro callbacks ----------------------------------------------------
 
 void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...) {
@@ -359,10 +543,13 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
         case RETRO_LOG_WARN: priority = ANDROID_LOG_WARN; break;
         default: priority = ANDROID_LOG_ERROR; break;
     }
+    char message[1024];
     va_list args;
     va_start(args, fmt);
-    __android_log_vprint(priority, LOG_TAG, fmt, args);
+    vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
+    crash::remember(message);
+    __android_log_print(priority, LOG_TAG, "%s", message);
 }
 
 // Core options the app pins regardless of what the core reports as default.
@@ -442,11 +629,6 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
             if (data == nullptr) return false;
             static_cast<retro_log_callback*>(data)->log = logCallback;
-            return true;
-        case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
-            if (data == nullptr) return false;
-            core->diskControl = *static_cast<const retro_disk_control_callback*>(data);
-            core->hasDiskControl = true;
             return true;
         case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
         // Plain 51 without the experimental flag, as accepted by the original build.
@@ -542,40 +724,14 @@ int mame2010ButtonBitFor(unsigned id) {
     }
 }
 
-// PlayStation pad: cross/circle/square/triangle come in as B/A/C/D.
-int psButtonBitFor(unsigned id) {
-    switch (id) {
-        case RETRO_DEVICE_ID_JOYPAD_B: return kButtonB;
-        case RETRO_DEVICE_ID_JOYPAD_A: return kButtonA;
-        case RETRO_DEVICE_ID_JOYPAD_Y: return kButtonC;
-        case RETRO_DEVICE_ID_JOYPAD_X: return kButtonD;
-        case RETRO_DEVICE_ID_JOYPAD_L2: return kButtonL2;
-        case RETRO_DEVICE_ID_JOYPAD_R2: return kButtonR2;
-        case RETRO_DEVICE_ID_JOYPAD_L3: return kButtonL3;
-        case RETRO_DEVICE_ID_JOYPAD_R3: return kButtonR3;
-        default: return buttonBitFor(id, false);
-    }
-}
-
-int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned index, unsigned id) {
+int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned /*index*/, unsigned id) {
     Core* core = gCore;
-    if (port != 0 || core == nullptr) {
-        return 0;
-    }
-    if (device == RETRO_DEVICE_ANALOG) {
-        if (index > RETRO_DEVICE_INDEX_ANALOG_RIGHT || id > RETRO_DEVICE_ID_ANALOG_Y) {
-            return 0;
-        }
-        return static_cast<int16_t>(core->analog[index * 2 + id].load());
-    }
-    if (device != RETRO_DEVICE_JOYPAD) {
+    if (port != 0 || device != RETRO_DEVICE_JOYPAD || core == nullptr) {
         return 0;
     }
     int mask = core->inputMask.load();
     int bit;
-    if (core->coreId == "ps") {
-        bit = psButtonBitFor(id);
-    } else if (core->coreId == "mame2010") {
+    if (core->coreId == "mame2010") {
         bit = mame2010ButtonBitFor(id);
     } else {
         bit = buttonBitFor(id, core->coreId != "gba");
@@ -607,13 +763,20 @@ void runLoop(Core* core) {
     }
 }
 
+void* emulationThread(void* arg) {
+    crash::useAlternateStack();
+    runLoop(static_cast<Core*>(arg));
+    return nullptr;
+}
+
 void destroyCore(Core* core) {
     if (core == nullptr) {
         return;
     }
     core->running.store(false);
-    if (core->thread.joinable()) {
-        core->thread.join();
+    if (core->threadStarted) {
+        pthread_join(core->thread, nullptr);
+        core->threadStarted = false;
     }
     if (core->window != nullptr) {
         ANativeWindow_release(core->window);
@@ -685,6 +848,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     core->saveDir = jstringToString(env, saveDir);
     core->systemDir = jstringToString(env, systemDir);
     core->coreId = jstringToString(env, coreId);
+    crash::install(core->systemDir, core->coreId, core->romPath);
     std::string requestedName = jstringToString(env, saveName);
     std::string baseName = saveBaseName(requestedName.c_str(), core->romPath);
     core->sramPath = core->saveDir + "/" + baseName + ".sav";
@@ -716,9 +880,6 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         if (core->library == nullptr) {
             LOGE("dlopen core failed: %s", dlerror());
         }
-    }
-    if (core->library != nullptr) {
-        loadOptionalSymbols(core);
     }
     if (core->library == nullptr || !loadCoreSymbols(core)) {
         destroyCore(core);
@@ -765,7 +926,18 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     loadState(core);
 
     core->running.store(true);
-    core->thread = std::thread(runLoop, core);
+    // Arcade cores recurse deeply; give the emulation thread far more than the default 1 MB.
+    pthread_attr_t attributes;
+    pthread_attr_init(&attributes);
+    pthread_attr_setstacksize(&attributes, 16 * 1024 * 1024);
+    core->threadStarted = pthread_create(&core->thread, &attributes, emulationThread, core) == 0;
+    pthread_attr_destroy(&attributes);
+    if (!core->threadStarted) {
+        core->running.store(false);
+        destroyCore(core);
+        throwIllegalState(env, "ROM load failure: could not start the emulation thread");
+        return 0;
+    }
     return reinterpret_cast<jlong>(core);
 }
 
@@ -878,62 +1050,6 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/,
     }
     std::lock_guard<std::mutex> lock(core->coreMutex);
     core->retroReset();
-}
-
-JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalog(
-        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint leftX, jint leftY, jint rightX, jint rightY) {
-    Core* core = fromHandle(handle);
-    if (core == nullptr) {
-        return;
-    }
-    core->analog[0].store(leftX);
-    core->analog[1].store(leftY);
-    core->analog[2].store(rightX);
-    core->analog[3].store(rightY);
-}
-
-// Switches port 1 between a digital pad and a DualShock (PlayStation).
-JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalogPad(
-        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jboolean enabled) {
-    Core* core = fromHandle(handle);
-    if (core == nullptr || !core->gameLoaded || core->retroSetControllerPortDevice == nullptr) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
-    core->retroSetControllerPortDevice(0, enabled == JNI_TRUE ? kDeviceDualShock : RETRO_DEVICE_JOYPAD);
-}
-
-JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_getDiskCount(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
-    Core* core = fromHandle(handle);
-    if (core == nullptr || !core->hasDiskControl || core->diskControl.get_num_images == nullptr) {
-        return 0;
-    }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
-    return static_cast<jint>(core->diskControl.get_num_images());
-}
-
-JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_getDiskIndex(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
-    Core* core = fromHandle(handle);
-    if (core == nullptr || !core->hasDiskControl || core->diskControl.get_image_index == nullptr) {
-        return 0;
-    }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
-    return static_cast<jint>(core->diskControl.get_image_index());
-}
-
-// Opens the tray, swaps to the given disc and closes it again.
-JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setDiskIndex(
-        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint index) {
-    Core* core = fromHandle(handle);
-    if (core == nullptr || !core->hasDiskControl || core->diskControl.set_eject_state == nullptr ||
-        core->diskControl.set_image_index == nullptr) {
-        return JNI_FALSE;
-    }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
-    bool ok = core->diskControl.set_eject_state(true) &&
-              core->diskControl.set_image_index(static_cast<unsigned>(index));
-    ok = core->diskControl.set_eject_state(false) && ok;
-    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_destroy(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {

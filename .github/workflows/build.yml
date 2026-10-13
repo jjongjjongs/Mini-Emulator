@@ -56,7 +56,6 @@ jobs:
           path: |
             app/src/main/jniLibs/arm64-v8a/libfbneo_libretro_android.so
             app/src/main/jniLibs/arm64-v8a/libmame2003_plus_libretro_android.so
-            app/src/main/jniLibs/arm64-v8a/libpcsx_rearmed_libretro_android.so
           key: cores-${{ hashFiles('cores/build-cores.sh') }}
 
       - name: Build emulator cores
@@ -124,7 +123,7 @@ jobs:
       - name: Check APK contents
         run: |
           for apk in app/build/outputs/apk/*/*.apk; do
-            for entry in assets/romsets.bin lib/arm64-v8a/libpcsx_rearmed_libretro_android.so lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so; do
+            for entry in assets/romsets.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so; do
               unzip -l "$apk" | grep -q " $entry\$" || { echo "::error::$apk is missing $entry"; exit 1; }
             done
           done

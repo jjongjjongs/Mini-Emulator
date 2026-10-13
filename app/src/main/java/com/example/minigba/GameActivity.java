@@ -29,21 +29,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     static final String EXTRA_ROM_PATH = "com.example.minigba.ROM_PATH";
     static final String EXTRA_SAVE_BASE_NAME = "com.example.minigba.SAVE_BASE_NAME";
     static final String EXTRA_MODE = "com.example.minigba.MODE";
-    static final String[] PS_EXTENSIONS = {".cue", ".chd", ".pbp", ".m3u", ".iso", ".img", ".exe"};
-    // PlayStation-only button bits, matching the native bridge.
     private static final String MENU_CONTINUE = "계속하기";
     private static final String MENU_SAVE_STATE = "빠른 저장";
     private static final String MENU_LOAD_STATE = "빠른 저장 불러오기";
     private static final String MENU_SAVE_SRAM = "게임 내 세이브 저장";
     private static final String MENU_RESET = "재시작";
     private static final String MENU_EXIT = "ROM 목록으로 나가기";
-    private static final String MENU_ANALOG_ON = "아날로그 스틱 켜기";
-    private static final String MENU_ANALOG_OFF = "아날로그 스틱 끄기";
-    private static final String MENU_SWAP_DISC = "디스크 교체";
-    private static final int BUTTON_L2 = 16384;
-    private static final int BUTTON_R2 = 32768;
-    private static final int BUTTON_L3 = 65536;
-    private static final int BUTTON_R3 = 131072;
     private static final String PREFS_SETTINGS = "settings";
     private static final String PREF_ORIENTATION_MODE = "orientation_mode";
     private static final String PREF_SCREEN_MODE = "screen_mode";
@@ -52,8 +43,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private int buttonMask;
     private String coreId;
     private String gameMode;
-    private boolean analogEnabled;
-    private final int[] analogAxes = new int[4];
     private String[] menuItems = new String[0];
     private SpeedButtonView fastForwardButton;
     private boolean landscapeMode;
@@ -85,9 +74,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
-        if (isPlayStation() && str != null) {
-            this.analogEnabled = getSharedPreferences("settings", 0).getBoolean(analogPrefKey(), false);
-        }
         if (!isSupportedGameFile(lowerCase)) {
             showFatalError("지원하지 않는 파일입니다");
             return;
@@ -198,10 +184,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
-        if (isPlayStation()) {
-            addPlayStationControls(frameLayout, true);
-            return;
-        }
         View createDirectionControl = createDirectionControl();
         boolean isGba = this.coreId.equals("gba");
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(150), dp(150));
@@ -230,142 +212,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         addButton(frameLayout, isGba ? "SELECT" : "COIN", 4, 8388691, dp(42), dp(18), dp(94), dp(34));
         addButton(frameLayout, "START", 8, 8388693, dp(42), dp(18), dp(94), dp(34));
-    }
-
-    // PlayStation pad. With the analog option on, the D-pad and face buttons move
-    // up (portrait) or shrink (landscape) to make room for two sticks.
-    private void addPlayStationControls(FrameLayout frameLayout, boolean landscape) {
-        boolean analog = this.analogEnabled;
-        DPadView dpad = new DPadView(this, this::onDirectionChanged);
-        FrameLayout.LayoutParams dpadParams;
-        int face;
-        int gap;
-        if (landscape) {
-            int size = analog ? 112 : 140;
-            dpadParams = new FrameLayout.LayoutParams(dp(size), dp(size));
-            dpadParams.gravity = 8388627;
-            dpadParams.setMargins(dp(12), 0, 0, 0);
-            dpad.setTranslationY(dp(analog ? -46 : 0));
-            face = analog ? 44 : 50;
-            gap = analog ? 46 : 52;
-            int offset = analog ? -46 : 0;
-            addLandscapeArcadeButton(frameLayout, "△", 2048, 12 + face + gap - face, offset - gap, face, 1);
-            addLandscapeArcadeButton(frameLayout, "○", 1, 12, offset, face, 1);
-            addLandscapeArcadeButton(frameLayout, "✕", 2, 12 + face + gap - face, offset + gap, face, 1);
-            addLandscapeArcadeButton(frameLayout, "□", 1024, 12 + 2 * gap, offset, face, 1);
-            addButton(frameLayout, "L1", 512, 8388659, dp(12), dp(10), dp(64), dp(32), 2);
-            addShoulder(frameLayout, "L2", BUTTON_L2, 8388659, dp(84), dp(10));
-            addShoulder(frameLayout, "R2", BUTTON_R2, 8388661, dp(84), dp(10));
-            addButton(frameLayout, "R1", 256, 8388661, dp(12), dp(10), dp(64), dp(32), 2);
-            if (analog) {
-                addStick(frameLayout, "L3", 0, BUTTON_L3, 8388691, dp(44), dp(52), 96);
-                addStick(frameLayout, "R3", 2, BUTTON_R3, 8388693, dp(44), dp(52), 96);
-            }
-            addButton(frameLayout, "SELECT", 4, 8388691, dp(12), dp(10), dp(80), dp(32));
-            addButton(frameLayout, "START", 8, 8388693, dp(12), dp(10), dp(80), dp(32));
-        } else {
-            int size = analog ? 124 : 150;
-            int bottom = analog ? 226 : 150;
-            dpadParams = new FrameLayout.LayoutParams(dp(size), dp(size));
-            dpadParams.gravity = 8388691;
-            dpadParams.setMargins(dp(16), 0, 0, dp(bottom));
-            face = analog ? 48 : 54;
-            gap = analog ? 48 : 56;
-            int centerFromBottom = bottom + size / 2;
-            int rightCenter = 16 + face / 2;
-            addFaceButton(frameLayout, "△", 2048, rightCenter + gap, centerFromBottom + gap, face);
-            addFaceButton(frameLayout, "○", 1, rightCenter, centerFromBottom, face);
-            addFaceButton(frameLayout, "✕", 2, rightCenter + gap, centerFromBottom - gap, face);
-            addFaceButton(frameLayout, "□", 1024, rightCenter + 2 * gap, centerFromBottom, face);
-            if (analog) {
-                // Shoulders side by side to free vertical space for the sticks.
-                addButton(frameLayout, "L1", 512, 8388659, dp(12), dp(26), dp(58), dp(32), 2);
-                addButton(frameLayout, "L2", BUTTON_L2, 8388659, dp(76), dp(26), dp(56), dp(32), 2);
-                addButton(frameLayout, "R2", BUTTON_R2, 8388661, dp(76), dp(26), dp(56), dp(32), 2);
-                addButton(frameLayout, "R1", 256, 8388661, dp(12), dp(26), dp(58), dp(32), 2);
-                addStick(frameLayout, "L3", 0, BUTTON_L3, 8388691, dp(40), dp(116), 100);
-                addStick(frameLayout, "R3", 2, BUTTON_R3, 8388693, dp(40), dp(116), 100);
-            } else {
-                addButton(frameLayout, "L1", 512, 8388659, dp(16), dp(30), dp(92), dp(38), 2);
-                addShoulder(frameLayout, "L2", BUTTON_L2, 8388659, dp(16), dp(74));
-                addButton(frameLayout, "R1", 256, 8388661, dp(16), dp(30), dp(92), dp(38), 2);
-                addShoulder(frameLayout, "R2", BUTTON_R2, 8388661, dp(16), dp(74));
-            }
-            addCenterButton(frameLayout, "SELECT", 4, -66);
-            addCenterButton(frameLayout, "START", 8, 66);
-        }
-        frameLayout.addView(dpad, dpadParams);
-    }
-
-    // Places a face button by its centre, measured in dp from the right and bottom edges.
-    private void addFaceButton(FrameLayout frameLayout, String label, int bit, int centerFromEnd, int centerFromBottom, int size) {
-        addButton(frameLayout, label, bit, 8388693, dp(centerFromEnd - size / 2), dp(centerFromBottom - size / 2), dp(size), dp(size), 1);
-    }
-
-    private void addShoulder(FrameLayout frameLayout, String label, int bit, int gravity, int sideMargin, int topMargin) {
-        boolean landscape = this.landscapeMode;
-        addButton(frameLayout, label, bit, gravity, sideMargin, topMargin, dp(landscape ? 64 : 92), dp(landscape ? 32 : 38), 2);
-    }
-
-    private void addStick(FrameLayout frameLayout, String label, final int axisOffset, final int clickBit, int gravity, int sideMargin, int bottomMargin, int sizeDp) {
-        AnalogStickView stick = new AnalogStickView(this, label, new AnalogStickView.Listener() {
-            @Override
-            public void onStickMoved(int x, int y) {
-                analogAxes[axisOffset] = x;
-                analogAxes[axisOffset + 1] = y;
-                if (nativeHandle != 0) {
-                    NativeGba.setAnalog(nativeHandle, analogAxes[0], analogAxes[1], analogAxes[2], analogAxes[3]);
-                }
-            }
-
-            @Override
-            public void onStickClicked(boolean pressed) {
-                setButtonPressed(clickBit, pressed);
-            }
-        });
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp));
-        params.gravity = gravity;
-        params.setMargins(sideMargin, 0, sideMargin, bottomMargin);
-        frameLayout.addView(stick, params);
-    }
-
-    private String analogPrefKey() {
-        return "analog:" + new File(this.romPath).getName();
-    }
-
-    private void setAnalogEnabled(boolean enabled) {
-        this.analogEnabled = enabled;
-        getSharedPreferences("settings", 0).edit().putBoolean(analogPrefKey(), enabled).commit();
-        java.util.Arrays.fill(this.analogAxes, 0);
-        if (this.nativeHandle != 0) {
-            NativeGba.setAnalog(this.nativeHandle, 0, 0, 0, 0);
-            NativeGba.setAnalogPad(this.nativeHandle, enabled);
-        }
-        // Rebuild the controls; the new SurfaceView re-attaches to the running core.
-        if (this.landscapeMode) {
-            createLandscapeContent();
-        } else {
-            createPortraitContent();
-        }
-        Toast.makeText(this, enabled ? "아날로그 스틱을 켰습니다." : "아날로그 스틱을 껐습니다.", 0).show();
-    }
-
-    private void showDiscPicker() {
-        long handle = this.nativeHandle;
-        int count = handle == 0 ? 0 : NativeGba.getDiskCount(handle);
-        if (count < 2) {
-            Toast.makeText(this, "이 게임은 디스크가 1장입니다.", 0).show();
-            return;
-        }
-        int current = NativeGba.getDiskIndex(handle);
-        String[] labels = new String[count];
-        for (int i = 0; i < count; i++) {
-            labels[i] = "디스크 " + (i + 1) + (i == current ? " (현재)" : "");
-        }
-        new AlertDialog.Builder(this).setTitle("디스크 교체").setItems(labels, (dialog, which) -> {
-            boolean ok = NativeGba.setDiskIndex(handle, which);
-            Toast.makeText(this, ok ? "디스크 " + (which + 1) + "(으)로 바꿨습니다." : "디스크를 바꾸지 못했습니다.", 0).show();
-        }).setOnDismissListener(dialog -> resumeUnlessExiting()).show();
     }
 
     private View createDirectionControl() {
@@ -560,9 +406,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             try {
                 long create = NativeGba.create(surface, this.romPath, file.getAbsolutePath(), file2.getAbsolutePath(), this.saveBaseName, this.coreId, this.audioSink);
                 this.nativeHandle = create;
-                if (isPlayStation()) {
-                    NativeGba.setAnalogPad(create, this.analogEnabled);
-                }
                 NativeGba.setInput(create, this.buttonMask);
                 NativeGba.setSpeedMultiplier(this.nativeHandle, this.speedMultiplier);
             } catch (RuntimeException e3) {
@@ -689,11 +532,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
-        if (isPlayStation()) {
-            addFastForwardButton(frameLayout);
-            addPlayStationControls(frameLayout, false);
-            return;
-        }
         View createDirectionControl = createDirectionControl();
         boolean isGba = this.coreId.equals("gba");
         int i = isGba ? 166 : 156;
@@ -788,16 +626,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         items.add(MENU_SAVE_SRAM);
         items.add(MENU_RESET);
         items.add(this.landscapeMode ? "세로 화면으로 전환" : "가로 화면으로 전환");
-        if (isPlayStation()) {
-            items.add(this.analogEnabled ? MENU_ANALOG_OFF : MENU_ANALOG_ON);
-            if (this.nativeHandle != 0 && NativeGba.getDiskCount(this.nativeHandle) > 1) {
-                items.add(MENU_SWAP_DISC);
-            }
-        }
         items.add(MENU_EXIT);
         this.menuItems = items.toArray(new String[0]);
         String[] strArr = this.menuItems;
-        AlertDialog create = new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini Emulator" : isPlayStation() ? "PlayStation" : "Mini Arcade").setItems(strArr, (dialogInterface, i) -> onGameMenuItemSelected(dialogInterface, i)).create();
+        AlertDialog create = new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini Emulator" : "Mini Arcade").setItems(strArr, (dialogInterface, i) -> onGameMenuItemSelected(dialogInterface, i)).create();
         create.setOnDismissListener(dialog -> resumeUnlessExiting());
         create.show();
     }
@@ -813,18 +645,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case MENU_SAVE_SRAM: i = 3; break;
             case MENU_RESET: i = 4; break;
             case MENU_EXIT: i = 6; break;
-            case MENU_ANALOG_ON:
-                setAnalogEnabled(true);
-                return;
-            case MENU_ANALOG_OFF:
-                setAnalogEnabled(false);
-                return;
-            case MENU_SWAP_DISC:
-                this.menuExiting = true;
-                dialogInterface.dismiss();
-                this.menuExiting = false;
-                showDiscPicker();
-                return;
             default: i = 5; break;
         }
         if (i == 0) {
@@ -963,13 +783,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         switch (this.coreId) {
             case "gba":
                 return lowerCasePath.endsWith(".gba");
-            case "ps":
-                for (String extension : PS_EXTENSIONS) {
-                    if (lowerCasePath.endsWith(extension)) {
-                        return true;
-                    }
-                }
-                return false;
             case "fbneo":
             case "mame2003plus":
             case "mame2010":
@@ -979,10 +792,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             default:
                 return false;
         }
-    }
-
-    private boolean isPlayStation() {
-        return "ps".equals(this.coreId);
     }
 
     private boolean isNeoGeoMode() {

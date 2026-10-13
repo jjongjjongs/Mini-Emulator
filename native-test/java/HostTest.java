@@ -106,13 +106,6 @@ public class HostTest {
         NativeGba.setSurface(h, surface);
         check(liveWindows() == 1, "replacing the surface releases the old window");
 
-        check(NativeGba.getDiskCount(h) == 0, "GBA core has no disc control");
-        check(!NativeGba.setDiskIndex(h, 1), "disc swap is refused without disc control");
-        NativeGba.setAnalog(h, 32767, -32767, 0, 0);
-        NativeGba.setAnalogPad(h, true);
-        check(frames() > 0, "analog calls are harmless on cores without analog input");
-        NativeGba.setAnalog(h, 0, 0, 0, 0);
-
         NativeGba.reset(h);
         Thread.sleep(200);
         check(frames() > before, "still running after reset");

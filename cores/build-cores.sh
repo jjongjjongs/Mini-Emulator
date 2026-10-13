@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the arcade and PlayStation libretro cores for arm64-v8a with the Android NDK and
+# Builds the arcade libretro cores for arm64-v8a with the Android NDK and
 # copies them into app/src/main/jniLibs. The cores are pinned to the commits
 # below; bump them deliberately.
 #
@@ -10,8 +10,6 @@ FBNEO_REPO=https://github.com/libretro/FBNeo.git
 FBNEO_COMMIT=a0cd2c6ab8502b92a78397b3e8cf6db502f279ac
 MAME2003P_REPO=https://github.com/libretro/mame2003-plus-libretro.git
 MAME2003P_COMMIT=b5ca65f5fd5a80f1372e0fcc67f00f7e0f09cf62
-PCSX_REPO=https://github.com/libretro/pcsx_rearmed.git
-PCSX_COMMIT=c8816799b50388e61cfe237fe2cdbb7d8175f20a
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
@@ -47,7 +45,5 @@ build() {
 mkdir -p "$WORK"
 checkout "$WORK/fbneo" "$FBNEO_REPO" "$FBNEO_COMMIT"
 checkout "$WORK/mame2003-plus" "$MAME2003P_REPO" "$MAME2003P_COMMIT"
-checkout "$WORK/pcsx_rearmed" "$PCSX_REPO" "$PCSX_COMMIT"
 build fbneo "$WORK/fbneo/src/burner/libretro/jni" libfbneo_libretro_android.so
 build mame2003-plus "$WORK/mame2003-plus/jni" libmame2003_plus_libretro_android.so
-build pcsx_rearmed "$WORK/pcsx_rearmed/jni" libpcsx_rearmed_libretro_android.so
