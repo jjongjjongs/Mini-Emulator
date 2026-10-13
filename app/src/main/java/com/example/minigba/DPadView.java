@@ -68,8 +68,8 @@ final class DPadView extends View {
         setFocusable(false);
     }
 
-    // Glossy black cross: a shadow under it, the cross's side, then a lit face with a
-    // shine along each arm. A pressed arm darkens and sinks slightly.
+    // Smoky see-through cross: a soft shadow, tinted plastic with a shine along each arm
+    // and a thin bright rim. A pressed arm darkens.
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -81,25 +81,25 @@ final class DPadView extends View {
         float arm = min * 0.32f;
         float reach = min * 0.46f;
         float corner = arm * 0.22f;
-        float depth = min * 0.035f;
+        float depth = min * 0.03f;
         Path cross = crossPath(cx, cy - depth / 2.0f, arm, reach, corner);
 
         canvas.save();
-        canvas.translate(0, depth * 2.2f);
-        this.shadowPaint.setColor(Color.argb(60, 0, 0, 0));
+        canvas.translate(0, depth * 1.6f);
+        this.shadowPaint.setColor(Color.argb(45, 0, 0, 0));
         canvas.drawPath(cross, this.shadowPaint);
         canvas.restore();
         canvas.save();
-        canvas.translate(0, depth);
-        this.shellPaint.setColor(Color.rgb(4, 4, 6));
+        canvas.translate(0, depth * 0.7f);
+        this.shellPaint.setColor(Color.argb(40, 0, 0, 0));
         canvas.drawPath(cross, this.shellPaint);
         canvas.restore();
 
         this.paint.setShader(new LinearGradient(cx - reach, 0, cx + reach, 0,
-                new int[]{Color.rgb(64, 64, 70), Color.rgb(24, 24, 27), Color.rgb(64, 64, 70)}, null, Shader.TileMode.CLAMP));
+                new int[]{Color.argb(217, 60, 60, 70), Color.argb(230, 20, 20, 26), Color.argb(217, 60, 60, 70)}, null, Shader.TileMode.CLAMP));
         canvas.drawPath(cross, this.paint);
         this.paint.setShader(new LinearGradient(0, cy - reach, 0, cy + reach,
-                new int[]{Color.argb(70, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(60, 0, 0, 0)}, null, Shader.TileMode.CLAMP));
+                new int[]{Color.argb(60, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(40, 120, 120, 140)}, null, Shader.TileMode.CLAMP));
         canvas.drawPath(cross, this.paint);
         this.paint.setShader(null);
 
@@ -108,9 +108,8 @@ final class DPadView extends View {
             if ((this.directionMask & bit) != 0) {
                 canvas.save();
                 canvas.clipPath(cross);
-                this.activePaint.setColor(Color.argb(110, 0, 0, 0));
-                RectF rect = armRect(bit, cx, cy, arm, reach);
-                canvas.drawRect(rect, this.activePaint);
+                this.activePaint.setColor(Color.argb(100, 0, 0, 0));
+                canvas.drawRect(armRect(bit, cx, cy, arm, reach), this.activePaint);
                 canvas.restore();
             }
         }
@@ -121,7 +120,7 @@ final class DPadView extends View {
 
         // Centre dimple.
         this.centerPaint.setShader(new RadialGradient(cx, cy - depth / 2.0f, arm * 0.36f,
-                new int[]{Color.rgb(10, 10, 12), Color.rgb(50, 50, 56)}, null, Shader.TileMode.CLAMP));
+                new int[]{Color.argb(220, 10, 10, 12), Color.argb(200, 60, 60, 68)}, null, Shader.TileMode.CLAMP));
         canvas.drawCircle(cx, cy - depth / 2.0f, arm * 0.34f, this.centerPaint);
         this.centerPaint.setShader(null);
 

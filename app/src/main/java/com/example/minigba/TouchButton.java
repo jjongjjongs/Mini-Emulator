@@ -66,110 +66,123 @@ final class TouchButton extends View {
         setFocusable(false);
     }
 
-    // Glossy 3D look: a darker side (the button's thickness) under a lit top face with a
-    // reflection, and a soft floor shadow. Pressing pushes the face down into the side.
+    // Clear jelly look: tinted see-through plastic with light pooling at the bottom, a thin
+    // bright rim, a small reflection and a coloured glow under it. Pressing sinks it a little.
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        int[] palette = palette();
         float width = getWidth();
         float height = getHeight();
         if (Math.max(width, height) > Math.min(width, height) * 1.25f) {
-            drawKeycap(canvas, width, height, palette);
+            drawKeycap(canvas, width, height);
         } else {
-            drawRound(canvas, width, height, palette);
+            drawRound(canvas, width, height, palette());
         }
     }
 
-    // top colour, middle colour, side colour, label colour
+    // light, middle and edge colour of the plastic
     private int[] palette() {
         switch (this.style) {
-            case STYLE_ACTION:
-                return new int[]{Color.rgb(78, 78, 84), Color.rgb(26, 26, 29), Color.rgb(4, 4, 6), Color.rgb(230, 230, 234)};
             case STYLE_ARCADE_RED:
-                return new int[]{Color.rgb(240, 64, 82), Color.rgb(163, 16, 31), Color.rgb(110, 8, 20), Color.WHITE};
+                return new int[]{Color.rgb(227, 38, 58), Color.rgb(163, 16, 31), Color.rgb(110, 8, 20)};
             case STYLE_ARCADE_BLUE:
-                return new int[]{Color.rgb(46, 200, 220), Color.rgb(11, 127, 145), Color.rgb(6, 81, 92), Color.WHITE};
+                return new int[]{Color.rgb(24, 182, 204), Color.rgb(11, 127, 145), Color.rgb(6, 81, 92)};
             case STYLE_ARCADE_YELLOW:
-                return new int[]{Color.rgb(252, 196, 70), Color.rgb(201, 133, 10), Color.rgb(135, 87, 3), Color.rgb(91, 58, 0)};
+                return new int[]{Color.rgb(248, 179, 26), Color.rgb(201, 133, 10), Color.rgb(135, 87, 3)};
             case STYLE_ARCADE_GREEN:
-                return new int[]{Color.rgb(56, 196, 112), Color.rgb(19, 128, 60), Color.rgb(10, 83, 38), Color.WHITE};
-            case STYLE_DARK:
-                return new int[]{Color.rgb(74, 74, 80), Color.rgb(35, 35, 39), Color.rgb(14, 14, 16), Color.rgb(232, 232, 236)};
+                return new int[]{Color.rgb(34, 179, 90), Color.rgb(19, 128, 60), Color.rgb(10, 83, 38)};
             default:
-                // Light keys and shoulder buttons: cream keycaps.
-                return new int[]{Color.rgb(246, 244, 238), Color.rgb(217, 213, 204), Color.rgb(163, 159, 150), Color.rgb(44, 43, 107)};
+                // GBA A/B and anything else round: smoky black.
+                return new int[]{Color.rgb(58, 58, 63), Color.rgb(20, 20, 22), Color.rgb(0, 0, 0)};
         }
     }
 
     private void drawRound(Canvas canvas, float width, float height, int[] palette) {
         float cx = width / 2.0f;
         float radius = Math.min(width, height) * 0.42f;
-        float depth = radius * 0.16f;
-        float press = this.pressed ? depth * 0.75f : 0.0f;
-        float baseY = height / 2.0f - depth / 2.0f;
-        float faceY = baseY + press;
+        float press = this.pressed ? radius * 0.05f : 0.0f;
+        float cy = height / 2.0f - radius * 0.04f + press;
 
-        // Floor shadow.
-        this.shadow.setShader(new RadialGradient(cx, baseY + depth + radius * 0.12f, radius * 1.2f,
-                Color.argb(this.pressed ? 70 : 105, 0, 0, 0), Color.argb(0, 0, 0, 0), Shader.TileMode.CLAMP));
-        canvas.drawCircle(cx, baseY + depth + radius * 0.12f, radius * 1.2f, this.shadow);
+        // Coloured glow the plastic throws on the case, plus a tight contact shadow.
+        float glowY = cy + radius * (this.pressed ? 0.06f : 0.14f);
+        this.shadow.setShader(new RadialGradient(cx, glowY, radius * 1.22f,
+                withAlpha(palette[2], this.pressed ? 70 : 110), withAlpha(palette[2], 0), Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, glowY, radius * 1.22f, this.shadow);
         this.shadow.setShader(null);
-        // Side of the button.
+        this.shadow.setColor(Color.argb(60, 0, 0, 0));
+        canvas.drawCircle(cx, cy + Math.max(1.0f, radius * 0.03f), radius, this.shadow);
+
+        // See-through body, brighter below the centre.
+        this.fill.setShader(new RadialGradient(cx, cy + radius * 0.2f, radius * 1.1f,
+                new int[]{withAlpha(palette[0], 204), withAlpha(palette[1], 179), withAlpha(palette[2], 204)},
+                new float[]{0.0f, 0.7f, 1.0f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, cy, radius, this.fill);
+        // Light pooling at the bottom inside the plastic.
+        this.fill.setShader(new RadialGradient(cx, cy + radius * 0.8f, radius * 0.75f,
+                withAlpha(lighter(palette[0]), 150), withAlpha(palette[0], 0), Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, cy, radius, this.fill);
         this.fill.setShader(null);
-        this.fill.setColor(palette[2]);
-        canvas.drawCircle(cx, baseY + depth, radius, this.fill);
-        // Top face, lit from above.
-        this.fill.setShader(new RadialGradient(cx, faceY - radius * 0.35f, radius * 1.45f,
-                new int[]{palette[0], palette[1], palette[2]}, new float[]{0.0f, 0.68f, 1.0f}, Shader.TileMode.CLAMP));
-        canvas.drawCircle(cx, faceY, radius, this.fill);
-        this.fill.setShader(new LinearGradient(0, faceY, 0, faceY + radius,
-                Color.argb(0, 0, 0, 0), Color.argb(55, 0, 0, 0), Shader.TileMode.CLAMP));
-        canvas.drawCircle(cx, faceY, radius, this.fill);
-        this.fill.setShader(null);
-        // Reflection on the upper half.
-        RectF gloss = new RectF(cx - radius * 0.62f, faceY - radius * 0.9f, cx + radius * 0.62f, faceY - radius * 0.26f);
-        this.highlight.setStyle(Paint.Style.FILL);
-        this.highlight.setShader(new LinearGradient(0, gloss.top, 0, gloss.bottom,
-                Color.argb(this.pressed ? 120 : 185, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
-        canvas.drawOval(gloss, this.highlight);
+
+        // Thin bright rim.
+        float rim = Math.max(1.5f, radius * 0.06f);
         this.highlight.setShader(null);
-        drawLabel(canvas, cx, faceY, radius * 0.86f, palette[3]);
+        this.highlight.setStyle(Paint.Style.STROKE);
+        this.highlight.setStrokeWidth(rim);
+        this.highlight.setColor(Color.argb(90, 255, 255, 255));
+        canvas.drawCircle(cx, cy, radius - rim / 2.0f, this.highlight);
+
+        // Small tilted reflection in the upper left.
+        this.highlight.setStyle(Paint.Style.FILL);
+        this.highlight.setColor(Color.argb(this.pressed ? 140 : 190, 255, 255, 255));
+        canvas.save();
+        canvas.rotate(-25.0f, cx - radius * 0.28f, cy - radius * 0.58f);
+        canvas.drawOval(new RectF(cx - radius * 0.64f, cy - radius * 0.78f, cx + radius * 0.08f, cy - radius * 0.38f), this.highlight);
+        canvas.restore();
+        drawLabel(canvas, cx, cy, radius * 0.86f, Color.WHITE);
     }
 
-    private void drawKeycap(Canvas canvas, float width, float height, int[] palette) {
-        float depth = Math.max(3.0f, height * 0.12f);
-        float press = this.pressed ? depth * 0.7f : 0.0f;
+    // Wide keys (L/R, SELECT/START, coin and the like): smoky see-through plastic.
+    private void drawKeycap(Canvas canvas, float width, float height) {
+        float press = this.pressed ? 2.0f : 0.0f;
         float left = 3.0f;
         float right = width - 3.0f;
-        float top = 2.0f;
-        float bottom = height - depth - 5.0f;
+        float top = 2.0f + press;
+        float bottom = height - 7.0f + press;
         boolean shoulder = this.style == STYLE_SHOULDER;
         float radius = (bottom - top) * (shoulder ? 0.32f : 0.5f);
+        RectF face = new RectF(left, top, right, bottom);
 
-        // Floor shadow in two soft layers.
+        // Soft shadow underneath.
+        float drop = this.pressed ? 2.0f : 4.0f;
         this.shadow.setShader(null);
-        this.shadow.setColor(Color.argb(this.pressed ? 26 : 40, 0, 0, 0));
-        canvas.drawRoundRect(new RectF(left, top + depth + 3.0f, right, bottom + depth + 4.0f), radius, radius, this.shadow);
-        this.shadow.setColor(Color.argb(this.pressed ? 18 : 28, 0, 0, 0));
-        canvas.drawRoundRect(new RectF(left - 1.0f, top + depth + 5.0f, right + 1.0f, bottom + depth + 5.0f), radius, radius, this.shadow);
-        // Side.
-        this.fill.setShader(null);
-        this.fill.setColor(palette[2]);
-        canvas.drawRoundRect(new RectF(left, top + depth, right, bottom + depth), radius, radius, this.fill);
-        // Face.
-        RectF face = new RectF(left, top + press, right, bottom + press);
-        this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom, palette[0], palette[1], Shader.TileMode.CLAMP));
+        this.shadow.setColor(Color.argb(this.pressed ? 26 : 38, 0, 0, 0));
+        canvas.drawRoundRect(new RectF(left - 1.0f, top + drop, right + 1.0f, bottom + drop + 1.0f), radius, radius, this.shadow);
+        this.shadow.setColor(Color.argb(this.pressed ? 34 : 50, 0, 0, 0));
+        canvas.drawRoundRect(new RectF(left, top + drop * 0.5f, right, bottom + drop * 0.5f), radius, radius, this.shadow);
+
+        this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom,
+                Color.argb(this.pressed ? 205 : 190, 70, 70, 80), Color.argb(this.pressed ? 230 : 217, 30, 30, 38), Shader.TileMode.CLAMP));
         canvas.drawRoundRect(face, radius, radius, this.fill);
+        // Faint sheen on the upper half.
+        this.fill.setShader(new LinearGradient(0, face.top, 0, face.centerY(),
+                Color.argb(60, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(new RectF(face.left + 2.0f, face.top + 2.0f, face.right - 2.0f, face.centerY()), radius, radius, this.fill);
         this.fill.setShader(null);
-        // Thin light edge along the top.
+        // Bright rim.
+        this.highlight.setShader(null);
         this.highlight.setStyle(Paint.Style.STROKE);
         this.highlight.setStrokeWidth(1.6f);
-        this.highlight.setShader(new LinearGradient(0, face.top, 0, face.centerY(),
-                Color.argb(200, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
-        canvas.drawRoundRect(new RectF(face.left + 1.0f, face.top + 1.0f, face.right - 1.0f, face.bottom - 1.0f), radius, radius, this.highlight);
-        this.highlight.setShader(null);
-        drawLabel(canvas, width / 2.0f, face.centerY(), (face.bottom - face.top) * 0.9f, palette[3]);
+        this.highlight.setColor(Color.argb(80, 255, 255, 255));
+        canvas.drawRoundRect(new RectF(face.left + 0.8f, face.top + 0.8f, face.right - 0.8f, face.bottom - 0.8f), radius, radius, this.highlight);
+        drawLabel(canvas, width / 2.0f, face.centerY(), (face.bottom - face.top) * 0.9f, Color.WHITE);
+    }
+
+    private static int withAlpha(int color, int alpha) {
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    private static int lighter(int color) {
+        return Color.rgb((Color.red(color) + 255) / 2, (Color.green(color) + 255) / 2, (Color.blue(color) + 255) / 2);
     }
 
     private void drawLabel(Canvas canvas, float x, float centerY, float size, int color) {

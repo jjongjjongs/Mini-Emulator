@@ -29,8 +29,8 @@ final class ArcadeJoystickView extends View {
         setFocusable(false);
     }
 
-    // Glossy 3D stick: a rounded base plate with a recessed hole and a shiny red ball
-    // that leans toward the pushed direction.
+    // Clear jelly stick: a smoky see-through base plate with a recessed hole and a
+    // translucent red ball that leans toward the pushed direction.
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
@@ -45,7 +45,7 @@ final class ArcadeJoystickView extends View {
         this.paint.setShader(null);
         this.paint.setColor(Color.argb(60, 0, 0, 0));
         canvas.drawRoundRect(new RectF(base.left, base.top + min * 0.04f, base.right, base.bottom + min * 0.04f), corner, corner, this.paint);
-        this.paint.setShader(new LinearGradient(0, base.top, 0, base.bottom, Color.rgb(112, 112, 110), Color.rgb(70, 70, 68), Shader.TileMode.CLAMP));
+        this.paint.setShader(new LinearGradient(0, base.top, 0, base.bottom, Color.argb(191, 90, 90, 95), Color.argb(204, 60, 60, 65), Shader.TileMode.CLAMP));
         canvas.drawRoundRect(base, corner, corner, this.paint);
         this.paint.setShader(null);
         this.paint.setStyle(Paint.Style.STROKE);
@@ -69,14 +69,25 @@ final class ArcadeJoystickView extends View {
                 Color.argb(140, 0, 0, 0), Color.argb(0, 0, 0, 0), Shader.TileMode.CLAMP));
         canvas.drawCircle(bx, by + ball * 0.55f, ball * 1.2f, this.paint);
         boolean pushed = this.directionMask != 0;
-        this.paint.setShader(new RadialGradient(bx - ball * 0.25f, by - ball * 0.35f, ball * 1.4f,
-                new int[]{Color.rgb(255, 150, 150), pushed ? Color.rgb(240, 50, 64) : Color.rgb(227, 38, 58), Color.rgb(122, 11, 21)},
-                new float[]{0, 0.4f, 1}, Shader.TileMode.CLAMP));
+        this.paint.setShader(new RadialGradient(bx - ball * 0.2f, by - ball * 0.3f, ball * 1.3f,
+                new int[]{Color.argb(242, 255, 150, 150), pushed ? Color.argb(230, 240, 50, 64) : Color.argb(217, 227, 38, 58), Color.argb(230, 120, 10, 20)},
+                new float[]{0, 0.5f, 1}, Shader.TileMode.CLAMP));
         canvas.drawCircle(bx, by, ball, this.paint);
-        this.paint.setShader(new LinearGradient(0, by - ball * 0.85f, 0, by - ball * 0.2f,
-                Color.argb(170, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
-        canvas.drawOval(new RectF(bx - ball * 0.55f, by - ball * 0.85f, bx + ball * 0.4f, by - ball * 0.2f), this.paint);
+        // Light pooling at the bottom of the ball.
+        this.paint.setShader(new RadialGradient(bx, by + ball * 0.75f, ball * 0.7f,
+                Color.argb(130, 255, 170, 170), Color.argb(0, 255, 170, 170), Shader.TileMode.CLAMP));
+        canvas.drawCircle(bx, by, ball, this.paint);
         this.paint.setShader(null);
+        this.paint.setStyle(Paint.Style.STROKE);
+        this.paint.setStrokeWidth(Math.max(1.5f, ball * 0.06f));
+        this.paint.setColor(Color.argb(90, 255, 255, 255));
+        canvas.drawCircle(bx, by, ball - ball * 0.03f, this.paint);
+        this.paint.setStyle(Paint.Style.FILL);
+        this.paint.setColor(Color.argb(170, 255, 255, 255));
+        canvas.save();
+        canvas.rotate(-25.0f, bx - ball * 0.28f, by - ball * 0.58f);
+        canvas.drawOval(new RectF(bx - ball * 0.62f, by - ball * 0.76f, bx + ball * 0.06f, by - ball * 0.4f), this.paint);
+        canvas.restore();
     }
 
     @Override
