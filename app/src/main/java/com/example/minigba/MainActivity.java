@@ -950,10 +950,17 @@ public final class MainActivity extends Activity {
                 sb.append(displayNameFor).append(": 아케이드 ROM은 ZIP 파일이어야 합니다.\n");
             } else {
                 try {
-                    if (copyArcadeRomToAppStorage(uri2, displayNameFor) == null) {
+                    File imported = copyArcadeRomToAppStorage(uri2, displayNameFor);
+                    if (imported == null) {
                         i3++;
                     } else {
                         i++;
+                        RomsetResult romset = resolveRomset(imported);
+                        if (romset.match == null) {
+                            sb.append(displayNameFor).append(": 엔진이 알아볼 수 없는 ROM입니다 (지원하지 않는 게임이거나 일부 파일만 있음)\n");
+                        } else if (romset.renameConflict != null) {
+                            sb.append(displayNameFor).append(": 같은 게임(").append(romset.renameConflict).append(")이 이미 있습니다\n");
+                        }
                     }
                 } catch (IOException e) {
                     sb.append(displayNameFor).append(": ").append(e.getMessage()).append('\n');
@@ -1685,6 +1692,154 @@ public final class MainActivity extends Activity {
         return sb.toString();
     }
 
+    // ---- Arcade romset recognition ----
+
+    private static final class RomsetResult {
+        File file;
+        RomsetIndex.Match match;
+        boolean coreChanged;
+        String renameConflict;
+    }
+
+    // Finds which romset an arcade ZIP holds, picks an engine that has it and renames
+    // the file to the set name, since both cores look games up by file name.
+    private RomsetResult resolveRomset(File file) {
+        RomsetResult result = new RomsetResult();
+        result.file = file;
+        File dir = file.getParentFile();
+        String preferred = coreFor(file);
+        int[] crcs = RomsetIndex.zipCrcs(file);
+        RomsetIndex.Match best = null;
+        List<String> order = new ArrayList<>();
+        order.add(preferred);
+        for (String core : ARCADE_CORE_IDS) {
+            if (!order.contains(core)) {
+                order.add(core);
+            }
+        }
+        for (String core : order) {
+            RomsetIndex.Match match = RomsetIndex.identify(this, core, crcs);
+            if (match == null) {
+                continue;
+            }
+            if (best == null
+                    || (match.isComplete(dir) && !best.isComplete(dir))
+                    || (!match.isComplete(dir) && !best.isComplete(dir) && match.missingOwn < best.missingOwn)) {
+                best = match;
+            }
+        }
+        result.match = best;
+        if (best == null) {
+            return result;
+        }
+        if (!best.core.equals(preferred)) {
+            romPrefs().edit().putString("core:" + file.getName(), best.core).apply();
+            result.coreChanged = true;
+        }
+        File target = new File(dir, best.name + ".zip");
+        if (!target.getName().equals(file.getName())) {
+            if (target.exists()) {
+                result.renameConflict = target.getName();
+            } else if (renameRomFile(file, target)) {
+                result.file = target;
+            }
+        }
+        return result;
+    }
+
+    // Renames an imported ROM and carries its title, save name and settings along.
+    private boolean renameRomFile(File from, File to) {
+        if (!from.renameTo(to)) {
+            return false;
+        }
+        SharedPreferences prefs = romPrefs();
+        SharedPreferences.Editor editor = prefs.edit();
+        String[] prefixes = {"title:", "save:", "favorite:", "recent:", "core:"};
+        for (String prefix : prefixes) {
+            Object value = prefs.getAll().get(prefix + from.getName());
+            editor.remove(prefix + from.getName());
+            if (value instanceof String) {
+                editor.putString(prefix + to.getName(), (String) value);
+            } else if (value instanceof Boolean) {
+                editor.putBoolean(prefix + to.getName(), (Boolean) value);
+            } else if (value instanceof Long) {
+                editor.putLong(prefix + to.getName(), (Long) value);
+            } else if (value instanceof Integer) {
+                editor.putInt(prefix + to.getName(), (Integer) value);
+            }
+        }
+        if (prefs.getString("title:" + from.getName(), null) == null) {
+            editor.putString("title:" + to.getName(), baseNameWithoutExtension(from.getName()));
+        }
+        editor.apply();
+        return true;
+    }
+
+    private String romsetProblem(RomsetResult result) {
+        File dir = result.file.getParentFile();
+        RomsetIndex.Match match = result.match;
+        String engine = coreDisplayName(match.core);
+        StringBuilder sb = new StringBuilder(engine + "의 '" + match.name + "' 게임으로 인식했지만 실행에 필요한 파일이 부족합니다.\n");
+        if (match.missingOwn > 0) {
+            sb.append("\n• ROM 파일 ").append(match.missingOwn).append("개가 없거나 다른 버전(롬셋)입니다.");
+        }
+        if (match.missingShared > 0 && (match.parent == null || !new File(dir, match.parent + ".zip").isFile())) {
+            sb.append("\n• 원본 게임 ROM ").append(match.parent == null ? "" : match.parent + ".zip").append("이 같은 목록에 있어야 합니다.");
+        }
+        sb.append("\n\n").append(engine).append("용 롬셋으로 다시 받아 넣으면 실행됩니다.");
+        return sb.toString();
+    }
+
+    private String unknownRomsetText(File file) {
+        return displayGameNameFor(file) + " (" + formatFileSize(file.length()) + ")\n\nZIP 안의 파일이 FinalBurn Neo · MAME 2003-Plus가 지원하는 게임과 맞지 않습니다.\n\n• 두 엔진이 지원하지 않는 게임이거나\n• 일부 파일만 담긴 ZIP(원본 없이 받은 클론 롬셋 등)일 수 있어요.";
+    }
+
+    private RomCheck checkArcadeRomset(File file) {
+        int[] crcs = RomsetIndex.zipCrcs(file);
+        if (crcs.length == 0) {
+            return new RomCheck(false, "ZIP 읽기 실패");
+        }
+        File dir = file.getParentFile();
+        RomsetIndex.Match best = null;
+        for (String core : ARCADE_CORE_IDS) {
+            RomsetIndex.Match match = RomsetIndex.identify(this, core, crcs);
+            if (match != null && (best == null || (match.isComplete(dir) && !best.isComplete(dir)))) {
+                best = match;
+            }
+        }
+        if (best == null) {
+            return new RomCheck(false, "알 수 없는 롬셋 (지원하지 않는 게임이거나 일부 파일만 있음)");
+        }
+        if (!best.isComplete(dir)) {
+            return new RomCheck(false, best.name + " · 파일 부족" + (best.missingShared > 0 && best.parent != null ? " (" + best.parent + ".zip 필요)" : ""));
+        }
+        return new RomCheck(true, best.name + " · " + coreDisplayName(best.core));
+    }
+
+    private void launchArcadeGame(File file) {
+        RomsetResult result = resolveRomset(file);
+        final File resolved = result.file;
+        if (!resolved.equals(file)) {
+            refreshLibrary();
+        }
+        if (result.match == null) {
+            new AlertDialog.Builder(this).setTitle("이 ROM을 알아볼 수 없습니다").setMessage(unknownRomsetText(resolved)).setNegativeButton("취소", null).setPositiveButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).show();
+            return;
+        }
+        if (result.renameConflict != null) {
+            new AlertDialog.Builder(this).setTitle("같은 게임이 이미 있습니다").setMessage(result.match.name + " 게임이 이미 " + result.renameConflict + "로 들어 있어요. 이 파일은 이름이 달라서 엔진이 찾지 못합니다.\n\n목록에서 " + result.renameConflict + " 쪽을 실행하거나, 이 항목을 삭제해 주세요.").setPositiveButton("확인", null).show();
+            return;
+        }
+        if (!result.match.isComplete(resolved.getParentFile())) {
+            new AlertDialog.Builder(this).setTitle("ROM 파일이 부족합니다").setMessage(romsetProblem(result)).setNegativeButton("취소", null).setPositiveButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).show();
+            return;
+        }
+        if (result.coreChanged) {
+            showMessage(coreDisplayName(result.match.core) + "용 롬셋이라 이 엔진으로 실행합니다.");
+        }
+        startGameActivity(resolved);
+    }
+
     private void refreshLibrary() {
         LinearLayout linearLayout = this.romList;
         if (linearLayout == null) {
@@ -1783,7 +1938,7 @@ public final class MainActivity extends Activity {
         arrayList.add("실행");
         arrayList.add(isFavorite(file) ? "즐겨찾기 해제" : "즐겨찾기 추가");
         arrayList.add("게임/세이브 이름 변경");
-        if ("arcade".equals(modeForFile(file))) {
+        if ("arcade".equals(modeForFile(file)) || "neogeo".equals(modeForFile(file))) {
             arrayList.add("실행 엔진 변경");
         }
         arrayList.add("세이브 백업 내보내기");
@@ -1865,6 +2020,10 @@ public final class MainActivity extends Activity {
             confirmPsLaunchWithoutBios(file);
             return;
         }
+        if ("arcade".equals(mode) || "neogeo".equals(mode)) {
+            launchArcadeGame(file);
+            return;
+        }
         startGameActivity(file);
     }
 
@@ -1872,6 +2031,8 @@ public final class MainActivity extends Activity {
         String mode = modeForFile(file);
         if ("arcade".equals(mode)) {
             syncArcadeBiosFiles();
+        } else if ("neogeo".equals(mode)) {
+            syncNeoGeoBiosInto(file.getParentFile());
         }
         migrateSaveFileIfNeeded(file);
         markRecentlyPlayed(file);
@@ -2355,6 +2516,9 @@ public final class MainActivity extends Activity {
         if (!file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
             return checkRomHeader(file);
         }
+        if (!MODE_GBA.equals(modeForFile(file))) {
+            return checkArcadeRomset(file);
+        }
         try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
             ZipEntry nextEntry;
             do {
@@ -2648,6 +2812,20 @@ public final class MainActivity extends Activity {
             return true;
         } catch (IOException unused) {
             return false;
+        }
+    }
+
+    // MAME 2003-Plus needs neogeo.zip next to the game; FBNeo also finds it there.
+    private void syncNeoGeoBiosInto(File dir) {
+        File bios = neoGeoBiosFile();
+        File target = new File(dir, "neogeo.zip");
+        if (!bios.exists() || (target.exists() && target.lastModified() >= bios.lastModified())) {
+            return;
+        }
+        try {
+            prepareNeoGeoBiosForArcade(bios, target);
+        } catch (IOException ignored) {
+            // The core reports the missing BIOS itself.
         }
     }
 
@@ -3129,7 +3307,7 @@ public final class MainActivity extends Activity {
     private String coreFor(File file) {
         String mode = modeForFile(file);
         if ("neogeo".equals(mode)) {
-            return "fbneo";
+            return romPrefs().getString("core:" + file.getName(), "fbneo");
         }
         if ("arcade".equals(mode)) {
             return romPrefs().getString("core:" + file.getName(), defaultArcadeCore());
