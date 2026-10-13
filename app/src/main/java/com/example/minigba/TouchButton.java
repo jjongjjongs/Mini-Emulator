@@ -3,8 +3,11 @@ package com.example.minigba;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RadialGradient;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -63,113 +66,122 @@ final class TouchButton extends View {
         setFocusable(false);
     }
 
+    // Glossy 3D look: a darker side (the button's thickness) under a lit top face with a
+    // reflection, and a soft floor shadow. Pressing pushes the face down into the side.
     @Override
     protected void onDraw(Canvas canvas) {
-        int i;
-        int rgb;
-        RectF rectF;
         super.onDraw(canvas);
-        float min = Math.min(getWidth(), getHeight()) * 0.48f;
-        int i2 = this.style;
-        boolean z = i2 == 1;
-        boolean z2 = i2 == 2;
-        boolean z3 = i2 == 3;
-        boolean z4 = i2 == 4;
-        boolean z5 = i2 == 5 || i2 == STYLE_ARCADE_YELLOW || i2 == STYLE_ARCADE_GREEN;
-        if (z4 || z5) {
-            if (i2 == STYLE_ARCADE_YELLOW) {
-                this.fill.setColor(this.pressed ? Color.rgb(255, 196, 46) : Color.rgb(245, 166, 10));
-                this.stroke.setColor(Color.rgb(140, 88, 0));
-                this.text.setColor(Color.rgb(110, 66, 0));
-                this.shadow.setColor(Color.argb(165, 102, 62, 0));
-                this.highlight.setColor(Color.argb(120, 255, 236, 170));
-            } else if (i2 == STYLE_ARCADE_GREEN) {
-                this.fill.setColor(this.pressed ? Color.rgb(46, 196, 96) : Color.rgb(22, 163, 74));
-                this.stroke.setColor(Color.rgb(10, 86, 38));
-                this.text.setColor(Color.rgb(6, 70, 30));
-                this.shadow.setColor(Color.argb(165, 6, 60, 26));
-                this.highlight.setColor(Color.argb(120, 190, 255, 210));
-            } else if (z4) {
-                this.fill.setColor(this.pressed ? Color.rgb(242, 31, 49) : Color.rgb(207, 15, 34));
-                this.stroke.setColor(Color.rgb(116, 8, 22));
-                this.text.setColor(Color.rgb(91, 4, 18));
-                this.shadow.setColor(Color.argb(165, 76, 4, 13));
-                this.highlight.setColor(Color.argb(120, 255, 165, 172));
-            } else {
-                Paint paint = this.fill;
-                if (this.pressed) {
-                    rgb = Color.rgb(18, 213, 226);
-                    i = 0;
-                } else {
-                    i = 0;
-                    rgb = Color.rgb(0, 174, 194);
-                }
-                paint.setColor(rgb);
-                this.stroke.setColor(Color.rgb(i, 83, 96));
-                this.text.setColor(Color.rgb(i, 65, 75));
-                this.shadow.setColor(Color.argb(165, i, 59, 68));
-                this.highlight.setColor(Color.argb(125, 172, 255, 255));
-            }
-        } else if (z3) {
-            this.fill.setColor(this.pressed ? Color.rgb(178, 37, 117) : Color.rgb(151, 21, 94));
-            this.stroke.setColor(Color.rgb(78, 21, 55));
-            this.highlight.setColor(Color.argb(120, 255, 184, 226));
-            this.text.setColor(Color.rgb(255, 215, 238));
-            this.shadow.setColor(Color.argb(150, 70, 16, 50));
-        } else if (z2) {
-            this.fill.setColor(this.pressed ? Color.rgb(225, 222, 214) : Color.rgb(203, 199, 190));
-            this.stroke.setColor(Color.rgb(120, 116, 108));
-            this.highlight.setColor(Color.argb(135, 255, 255, 255));
-            this.text.setColor(Color.rgb(44, 43, 107));
-            this.shadow.setColor(Color.argb(130, 86, 82, 74));
+        int[] palette = palette();
+        float width = getWidth();
+        float height = getHeight();
+        if (Math.max(width, height) > Math.min(width, height) * 1.25f) {
+            drawKeycap(canvas, width, height, palette);
         } else {
-            this.fill.setColor(this.pressed ? Color.rgb(190, 187, 181) : Color.rgb(214, 211, 204));
-            this.stroke.setColor(z ? Color.rgb(34, 34, 38) : Color.rgb(126, 122, 116));
-            this.highlight.setColor(Color.argb(145, 255, 255, 255));
-            this.text.setColor(z ? Color.rgb(210, 207, 200) : Color.rgb(42, 41, 101));
-            this.shadow.setColor(Color.argb(z ? 145 : 125, 70, 66, 60));
+            drawRound(canvas, width, height, palette);
         }
-        if (Math.max(getWidth(), getHeight()) > Math.min(getWidth(), getHeight()) * 1.25f) {
-            float min2 = Math.min(getWidth(), getHeight()) * (z2 ? 0.52f : 0.46f);
-            canvas.drawRoundRect(new RectF(3.0f, z2 ? 6.0f : 7.0f, getWidth() - 3.0f, getHeight() - 1.0f), min2, min2, this.shadow);
-            Paint paint2 = new Paint(1);
-            paint2.setStyle(Paint.Style.FILL);
-            paint2.setColor(this.stroke.getColor());
-            canvas.drawRoundRect(new RectF(3.0f, 2.0f, getWidth() - 3.0f, getHeight() - (z2 ? 4.0f : 5.0f)), min2, min2, paint2);
-            if (z2) {
-                rectF = new RectF(9.0f, 7.0f, getWidth() - 9.0f, getHeight() - 11.0f);
-            } else {
-                rectF = new RectF(10.0f, 8.0f, getWidth() - 10.0f, getHeight() - 12.0f);
-            }
-            float f = min2 * (z2 ? 0.86f : 0.7f);
-            canvas.drawRoundRect(rectF, f, f, this.fill);
-            if (!z2) {
-                canvas.drawRoundRect(rectF, f, f, this.highlight);
-            }
-        } else {
-            float width = getWidth() / 2.0f;
-            float height = getHeight() / 2.0f;
-            canvas.drawCircle(width, 5.0f + height, min, this.shadow);
-            Paint paint3 = new Paint(1);
-            paint3.setStyle(Paint.Style.FILL);
-            paint3.setColor(this.stroke.getColor());
-            canvas.drawCircle(width, height, min, paint3);
-            canvas.drawCircle(width, height - 1.0f, 0.89f * min, this.fill);
-            if (!z3 && !z4 && !z5) {
-                canvas.drawCircle(width - (0.12f * min), height - (0.18f * min), min * 0.62f, this.highlight);
-            } else if (z4 || z5) {
-                paintArcadeHighlight(canvas, width, height, min);
-            }
-        }
-        this.text.setTextSize(Math.max(18.0f, Math.min(getWidth(), getHeight()) * 0.38f));
-        Paint.FontMetrics fontMetrics = this.text.getFontMetrics();
-        canvas.drawText(this.label, getWidth() / 2.0f, (getHeight() / 2.0f) - ((fontMetrics.ascent + fontMetrics.descent) / 2.0f), this.text);
     }
 
-    private void paintArcadeHighlight(Canvas canvas, float f, float f2, float f3) {
+    // top colour, middle colour, side colour, label colour
+    private int[] palette() {
+        switch (this.style) {
+            case STYLE_ACTION:
+                return new int[]{Color.rgb(78, 78, 84), Color.rgb(26, 26, 29), Color.rgb(4, 4, 6), Color.rgb(230, 230, 234)};
+            case STYLE_ARCADE_RED:
+                return new int[]{Color.rgb(240, 64, 82), Color.rgb(163, 16, 31), Color.rgb(110, 8, 20), Color.WHITE};
+            case STYLE_ARCADE_BLUE:
+                return new int[]{Color.rgb(46, 200, 220), Color.rgb(11, 127, 145), Color.rgb(6, 81, 92), Color.WHITE};
+            case STYLE_ARCADE_YELLOW:
+                return new int[]{Color.rgb(252, 196, 70), Color.rgb(201, 133, 10), Color.rgb(135, 87, 3), Color.rgb(91, 58, 0)};
+            case STYLE_ARCADE_GREEN:
+                return new int[]{Color.rgb(56, 196, 112), Color.rgb(19, 128, 60), Color.rgb(10, 83, 38), Color.WHITE};
+            case STYLE_DARK:
+                return new int[]{Color.rgb(74, 74, 80), Color.rgb(35, 35, 39), Color.rgb(14, 14, 16), Color.rgb(232, 232, 236)};
+            default:
+                // Light keys and shoulder buttons: cream keycaps.
+                return new int[]{Color.rgb(246, 244, 238), Color.rgb(217, 213, 204), Color.rgb(163, 159, 150), Color.rgb(44, 43, 107)};
+        }
+    }
+
+    private void drawRound(Canvas canvas, float width, float height, int[] palette) {
+        float cx = width / 2.0f;
+        float radius = Math.min(width, height) * 0.42f;
+        float depth = radius * 0.16f;
+        float press = this.pressed ? depth * 0.75f : 0.0f;
+        float baseY = height / 2.0f - depth / 2.0f;
+        float faceY = baseY + press;
+
+        // Floor shadow.
+        this.shadow.setShader(new RadialGradient(cx, baseY + depth + radius * 0.12f, radius * 1.2f,
+                Color.argb(this.pressed ? 70 : 105, 0, 0, 0), Color.argb(0, 0, 0, 0), Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, baseY + depth + radius * 0.12f, radius * 1.2f, this.shadow);
+        this.shadow.setShader(null);
+        // Side of the button.
+        this.fill.setShader(null);
+        this.fill.setColor(palette[2]);
+        canvas.drawCircle(cx, baseY + depth, radius, this.fill);
+        // Top face, lit from above.
+        this.fill.setShader(new RadialGradient(cx, faceY - radius * 0.35f, radius * 1.45f,
+                new int[]{palette[0], palette[1], palette[2]}, new float[]{0.0f, 0.68f, 1.0f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, faceY, radius, this.fill);
+        this.fill.setShader(new LinearGradient(0, faceY, 0, faceY + radius,
+                Color.argb(0, 0, 0, 0), Color.argb(55, 0, 0, 0), Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, faceY, radius, this.fill);
+        this.fill.setShader(null);
+        // Reflection on the upper half.
+        RectF gloss = new RectF(cx - radius * 0.62f, faceY - radius * 0.9f, cx + radius * 0.62f, faceY - radius * 0.26f);
         this.highlight.setStyle(Paint.Style.FILL);
-        canvas.drawOval(new RectF(f - (0.5f * f3), f2 - (0.56f * f3), f + (0.14f * f3), f2 - (f3 * 0.18f)), this.highlight);
+        this.highlight.setShader(new LinearGradient(0, gloss.top, 0, gloss.bottom,
+                Color.argb(this.pressed ? 120 : 185, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
+        canvas.drawOval(gloss, this.highlight);
+        this.highlight.setShader(null);
+        drawLabel(canvas, cx, faceY, radius * 0.86f, palette[3]);
+    }
+
+    private void drawKeycap(Canvas canvas, float width, float height, int[] palette) {
+        float depth = Math.max(3.0f, height * 0.12f);
+        float press = this.pressed ? depth * 0.7f : 0.0f;
+        float left = 3.0f;
+        float right = width - 3.0f;
+        float top = 2.0f;
+        float bottom = height - depth - 5.0f;
+        boolean shoulder = this.style == STYLE_SHOULDER;
+        float radius = (bottom - top) * (shoulder ? 0.32f : 0.5f);
+
+        // Floor shadow in two soft layers.
+        this.shadow.setShader(null);
+        this.shadow.setColor(Color.argb(this.pressed ? 26 : 40, 0, 0, 0));
+        canvas.drawRoundRect(new RectF(left, top + depth + 3.0f, right, bottom + depth + 4.0f), radius, radius, this.shadow);
+        this.shadow.setColor(Color.argb(this.pressed ? 18 : 28, 0, 0, 0));
+        canvas.drawRoundRect(new RectF(left - 1.0f, top + depth + 5.0f, right + 1.0f, bottom + depth + 5.0f), radius, radius, this.shadow);
+        // Side.
+        this.fill.setShader(null);
+        this.fill.setColor(palette[2]);
+        canvas.drawRoundRect(new RectF(left, top + depth, right, bottom + depth), radius, radius, this.fill);
+        // Face.
+        RectF face = new RectF(left, top + press, right, bottom + press);
+        this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom, palette[0], palette[1], Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(face, radius, radius, this.fill);
+        this.fill.setShader(null);
+        // Thin light edge along the top.
         this.highlight.setStyle(Paint.Style.STROKE);
+        this.highlight.setStrokeWidth(1.6f);
+        this.highlight.setShader(new LinearGradient(0, face.top, 0, face.centerY(),
+                Color.argb(200, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
+        canvas.drawRoundRect(new RectF(face.left + 1.0f, face.top + 1.0f, face.right - 1.0f, face.bottom - 1.0f), radius, radius, this.highlight);
+        this.highlight.setShader(null);
+        drawLabel(canvas, width / 2.0f, face.centerY(), (face.bottom - face.top) * 0.9f, palette[3]);
+    }
+
+    private void drawLabel(Canvas canvas, float x, float centerY, float size, int color) {
+        boolean wide = Math.max(getWidth(), getHeight()) > Math.min(getWidth(), getHeight()) * 1.25f;
+        this.text.setTextSize(wide ? Math.min(size * 0.5f, getWidth() / Math.max(3.0f, this.label.length() + 1.5f)) : Math.max(16.0f, size * 0.7f));
+        Paint.FontMetrics metrics = this.text.getFontMetrics();
+        float baseline = centerY - (metrics.ascent + metrics.descent) / 2.0f;
+        boolean darkLabel = Color.red(color) + Color.green(color) + Color.blue(color) < 300;
+        this.text.setColor(darkLabel ? Color.argb(110, 255, 255, 255) : Color.argb(110, 0, 0, 0));
+        canvas.drawText(this.label, x, baseline + (darkLabel ? 1.0f : 1.5f), this.text);
+        this.text.setColor(color);
+        canvas.drawText(this.label, x, baseline, this.text);
     }
 
     @Override

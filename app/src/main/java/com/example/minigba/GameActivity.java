@@ -113,7 +113,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int i2;
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
-        linearLayout.setBackgroundColor(Color.rgb(218, 215, 207));
         linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
         int i3 = getSharedPreferences("settings", 0).getInt("screen_mode", 0);
         if (i3 == 1) {
@@ -141,24 +140,29 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(-1, -1);
         layoutParams.gravity = 17;
         frameLayout.addView(this.surfaceView, layoutParams);
-        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, Math.max(dp(176), Math.round(Math.max(dp(240), (getResources().getDisplayMetrics().widthPixels - (i * 2)) - (i2 * 2)) * (this.coreId.equals("gba") ? 0.6666667f : 0.75f)) + dp + dp2));
-        layoutParams2.setMargins(i, dp(2), i, 0);
+        // Leave room around the screen for the case's bezel and its screws.
+        i += dp(34);
+        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, Math.max(dp(176), Math.round(Math.max(dp(200), (getResources().getDisplayMetrics().widthPixels - (i * 2)) - (i2 * 2)) * (this.coreId.equals("gba") ? 0.6666667f : 0.75f)) + dp + dp2));
+        layoutParams2.setMargins(i, dp(18), i, 0);
         linearLayout.addView(frameLayout, layoutParams2);
         FrameLayout frameLayout2 = new FrameLayout(this);
         frameLayout2.setBackgroundColor(0);
-        frameLayout2.addView(new ControlPanelView(this), new FrameLayout.LayoutParams(-1, -1));
         addControls(frameLayout2);
-        linearLayout.addView(frameLayout2, new LinearLayout.LayoutParams(-1, 0, 1.0f));
-        setContentView(linearLayout);
+        LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
+        controlsParams.topMargin = dp(36);
+        linearLayout.addView(frameLayout2, controlsParams);
+        FrameLayout root = new FrameLayout(this);
+        ClearShellView shell = createShell(false);
+        root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
+        shell.track(frameLayout, frameLayout2);
+        setContentView(root);
     }
 
     private void createLandscapeContent() {
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
-        linearLayout.setBackgroundColor(Color.rgb(218, 215, 207));
         FrameLayout frameLayout = new FrameLayout(this);
-        frameLayout.setBackgroundColor(Color.rgb(218, 215, 207));
-        frameLayout.addView(new ControlPanelView(this), new FrameLayout.LayoutParams(-1, -1));
         final int i = getSharedPreferences("settings", 0).getInt("screen_mode", 0);
         int dp = dp(i == 0 ? 2 : 3);
         final FrameLayout frameLayout2 = new FrameLayout(this);
@@ -173,7 +177,29 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addLandscapeCornerButtons(frameLayout);
         frameLayout.addOnLayoutChangeListener((view, i2, i3, i4, i5, i6, i7, i8, i9) -> fitLandscapeScreen(i, frameLayout2, view, i2, i3, i4, i5, i6, i7, i8, i9));
         linearLayout.addView(frameLayout, new LinearLayout.LayoutParams(-1, 0, 1.0f));
-        setContentView(linearLayout);
+        FrameLayout root = new FrameLayout(this);
+        ClearShellView shell = createShell(true);
+        root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
+        shell.track(frameLayout2, frameLayout);
+        setContentView(root);
+    }
+
+    // Clear case behind the controls, tinted per game kind.
+    private ClearShellView createShell(boolean landscape) {
+        int tint;
+        String name;
+        if (this.coreId.equals("gba")) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "GBA";
+        } else if (isNeoGeoMode()) {
+            tint = ClearShellView.TINT_PURPLE;
+            name = "NEO GEO";
+        } else {
+            tint = ClearShellView.TINT_ORANGE;
+            name = "ARCADE";
+        }
+        return new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape);
     }
 
     private void fitLandscapeScreen(int i, FrameLayout frameLayout, View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
@@ -186,16 +212,21 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         boolean isGba = this.coreId.equals("gba");
         int maxWidth = Math.max(dp(240), width - ((dp(isGba ? 174 : 188) + inset) * 2));
         // GBA keeps the speed button below the screen, so its screen sits at the top.
-        int maxHeight = Math.max(dp(160), (height - (isGba ? dp(8) + dp(46) : dp(12))) - (inset * 2));
+        // The bezel takes dp(10) above the screen and dp(26) below it.
+        int maxHeight = Math.max(dp(150), (height - (isGba ? dp(18) + dp(26) + dp(46) : dp(12) + dp(36))) - (inset * 2));
         float aspect = isGba ? 1.5f : 1.3333334f;
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || (isGba && layoutParams.topMargin != dp(8) + inset)) {
+        int topMargin = isGba ? dp(18) + inset : 0;
+        // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
+        int bottomMargin = isGba ? 0 : dp(16);
+        if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
             layoutParams.width = screenWidth;
             layoutParams.height = screenHeight;
             layoutParams.gravity = isGba ? (Gravity.TOP | Gravity.CENTER_HORIZONTAL) : Gravity.CENTER;
-            layoutParams.topMargin = isGba ? dp(8) + inset : 0;
+            layoutParams.topMargin = topMargin;
+            layoutParams.bottomMargin = bottomMargin;
             frameLayout.setLayoutParams(layoutParams);
         }
     }
@@ -561,7 +592,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         linearLayout.setOrientation(0);
         linearLayout.setGravity(16);
         linearLayout.setPadding(dp(8), dp(4), dp(8), dp(2));
-        linearLayout.setBackgroundColor(Color.rgb(218, 215, 207));
         linearLayout.addView(createIconButton(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "저장", 40, 11, view -> onSaveClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
         linearLayout.addView(createIconButton(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", 40, 11, view -> onResetClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
         linearLayout.addView(createIconButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "화면 회전", 40, 11, view -> toggleOrientation()), new LinearLayout.LayoutParams(0, -2, 1.0f));

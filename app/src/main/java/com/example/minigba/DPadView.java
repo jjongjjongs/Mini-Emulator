@@ -3,7 +3,11 @@ package com.example.minigba;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RadialGradient;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Path;
 import android.view.MotionEvent;
 import android.view.View;
@@ -64,29 +68,92 @@ final class DPadView extends View {
         setFocusable(false);
     }
 
+    // Glossy black cross: a shadow under it, the cross's side, then a lit face with a
+    // shine along each arm. A pressed arm darkens and sinks slightly.
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float width = getWidth();
         float height = getHeight();
         float min = Math.min(width, height);
-        float f = min * 0.27f;
-        float f2 = min * 0.06f;
-        float f3 = width / 2.0f;
-        float f4 = height / 2.0f;
-        float f5 = f / 2.0f;
-        float f6 = f3 - f5;
-        drawSegment(canvas, f6, f2, f, f, 64);
-        drawSegment(canvas, f6, (height - f) - f2, f, f, 128);
-        float f7 = f4 - f5;
-        drawSegment(canvas, f2, f7, f, f, 32);
-        drawSegment(canvas, (width - f) - f2, f7, f, f, 16);
-        canvas.drawCircle(f3, f4, min * 0.105f, this.centerPaint);
-        float f8 = f2 + f5;
-        drawArrow(canvas, f3, f8, 64);
-        drawArrow(canvas, f3, (height - f2) - f5, 128);
-        drawArrow(canvas, f8, f4, 32);
-        drawArrow(canvas, (width - f2) - f5, f4, 16);
+        float cx = width / 2.0f;
+        float cy = height / 2.0f;
+        float arm = min * 0.32f;
+        float reach = min * 0.46f;
+        float corner = arm * 0.22f;
+        float depth = min * 0.035f;
+        Path cross = crossPath(cx, cy - depth / 2.0f, arm, reach, corner);
+
+        canvas.save();
+        canvas.translate(0, depth * 2.2f);
+        this.shadowPaint.setColor(Color.argb(60, 0, 0, 0));
+        canvas.drawPath(cross, this.shadowPaint);
+        canvas.restore();
+        canvas.save();
+        canvas.translate(0, depth);
+        this.shellPaint.setColor(Color.rgb(4, 4, 6));
+        canvas.drawPath(cross, this.shellPaint);
+        canvas.restore();
+
+        this.paint.setShader(new LinearGradient(cx - reach, 0, cx + reach, 0,
+                new int[]{Color.rgb(64, 64, 70), Color.rgb(24, 24, 27), Color.rgb(64, 64, 70)}, null, Shader.TileMode.CLAMP));
+        canvas.drawPath(cross, this.paint);
+        this.paint.setShader(new LinearGradient(0, cy - reach, 0, cy + reach,
+                new int[]{Color.argb(70, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(60, 0, 0, 0)}, null, Shader.TileMode.CLAMP));
+        canvas.drawPath(cross, this.paint);
+        this.paint.setShader(null);
+
+        // Pressed arms darken.
+        for (int bit : new int[]{64, 128, 32, 16}) {
+            if ((this.directionMask & bit) != 0) {
+                canvas.save();
+                canvas.clipPath(cross);
+                this.activePaint.setColor(Color.argb(110, 0, 0, 0));
+                RectF rect = armRect(bit, cx, cy, arm, reach);
+                canvas.drawRect(rect, this.activePaint);
+                canvas.restore();
+            }
+        }
+        this.highlightPaint.setStyle(Paint.Style.STROKE);
+        this.highlightPaint.setStrokeWidth(Math.max(1.5f, min * 0.008f));
+        this.highlightPaint.setColor(Color.argb(70, 255, 255, 255));
+        canvas.drawPath(cross, this.highlightPaint);
+
+        // Centre dimple.
+        this.centerPaint.setShader(new RadialGradient(cx, cy - depth / 2.0f, arm * 0.36f,
+                new int[]{Color.rgb(10, 10, 12), Color.rgb(50, 50, 56)}, null, Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, cy - depth / 2.0f, arm * 0.34f, this.centerPaint);
+        this.centerPaint.setShader(null);
+
+        float tip = reach - arm * 0.42f;
+        this.arrowPaint.setColor(Color.argb(95, 255, 255, 255));
+        drawArrow(canvas, cx, cy - tip, 64);
+        drawArrow(canvas, cx, cy + tip, 128);
+        drawArrow(canvas, cx - tip, cy, 32);
+        drawArrow(canvas, cx + tip, cy, 16);
+    }
+
+    private static Path crossPath(float cx, float cy, float arm, float reach, float corner) {
+        Path vertical = new Path();
+        vertical.addRoundRect(new RectF(cx - arm / 2.0f, cy - reach, cx + arm / 2.0f, cy + reach), corner, corner, Path.Direction.CW);
+        Path horizontal = new Path();
+        horizontal.addRoundRect(new RectF(cx - reach, cy - arm / 2.0f, cx + reach, cy + arm / 2.0f), corner, corner, Path.Direction.CW);
+        vertical.op(horizontal, Path.Op.UNION);
+        return vertical;
+    }
+
+    private static RectF armRect(int bit, float cx, float cy, float arm, float reach) {
+        float half = arm / 2.0f;
+        switch (bit) {
+            case 64:
+                return new RectF(cx - half, cy - reach, cx + half, cy - half);
+            case 128:
+                return new RectF(cx - half, cy + half, cx + half, cy + reach);
+            case 32:
+                return new RectF(cx - reach, cy - half, cx - half, cy + half);
+            default:
+                return new RectF(cx + half, cy - half, cx + reach, cy + half);
+        }
     }
 
     @Override
@@ -136,22 +203,6 @@ final class DPadView extends View {
         this.directionMask = i;
         this.listener.onDirectionMaskChanged(i);
         invalidate();
-    }
-
-    private void drawSegment(Canvas canvas, float f, float f2, float f3, float f4, int i) {
-        Path path = new Path();
-        float f5 = f2 + 7.0f;
-        float f6 = f + f3;
-        float f7 = f2 + f4;
-        path.addRoundRect(f + 1.0f, f5, f6 - 1.0f, f7 + 5.0f, 18.0f, 18.0f, Path.Direction.CW);
-        canvas.drawPath(path, this.shadowPaint);
-        Path path2 = new Path();
-        path2.addRoundRect(f, f2, f6, f7, 18.0f, 18.0f, Path.Direction.CW);
-        canvas.drawPath(path2, this.shellPaint);
-        Path path3 = new Path();
-        path3.addRoundRect(f + 7.0f, f5, f6 - 7.0f, f7 - 7.0f, 13.0f, 13.0f, Path.Direction.CW);
-        canvas.drawPath(path3, (this.directionMask & i) != 0 ? this.activePaint : this.paint);
-        canvas.drawPath(path3, this.highlightPaint);
     }
 
     private void drawArrow(Canvas canvas, float f, float f2, int i) {
