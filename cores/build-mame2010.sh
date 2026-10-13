@@ -29,10 +29,11 @@ fi
 
 echo "== building mame2010"
 # The core's Android.mk sets neither 16 KB page alignment nor the flags its
-# desktop builds use: MAME 0.139 assumes a signed char (ARM's is unsigned)
-# and breaks under strict aliasing.
+# desktop builds use: MAME 0.139 assumes a signed char (ARM's is unsigned),
+# breaks under strict aliasing, and tests `this` against NULL (e.g.
+# device_config::subtag), which clang drops unless told not to.
 "$NDK/ndk-build" -C "$DIR/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
-    "APP_CFLAGS=-fsigned-char -fno-strict-aliasing" \
+    "APP_CFLAGS=-fsigned-char -fno-strict-aliasing -fno-delete-null-pointer-checks" \
     "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -j"$JOBS" > "$WORK/mame2010.log" 2>&1 || {
     tail -n 80 "$WORK/mame2010.log"
     exit 1
