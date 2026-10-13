@@ -117,6 +117,10 @@ struct Core {
     int sampleRate = kDefaultSampleRate;
     bool initialized = false;
     bool gameLoaded = false;
+    // Frames run so far; guarded by coreMutex.
+    uint64_t framesRun = 0;
+    // The quick save to resume from once the first frame has run.
+    bool resumePending = false;
 };
 
 JavaVM* gVm = nullptr;
@@ -250,7 +254,18 @@ bool loadCoreSymbols(Core* core) {
 
 // ---- Save data -------------------------------------------------------------
 
+// MAME 2010/2015 only build their machine inside the first retro_run, so a state
+// restored before that dereferences a machine that does not exist yet.
+bool needsFrameBeforeState(const Core* core) {
+    return core->coreId == "mame2010" || core->coreId == "mame2015";
+}
+
 bool saveState(Core* core) {
+    // Before the quick save has been restored (or before MAME has a machine), saving
+    // would replace the player's state with the bare start of the game.
+    if (core->resumePending || (needsFrameBeforeState(core) && core->framesRun == 0)) {
+        return false;
+    }
     if (core->retroSerializeSize == nullptr || core->retroSerialize == nullptr) {
         return false;
     }
@@ -298,6 +313,29 @@ bool loadState(Core* core) {
         return false;
     }
     return core->retroUnserialize(buffer.data(), read);
+}
+
+// Restores the quick save when a game starts. A marker file is kept while the core
+// reads the state; if it is still there next time, that state crashed the core, so it
+// is moved aside instead of crashing every launch.
+void resumeState(Core* core) {
+    std::string marker = core->statePath + ".resuming";
+    struct stat st {};
+    if (stat(marker.c_str(), &st) == 0) {
+        LOGE("Quick save crashed the core last time; moving it aside: %s", core->statePath.c_str());
+        rename(core->statePath.c_str(), (core->statePath + ".failed").c_str());
+        unlink(marker.c_str());
+        return;
+    }
+    if (stat(core->statePath.c_str(), &st) != 0) {
+        return;
+    }
+    FILE* file = fopen(marker.c_str(), "wb");
+    if (file != nullptr) {
+        fclose(file);
+    }
+    loadState(core);
+    unlink(marker.c_str());
 }
 
 bool saveSram(Core* core) {
@@ -778,6 +816,11 @@ void runLoop(Core* core) {
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
             core->retroRun();
+            core->framesRun++;
+            if (core->resumePending) {
+                core->resumePending = false;
+                resumeState(core);
+            }
         }
         double frameNs = 1.0 / (fps * speed) * 1e9;
         double elapsedNs = static_cast<double>(
@@ -949,7 +992,11 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
 
     // Resume where the player left off: in-game save first, then the quick save.
     loadSram(core);
-    loadState(core);
+    if (needsFrameBeforeState(core)) {
+        core->resumePending = true;
+    } else {
+        resumeState(core);
+    }
 
     core->running.store(true);
     // Arcade cores recurse deeply; give the emulation thread far more than the default 1 MB.
@@ -1056,6 +1103,10 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
         return JNI_FALSE;
     }
     CoreLock lock(core);
+    if (needsFrameBeforeState(core) && core->framesRun == 0) {
+        return JNI_FALSE;
+    }
+    core->resumePending = false;
     return loadState(core) ? JNI_TRUE : JNI_FALSE;
 }
 
