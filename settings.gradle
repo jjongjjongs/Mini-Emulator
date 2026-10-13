@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = 'Mini GBA'
+rootProject.name = 'Mini Emulator'
 include ':app'

@@ -1,9 +1,10 @@
-# Mini GBA
+# Mini Emulator
 
-mGBA(libretro) 코어를 쓰는 안드로이드용 GBA 에뮬레이터 앱입니다.
+libretro 코어를 쓰는 안드로이드용 에뮬레이터 앱입니다. 앱을 열면 GBA · Neo Geo · 아케이드 · PlayStation 중 모드를 고릅니다.
+지금은 GBA(mGBA 코어)만 동작하고, 나머지 모드는 엔진을 추가하는 중입니다.
 
 - 패키지: `com.example.minigba.gbaonly`
-- 버전: `0.0.1-gba` (versionCode 1)
+- 버전: `app/build.gradle`의 `versionName` / `versionCode` 참고 (릴리스마다 1씩 올림)
 - minSdk 24 / targetSdk 34, `arm64-v8a` 전용
 
 ## 이 소스에 대해

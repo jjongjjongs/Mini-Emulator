@@ -593,7 +593,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         strArr[4] = "재시작";
         strArr[5] = this.landscapeMode ? "세로 화면으로 전환" : "가로 화면으로 전환";
         strArr[6] = "ROM 목록으로 나가기";
-        AlertDialog create = new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini GBA" : "Mini Arcade").setItems(strArr, (dialogInterface, i) -> onGameMenuItemSelected(dialogInterface, i)).create();
+        AlertDialog create = new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini Emulator" : "Mini Arcade").setItems(strArr, (dialogInterface, i) -> onGameMenuItemSelected(dialogInterface, i)).create();
         create.setOnDismissListener(dialog -> resumeUnlessExiting());
         create.show();
     }
@@ -724,7 +724,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void showFatalError(String str) {
-        new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini GBA" : "Mini Arcade").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
+        new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini Emulator" : "Mini Arcade").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
     }
 
     private int dp(int i) {

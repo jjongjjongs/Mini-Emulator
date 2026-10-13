@@ -2,6 +2,7 @@ package com.example.minigba;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ClipData;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -9,11 +10,14 @@ import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.view.Window;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -49,6 +53,17 @@ public final class MainActivity extends Activity {
     private static final String PREF_RECENT_PREFIX = "recent:";
     private static final String PREF_SAVE_PREFIX = "save:";
     private static final String PREF_SCREEN_MODE = "screen_mode";
+    private static final String PREF_MODE = "mode";
+    private static final String PREF_REMEMBER_MODE = "remember_mode";
+    private static final String MODE_GBA = "gba";
+    private static final String STATE_MODE = "current_mode";
+    // Game modes shown on the picker. Only GBA ships an engine so far.
+    private static final String[] MODE_IDS = {MODE_GBA, "neogeo", "arcade", "ps"};
+    private static final String[] MODE_NAMES = {"GBA", "Neo Geo", "아케이드", "PlayStation"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "FinalBurn Neo", "MAME 2003-Plus · FBNeo", "PCSX ReARMed"};
+    private static final String[] MODE_FILES = {".gba · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip", ".cue · .chd · .pbp"};
+    private static final String[] MODE_ICONS = {"GBA", "NEO", "MAME", "PS"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53), Color.rgb(51, 65, 85)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -58,6 +73,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_OPEN_ARCADE_ROM = 1005;
     private static final int REQUEST_OPEN_ROM = 1001;
     private TextView biosStatusView;
+    private String currentMode;
     private TextView emptyView;
     private TextView mameBiosStatusView;
     private TextView neoGeoBiosStatusView;
@@ -73,28 +89,192 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        // Keep the open mode across rotation and other activity recreation.
+        String restoredMode = bundle == null ? null : bundle.getString(STATE_MODE);
+        if (restoredMode != null) {
+            showHome(restoredMode);
+            return;
+        }
+        String savedMode = settingsPrefs().getString(PREF_MODE, null);
+        if (savedMode != null && settingsPrefs().getBoolean(PREF_REMEMBER_MODE, false)) {
+            showHome(savedMode);
+        } else {
+            showModePicker();
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle bundle) {
+        super.onSaveInstanceState(bundle);
+        if (this.currentMode != null) {
+            bundle.putString(STATE_MODE, this.currentMode);
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        // Without "remember mode" the picker is the app's start screen, so back returns to it.
+        if (this.currentMode != null && !settingsPrefs().getBoolean(PREF_REMEMBER_MODE, false)) {
+            showModePicker();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    private static int modeIndex(String mode) {
+        for (int i = 0; i < MODE_IDS.length; i++) {
+            if (MODE_IDS[i].equals(mode)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private static boolean isModeAvailable(String mode) {
+        return MODE_GBA.equals(mode);
+    }
+
+    private void clearHomeViews() {
+        this.currentMode = null;
+        this.biosStatusView = null;
+        this.screenModeStatusView = null;
+        this.emptyView = null;
+        this.romList = null;
+        this.noteView = null;
+    }
+
+    private void showModePicker() {
+        clearHomeViews();
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(1);
+        root.setPadding(dp(16), dp(24), dp(16), dp(16));
+        root.setBackgroundColor(Color.rgb(236, 243, 248));
+        TextView title = new TextView(this);
+        title.setText("어떤 게임을 할까요?");
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextSize(22.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        TextView desc = new TextView(this);
+        desc.setText("모드를 고르면 해당 게임 목록으로 들어갑니다.");
+        desc.setTextColor(STATUS_TEXT_COLOR);
+        desc.setTextSize(13.0f);
+        desc.setPadding(0, dp(2), 0, dp(14));
+        root.addView(desc, new LinearLayout.LayoutParams(-1, -2));
+        for (int i = 0; i < MODE_IDS.length; i++) {
+            final String mode = MODE_IDS[i];
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, 0, 0, dp(10));
+            root.addView(createModeCard(i, view -> onModePicked(mode)), params);
+        }
+        CheckBox remember = new CheckBox(this);
+        remember.setText("다음부터 마지막 모드로 바로 시작");
+        remember.setTextColor(Color.rgb(55, 65, 81));
+        remember.setTextSize(13.0f);
+        remember.setChecked(settingsPrefs().getBoolean(PREF_REMEMBER_MODE, false));
+        remember.setOnCheckedChangeListener((button, checked) -> settingsPrefs().edit().putBoolean(PREF_REMEMBER_MODE, checked).apply());
+        root.addView(remember, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.setBackgroundColor(Color.rgb(236, 243, 248));
+        scrollView.addView(root, new FrameLayout.LayoutParams(-1, -2));
+        setContentView(scrollView);
+    }
+
+    private LinearLayout createModeCard(int index, View.OnClickListener onClickListener) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(0);
+        card.setGravity(16);
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        card.setBackground(rounded(MODE_COLORS[index], dp(16)));
+        card.setElevation(dp(2));
+        card.setClickable(true);
+        card.setOnClickListener(onClickListener);
+        TextView icon = new TextView(this);
+        icon.setText(MODE_ICONS[index]);
+        icon.setGravity(17);
+        icon.setTextColor(-1);
+        icon.setTextSize(MODE_ICONS[index].length() > 3 ? 11.0f : 13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setBackground(rounded(Color.argb(56, 255, 255, 255), dp(14)));
+        card.addView(icon, new LinearLayout.LayoutParams(dp(50), dp(50)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        texts.setPadding(dp(12), 0, dp(8), 0);
+        TextView name = new TextView(this);
+        name.setText(MODE_NAMES[index]);
+        name.setTextColor(-1);
+        name.setTextSize(16.0f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        texts.addView(name);
+        TextView detail = new TextView(this);
+        detail.setText(MODE_ENGINES[index] + "\n" + MODE_FILES[index]);
+        detail.setTextColor(Color.argb(235, 255, 255, 255));
+        detail.setTextSize(11.0f);
+        texts.addView(detail);
+        card.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView status = new TextView(this);
+        status.setText(isModeAvailable(MODE_IDS[index]) ? "엔진 준비됨" : "준비 중");
+        status.setTextColor(-1);
+        status.setTextSize(10.0f);
+        status.setTypeface(Typeface.DEFAULT_BOLD);
+        status.setPadding(dp(8), dp(4), dp(8), dp(4));
+        status.setBackground(rounded(Color.argb(64, 255, 255, 255), dp(10)));
+        card.addView(status, new LinearLayout.LayoutParams(-2, -2));
+        return card;
+    }
+
+    private void onModePicked(String mode) {
+        settingsPrefs().edit().putString(PREF_MODE, mode).apply();
+        showHome(mode);
+    }
+
+    private void showHome(String mode) {
+        clearHomeViews();
+        int index = modeIndex(mode);
+        this.currentMode = MODE_IDS[index];
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.setPadding(dp(12), dp(10), dp(12), dp(10));
         linearLayout.setBackgroundColor(Color.rgb(236, 243, 248));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.setPadding(dp(14), dp(10), dp(12), dp(10));
+        header.setBackground(rounded(MODE_COLORS[index], dp(8)));
+        header.setElevation(dp(3));
         LinearLayout linearLayout2 = new LinearLayout(this);
         linearLayout2.setOrientation(1);
-        linearLayout2.setPadding(dp(14), dp(10), dp(14), dp(10));
-        linearLayout2.setBackground(rounded(Color.rgb(22, 185, 207), dp(8)));
-        linearLayout2.setElevation(dp(3));
         TextView textView = new TextView(this);
-        textView.setText("Mini GBA");
+        textView.setText("Mini Emulator");
         textView.setTextColor(-1);
         textView.setTextSize(23.0f);
         textView.setTypeface(Typeface.DEFAULT_BOLD);
         textView.setGravity(16);
         TextView textView2 = new TextView(this);
-        textView2.setText("Game Boy Advance");
+        textView2.setText(MODE_NAMES[index] + " · " + MODE_ENGINES[index]);
         textView2.setTextColor(Color.argb(220, 255, 255, 255));
         textView2.setTextSize(12.0f);
         textView2.setPadding(0, dp(1), 0, 0);
         linearLayout2.addView(textView, new LinearLayout.LayoutParams(-1, -2));
         linearLayout2.addView(textView2, new LinearLayout.LayoutParams(-1, -2));
+        header.addView(linearLayout2, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView modeChip = new TextView(this);
+        modeChip.setText("모드 변경 ▾");
+        modeChip.setTextColor(-1);
+        modeChip.setTextSize(11.0f);
+        modeChip.setTypeface(Typeface.DEFAULT_BOLD);
+        modeChip.setPadding(dp(10), dp(6), dp(10), dp(6));
+        modeChip.setBackground(rounded(Color.argb(64, 255, 255, 255), dp(14)));
+        modeChip.setClickable(true);
+        modeChip.setOnClickListener(view -> showModeSwitcher());
+        header.addView(modeChip, new LinearLayout.LayoutParams(-2, -2));
+        linearLayout.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        if (!isModeAvailable(this.currentMode)) {
+            linearLayout.addView(createComingSoonView(index), new LinearLayout.LayoutParams(-1, -2));
+            setContentView(linearLayout);
+            return;
+        }
         LinearLayout linearLayout3 = new LinearLayout(this);
         linearLayout3.setOrientation(1);
         linearLayout3.setPadding(0, dp(8), 0, dp(4));
@@ -128,13 +308,94 @@ public final class MainActivity extends Activity {
         this.noteView.setTextSize(13.0f);
         this.noteView.setTextColor(Color.rgb(93, 103, 112));
         this.noteView.setPadding(dp(8), dp(8), dp(8), 0);
-        updateNote();
-        linearLayout.addView(linearLayout2, new LinearLayout.LayoutParams(-1, -2));
         linearLayout.addView(linearLayout3, new LinearLayout.LayoutParams(-1, -2));
         linearLayout.addView(this.emptyView, new LinearLayout.LayoutParams(-1, dp(58)));
         linearLayout.addView(scrollView, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         linearLayout.addView(this.noteView, new LinearLayout.LayoutParams(-1, -2));
         setContentView(linearLayout);
+        updateHomeStatusCards();
+        updateNote();
+        refreshLibrary();
+    }
+
+    private View createComingSoonView(int index) {
+        TextView view = new TextView(this);
+        view.setText(MODE_NAMES[index] + " 모드는 준비 중입니다.\n" + MODE_ENGINES[index] + " 엔진이 다음 업데이트에서 추가됩니다.\n\n위의 ‘모드 변경’을 눌러 GBA로 돌아갈 수 있습니다.");
+        view.setGravity(17);
+        view.setTextSize(14.0f);
+        view.setTextColor(Color.rgb(99, 110, 122));
+        view.setLineSpacing(0.0f, 1.25f);
+        view.setPadding(dp(16), dp(48), dp(16), dp(16));
+        return view;
+    }
+
+    private void showModeSwitcher() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout sheet = new LinearLayout(this);
+        sheet.setOrientation(1);
+        sheet.setPadding(dp(14), dp(16), dp(14), dp(18));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(-1);
+        float radius = dp(20);
+        background.setCornerRadii(new float[]{radius, radius, radius, radius, 0.0f, 0.0f, 0.0f, 0.0f});
+        sheet.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("모드 변경");
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextSize(16.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setPadding(dp(6), 0, 0, dp(10));
+        sheet.addView(title);
+        for (int i = 0; i < MODE_IDS.length; i++) {
+            final String mode = MODE_IDS[i];
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(6), dp(9), dp(6), dp(9));
+            if (mode.equals(this.currentMode)) {
+                row.setBackground(rounded(Color.rgb(224, 247, 251), dp(10)));
+            }
+            TextView icon = new TextView(this);
+            icon.setText(MODE_ICONS[i]);
+            icon.setGravity(17);
+            icon.setTextColor(-1);
+            icon.setTextSize(9.0f);
+            icon.setTypeface(Typeface.DEFAULT_BOLD);
+            icon.setBackground(rounded(MODE_COLORS[i], dp(9)));
+            row.addView(icon, new LinearLayout.LayoutParams(dp(30), dp(30)));
+            TextView name = new TextView(this);
+            name.setText(MODE_NAMES[i]);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextSize(14.0f);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setPadding(dp(10), 0, 0, 0);
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            TextView status = new TextView(this);
+            status.setText(isModeAvailable(mode) ? "게임 " + romCount() + "개" : "준비 중");
+            status.setTextColor(STATUS_TEXT_COLOR);
+            status.setTextSize(11.0f);
+            row.addView(status);
+            row.setClickable(true);
+            row.setOnClickListener(view -> {
+                dialog.dismiss();
+                onModePicked(mode);
+            });
+            sheet.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        dialog.setContentView(sheet);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    private int romCount() {
+        File[] files = romDir().listFiles(this::isRomFile);
+        return files == null ? 0 : files.length;
     }
 
     private void cycleScreenMode(View view) {
