@@ -15,6 +15,8 @@ final class TouchButton extends View {
     static final int STYLE_DARK = 1;
     static final int STYLE_LIGHT = 0;
     static final int STYLE_SHOULDER = 2;
+    static final int STYLE_ARCADE_YELLOW = 6;
+    static final int STYLE_ARCADE_GREEN = 7;
     private final int button;
     private final Paint fill;
     private final Paint highlight;
@@ -73,9 +75,21 @@ final class TouchButton extends View {
         boolean z2 = i2 == 2;
         boolean z3 = i2 == 3;
         boolean z4 = i2 == 4;
-        boolean z5 = i2 == 5;
+        boolean z5 = i2 == 5 || i2 == STYLE_ARCADE_YELLOW || i2 == STYLE_ARCADE_GREEN;
         if (z4 || z5) {
-            if (z4) {
+            if (i2 == STYLE_ARCADE_YELLOW) {
+                this.fill.setColor(this.pressed ? Color.rgb(255, 196, 46) : Color.rgb(245, 166, 10));
+                this.stroke.setColor(Color.rgb(140, 88, 0));
+                this.text.setColor(Color.rgb(110, 66, 0));
+                this.shadow.setColor(Color.argb(165, 102, 62, 0));
+                this.highlight.setColor(Color.argb(120, 255, 236, 170));
+            } else if (i2 == STYLE_ARCADE_GREEN) {
+                this.fill.setColor(this.pressed ? Color.rgb(46, 196, 96) : Color.rgb(22, 163, 74));
+                this.stroke.setColor(Color.rgb(10, 86, 38));
+                this.text.setColor(Color.rgb(6, 70, 30));
+                this.shadow.setColor(Color.argb(165, 6, 60, 26));
+                this.highlight.setColor(Color.argb(120, 190, 255, 210));
+            } else if (z4) {
                 this.fill.setColor(this.pressed ? Color.rgb(242, 31, 49) : Color.rgb(207, 15, 34));
                 this.stroke.setColor(Color.rgb(116, 8, 22));
                 this.text.setColor(Color.rgb(91, 4, 18));

@@ -28,6 +28,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     static final String EXTRA_CORE_ID = "com.example.minigba.CORE_ID";
     static final String EXTRA_ROM_PATH = "com.example.minigba.ROM_PATH";
     static final String EXTRA_SAVE_BASE_NAME = "com.example.minigba.SAVE_BASE_NAME";
+    static final String EXTRA_MODE = "com.example.minigba.MODE";
     private static final String PREFS_SETTINGS = "settings";
     private static final String PREF_ORIENTATION_MODE = "orientation_mode";
     private static final String PREF_SCREEN_MODE = "screen_mode";
@@ -35,6 +36,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private AudioSink audioSink;
     private int buttonMask;
     private String coreId;
+    private String gameMode;
     private SpeedButtonView fastForwardButton;
     private boolean landscapeMode;
     private boolean menuExiting;
@@ -58,6 +60,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.coreId = stringExtra;
         if (stringExtra == null) {
             this.coreId = "gba";
+        }
+        this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
+        if (this.gameMode == null) {
+            this.gameMode = this.coreId.equals("gba") ? "gba" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -172,24 +178,32 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void addLandscapeControls(FrameLayout frameLayout) {
         View createDirectionControl = createDirectionControl();
-        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(this.coreId.equals("gba") ? 150 : 166), dp(this.coreId.equals("gba") ? 150 : 166));
+        boolean isGba = this.coreId.equals("gba");
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(150), dp(150));
         layoutParams.gravity = 8388627;
-        layoutParams.setMargins(dp(this.coreId.equals("gba") ? 12 : 8), 0, 0, 0);
+        layoutParams.setMargins(dp(12), 0, 0, 0);
         frameLayout.addView(createDirectionControl, layoutParams);
-        if (this.coreId.equals("gba")) {
+        if (isGba) {
             addButton(frameLayout, "L", 512, 8388659, dp(18), dp(14), dp(104), dp(40), 2);
             addButton(frameLayout, "R", 256, 8388661, dp(18), dp(14), dp(104), dp(40), 2);
             addLandscapeActionButton(frameLayout, "A", 1, dp(26), -dp(42), 3);
             addLandscapeActionButton(frameLayout, "B", 2, dp(92), dp(42), 3);
+        } else if (isNeoGeoMode()) {
+            // Diamond with equal spacing; the right edge matches the joystick's left margin.
+            addLandscapeArcadeButton(frameLayout, "C", 1024, 64, -52, 50, TouchButton.STYLE_ARCADE_GREEN);
+            addLandscapeArcadeButton(frameLayout, "D", 2048, 12, 0, 50, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "B", 2, 64, 52, 50, TouchButton.STYLE_ARCADE_YELLOW);
+            addLandscapeArcadeButton(frameLayout, "A", 1, 116, 0, 50, TouchButton.STYLE_ARCADE_RED);
         } else {
-            addLandscapeArcadeButton(frameLayout, "C", 1024, 130, -24, 5);
-            addLandscapeArcadeButton(frameLayout, "D", 2048, 70, -32, 5);
-            addLandscapeArcadeButton(frameLayout, "E", 4096, 10, -40, 5);
-            addLandscapeArcadeButton(frameLayout, "A", 1, 130, 40, 4);
-            addLandscapeArcadeButton(frameLayout, "B", 2, 70, 32, 4);
-            addLandscapeArcadeButton(frameLayout, "F", 8192, 10, 24, 4);
+            // 3x2 grid: A B C on top, D E F below.
+            addLandscapeArcadeButton(frameLayout, "A", 1, 120, -27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "B", 2, 66, -27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "C", 1024, 12, -27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "D", 2048, 120, 27, 46, TouchButton.STYLE_ARCADE_RED);
+            addLandscapeArcadeButton(frameLayout, "E", 4096, 66, 27, 46, TouchButton.STYLE_ARCADE_RED);
+            addLandscapeArcadeButton(frameLayout, "F", 8192, 12, 27, 46, TouchButton.STYLE_ARCADE_RED);
         }
-        addButton(frameLayout, this.coreId.equals("gba") ? "SELECT" : "COIN", 4, 8388691, dp(42), dp(18), dp(94), dp(34));
+        addButton(frameLayout, isGba ? "SELECT" : "COIN", 4, 8388691, dp(42), dp(18), dp(94), dp(34));
         addButton(frameLayout, "START", 8, 8388693, dp(42), dp(18), dp(94), dp(34));
     }
 
@@ -227,9 +241,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         updateInput();
     }
 
-    private void addLandscapeArcadeButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4) {
+    private void addLandscapeArcadeButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int size, int i4) {
         TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed, i4);
-        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(54), dp(54));
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(size), dp(size));
         layoutParams.gravity = 8388629;
         layoutParams.setMargins(0, 0, dp(i2), 0);
         touchButton.setTranslationY(dp(i3));
@@ -507,28 +521,36 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void addControls(FrameLayout frameLayout) {
         View createDirectionControl = createDirectionControl();
-        int i = this.coreId.equals("gba") ? 166 : 180;
+        boolean isGba = this.coreId.equals("gba");
+        int i = isGba ? 166 : 156;
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(i), dp(i));
         layoutParams.gravity = 8388691;
-        layoutParams.setMargins(dp(this.coreId.equals("gba") ? 24 : 16), 0, 0, dp(this.coreId.equals("gba") ? 154 : 144));
+        layoutParams.setMargins(dp(isGba ? 24 : 16), 0, 0, dp(isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
-        if (this.coreId.equals("gba")) {
+        if (isGba) {
             addButton(frameLayout, "L", 512, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
             addButton(frameLayout, "R", 256, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
         }
         addFastForwardButton(frameLayout);
-        if (this.coreId.equals("gba")) {
+        if (isGba) {
             addButton(frameLayout, "A", 1, 8388693, dp(44), dp(243), dp(72), dp(72), 3);
             addButton(frameLayout, "B", 2, 8388693, dp(78), dp(159), dp(72), dp(72), 3);
+        } else if (isNeoGeoMode()) {
+            // Diamond centred on the joystick's height; the right margin mirrors its left margin.
+            addButton(frameLayout, "C", 1024, 8388693, dp(70), dp(250), dp(52), dp(52), TouchButton.STYLE_ARCADE_GREEN);
+            addButton(frameLayout, "D", 2048, 8388693, dp(16), dp(196), dp(52), dp(52), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "B", 2, 8388693, dp(70), dp(142), dp(52), dp(52), TouchButton.STYLE_ARCADE_YELLOW);
+            addButton(frameLayout, "A", 1, 8388693, dp(124), dp(196), dp(52), dp(52), TouchButton.STYLE_ARCADE_RED);
         } else {
-            addButton(frameLayout, "C", 1024, 8388693, dp(140), dp(224), dp(58), dp(58), 5);
-            addButton(frameLayout, "D", 2048, 8388693, dp(78), dp(236), dp(58), dp(58), 5);
-            addButton(frameLayout, "E", 4096, 8388693, dp(16), dp(248), dp(58), dp(58), 5);
-            addButton(frameLayout, "A", 1, 8388693, dp(140), dp(154), dp(58), dp(58), 4);
-            addButton(frameLayout, "B", 2, 8388693, dp(78), dp(166), dp(58), dp(58), 4);
-            addButton(frameLayout, "F", 8192, 8388693, dp(16), dp(178), dp(58), dp(58), 4);
+            // 3x2 grid with 10dp gaps: A B C on top, D E F below.
+            addButton(frameLayout, "A", 1, 8388693, dp(136), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "B", 2, 8388693, dp(76), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "C", 1024, 8388693, dp(16), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "D", 2048, 8388693, dp(136), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "E", 4096, 8388693, dp(76), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "F", 8192, 8388693, dp(16), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
         }
-        addCenterButton(frameLayout, this.coreId.equals("gba") ? "SELECT" : "COIN", 4, -66);
+        addCenterButton(frameLayout, isGba ? "SELECT" : "COIN", 4, -66);
         addCenterButton(frameLayout, "START", 8, 66);
     }
 
@@ -729,6 +751,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private int dp(int i) {
         return (int) ((i * getResources().getDisplayMetrics().density) + 0.5f);
+    }
+
+    private boolean isNeoGeoMode() {
+        return "neogeo".equals(this.gameMode);
     }
 
     private boolean isMame139() {

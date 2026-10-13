@@ -55,6 +55,9 @@ public final class MainActivity extends Activity {
     private static final String PREF_SCREEN_MODE = "screen_mode";
     private static final String PREF_MODE = "mode";
     private static final String PREF_REMEMBER_MODE = "remember_mode";
+    private static final String PREF_ARCADE_CORE = "arcade_default_core";
+    private static final String[] ARCADE_CORE_IDS = {"mame2003plus", "fbneo"};
+    private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드)", "FinalBurn Neo (Neo Geo · CPS 등)"};
     private static final String MODE_GBA = "gba";
     private static final String STATE_MODE = "current_mode";
     // Game modes shown on the picker. Only GBA ships an engine so far.
@@ -74,6 +77,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_OPEN_ROM = 1001;
     private TextView biosStatusView;
     private String currentMode;
+    private TextView engineStatusView;
+    private TextView neoGeoBiosBanner;
     private TextView emptyView;
     private TextView mameBiosStatusView;
     private TextView neoGeoBiosStatusView;
@@ -131,12 +136,16 @@ public final class MainActivity extends Activity {
     }
 
     private static boolean isModeAvailable(String mode) {
-        return MODE_GBA.equals(mode);
+        return !"ps".equals(mode);
     }
 
     private void clearHomeViews() {
         this.currentMode = null;
         this.biosStatusView = null;
+        this.neoGeoBiosStatusView = null;
+        this.mameBiosStatusView = null;
+        this.engineStatusView = null;
+        this.neoGeoBiosBanner = null;
         this.screenModeStatusView = null;
         this.emptyView = null;
         this.romList = null;
@@ -214,7 +223,7 @@ public final class MainActivity extends Activity {
         texts.addView(detail);
         card.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
         TextView status = new TextView(this);
-        status.setText(isModeAvailable(MODE_IDS[index]) ? "엔진 준비됨" : "준비 중");
+        status.setText(modeStatusText(MODE_IDS[index]));
         status.setTextColor(-1);
         status.setTextSize(10.0f);
         status.setTypeface(Typeface.DEFAULT_BOLD);
@@ -222,6 +231,16 @@ public final class MainActivity extends Activity {
         status.setBackground(rounded(Color.argb(64, 255, 255, 255), dp(10)));
         card.addView(status, new LinearLayout.LayoutParams(-2, -2));
         return card;
+    }
+
+    private String modeStatusText(String mode) {
+        if (!isModeAvailable(mode)) {
+            return "준비 중";
+        }
+        if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
+            return "BIOS 필요";
+        }
+        return "엔진 준비됨";
     }
 
     private void onModePicked(String mode) {
@@ -282,15 +301,43 @@ public final class MainActivity extends Activity {
         LinearLayout actionRow = new LinearLayout(this);
         actionRow.setOrientation(0);
         actionRow.setPadding(0, dp(6), 0, dp(6));
-        actionRow.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
-        LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> openBiosPicker());
-        this.biosStatusView = (TextView) biosTile.getTag();
-        actionRow.addView(biosTile, actionTileParams());
-        actionRow.addView(createActionCard("ROM 검사", "기본 검사", "OK", Color.rgb(98, 111, 204), view -> checkImportedRoms()), actionTileParams());
+        if ("neogeo".equals(this.currentMode)) {
+            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "NEO", MODE_COLORS[index], view -> openArcadeRomPicker()), actionTileParams());
+            LinearLayout neoBiosTile = createActionCard("Neo Geo BIOS", neoGeoBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> openNeoGeoBiosPicker());
+            this.neoGeoBiosStatusView = (TextView) neoBiosTile.getTag();
+            actionRow.addView(neoBiosTile, actionTileParams());
+        } else if ("arcade".equals(this.currentMode)) {
+            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "MAME", MODE_COLORS[index], view -> openArcadeRomPicker()), actionTileParams());
+            LinearLayout mameBiosTile = createActionCard("MAME BIOS", mameBiosStatus(), "BIOS", Color.rgb(239, 84, 103), view -> showMameBiosManager());
+            this.mameBiosStatusView = (TextView) mameBiosTile.getTag();
+            actionRow.addView(mameBiosTile, actionTileParams());
+        } else {
+            actionRow.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
+            LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> openBiosPicker());
+            this.biosStatusView = (TextView) biosTile.getTag();
+            actionRow.addView(biosTile, actionTileParams());
+        }
+        if ("arcade".equals(this.currentMode)) {
+            LinearLayout engineTile = createActionCard("엔진", shortCoreName(defaultArcadeCore()), "ENG", Color.rgb(245, 158, 11), view -> showDefaultCorePicker());
+            this.engineStatusView = (TextView) engineTile.getTag();
+            actionRow.addView(engineTile, actionTileParams());
+        } else {
+            actionRow.addView(createActionCard("ROM 검사", "기본 검사", "OK", Color.rgb(98, 111, 204), view -> checkImportedRoms()), actionTileParams());
+        }
         LinearLayout screenModeTile = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], "VIEW", Color.rgb(55, 188, 116), view -> cycleScreenMode(view));
         this.screenModeStatusView = (TextView) screenModeTile.getTag();
         actionRow.addView(screenModeTile, actionTileParams());
         linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        if ("neogeo".equals(this.currentMode)) {
+            TextView banner = new TextView(this);
+            banner.setText("Neo Geo BIOS가 필요합니다. neogeo.zip을 등록해야 게임을 실행할 수 있어요.");
+            banner.setTextColor(Color.rgb(76, 29, 149));
+            banner.setTextSize(12.0f);
+            banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+            banner.setBackground(rounded(Color.rgb(237, 233, 254), dp(12)));
+            this.neoGeoBiosBanner = banner;
+            linearLayout3.addView(banner, new LinearLayout.LayoutParams(-1, -2));
+        }
         TextView textView3 = new TextView(this);
         this.emptyView = textView3;
         textView3.setText("아직 가져온 ROM이 없습니다.");
@@ -372,7 +419,7 @@ public final class MainActivity extends Activity {
             name.setPadding(dp(10), 0, 0, 0);
             row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
             TextView status = new TextView(this);
-            status.setText(isModeAvailable(mode) ? "게임 " + romCount() + "개" : "준비 중");
+            status.setText(isModeAvailable(mode) ? "게임 " + romCount(mode) + "개" : "준비 중");
             status.setTextColor(STATUS_TEXT_COLOR);
             status.setTextSize(11.0f);
             row.addView(status);
@@ -393,9 +440,19 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
-    private int romCount() {
-        File[] files = romDir().listFiles(this::isRomFile);
+    private int romCount(String mode) {
+        File[] files = romDirFor(mode).listFiles(this::isRomFile);
         return files == null ? 0 : files.length;
+    }
+
+    private String emptyLibraryText() {
+        if ("neogeo".equals(this.currentMode)) {
+            return "아직 가져온 Neo Geo 게임이 없습니다.";
+        }
+        if ("arcade".equals(this.currentMode)) {
+            return "아직 가져온 아케이드 게임이 없습니다.";
+        }
+        return "아직 가져온 ROM이 없습니다.";
     }
 
     private void cycleScreenMode(View view) {
@@ -427,7 +484,14 @@ public final class MainActivity extends Activity {
         }
         TextView textView2 = this.neoGeoBiosStatusView;
         if (textView2 != null) {
-            textView2.setText(neoGeoBiosFile().exists() ? "등록됨" : "등록 안 됨");
+            textView2.setText(neoGeoBiosStatusText());
+            textView2.setTextColor(neoGeoBiosFile().exists() ? STATUS_TEXT_COLOR : Color.rgb(239, 84, 103));
+        }
+        if (this.neoGeoBiosBanner != null) {
+            this.neoGeoBiosBanner.setVisibility(neoGeoBiosFile().exists() ? 8 : 0);
+        }
+        if (this.engineStatusView != null) {
+            this.engineStatusView.setText(shortCoreName(defaultArcadeCore()));
         }
         TextView textView3 = this.mameBiosStatusView;
         if (textView3 != null) {
@@ -478,6 +542,14 @@ public final class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams actionTileParams() {
         return new LinearLayout.LayoutParams(0, -2, 1.0f);
+    }
+
+    private String neoGeoBiosStatusText() {
+        return neoGeoBiosFile().exists() ? "등록됨" : "등록 안 됨";
+    }
+
+    private String shortCoreName(String core) {
+        return "fbneo".equals(core) ? "FBNeo" : "MAME 2003+";
     }
 
     private String biosStatusText() {
@@ -664,8 +736,8 @@ public final class MainActivity extends Activity {
 
     private boolean deleteMameBios(File file) {
         if (file.getName().equalsIgnoreCase("stvbios.zip")) {
-            removeMergedBiosEntries(new File(romDir(), "twcup98.zip"), file);
-            File file2 = new File(romDir(), "stvbios.zip");
+            removeMergedBiosEntries(new File(arcadeRomDir(), "twcup98.zip"), file);
+            File file2 = new File(arcadeRomDir(), "stvbios.zip");
             if (file2.exists() && !file2.delete()) {
                 return false;
             }
@@ -794,7 +866,9 @@ public final class MainActivity extends Activity {
         int i3 = 0;
         for (Uri uri2 : arrayList) {
             String displayNameFor = displayNameFor(uri2);
-            if (!displayNameFor.toLowerCase(Locale.US).endsWith(".zip")) {
+            if (displayNameFor.equalsIgnoreCase("neogeo.zip")) {
+                importNeoGeoBios(uri2);
+            } else if (!displayNameFor.toLowerCase(Locale.US).endsWith(".zip")) {
                 sb.append(displayNameFor).append(": 아케이드 ROM은 ZIP 파일이어야 합니다.\n");
             } else {
                 try {
@@ -808,7 +882,6 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        migrateKnownArcadeRoms();
         refreshLibrary();
         String str = "아케이드 ROM 가져오기 완료: " + i + "개";
         if (i3 > 0) {
@@ -819,7 +892,6 @@ public final class MainActivity extends Activity {
         } else {
             showMessage(str);
         }
-        showMameBiosManager();
     }
 
     private void importBios(Uri uri) {
@@ -870,7 +942,7 @@ public final class MainActivity extends Activity {
                 }
                 throw new IOException("비어 있는 BIOS 파일입니다");
             }
-            File romDir = romDir();
+            File romDir = arcadeRomDir();
             if (!romDir.exists() && !romDir.mkdirs()) {
                 throw new IOException("ROM 폴더를 만들 수 없습니다");
             }
@@ -922,13 +994,13 @@ public final class MainActivity extends Activity {
                         throw new IOException("올바른 ZIP 파일이 아닙니다");
                     }
                     if (sanitizeFileName.equalsIgnoreCase("stvbios.zip") && file2.exists()) {
-                        removeMergedBiosEntries(new File(romDir(), "twcup98.zip"), file2);
+                        removeMergedBiosEntries(new File(arcadeRomDir(), "twcup98.zip"), file2);
                     }
                     if (!copyFile(file, file2)) {
                         throw new IOException("BIOS를 저장할 수 없습니다");
                     }
                     if (sanitizeFileName.equalsIgnoreCase("stvbios.zip")) {
-                        File romDir = romDir();
+                        File romDir = arcadeRomDir();
                         if (!romDir.exists() && !romDir.mkdirs()) {
                             throw new IOException("ROM 폴더를 만들 수 없습니다");
                         }
@@ -963,8 +1035,9 @@ public final class MainActivity extends Activity {
             return;
         }
         linearLayout.removeAllViews();
-        File[] listFiles = romDir().listFiles(this::isRomFile);
+        File[] listFiles = currentRomDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
+            this.emptyView.setText(emptyLibraryText());
             this.emptyView.setVisibility(0);
             return;
         }
@@ -1054,8 +1127,8 @@ public final class MainActivity extends Activity {
         arrayList.add("실행");
         arrayList.add(isFavorite(file) ? "즐겨찾기 해제" : "즐겨찾기 추가");
         arrayList.add("게임/세이브 이름 변경");
-        if (!coreFor(file).equals("gba")) {
-            arrayList.add("아케이드 코어 변경");
+        if ("arcade".equals(modeForFile(file))) {
+            arrayList.add("실행 엔진 변경");
         }
         arrayList.add("세이브 백업 내보내기");
         arrayList.add("세이브 백업 가져오기");
@@ -1079,7 +1152,7 @@ public final class MainActivity extends Activity {
             renameGameAndSave(file);
             return;
         }
-        if (str.equals("아케이드 코어 변경")) {
+        if (str.equals("실행 엔진 변경")) {
             showCorePicker(file);
             return;
         }
@@ -1097,18 +1170,21 @@ public final class MainActivity extends Activity {
     }
 
     private void showCorePicker(final File file) {
-        int i = 0;
-        String[] strArr = {"FinalBurn Neo (Neo Geo 우선)", "MAME 2003-Plus (구형 아케이드)", "MAME4droid 0.139u1 (0.139 ROM 세트)", "MAME Arcade (현행·후기 아케이드)"};
-        final String[] strArr2 = {"fbneo", "mame2003plus", "mame139", "mamearcade"};
-        String coreFor = coreFor(file);
-        if (coreFor.equals("mamearcade")) {
-            i = 3;
-        } else if (coreFor.equals("mame139")) {
-            i = 2;
-        } else if (coreFor.equals("mame2003plus")) {
-            i = 1;
-        }
-        new AlertDialog.Builder(this).setTitle("실행 코어 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
+        String[] strArr = ARCADE_CORE_LABELS;
+        final String[] strArr2 = ARCADE_CORE_IDS;
+        int i = "fbneo".equals(coreFor(file)) ? 1 : 0;
+        new AlertDialog.Builder(this).setTitle("실행 엔진 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
+    }
+
+    private void showDefaultCorePicker() {
+        int checked = "fbneo".equals(defaultArcadeCore()) ? 1 : 0;
+        new AlertDialog.Builder(this).setTitle("기본 엔진").setSingleChoiceItems(ARCADE_CORE_LABELS, checked, (dialog, which) -> {
+            settingsPrefs().edit().putString(PREF_ARCADE_CORE, ARCADE_CORE_IDS[which]).apply();
+            dialog.dismiss();
+            updateHomeStatusCards();
+            refreshLibrary();
+            showMessage("기본 엔진: " + coreDisplayName(ARCADE_CORE_IDS[which]) + "\n게임별 엔진은 게임을 길게 눌러 바꿀 수 있습니다.");
+        }).show();
     }
 
     private void onCoreSelected(File file, String[] strArr, DialogInterface dialogInterface, int i) {
@@ -1124,12 +1200,21 @@ public final class MainActivity extends Activity {
             refreshLibrary();
             return;
         }
+        String mode = modeForFile(file);
+        if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
+            new AlertDialog.Builder(this).setTitle("Neo Geo BIOS가 필요합니다").setMessage("neogeo.zip을 등록해야 Neo Geo 게임을 실행할 수 있어요.").setNegativeButton("취소", null).setPositiveButton("BIOS 등록", (dialog, which) -> openNeoGeoBiosPicker()).show();
+            return;
+        }
+        if ("arcade".equals(mode)) {
+            syncArcadeBiosFiles();
+        }
         migrateSaveFileIfNeeded(file);
         markRecentlyPlayed(file);
         Intent intent = new Intent(this, (Class<?>) GameActivity.class);
         intent.putExtra("com.example.minigba.ROM_PATH", file.getAbsolutePath());
         intent.putExtra("com.example.minigba.SAVE_BASE_NAME", saveBaseNameFor(file));
         intent.putExtra("com.example.minigba.CORE_ID", coreFor(file));
+        intent.putExtra(GameActivity.EXTRA_MODE, mode);
         startActivity(intent);
     }
 
@@ -1402,7 +1487,7 @@ public final class MainActivity extends Activity {
     }
 
     private File copyArcadeRomToAppStorage(Uri uri, String str) throws IOException {
-        File romDir = romDir();
+        File romDir = currentRomDir();
         if (!romDir.exists() && !romDir.mkdirs()) {
             throw new IOException("ROM 폴더를 만들 수 없습니다");
         }
@@ -1421,9 +1506,7 @@ public final class MainActivity extends Activity {
             throw new IOException("비어 있는 ZIP 파일입니다");
         }
         File finalizeImportedRom = finalizeImportedRom(uniqueFile, baseNameWithoutExtension(str));
-        if (finalizeImportedRom != null) {
-            romPrefs().edit().putString("core:" + finalizeImportedRom.getName(), "fbneo").apply();
-        }
+
         return finalizeImportedRom;
     }
 
@@ -1479,7 +1562,7 @@ public final class MainActivity extends Activity {
     }
 
     private File findRomByCrc(String str, File file) {
-        File[] listFiles = romDir().listFiles(this::isRomFile);
+        File[] listFiles = file.getParentFile() == null ? null : file.getParentFile().listFiles(this::isRomFile);
         if (listFiles == null) {
             return null;
         }
@@ -1563,7 +1646,7 @@ public final class MainActivity extends Activity {
     }
 
     private void checkImportedRoms() {
-        File[] listFiles = romDir().listFiles(this::isRomFile);
+        File[] listFiles = currentRomDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
             showMessage("검사할 ROM이 없습니다.");
             return;
@@ -1652,7 +1735,15 @@ public final class MainActivity extends Activity {
         if (this.noteView == null) {
             return;
         }
-        this.noteView.setText("상업용 ROM/BIOS는 포함되어 있지 않습니다. ROM을 길게 누르면 세이브를 관리할 수 있습니다.\n세이브 파일 경로: " + saveDir().getAbsolutePath() + "\nGBA BIOS: " + (biosFile().exists() ? "등록됨" : "등록 안 됨"));
+        String bios;
+        if ("neogeo".equals(this.currentMode)) {
+            bios = "Neo Geo BIOS: " + neoGeoBiosStatusText();
+        } else if ("arcade".equals(this.currentMode)) {
+            bios = "MAME BIOS: " + mameBiosStatus() + " · 게임을 길게 누르면 실행 엔진을 바꿀 수 있습니다.";
+        } else {
+            bios = "GBA BIOS: " + biosStatusText();
+        }
+        this.noteView.setText("상업용 ROM/BIOS는 포함되어 있지 않습니다. ROM을 길게 누르면 세이브를 관리할 수 있습니다.\n세이브 파일 경로: " + saveDir().getAbsolutePath() + "\n" + bios);
     }
 
     private void updateScreenModeButton(Button button) {
@@ -1665,6 +1756,35 @@ public final class MainActivity extends Activity {
             return 0;
         }
         return i;
+    }
+
+    private File romDirFor(String mode) {
+        if ("neogeo".equals(mode)) {
+            return new File(getFilesDir(), "roms_neogeo");
+        }
+        if ("arcade".equals(mode)) {
+            return arcadeRomDir();
+        }
+        return romDir();
+    }
+
+    private File currentRomDir() {
+        return romDirFor(this.currentMode);
+    }
+
+    private File arcadeRomDir() {
+        return new File(getFilesDir(), "roms_arcade");
+    }
+
+    private String modeForFile(File file) {
+        File parent = file.getParentFile();
+        if (romDirFor("neogeo").equals(parent)) {
+            return "neogeo";
+        }
+        if (arcadeRomDir().equals(parent)) {
+            return "arcade";
+        }
+        return MODE_GBA;
     }
 
     private File romDir() {
@@ -1820,7 +1940,7 @@ public final class MainActivity extends Activity {
     private void syncNeoGeoBiosForArcade() {
         File neoGeoBiosFile = neoGeoBiosFile();
         if (neoGeoBiosFile.exists()) {
-            File romDir = romDir();
+            File romDir = arcadeRomDir();
             if (romDir.exists() || romDir.mkdirs()) {
                 try {
                     prepareNeoGeoBiosForArcade(neoGeoBiosFile, new File(romDir, "neogeo.zip"));
@@ -1830,8 +1950,27 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // MAME 2003-Plus only looks for BIOS archives next to the game, so copy the
+    // registered ones into the arcade folder before launching.
+    private void syncArcadeBiosFiles() {
+        File dir = arcadeRomDir();
+        if (!dir.exists() && !dir.mkdirs()) {
+            return;
+        }
+        File[] bios = mameBiosDir().listFiles(MainActivity::isZipFile);
+        if (bios != null) {
+            for (File file : bios) {
+                File target = new File(dir, file.getName());
+                if (!target.exists() || target.lastModified() < file.lastModified()) {
+                    copyFile(file, target);
+                }
+            }
+        }
+        syncNeoGeoBiosForArcade();
+    }
+
     private void syncMameBiosStorage() {
-        File file = new File(romDir(), "stvbios.zip");
+        File file = new File(arcadeRomDir(), "stvbios.zip");
         if (file.isFile()) {
             File mameBiosDir = mameBiosDir();
             if (mameBiosDir.exists() || mameBiosDir.mkdirs()) {
@@ -1845,7 +1984,7 @@ public final class MainActivity extends Activity {
     }
 
     private void migrateKnownArcadeRoms() {
-        File romDir = romDir();
+        File romDir = arcadeRomDir();
         File[] listFiles = romDir.listFiles(MainActivity::isZipFile);
         if (listFiles == null) {
             return;
@@ -2214,11 +2353,26 @@ public final class MainActivity extends Activity {
 
     private boolean isSupportedRom(File file) {
         String lowerCase = file.getName().toLowerCase(Locale.US);
-        return lowerCase.endsWith(".gba") || !(!lowerCase.endsWith(".zip") || lowerCase.equals("neogeo.zip") || lowerCase.equals("stvbios.zip"));
+        if (MODE_GBA.equals(modeForFile(file))) {
+            return lowerCase.endsWith(".gba") || !(!lowerCase.endsWith(".zip") || lowerCase.equals("neogeo.zip") || lowerCase.equals("stvbios.zip"));
+        }
+        // Arcade folders also hold copies of the BIOS archives the cores look for.
+        return lowerCase.endsWith(".zip") && !lowerCase.equals("neogeo.zip") && !new File(mameBiosDir(), file.getName()).exists();
     }
 
     private String coreFor(File file) {
-        return "gba";
+        String mode = modeForFile(file);
+        if ("neogeo".equals(mode)) {
+            return "fbneo";
+        }
+        if ("arcade".equals(mode)) {
+            return romPrefs().getString("core:" + file.getName(), defaultArcadeCore());
+        }
+        return MODE_GBA;
+    }
+
+    private String defaultArcadeCore() {
+        return settingsPrefs().getString(PREF_ARCADE_CORE, "mame2003plus");
     }
 
     private String coreDisplayName(String str) {

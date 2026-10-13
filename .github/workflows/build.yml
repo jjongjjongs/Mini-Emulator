@@ -34,6 +34,19 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" > /dev/null
 
+      - name: Cache arcade cores
+        id: cores-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libfbneo_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmame2003_plus_libretro_android.so
+          key: cores-${{ hashFiles('cores/build-cores.sh') }}
+
+      - name: Build arcade cores
+        if: steps.cores-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-cores.sh
+
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug
 
