@@ -1,0 +1,14 @@
+Bundled native core:
+libmame2010_libretro_android.so
+
+Built from the libretro MAME 2010 (MAME 0.139) source
+(commit dff8aadd1c3f38215af3955746d6e19abe0ddcea)
+for Android arm64-v8a with 16 KB ELF alignment.
+
+MAME 2010 source:
+https://github.com/libretro/mame2010-libretro
+
+MAME 0.139 is distributed under the MAME license (non-commercial):
+https://github.com/libretro/mame2010-libretro/blob/master/docs/license.txt
+
+No ROM or BIOS files are bundled with this application.

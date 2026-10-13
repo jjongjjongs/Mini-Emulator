@@ -58,8 +58,8 @@ public final class MainActivity extends Activity {
     private static final String PREF_REMEMBER_MODE = "remember_mode";
     private static final String PREF_ARCADE_CORE = "arcade_default_core";
     private static final String PREF_NEOGEO_CORE = "neogeo_default_core";
-    private static final String[] ARCADE_CORE_IDS = {"mame2003plus", "fbneo"};
-    private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드)", "FinalBurn Neo (Neo Geo · CPS 등)"};
+    private static final String[] ARCADE_CORE_IDS = {"mame2003plus", "fbneo", "mame2010"};
+    private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드, 가벼움)", "FinalBurn Neo (Neo Geo · CPS 등)", "MAME 2010 (0.139, ZN·3D 기판 등 더 많은 게임)"};
     private static final String MODE_GBA = "gba";
     private static final String STATE_MODE = "current_mode";
     private static final String MODE_PS = "ps";
@@ -605,7 +605,10 @@ public final class MainActivity extends Activity {
     }
 
     private String shortCoreName(String core) {
-        return "fbneo".equals(core) ? "FBNeo" : "MAME 2003+";
+        if ("fbneo".equals(core)) {
+            return "FBNeo";
+        }
+        return "mame2010".equals(core) ? "MAME 2010" : "MAME 2003+";
     }
 
     private String biosStatusText() {
@@ -947,6 +950,14 @@ public final class MainActivity extends Activity {
             String displayNameFor = displayNameFor(uri2);
             if (displayNameFor.equalsIgnoreCase("neogeo.zip")) {
                 importNeoGeoBios(uri2);
+            } else if (displayNameFor.toLowerCase(Locale.US).endsWith(".zip") && RomsetIndex.isBiosName(this, baseNameWithoutExtension(displayNameFor.toLowerCase(Locale.US)))) {
+                // Board BIOS archives picked as ROMs go to the MAME BIOS folder.
+                try {
+                    copyUriToFile(uri2, new File(mameBiosDir(), sanitizeFileName(displayNameFor).toLowerCase(Locale.US)));
+                    sb.append(displayNameFor).append(": 기판 BIOS라서 MAME BIOS로 등록했습니다\n");
+                } catch (IOException e) {
+                    sb.append(displayNameFor).append(": ").append(e.getMessage()).append('\n');
+                }
             } else if (!displayNameFor.toLowerCase(Locale.US).endsWith(".zip")) {
                 sb.append(displayNameFor).append(": 아케이드 ROM은 ZIP 파일이어야 합니다.\n");
             } else {
@@ -1639,7 +1650,7 @@ public final class MainActivity extends Activity {
                 // Without a reported size the file is checked after copying.
                 target = new File(systemDir, name);
                 bucket = ps;
-            } else if (lowerCase.endsWith(".zip") && (BIOS_SOURCE_MAME.equals(source) || Arrays.asList(KNOWN_ARCADE_BIOS).contains(lowerCase))) {
+            } else if (lowerCase.endsWith(".zip") && (BIOS_SOURCE_MAME.equals(source) || Arrays.asList(KNOWN_ARCADE_BIOS).contains(lowerCase) || RomsetIndex.isBiosName(this, baseNameWithoutExtension(lowerCase)))) {
                 target = new File(mameBiosDir(), name);
                 bucket = mame;
             }
@@ -1779,6 +1790,17 @@ public final class MainActivity extends Activity {
         return true;
     }
 
+    private boolean hasBoardBios(RomsetIndex.Match match, File dir) {
+        if (match.bios == null) {
+            return true;
+        }
+        if (match.bios.equals("neogeo")) {
+            return neoGeoBiosFile().exists();
+        }
+        String name = match.bios + ".zip";
+        return new File(dir, name).isFile() || new File(mameBiosDir(), name).isFile();
+    }
+
     private String romsetProblem(RomsetResult result) {
         File dir = result.file.getParentFile();
         RomsetIndex.Match match = result.match;
@@ -1817,6 +1839,9 @@ public final class MainActivity extends Activity {
         if (best == null) {
             return new RomCheck(false, "알 수 없는 롬셋 (지원하지 않는 게임이거나 일부 파일만 있음)");
         }
+        if (best.isComplete(dir) && !hasBoardBios(best, dir)) {
+            return new RomCheck(false, best.name + " · 기판 BIOS " + best.bios + ".zip 필요");
+        }
         if (!best.isComplete(dir)) {
             return new RomCheck(false, best.name + " · 파일 부족" + (best.missingShared > 0 && best.parent != null ? " (" + best.parent + ".zip 필요)" : ""));
         }
@@ -1843,6 +1868,10 @@ public final class MainActivity extends Activity {
         }
         if (!result.match.isComplete(resolved.getParentFile())) {
             new AlertDialog.Builder(this).setTitle("ROM 파일이 부족합니다").setMessage(romsetProblem(result)).setNegativeButton("취소", null).setPositiveButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).show();
+            return;
+        }
+        if (!hasBoardBios(result.match, resolved.getParentFile())) {
+            new AlertDialog.Builder(this).setTitle("기판 BIOS가 필요합니다").setMessage(coreDisplayName(result.match.core) + "의 '" + result.match.name + "' 게임은 기판 BIOS " + result.match.bios + ".zip이 있어야 실행됩니다.\n\nMAME BIOS에 " + result.match.bios + ".zip을 등록해 주세요.").setNegativeButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).setPositiveButton("BIOS 등록", (dialog, which) -> showBiosChooser(BIOS_SOURCE_MAME)).show();
             return;
         }
         if (result.coreChanged) {
@@ -1994,14 +2023,14 @@ public final class MainActivity extends Activity {
     private void showCorePicker(final File file) {
         String[] strArr = ARCADE_CORE_LABELS;
         final String[] strArr2 = ARCADE_CORE_IDS;
-        int i = "fbneo".equals(coreFor(file)) ? 1 : 0;
+        int i = Math.max(0, Arrays.asList(ARCADE_CORE_IDS).indexOf(coreFor(file)));
         new AlertDialog.Builder(this).setTitle("실행 엔진 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
     }
 
     // Engine for games in this mode; a game whose romset fits only the other engine still switches to it.
     private void showDefaultCorePicker() {
         final String key = "neogeo".equals(this.currentMode) ? PREF_NEOGEO_CORE : PREF_ARCADE_CORE;
-        int checked = "fbneo".equals(defaultCoreFor(this.currentMode)) ? 1 : 0;
+        int checked = Math.max(0, Arrays.asList(ARCADE_CORE_IDS).indexOf(defaultCoreFor(this.currentMode)));
         new AlertDialog.Builder(this).setTitle("기본 엔진").setNeutralButton("ROM 검사", (dialog, which) -> checkImportedRoms()).setSingleChoiceItems(ARCADE_CORE_LABELS, checked, (dialog, which) -> {
             settingsPrefs().edit().putString(key, ARCADE_CORE_IDS[which]).apply();
             dialog.dismiss();
@@ -2907,7 +2936,7 @@ public final class MainActivity extends Activity {
                 }
                 if (z) {
                     normalizeTecmoWorldCup98Package(file2);
-                    romPrefs().edit().putString("title:" + file2.getName(), "Tecmo World Cup 98").putString("core:" + file2.getName(), "mamearcade").apply();
+                    romPrefs().edit().putString("title:" + file2.getName(), "Tecmo World Cup 98").putString("core:" + file2.getName(), "mame2010").apply();
                 }
             } else if (replaceAll.equals("bloodroar2") || replaceAll.equals("bloodyroar2") || replaceAll.equals("bldyror2")) {
                 File file3 = new File(romDir, "bldyror2.zip");
@@ -2919,7 +2948,7 @@ public final class MainActivity extends Activity {
                 }
                 if (z) {
                     normalizeBloodRoar2Package(file3);
-                    romPrefs().edit().putString("title:" + file3.getName(), "동물철권2 (Blood Roar 2)").putString("core:" + file3.getName(), "mamearcade").apply();
+                    romPrefs().edit().putString("title:" + file3.getName(), "동물철권2 (Blood Roar 2)").putString("core:" + file3.getName(), "mame2010").apply();
                 }
             }
         }
@@ -3282,7 +3311,7 @@ public final class MainActivity extends Activity {
             return hasExtension(lowerCase, PS_GAME_EXTENSIONS) && !isListedInPlaylist(file);
         }
         // Arcade folders also hold copies of the BIOS archives the cores look for.
-        return lowerCase.endsWith(".zip") && !lowerCase.equals("neogeo.zip") && !new File(mameBiosDir(), file.getName()).exists();
+        return lowerCase.endsWith(".zip") && !lowerCase.equals("neogeo.zip") && !new File(mameBiosDir(), file.getName()).exists() && !RomsetIndex.isBiosName(this, baseNameWithoutExtension(lowerCase));
     }
 
     private static boolean hasExtension(String lowerCaseName, String[] extensions) {
@@ -3357,6 +3386,9 @@ public final class MainActivity extends Activity {
     private String coreDisplayName(String str) {
         if ("mame2003plus".equals(str)) {
             return "MAME 2003-Plus";
+        }
+        if ("mame2010".equals(str)) {
+            return "MAME 2010";
         }
         if ("mamearcade".equals(str)) {
             return "MAME Arcade";

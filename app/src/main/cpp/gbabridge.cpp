@@ -211,6 +211,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "fbneo") return "libfbneo_libretro_android.so";
     if (coreId == "mamearcade") return "libmamearcade_libretro_android.so";
     if (coreId == "mame2003plus") return "libmame2003_plus_libretro_android.so";
+    if (coreId == "mame2010") return "libmame2010_libretro_android.so";
     if (coreId == "ps") return "libpcsx_rearmed_libretro_android.so";
     return nullptr;
 }
@@ -368,6 +369,10 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
     if (strcmp(key, "mgba_frameskip") == 0) return "0";
+    // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
+    if (strcmp(key, "mame_current_skip_warnings") == 0) return "enabled";
+    if (strcmp(key, "mame_current_skip_gameinfo") == 0) return "enabled";
+    if (strcmp(key, "mame_current_skip_nagscreen") == 0) return "enabled";
     return nullptr;
 }
 
@@ -524,6 +529,17 @@ int buttonBitFor(unsigned id, bool arcade) {
     }
 }
 
+// MAME 2010 reads buttons 1-4 from A/B/X/Y rather than B/A/Y/X.
+int mame2010ButtonBitFor(unsigned id) {
+    switch (id) {
+        case RETRO_DEVICE_ID_JOYPAD_A: return kButtonA;
+        case RETRO_DEVICE_ID_JOYPAD_B: return kButtonB;
+        case RETRO_DEVICE_ID_JOYPAD_X: return kButtonC;
+        case RETRO_DEVICE_ID_JOYPAD_Y: return kButtonD;
+        default: return buttonBitFor(id, true);
+    }
+}
+
 // PlayStation pad: cross/circle/square/triangle come in as B/A/C/D.
 int psButtonBitFor(unsigned id) {
     switch (id) {
@@ -557,6 +573,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     int bit;
     if (core->coreId == "ps") {
         bit = psButtonBitFor(id);
+    } else if (core->coreId == "mame2010") {
+        bit = mame2010ButtonBitFor(id);
     } else {
         bit = buttonBitFor(id, core->coreId != "gba");
     }

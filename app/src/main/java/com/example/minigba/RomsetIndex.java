@@ -26,14 +26,16 @@ final class RomsetIndex {
         final String core;
         final String name;
         final String parent;
+        final String bios;
         final int matched;
         final int missingOwn;
         final int missingShared;
 
-        Match(String core, String name, String parent, int matched, int missingOwn, int missingShared) {
+        Match(String core, String name, String parent, String bios, int matched, int missingOwn, int missingShared) {
             this.core = core;
             this.name = name;
             this.parent = parent;
+            this.bios = bios;
             this.matched = matched;
             this.missingOwn = missingOwn;
             this.missingShared = missingShared;
@@ -51,6 +53,8 @@ final class RomsetIndex {
     static final class CoreSets {
         final List<String> names = new ArrayList<>();
         final List<String> parents = new ArrayList<>();
+        final List<String> bioses = new ArrayList<>();
+        final java.util.Set<String> biosNames = new java.util.HashSet<>();
         final List<int[]> own = new ArrayList<>();
         final List<int[]> shared = new ArrayList<>();
         int[] bios = new int[0];
@@ -91,11 +95,14 @@ final class RomsetIndex {
                 if (fields[0].equals("!bios")) {
                     current.bios = parseCrcs(fields[1]);
                     Arrays.sort(current.bios);
+                } else if (fields[0].equals("!biosnames")) {
+                    current.biosNames.addAll(Arrays.asList(fields[1].split(",")));
                 } else if (fields.length >= 4) {
                     current.names.add(fields[0]);
                     current.parents.add(fields[1].equals("-") ? null : fields[1]);
                     current.own.add(parseCrcs(fields[2]));
                     current.shared.add(parseCrcs(fields[3]));
+                    current.bioses.add(fields.length < 5 || fields[4].equals("-") ? null : fields[4]);
                 }
             }
         } catch (IOException e) {
@@ -119,6 +126,16 @@ final class RomsetIndex {
     // False when the index could not be read; ROMs are then launched unchecked.
     static boolean isAvailable(Context context) {
         return !load(context).isEmpty();
+    }
+
+    // Board BIOS archives (neogeo, pgm, psarc95…) that some core lists.
+    static boolean isBiosName(Context context, String setName) {
+        for (CoreSets sets : load(context).values()) {
+            if (sets.biosNames.contains(setName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // CRCs come from the ZIP's central directory, so nothing is decompressed.
@@ -189,7 +206,7 @@ final class RomsetIndex {
         int[] own = sets.own.get(best);
         int[] shared = sets.shared.get(best);
         int ownMatched = count(own, zipCrcs);
-        return new Match(core, sets.names.get(best), sets.parents.get(best), bestMatched, own.length - ownMatched, shared.length - (bestMatched - ownMatched));
+        return new Match(core, sets.names.get(best), sets.parents.get(best), sets.bioses.get(best), bestMatched, own.length - ownMatched, shared.length - (bestMatched - ownMatched));
     }
 
     private static int count(int[] crcs, int[] sortedZipCrcs) {
