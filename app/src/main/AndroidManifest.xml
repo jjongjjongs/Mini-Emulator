@@ -11,6 +11,7 @@
         android:roundIcon="@drawable/ic_launcher_round">
         <activity
             android:name="com.example.minigba.GameActivity"
+            android:process=":game"
             android:exported="false"
             android:configChanges="screenSize|orientation|keyboardHidden|keyboard"/>
         <activity

@@ -335,7 +335,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void setAnalogEnabled(boolean enabled) {
         this.analogEnabled = enabled;
-        getSharedPreferences("settings", 0).edit().putBoolean(analogPrefKey(), enabled).apply();
+        getSharedPreferences("settings", 0).edit().putBoolean(analogPrefKey(), enabled).commit();
         java.util.Arrays.fill(this.analogAxes, 0);
         if (this.nativeHandle != 0) {
             NativeGba.setAnalog(this.nativeHandle, 0, 0, 0, 0);
@@ -454,6 +454,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             audioSink.release();
         }
         super.onDestroy();
+        // Games run in their own process (see the manifest) so a core that leaves broken
+        // state behind, like MAME 2010 after a failed load, starts clean next time.
+        if (isFinishing()) {
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
     }
 
     @Override
@@ -670,7 +675,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             NativeGba.saveNow(j);
         }
         int i = !this.landscapeMode ? 1 : 0;
-        getSharedPreferences("settings", 0).edit().putInt("orientation_mode", i).apply();
+        getSharedPreferences("settings", 0).edit().putInt("orientation_mode", i).commit();
         setRequestedOrientation(i == 1 ? 6 : 1);
     }
 

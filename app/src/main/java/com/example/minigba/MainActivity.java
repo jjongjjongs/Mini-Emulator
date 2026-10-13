@@ -507,7 +507,7 @@ public final class MainActivity extends Activity {
         int screenMode = screenMode() + 1;
         String[] strArr = SCREEN_MODE_LABELS;
         int length = screenMode % strArr.length;
-        settingsPrefs().edit().putInt("screen_mode", length).apply();
+        settingsPrefs().edit().putInt("screen_mode", length).commit();
         Object tag = view.getTag();
         if (tag instanceof TextView) {
             ((TextView) tag).setText(strArr[length]);

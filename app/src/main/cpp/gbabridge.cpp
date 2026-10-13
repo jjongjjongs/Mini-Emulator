@@ -79,6 +79,8 @@ struct Core {
     void (*retroDeinit)() = nullptr;
     unsigned (*retroApiVersion)() = nullptr;
     bool (*retroLoadGame)(const retro_game_info*) = nullptr;
+    // MAME 2010 crashes in its static destructors when unloaded after a failed load.
+    bool keepLibraryLoaded = false;
     void (*retroUnloadGame)() = nullptr;
     void (*retroRun)() = nullptr;
     void (*retroReset)() = nullptr;
@@ -637,7 +639,7 @@ void destroyCore(Core* core) {
         }
         core->audioSink = nullptr;
     }
-    if (core->library != nullptr) {
+    if (core->library != nullptr && !core->keepLibraryLoaded) {
         dlclose(core->library);
         core->library = nullptr;
     }
@@ -742,6 +744,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     retro_game_info game{};
     game.path = core->romPath.c_str();
     if (!core->retroLoadGame(&game)) {
+        core->keepLibraryLoaded = core->coreId == "mame2010";
         destroyCore(core);
         throwIllegalState(env, "ROM load failure: selected file could not be loaded by the core");
         return 0;
