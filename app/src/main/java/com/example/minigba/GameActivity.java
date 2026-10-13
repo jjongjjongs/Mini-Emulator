@@ -6,12 +6,14 @@ import android.content.DialogInterface;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import com.example.minigba.ArcadeJoystickView;
 import com.example.minigba.DPadView;
@@ -28,6 +30,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     static final String EXTRA_CORE_ID = "com.example.minigba.CORE_ID";
     static final String EXTRA_ROM_PATH = "com.example.minigba.ROM_PATH";
     static final String EXTRA_SAVE_BASE_NAME = "com.example.minigba.SAVE_BASE_NAME";
+    static final String EXTRA_TITLE = "com.example.minigba.TITLE";
     static final String EXTRA_MODE = "com.example.minigba.MODE";
     private static final String MENU_CONTINUE = "계속하기";
     private static final String MENU_SAVE_STATE = "빠른 저장";
@@ -56,8 +59,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private boolean coreStarting;
     private volatile boolean destroyed;
     private boolean activityResumed;
+    private static final int LANDSCAPE_SHIFT_DP = 12;
     private String romPath;
     private String saveBaseName;
+    private String gameTitle = "";
     private int speedMultiplier = 1;
     private boolean surfaceReady;
     private SurfaceView surfaceView;
@@ -86,6 +91,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             showFatalError("지원하지 않는 파일입니다");
             return;
         }
+        String titleExtra = getIntent().getStringExtra(EXTRA_TITLE);
+        this.gameTitle = titleExtra != null ? titleExtra : (this.romPath == null ? "" : baseNameWithoutExtension(new File(this.romPath).getName()));
         String stringExtra2 = getIntent().getStringExtra("com.example.minigba.SAVE_BASE_NAME");
         this.saveBaseName = stringExtra2;
         if (stringExtra2 == null || stringExtra2.trim().isEmpty()) {
@@ -107,7 +114,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.setBackgroundColor(Color.rgb(218, 215, 207));
-        linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(50)));
+        linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
         int i3 = getSharedPreferences("settings", 0).getInt("screen_mode", 0);
         if (i3 == 1) {
             i = dp(12);
@@ -149,7 +156,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.setBackgroundColor(Color.rgb(218, 215, 207));
-        linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(46)));
         FrameLayout frameLayout = new FrameLayout(this);
         frameLayout.setBackgroundColor(Color.rgb(218, 215, 207));
         frameLayout.addView(new ControlPanelView(this), new FrameLayout.LayoutParams(-1, -1));
@@ -164,6 +170,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout2.addView(this.surfaceView, new FrameLayout.LayoutParams(-1, -1, 17));
         frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(dp(320), dp(214), 17));
         addLandscapeControls(frameLayout);
+        addLandscapeCornerButtons(frameLayout);
         frameLayout.addOnLayoutChangeListener((view, i2, i3, i4, i5, i6, i7, i8, i9) -> fitLandscapeScreen(i, frameLayout2, view, i2, i3, i4, i5, i6, i7, i8, i9));
         linearLayout.addView(frameLayout, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         setContentView(linearLayout);
@@ -178,15 +185,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int inset = i == 1 ? dp(10) : i == 2 ? dp(20) : 0;
         boolean isGba = this.coreId.equals("gba");
         int maxWidth = Math.max(dp(240), width - ((dp(isGba ? 174 : 188) + inset) * 2));
-        int maxHeight = Math.max(dp(160), (height - dp(12)) - (inset * 2));
+        // GBA keeps the speed button below the screen, so its screen sits at the top.
+        int maxHeight = Math.max(dp(160), (height - (isGba ? dp(8) + dp(46) : dp(12))) - (inset * 2));
         float aspect = isGba ? 1.5f : 1.3333334f;
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        if (layoutParams.width != screenWidth || layoutParams.height != screenHeight) {
+        if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || (isGba && layoutParams.topMargin != dp(8) + inset)) {
             layoutParams.width = screenWidth;
             layoutParams.height = screenHeight;
-            layoutParams.gravity = 17;
+            layoutParams.gravity = isGba ? (Gravity.TOP | Gravity.CENTER_HORIZONTAL) : Gravity.CENTER;
+            layoutParams.topMargin = isGba ? dp(8) + inset : 0;
             frameLayout.setLayoutParams(layoutParams);
         }
     }
@@ -197,10 +206,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(150), dp(150));
         layoutParams.gravity = 8388627;
         layoutParams.setMargins(dp(12), 0, 0, 0);
+        // Everything sits a little lower to leave the top corners to the round buttons.
+        createDirectionControl.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
         frameLayout.addView(createDirectionControl, layoutParams);
         if (isGba) {
-            addButton(frameLayout, "L", 512, 8388659, dp(18), dp(14), dp(104), dp(40), 2);
-            addButton(frameLayout, "R", 256, 8388661, dp(18), dp(14), dp(104), dp(40), 2);
+            addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
+            addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
             addLandscapeActionButton(frameLayout, "A", 1, dp(26), -dp(42), 3);
             addLandscapeActionButton(frameLayout, "B", 2, dp(92), dp(42), 3);
         } else if (isNeoGeoMode()) {
@@ -243,7 +254,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(66), dp(66));
         layoutParams.gravity = 8388629;
         layoutParams.setMargins(0, 0, i2, 0);
-        touchButton.setTranslationY(i3);
+        touchButton.setTranslationY(i3 + dp(LANDSCAPE_SHIFT_DP));
         frameLayout.addView(touchButton, layoutParams);
     }
 
@@ -261,7 +272,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(size), dp(size));
         layoutParams.gravity = 8388629;
         layoutParams.setMargins(0, 0, dp(i2), 0);
-        touchButton.setTranslationY(dp(i3));
+        touchButton.setTranslationY(dp(i3 + LANDSCAPE_SHIFT_DP));
         frameLayout.addView(touchButton, layoutParams);
     }
 
@@ -544,20 +555,81 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // Portrait: the four round buttons with their names above the game screen.
     private LinearLayout createTopBar() {
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(0);
         linearLayout.setGravity(16);
-        linearLayout.setPadding(dp(16), dp(4), dp(16), dp(4));
+        linearLayout.setPadding(dp(8), dp(4), dp(8), dp(2));
         linearLayout.setBackgroundColor(Color.rgb(218, 215, 207));
-        addTopButton(linearLayout, 0, "저장", view -> onSaveClicked());
-        addTopButton(linearLayout, 1, "재시작", view -> onResetClicked());
-        if (this.landscapeMode) {
-            addTopSpeedButton(linearLayout);
-        }
-        addTopButton(linearLayout, 3, "화면 회전", view -> toggleOrientation());
-        addTopButton(linearLayout, 2, "메뉴", view -> showGameMenu());
+        linearLayout.addView(createIconButton(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "저장", 40, 11, view -> onSaveClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.addView(createIconButton(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", 40, 11, view -> onResetClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.addView(createIconButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "화면 회전", 40, 11, view -> toggleOrientation()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.addView(createIconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", 40, 11, view -> showGameMenu()), new LinearLayout.LayoutParams(0, -2, 1.0f));
         return linearLayout;
+    }
+
+    // Landscape has no top bar: save/reset sit in the top left corner, rotate/menu in the
+    // top right with the speed button under them (GBA, whose shoulder buttons are there,
+    // gets the speed button below the screen instead).
+    private void addLandscapeCornerButtons(FrameLayout frameLayout) {
+        LinearLayout left = new LinearLayout(this);
+        left.addView(createIconButton(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "저장", 34, 10, view -> onSaveClicked()), new LinearLayout.LayoutParams(dp(48), -2));
+        left.addView(createIconButton(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", 34, 10, view -> onResetClicked()), new LinearLayout.LayoutParams(dp(48), -2));
+        FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        leftParams.setMargins(dp(6), dp(6), 0, 0);
+        frameLayout.addView(left, leftParams);
+
+        LinearLayout right = new LinearLayout(this);
+        right.addView(createIconButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "회전", 34, 10, view -> toggleOrientation()), new LinearLayout.LayoutParams(dp(48), -2));
+        right.addView(createIconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", 34, 10, view -> showGameMenu()), new LinearLayout.LayoutParams(dp(48), -2));
+        FrameLayout.LayoutParams rightParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        rightParams.setMargins(0, dp(6), dp(6), 0);
+        frameLayout.addView(right, rightParams);
+
+        SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
+        this.fastForwardButton = speedButtonView;
+        speedButtonView.setMultiplier(this.speedMultiplier);
+        speedButtonView.setContentDescription("배속");
+        FrameLayout.LayoutParams speedParams = new FrameLayout.LayoutParams(dp(80), dp(36));
+        if (this.coreId.equals("gba")) {
+            speedParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            speedParams.setMargins(0, 0, 0, dp(6));
+        } else {
+            speedParams.gravity = Gravity.TOP | Gravity.END;
+            speedParams.setMargins(0, dp(62), dp(14), 0);
+        }
+        frameLayout.addView(speedButtonView, speedParams);
+    }
+
+    // A round coloured icon with its name underneath; the circle darkens while pressed.
+    private LinearLayout createIconButton(int icon, int color, String label, int iconDp, int textSp, View.OnClickListener onClickListener) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setGravity(1);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        box.addView(iconView, new LinearLayout.LayoutParams(dp(iconDp), dp(iconDp)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(textSp);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.setTextColor(Color.rgb(58, 63, 75));
+        text.setGravity(1);
+        text.setSingleLine(true);
+        box.addView(text, new LinearLayout.LayoutParams(-2, -2));
+        box.setClickable(true);
+        box.setContentDescription(label);
+        box.setOnClickListener(onClickListener);
+        box.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+            }
+            return false;
+        });
+        return box;
     }
 
     private void onSaveClicked() {
@@ -580,16 +652,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }, "게임을 재시작했습니다.", null);
     }
 
-    private void addTopSpeedButton(LinearLayout linearLayout) {
-        SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
-        this.fastForwardButton = speedButtonView;
-        speedButtonView.setMultiplier(this.speedMultiplier);
-        this.fastForwardButton.setContentDescription("배속");
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, -1, 1.0f);
-        layoutParams.setMargins(dp(10), 0, dp(10), 0);
-        linearLayout.addView(this.fastForwardButton, layoutParams);
-    }
-
     private void onSpeedChanged(int i) {
         this.speedMultiplier = i;
         long j = this.nativeHandle;
@@ -603,15 +665,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int i = !this.landscapeMode ? 1 : 0;
         getSharedPreferences("settings", 0).edit().putInt("orientation_mode", i).commit();
         setRequestedOrientation(i == 1 ? 6 : 1);
-    }
-
-    private void addTopButton(LinearLayout linearLayout, int i, String str, View.OnClickListener onClickListener) {
-        TopIconButtonView topIconButtonView = new TopIconButtonView(this, i);
-        topIconButtonView.setContentDescription(str);
-        topIconButtonView.setOnClickListener(onClickListener);
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(0, -1, 1.0f);
-        layoutParams.setMargins(dp(18), 0, dp(18), 0);
-        linearLayout.addView(topIconButtonView, layoutParams);
     }
 
     private void addControls(FrameLayout frameLayout) {
@@ -711,10 +764,148 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         items.add(this.landscapeMode ? "세로 화면으로 전환" : "가로 화면으로 전환");
         items.add(MENU_EXIT);
         this.menuItems = items.toArray(new String[0]);
-        String[] strArr = this.menuItems;
-        AlertDialog create = new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini Emulator" : "Mini Arcade").setItems(strArr, (dialogInterface, i) -> onGameMenuItemSelected(dialogInterface, i)).create();
-        create.setOnDismissListener(dialog -> resumeUnlessExiting());
-        create.show();
+        showPauseDialog();
+    }
+
+    // Pause menu: six round tiles and a big continue button.
+    private void showPauseDialog() {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(16), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.setPadding(dp(4), 0, dp(4), dp(12));
+        TextView title = new TextView(this);
+        title.setText("일시정지");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        header.addView(title, new LinearLayout.LayoutParams(-2, -2));
+        TextView game = new TextView(this);
+        game.setText(this.gameTitle);
+        game.setTextSize(12.0f);
+        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setGravity(8388613);
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams gameParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        gameParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(game, gameParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        // Indices follow this.menuItems: 1 save, 2 load, 3 in-game save, 4 reset, 5 rotate, 6 exit.
+        LinearLayout row1 = new LinearLayout(this);
+        row1.addView(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", null), menuTileParams(0));
+        row1.addView(createMenuTile(dialog, 2, RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", lastQuickSaveText()), menuTileParams(1));
+        row1.addView(createMenuTile(dialog, 3, RoundIconView.CARD, RoundIconView.COLOR_CARD, "게임 세이브\n저장", null), menuTileParams(2));
+        panel.addView(row1, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout row2 = new LinearLayout(this);
+        row2.addView(createMenuTile(dialog, 4, RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null), menuTileParams(0));
+        row2.addView(createMenuTile(dialog, 5, RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, this.landscapeMode ? "세로 화면" : "가로 화면", null), menuTileParams(1));
+        row2.addView(createMenuTile(dialog, 6, RoundIconView.EXIT, RoundIconView.COLOR_EXIT, "나가기", null), menuTileParams(2));
+        LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
+        row2Params.setMargins(0, dp(10), 0, 0);
+        panel.addView(row2, row2Params);
+
+        TextView resume = new TextView(this);
+        resume.setText("▶  계속하기");
+        resume.setTextSize(16.0f);
+        resume.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        resume.setTextColor(Color.WHITE);
+        resume.setGravity(17);
+        android.graphics.drawable.GradientDrawable resumeBackground = new android.graphics.drawable.GradientDrawable();
+        resumeBackground.setColor(Color.rgb(22, 185, 207));
+        resumeBackground.setCornerRadius(dp(14));
+        resume.setBackground(resumeBackground);
+        resume.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(50));
+        resumeParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(resume, resumeParams);
+
+        dialog.setContentView(panel);
+        dialog.setOnDismissListener(d -> resumeUnlessExiting());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout.LayoutParams menuTileParams(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+        params.setMargins(column == 0 ? 0 : dp(5), 0, column == 2 ? 0 : dp(5), 0);
+        return params;
+    }
+
+    private LinearLayout createMenuTile(android.app.Dialog dialog, int index, int icon, int color, String label, String detail) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(1);
+        tile.setGravity(1);
+        tile.setPadding(dp(6), dp(14), dp(6), dp(12));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(246, 247, 249));
+        background.setCornerRadius(dp(16));
+        tile.setBackground(background);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        tile.addView(iconView, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(13.0f);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.setTextColor(Color.rgb(31, 41, 51));
+        text.setGravity(1);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(0, dp(8), 0, 0);
+        tile.addView(text, textParams);
+        if (detail != null) {
+            TextView sub = new TextView(this);
+            sub.setText(detail);
+            sub.setTextSize(10.5f);
+            sub.setTextColor(Color.rgb(122, 130, 140));
+            sub.setGravity(1);
+            tile.addView(sub, new LinearLayout.LayoutParams(-2, -2));
+        }
+        tile.setClickable(true);
+        tile.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+            }
+            return false;
+        });
+        tile.setOnClickListener(view -> {
+            // Runs the action first so leaving the game is flagged before the dialog's
+            // dismiss listener would resume it.
+            onGameMenuItemSelected(dialog, index);
+            dialog.dismiss();
+        });
+        return tile;
+    }
+
+    // When the quick save was last written, from the state file the bridge keeps.
+    private String lastQuickSaveText() {
+        File state = new File(new File(new File(getFilesDir(), "saves"), this.coreId), this.saveBaseName + ".state");
+        if (!state.isFile()) {
+            return "저장 없음";
+        }
+        long modified = state.lastModified();
+        java.util.Calendar then = java.util.Calendar.getInstance();
+        then.setTimeInMillis(modified);
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        boolean today = then.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) && then.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR);
+        return new java.text.SimpleDateFormat(today ? "a h:mm" : "M/d a h:mm", Locale.KOREAN).format(new java.util.Date(modified));
     }
 
     private void onGameMenuItemSelected(DialogInterface dialogInterface, int index) {

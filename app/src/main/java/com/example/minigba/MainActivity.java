@@ -1807,6 +1807,7 @@ public final class MainActivity extends Activity {
         intent.putExtra("com.example.minigba.SAVE_BASE_NAME", saveBaseNameFor(file));
         intent.putExtra("com.example.minigba.CORE_ID", coreFor(file));
         intent.putExtra(GameActivity.EXTRA_MODE, mode);
+        intent.putExtra(GameActivity.EXTRA_TITLE, displayGameNameFor(file));
         startActivity(intent);
     }
 
