@@ -1,7 +1,6 @@
 # Mini Emulator
 
 libretro 코어를 쓰는 안드로이드용 에뮬레이터 앱입니다. 앱을 열면 GBA · Neo Geo · 아케이드 · PlayStation 중 모드를 고릅니다.
-GBA · Neo Geo · 아케이드가 동작하고, PlayStation은 엔진을 추가하는 중입니다.
 
 - 패키지: `com.example.minigba.gbaonly`
 - 버전: `app/build.gradle`의 `versionName` / `versionCode` 참고 (릴리스마다 1씩 올림)
@@ -17,6 +16,7 @@ GBA · Neo Geo · 아케이드가 동작하고, PlayStation은 엔진을 추가�
 | 네이티브 브리지 (`app/src/main/cpp/gbabridge.cpp`) | 원본 `libgbabridge.so`를 디스어셈블해 동작을 분석하고 C++로 새로 작성했습니다. 빌드할 때 CMake로 컴파일됩니다. |
 | mGBA 코어 (`app/src/main/jniLibs/arm64-v8a/libmgba_libretro_android.so`) | [libretro/mgba](https://github.com/libretro/mgba)(MPL 2.0)를 빌드한 바이너리로, APK에 들어 있던 것을 그대로 씁니다. |
 | Neo Geo · 아케이드 엔진 | [FinalBurn Neo](https://github.com/libretro/FBNeo)와 [MAME 2003-Plus](https://github.com/libretro/mame2003-plus-libretro)를 `cores/build-cores.sh`로 직접 빌드합니다(커밋 고정, 저장소에는 바이너리를 넣지 않음). 둘 다 비상업용 라이선스입니다. |
+| PlayStation 엔진 | [PCSX ReARMed](https://github.com/libretro/pcsx_rearmed)(GPLv2)를 같은 스크립트로 빌드합니다. |
 | 매니페스트, 리소스, `assets/` | APK에서 그대로 복원했습니다. |
 
 알아둘 점:
@@ -34,7 +34,7 @@ GBA · Neo Geo · 아케이드가 동작하고, PlayStation은 엔진을 추가�
 
 ## 빌드
 
-Android Studio(Android SDK, NDK 26.1, CMake 3.22.1)에서 엽니다. 처음 한 번은 아케이드 엔진을 빌드해야 합니다(수십 분 걸림).
+Android Studio(Android SDK, NDK 26.1, CMake 3.22.1)에서 엽니다. 처음 한 번은 아케이드 · PlayStation 엔진을 빌드해야 합니다(수십 분 걸림).
 
 ```bash
 ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125 ./cores/build-cores.sh
@@ -50,6 +50,12 @@ GitHub Actions는 엔진을 캐시해 두고 `cores/build-cores.sh`가 바뀔 �
 | GBA | `roms` | mGBA | `system/gba_bios.bin` (선택) |
 | Neo Geo | `roms_neogeo` | FinalBurn Neo | `system/neogeo.zip` (필수) |
 | 아케이드 | `roms_arcade` | MAME 2003-Plus 기본, 게임별로 FBNeo 선택 가능 | `system/mame/bios/*.zip` (실행 전에 ROM 폴더로 복사) |
+| PlayStation | `roms_ps` | PCSX ReARMed | `system/*.bin` 512KB (선택, 없으면 HLE) |
+
+- PlayStation 게임은 `.cue`+`.bin`, `.chd`, `.pbp`, `.m3u`, `.iso`를 지원합니다. 파일 여러 개나 폴더째로 가져올 수 있고, `.cue` 없는 `.bin`에는 `.cue`를, `(Disc 1)`·`(Disc 2)` 같은 여러 장 게임에는 `.m3u`를 자동으로 만듭니다.
+- 게임 중 메뉴에서 아날로그 스틱(DualShock)을 켜고 끌 수 있고(게임별로 기억), `.m3u` 게임은 디스크를 바꿀 수 있습니다.
+- 메모리카드는 `saves/ps/<게임 이름>.sav`에 게임별로 저장됩니다.
+- BIOS 타일에서 **폴더째 등록**을 고르면 폴더 안의 파일을 종류별로 나눠 등록합니다: `gba_bios.bin` → GBA, `neogeo.zip` → Neo Geo, 512KB `.bin` → PlayStation, 알려진 기판 BIOS ZIP(`pgm.zip`, `stvbios.zip` 등) → MAME. MAME 타일에서 고르면 폴더의 ZIP을 모두 MAME BIOS로 등록합니다.
 
 ### 릴리스 서명
 
@@ -76,6 +82,6 @@ GitHub Actions는 엔진을 캐시해 두고 `cores/build-cores.sh`가 바뀔 �
 
 ## 라이선스
 
-mGBA 코어는 Mozilla Public License 2.0을 따릅니다. 자세한 내용은 `app/src/main/assets/licenses/mgba.txt`를 참고하세요.
+mGBA 코어는 Mozilla Public License 2.0, PCSX ReARMed는 GPLv2를 따릅니다. 엔진별 라이선스는 `app/src/main/assets/licenses/`를 참고하세요.
 `app/src/main/cpp/libretro.h`는 libretro API 헤더(MIT 라이선스)입니다.
 이 앱에는 상용 ROM 파일이 들어 있지 않습니다.

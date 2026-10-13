@@ -14,6 +14,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.DocumentsContract;
 import android.view.View;
 import android.view.Window;
 import android.widget.Button;
@@ -60,11 +61,22 @@ public final class MainActivity extends Activity {
     private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드)", "FinalBurn Neo (Neo Geo · CPS 등)"};
     private static final String MODE_GBA = "gba";
     private static final String STATE_MODE = "current_mode";
+    private static final String MODE_PS = "ps";
+    private static final int REQUEST_OPEN_PS_GAMES = 1010;
+    private static final int REQUEST_OPEN_PS_FOLDER = 1011;
+    private static final int REQUEST_OPEN_BIOS_FOLDER = 1012;
+    private static final int REQUEST_OPEN_PS_BIOS = 1013;
+    private static final String PREF_PS_SKIP_BIOS_WARNING = "ps_skip_bios_warning";
+    // Disc image formats PCSX ReARMed can boot; .bin tracks are listed through their .cue.
+    private static final String[] PS_GAME_EXTENSIONS = {".cue", ".chd", ".pbp", ".m3u", ".iso", ".img", ".exe"};
+    private static final String[] PS_IMPORT_EXTENSIONS = {".cue", ".bin", ".chd", ".pbp", ".m3u", ".iso", ".img", ".ccd", ".sub", ".exe"};
+    // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
+    private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
     private static final String[] MODE_IDS = {MODE_GBA, "neogeo", "arcade", "ps"};
     private static final String[] MODE_NAMES = {"GBA", "Neo Geo", "아케이드", "PlayStation"};
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "FinalBurn Neo", "MAME 2003-Plus · FBNeo", "PCSX ReARMed"};
-    private static final String[] MODE_FILES = {".gba · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip", ".cue · .chd · .pbp"};
+    private static final String[] MODE_FILES = {".gba · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip", ".cue/.bin · .chd · .pbp · .m3u"};
     private static final String[] MODE_ICONS = {"GBA", "NEO", "MAME", "PS"};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53), Color.rgb(51, 65, 85)};
     private static final String PREF_TITLE_PREFIX = "title:";
@@ -79,6 +91,10 @@ public final class MainActivity extends Activity {
     private String currentMode;
     private TextView engineStatusView;
     private TextView neoGeoBiosBanner;
+    private TextView psBiosBanner;
+    private TextView psBiosStatusView;
+    private String pendingBiosSource;
+    private static final String STATE_BIOS_SOURCE = "pending_bios_source";
     private TextView emptyView;
     private TextView mameBiosStatusView;
     private TextView neoGeoBiosStatusView;
@@ -96,6 +112,7 @@ public final class MainActivity extends Activity {
         super.onCreate(bundle);
         // Keep the open mode across rotation and other activity recreation.
         String restoredMode = bundle == null ? null : bundle.getString(STATE_MODE);
+        this.pendingBiosSource = bundle == null ? null : bundle.getString(STATE_BIOS_SOURCE);
         if (restoredMode != null) {
             showHome(restoredMode);
             return;
@@ -113,6 +130,9 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(bundle);
         if (this.currentMode != null) {
             bundle.putString(STATE_MODE, this.currentMode);
+        }
+        if (this.pendingBiosSource != null) {
+            bundle.putString(STATE_BIOS_SOURCE, this.pendingBiosSource);
         }
     }
 
@@ -136,7 +156,7 @@ public final class MainActivity extends Activity {
     }
 
     private static boolean isModeAvailable(String mode) {
-        return !"ps".equals(mode);
+        return true;
     }
 
     private void clearHomeViews() {
@@ -146,6 +166,8 @@ public final class MainActivity extends Activity {
         this.mameBiosStatusView = null;
         this.engineStatusView = null;
         this.neoGeoBiosBanner = null;
+        this.psBiosBanner = null;
+        this.psBiosStatusView = null;
         this.screenModeStatusView = null;
         this.emptyView = null;
         this.romList = null;
@@ -240,6 +262,9 @@ public final class MainActivity extends Activity {
         if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
             return "BIOS 필요";
         }
+        if (MODE_PS.equals(mode) && psBiosFiles().length == 0) {
+            return "BIOS 권장";
+        }
         return "엔진 준비됨";
     }
 
@@ -303,17 +328,22 @@ public final class MainActivity extends Activity {
         actionRow.setPadding(0, dp(6), 0, dp(6));
         if ("neogeo".equals(this.currentMode)) {
             actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "NEO", MODE_COLORS[index], view -> openArcadeRomPicker()), actionTileParams());
-            LinearLayout neoBiosTile = createActionCard("Neo Geo BIOS", neoGeoBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> openNeoGeoBiosPicker());
+            LinearLayout neoBiosTile = createActionCard("Neo Geo BIOS", neoGeoBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser("neogeo"));
             this.neoGeoBiosStatusView = (TextView) neoBiosTile.getTag();
             actionRow.addView(neoBiosTile, actionTileParams());
         } else if ("arcade".equals(this.currentMode)) {
             actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "MAME", MODE_COLORS[index], view -> openArcadeRomPicker()), actionTileParams());
-            LinearLayout mameBiosTile = createActionCard("MAME BIOS", mameBiosStatus(), "BIOS", Color.rgb(239, 84, 103), view -> showMameBiosManager());
+            LinearLayout mameBiosTile = createActionCard("MAME BIOS", mameBiosStatus(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(BIOS_SOURCE_MAME));
             this.mameBiosStatusView = (TextView) mameBiosTile.getTag();
             actionRow.addView(mameBiosTile, actionTileParams());
+        } else if (MODE_PS.equals(this.currentMode)) {
+            actionRow.addView(createActionCard("게임 추가", "파일 · 폴더", "PS", MODE_COLORS[index], view -> showPsAddChooser()), actionTileParams());
+            LinearLayout psBiosTile = createActionCard("PS BIOS", psBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_PS));
+            this.psBiosStatusView = (TextView) psBiosTile.getTag();
+            actionRow.addView(psBiosTile, actionTileParams());
         } else {
             actionRow.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
-            LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> openBiosPicker());
+            LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_GBA));
             this.biosStatusView = (TextView) biosTile.getTag();
             actionRow.addView(biosTile, actionTileParams());
         }
@@ -321,6 +351,8 @@ public final class MainActivity extends Activity {
             LinearLayout engineTile = createActionCard("엔진", shortCoreName(defaultArcadeCore()), "ENG", Color.rgb(245, 158, 11), view -> showDefaultCorePicker());
             this.engineStatusView = (TextView) engineTile.getTag();
             actionRow.addView(engineTile, actionTileParams());
+        } else if (MODE_PS.equals(this.currentMode)) {
+            actionRow.addView(createActionCard("메모리카드", "게임별 자동", "MC", Color.rgb(98, 111, 204), view -> showMemoryCardInfo()), actionTileParams());
         } else {
             actionRow.addView(createActionCard("ROM 검사", "기본 검사", "OK", Color.rgb(98, 111, 204), view -> checkImportedRoms()), actionTileParams());
         }
@@ -336,6 +368,18 @@ public final class MainActivity extends Activity {
             banner.setPadding(dp(12), dp(10), dp(12), dp(10));
             banner.setBackground(rounded(Color.rgb(237, 233, 254), dp(12)));
             this.neoGeoBiosBanner = banner;
+            linearLayout3.addView(banner, new LinearLayout.LayoutParams(-1, -2));
+        }
+        if (MODE_PS.equals(this.currentMode)) {
+            TextView banner = new TextView(this);
+            banner.setText("PS BIOS가 없습니다. BIOS 없이도 실행되지만 일부 게임이 멈출 수 있어요. BIOS 폴더를 통째로 등록할 수 있습니다.");
+            banner.setTextColor(Color.rgb(153, 27, 27));
+            banner.setTextSize(12.0f);
+            banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+            banner.setBackground(rounded(Color.rgb(254, 226, 226), dp(12)));
+            banner.setClickable(true);
+            banner.setOnClickListener(view -> showBiosChooser(MODE_PS));
+            this.psBiosBanner = banner;
             linearLayout3.addView(banner, new LinearLayout.LayoutParams(-1, -2));
         }
         TextView textView3 = new TextView(this);
@@ -452,6 +496,9 @@ public final class MainActivity extends Activity {
         if ("arcade".equals(this.currentMode)) {
             return "아직 가져온 아케이드 게임이 없습니다.";
         }
+        if (MODE_PS.equals(this.currentMode)) {
+            return "아직 가져온 PlayStation 게임이 없습니다.";
+        }
         return "아직 가져온 ROM이 없습니다.";
     }
 
@@ -489,6 +536,14 @@ public final class MainActivity extends Activity {
         }
         if (this.neoGeoBiosBanner != null) {
             this.neoGeoBiosBanner.setVisibility(neoGeoBiosFile().exists() ? 8 : 0);
+        }
+        if (this.psBiosStatusView != null) {
+            boolean hasPsBios = psBiosFiles().length > 0;
+            this.psBiosStatusView.setText(psBiosStatusText());
+            this.psBiosStatusView.setTextColor(hasPsBios ? STATUS_TEXT_COLOR : Color.rgb(239, 84, 103));
+            if (this.psBiosBanner != null) {
+                this.psBiosBanner.setVisibility(hasPsBios ? 8 : 0);
+            }
         }
         if (this.engineStatusView != null) {
             this.engineStatusView.setText(shortCoreName(defaultArcadeCore()));
@@ -752,6 +807,29 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri data = intent.getData();
+        if (i == REQUEST_OPEN_PS_GAMES) {
+            importPsGames(pickedFiles(urisOf(intent)));
+            return;
+        }
+        if (i == REQUEST_OPEN_PS_FOLDER) {
+            if (data != null) {
+                runPsFolderImport(data);
+            }
+            return;
+        }
+        if (i == REQUEST_OPEN_BIOS_FOLDER) {
+            String source = this.pendingBiosSource;
+            this.pendingBiosSource = null;
+            if (data != null) {
+                importBiosFolder(data, source);
+            }
+            return;
+        }
+        if (i == REQUEST_OPEN_PS_BIOS) {
+            final List<PickedFile> files = pickedFiles(urisOf(intent));
+            runImport("PS BIOS 등록", reporter -> importBiosFiles(files, MODE_PS, reporter));
+            return;
+        }
         if (i == 1001) {
             importRoms(intent);
             return;
@@ -1029,6 +1107,584 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // ---- PlayStation games and folder imports ----
+
+    private static final long PS_BIOS_SIZE = 524288L;
+    private static final long PS2_BIOS_SIZE = 4194304L;
+    private static final String BIOS_SOURCE_MAME = "mame";
+
+    // PCSX ReARMed scans the system folder for any 512KB BIOS image, whatever its name.
+    private File[] psBiosFiles() {
+        File[] files = systemDir().listFiles(file -> file.isFile() && isPsBiosName(file.getName(), file.length()));
+        if (files == null) {
+            return new File[0];
+        }
+        Arrays.sort(files, Comparator.comparing((File f) -> f.getName().toLowerCase(Locale.US)));
+        return files;
+    }
+
+    private static boolean isPsBiosName(String name, long size) {
+        String lowerCase = name.toLowerCase(Locale.US);
+        return lowerCase.endsWith(".bin") && !lowerCase.equals("gba_bios.bin") && !lowerCase.contains("unirom") && (size == PS_BIOS_SIZE || size == PS2_BIOS_SIZE);
+    }
+
+    private String psBiosStatusText() {
+        int count = psBiosFiles().length;
+        return count == 0 ? "등록 안 됨" : count + "개";
+    }
+
+    private void showPsAddChooser() {
+        new AlertDialog.Builder(this).setTitle("PlayStation 게임 추가").setItems(new String[]{"파일 선택 (.cue+.bin 함께 선택)", "폴더째 가져오기"}, (dialog, which) -> {
+            if (which == 0) {
+                Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+                intent.addCategory("android.intent.category.OPENABLE");
+                intent.setType("*/*");
+                intent.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
+                startActivityForResult(intent, REQUEST_OPEN_PS_GAMES);
+            } else {
+                openFolderPicker(REQUEST_OPEN_PS_FOLDER);
+            }
+        }).setNegativeButton("취소", null).show();
+    }
+
+    private void openFolderPicker(int requestCode) {
+        Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT_TREE");
+        try {
+            startActivityForResult(intent, requestCode);
+        } catch (android.content.ActivityNotFoundException e) {
+            showError("폴더를 고를 수 있는 앱이 없습니다.");
+        }
+    }
+
+    // BIOS tiles offer a single file or a whole folder; a folder is sorted by file type.
+    private void showBiosChooser(String source) {
+        List<String> labels = new ArrayList<>();
+        if (BIOS_SOURCE_MAME.equals(source)) {
+            labels.add("등록된 BIOS 관리");
+        } else if (MODE_PS.equals(source) && psBiosFiles().length > 0) {
+            labels.add("등록된 BIOS 보기");
+        }
+        labels.add("파일 선택");
+        labels.add("폴더째 등록 (여러 BIOS 한 번에)");
+        final int offset = labels.size() - 2;
+        new AlertDialog.Builder(this).setTitle("BIOS 등록").setItems(labels.toArray(new String[0]), (dialog, which) -> {
+            if (which < offset) {
+                if (BIOS_SOURCE_MAME.equals(source)) {
+                    showMameBiosManager();
+                } else {
+                    showPsBiosList();
+                }
+            } else if (which == offset) {
+                openSingleBiosPicker(source);
+            } else {
+                this.pendingBiosSource = source;
+                openFolderPicker(REQUEST_OPEN_BIOS_FOLDER);
+            }
+        }).setNegativeButton("취소", null).show();
+    }
+
+    private void openSingleBiosPicker(String source) {
+        if (MODE_PS.equals(source)) {
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            intent.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
+            startActivityForResult(intent, REQUEST_OPEN_PS_BIOS);
+        } else if ("neogeo".equals(source)) {
+            openNeoGeoBiosPicker();
+        } else if (BIOS_SOURCE_MAME.equals(source)) {
+            openMameBiosPicker();
+        } else {
+            openBiosPicker();
+        }
+    }
+
+    private void showPsBiosList() {
+        File[] files = psBiosFiles();
+        StringBuilder sb = new StringBuilder();
+        for (File file : files) {
+            sb.append("• ").append(file.getName()).append(" (").append(formatFileSize(file.length())).append(")\n");
+        }
+        sb.append("\n게임 지역(일본·북미·유럽)에 맞는 BIOS를 자동으로 골라 씁니다.");
+        new AlertDialog.Builder(this).setTitle("PS BIOS").setMessage(sb.toString()).setPositiveButton("닫기", null).setNegativeButton("모두 삭제", (dialog, which) -> {
+            for (File file : psBiosFiles()) {
+                if (!file.delete()) {
+                    file.deleteOnExit();
+                }
+            }
+            showMessage("PS BIOS를 삭제했습니다.");
+            updateHomeStatusCards();
+            updateNote();
+        }).show();
+    }
+
+    private void showMemoryCardInfo() {
+        new AlertDialog.Builder(this).setTitle("메모리카드").setMessage("메모리카드는 게임마다 따로 자동 저장됩니다.\n\n저장 위치: " + new File(saveDir(), MODE_PS).getAbsolutePath() + "/<게임 이름>.sav\n\n게임 목록에서 게임을 길게 누르면 메모리카드(세이브)를 내보내거나 가져올 수 있어요.").setPositiveButton("확인", null).show();
+    }
+
+    private void confirmPsLaunchWithoutBios(File file) {
+        new AlertDialog.Builder(this).setTitle("PS BIOS가 없습니다").setMessage("BIOS 없이도 호환 모드(HLE)로 실행되지만 일부 게임은 멈추거나 소리가 이상할 수 있어요.").setPositiveButton("BIOS 등록", (dialog, which) -> showBiosChooser(MODE_PS)).setNeutralButton("다시 묻지 않기", (dialog, which) -> {
+            settingsPrefs().edit().putBoolean(PREF_PS_SKIP_BIOS_WARNING, true).apply();
+            startGameActivity(file);
+        }).setNegativeButton("그대로 실행", (dialog, which) -> startGameActivity(file)).show();
+    }
+
+    private static List<Uri> urisOf(Intent intent) {
+        List<Uri> uris = new ArrayList<>();
+        ClipData clipData = intent.getClipData();
+        if (clipData != null) {
+            for (int i = 0; i < clipData.getItemCount(); i++) {
+                Uri uri = clipData.getItemAt(i).getUri();
+                if (uri != null) {
+                    uris.add(uri);
+                }
+            }
+        } else if (intent.getData() != null) {
+            uris.add(intent.getData());
+        }
+        return uris;
+    }
+
+    private static final class PickedFile {
+        final Uri uri;
+        final String name;
+        final long size;
+
+        PickedFile(Uri uri, String name, long size) {
+            this.uri = uri;
+            this.name = name;
+            this.size = size;
+        }
+    }
+
+    private List<PickedFile> pickedFiles(List<Uri> uris) {
+        List<PickedFile> files = new ArrayList<>();
+        for (Uri uri : uris) {
+            files.add(new PickedFile(uri, displayNameFor(uri), sizeOf(uri)));
+        }
+        return files;
+    }
+
+    private long sizeOf(Uri uri) {
+        try (Cursor query = getContentResolver().query(uri, new String[]{"_size"}, null, null, null)) {
+            if (query != null && query.moveToFirst() && !query.isNull(0)) {
+                return query.getLong(0);
+            }
+        } catch (RuntimeException ignored) {
+            // Providers that do not report a size are measured after copying.
+        }
+        return -1L;
+    }
+
+    // Lists every file below a picked folder, a few levels deep.
+    private List<PickedFile> listTree(Uri treeUri) {
+        List<PickedFile> files = new ArrayList<>();
+        listTreeChildren(treeUri, DocumentsContract.getTreeDocumentId(treeUri), 0, files);
+        return files;
+    }
+
+    private void listTreeChildren(Uri treeUri, String documentId, int depth, List<PickedFile> out) {
+        if (depth > 6) {
+            return;
+        }
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId);
+        String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE};
+        List<String> directories = new ArrayList<>();
+        try (Cursor cursor = getContentResolver().query(children, columns, null, null, null)) {
+            while (cursor != null && cursor.moveToNext()) {
+                String id = cursor.getString(0);
+                String name = cursor.getString(1);
+                String mime = cursor.getString(2);
+                if (id == null || name == null) {
+                    continue;
+                }
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                    directories.add(id);
+                } else {
+                    out.add(new PickedFile(DocumentsContract.buildDocumentUriUsingTree(treeUri, id), name, cursor.isNull(3) ? -1L : cursor.getLong(3)));
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // A folder the provider refuses to list is skipped.
+        }
+        for (String directory : directories) {
+            listTreeChildren(treeUri, directory, depth + 1, out);
+        }
+    }
+
+    private interface ImportJob {
+        String run(ProgressReporter reporter) throws IOException;
+    }
+
+    private interface ProgressReporter {
+        void report(String message);
+    }
+
+    // Large disc images are copied off the UI thread behind a progress dialog.
+    @SuppressWarnings("deprecation")
+    private void runImport(String title, ImportJob job) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setTitle(title);
+        progress.setMessage("준비 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String result;
+            boolean failed = false;
+            try {
+                result = job.run(message -> runOnUiThread(() -> progress.setMessage(message)));
+            } catch (IOException | RuntimeException e) {
+                result = title + " 실패: " + e.getMessage();
+                failed = true;
+            }
+            final String summary = result;
+            final boolean error = failed;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                updateHomeStatusCards();
+                updateNote();
+                refreshLibrary();
+                new AlertDialog.Builder(this).setTitle(error ? "가져오기 실패" : title).setMessage(summary).setPositiveButton("확인", null).show();
+            });
+        }, "import").start();
+    }
+
+    private void copyUriToFile(Uri uri, File target) throws IOException {
+        File parent = target.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("폴더를 만들 수 없습니다");
+        }
+        File temp = new File(target.getPath() + ".import");
+        try (InputStream in = getContentResolver().openInputStream(uri);
+             FileOutputStream out = new FileOutputStream(temp)) {
+            if (in == null) {
+                throw new IOException(target.getName() + " 파일을 열 수 없습니다");
+            }
+            copy(in, out);
+        } catch (IOException e) {
+            if (!temp.delete()) {
+                temp.deleteOnExit();
+            }
+            throw e;
+        }
+        if (target.exists() && !target.delete()) {
+            throw new IOException(target.getName() + "을(를) 덮어쓸 수 없습니다");
+        }
+        if (!temp.renameTo(target)) {
+            throw new IOException(target.getName() + "을(를) 저장할 수 없습니다");
+        }
+    }
+
+    private void importPsGames(List<PickedFile> files) {
+        runImport("PlayStation 게임 가져오기", reporter -> {
+            File dir = romDirFor(MODE_PS);
+            if (!dir.exists() && !dir.mkdirs()) {
+                throw new IOException("게임 폴더를 만들 수 없습니다");
+            }
+            int copied = 0;
+            int duplicates = 0;
+            int bios = 0;
+            List<String> skipped = new ArrayList<>();
+            List<String> failed = new ArrayList<>();
+            int index = 0;
+            for (PickedFile picked : files) {
+                index++;
+                String name = sanitizeFileName(picked.name);
+                String lowerCase = name.toLowerCase(Locale.US);
+                if (isPsBiosName(name, picked.size)) {
+                    reporter.report("BIOS 복사 중 (" + index + "/" + files.size() + ")\n" + name);
+                    try {
+                        copyUriToFile(picked.uri, new File(systemDir(), name));
+                        bios++;
+                    } catch (IOException e) {
+                        failed.add(name + ": " + e.getMessage());
+                    }
+                    continue;
+                }
+                if (!hasExtension(lowerCase, PS_IMPORT_EXTENSIONS)) {
+                    skipped.add(name);
+                    continue;
+                }
+                File target = new File(dir, name);
+                if (target.exists() && picked.size >= 0 && target.length() == picked.size) {
+                    duplicates++;
+                    continue;
+                }
+                reporter.report("복사 중 (" + index + "/" + files.size() + ")\n" + name);
+                try {
+                    copyUriToFile(picked.uri, target);
+                    copied++;
+                } catch (IOException e) {
+                    failed.add(name + ": " + e.getMessage());
+                }
+            }
+            reporter.report("게임 목록 정리 중…");
+            int cues = createMissingCueSheets(dir);
+            int playlists = createMultiDiscPlaylists(dir);
+            StringBuilder sb = new StringBuilder("복사한 파일: " + copied + "개");
+            if (duplicates > 0) {
+                sb.append("\n이미 있는 파일: ").append(duplicates).append("개");
+            }
+            if (cues > 0) {
+                sb.append("\n.cue 자동 생성: ").append(cues).append("개");
+            }
+            if (playlists > 0) {
+                sb.append("\n여러 장 디스크 묶음(.m3u) 생성: ").append(playlists).append("개");
+            }
+            if (bios > 0) {
+                sb.append("\nPS BIOS 등록: ").append(bios).append("개");
+            }
+            File[] games = dir.listFiles(this::isRomFile);
+            sb.append("\n\n게임 목록: ").append(games == null ? 0 : games.length).append("개");
+            appendList(sb, "지원하지 않아 건너뛴 파일", skipped);
+            appendList(sb, "실패", failed);
+            return sb.toString();
+        });
+    }
+
+    private static void appendList(StringBuilder sb, String title, List<String> items) {
+        if (items.isEmpty()) {
+            return;
+        }
+        sb.append("\n\n").append(title).append(" (").append(items.size()).append("개)");
+        for (int i = 0; i < Math.min(items.size(), 8); i++) {
+            sb.append("\n• ").append(items.get(i));
+        }
+        if (items.size() > 8) {
+            sb.append("\n• 외 ").append(items.size() - 8).append("개");
+        }
+    }
+
+    // A lone .bin image needs a cue sheet before PCSX can treat it as a disc.
+    private int createMissingCueSheets(File dir) {
+        File[] bins = dir.listFiles(file -> file.isFile() && file.getName().toLowerCase(Locale.US).endsWith(".bin"));
+        if (bins == null) {
+            return 0;
+        }
+        java.util.Set<String> referenced = new java.util.HashSet<>();
+        File[] cues = dir.listFiles(file -> file.getName().toLowerCase(Locale.US).endsWith(".cue"));
+        if (cues != null) {
+            for (File cue : cues) {
+                for (String track : cueTracks(cue)) {
+                    referenced.add(new File(track).getName().toLowerCase(Locale.US));
+                }
+            }
+        }
+        int created = 0;
+        for (File bin : bins) {
+            if (referenced.contains(bin.getName().toLowerCase(Locale.US)) || bin.length() % 2352 != 0) {
+                continue;
+            }
+            File cue = new File(dir, baseNameWithoutExtension(bin.getName()) + ".cue");
+            if (cue.exists()) {
+                continue;
+            }
+            String sheet = "FILE \"" + bin.getName() + "\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n";
+            writeBytesAtomically(cue, sheet.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            if (cue.exists()) {
+                created++;
+            }
+        }
+        return created;
+    }
+
+    private static final java.util.regex.Pattern DISC_PATTERN = java.util.regex.Pattern.compile("\\s*[\\(\\[](?:disc|disk|cd)\\s*(\\d+)(?:\\s*of\\s*\\d+)?[\\)\\]]", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    // Groups "Game (Disc 1).cue", "Game (Disc 2).cue"… into "Game.m3u" so discs can be swapped in game.
+    private int createMultiDiscPlaylists(File dir) {
+        File[] files = dir.listFiles(file -> file.isFile() && hasExtension(file.getName().toLowerCase(Locale.US), new String[]{".cue", ".chd", ".pbp", ".iso", ".img"}));
+        if (files == null) {
+            return 0;
+        }
+        java.util.Map<String, java.util.TreeMap<Integer, File>> groups = new java.util.HashMap<>();
+        for (File file : files) {
+            String base = baseNameWithoutExtension(file.getName());
+            java.util.regex.Matcher matcher = DISC_PATTERN.matcher(base);
+            if (!matcher.find()) {
+                continue;
+            }
+            int disc;
+            try {
+                disc = Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            String key = (base.substring(0, matcher.start()) + base.substring(matcher.end())).trim();
+            java.util.TreeMap<Integer, File> discs = groups.get(key);
+            if (discs == null) {
+                discs = new java.util.TreeMap<>();
+                groups.put(key, discs);
+            }
+            // Prefer a cue sheet over other formats of the same disc.
+            File existing = discs.get(disc);
+            if (existing == null || file.getName().toLowerCase(Locale.US).endsWith(".cue")) {
+                discs.put(disc, file);
+            }
+        }
+        int created = 0;
+        for (java.util.Map.Entry<String, java.util.TreeMap<Integer, File>> group : groups.entrySet()) {
+            if (group.getValue().size() < 2 || group.getKey().isEmpty()) {
+                continue;
+            }
+            boolean listed = false;
+            for (File disc : group.getValue().values()) {
+                if (isListedInPlaylist(disc)) {
+                    listed = true;
+                    break;
+                }
+            }
+            File playlist = new File(dir, sanitizeFileName(group.getKey()) + ".m3u");
+            if (listed || playlist.exists()) {
+                continue;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (File disc : group.getValue().values()) {
+                sb.append(disc.getName()).append('\n');
+            }
+            writeBytesAtomically(playlist, sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            if (playlist.exists()) {
+                created++;
+            }
+        }
+        return created;
+    }
+
+    // Files a PlayStation game entry depends on: cue tracks and the discs of a playlist.
+    private List<File> psCompanionFiles(File file) {
+        List<File> companions = new ArrayList<>();
+        File dir = file.getParentFile();
+        String lowerCase = file.getName().toLowerCase(Locale.US);
+        if (dir == null) {
+            return companions;
+        }
+        if (lowerCase.endsWith(".m3u")) {
+            for (String entry : readPlaylist(file)) {
+                File disc = new File(dir, new File(entry).getName());
+                companions.add(disc);
+                if (disc.getName().toLowerCase(Locale.US).endsWith(".cue")) {
+                    for (String track : cueTracks(disc)) {
+                        companions.add(new File(dir, new File(track).getName()));
+                    }
+                }
+            }
+        } else if (lowerCase.endsWith(".cue")) {
+            for (String track : cueTracks(file)) {
+                companions.add(new File(dir, new File(track).getName()));
+            }
+        }
+        return companions;
+    }
+
+    private void runPsFolderImport(Uri treeUri) {
+        new Thread(() -> {
+            List<PickedFile> files = listTree(treeUri);
+            runOnUiThread(() -> {
+                if (files.isEmpty()) {
+                    showError("폴더에서 파일을 찾지 못했습니다.");
+                } else {
+                    importPsGames(files);
+                }
+            });
+        }, "list-folder").start();
+    }
+
+    private void importBiosFolder(Uri treeUri, String source) {
+        runImport("BIOS 폴더 등록", reporter -> {
+            reporter.report("폴더 살펴보는 중…");
+            List<PickedFile> files = listTree(treeUri);
+            return importBiosFiles(files, source, reporter);
+        });
+    }
+
+    // Sorts BIOS files by what they are: GBA, Neo Geo, PlayStation, or MAME board BIOS.
+    private String importBiosFiles(List<PickedFile> files, String source, ProgressReporter reporter) throws IOException {
+        File systemDir = systemDir();
+        if (!systemDir.exists() && !systemDir.mkdirs()) {
+            throw new IOException("BIOS 폴더를 만들 수 없습니다");
+        }
+        List<String> gba = new ArrayList<>();
+        List<String> neoGeo = new ArrayList<>();
+        List<String> ps = new ArrayList<>();
+        List<String> mame = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+        int ignored = 0;
+        int index = 0;
+        for (PickedFile picked : files) {
+            index++;
+            String name = sanitizeFileName(picked.name);
+            String lowerCase = name.toLowerCase(Locale.US);
+            File target = null;
+            List<String> bucket = null;
+            if (lowerCase.endsWith(".bin") && (lowerCase.contains("gba") || picked.size == 16384) && picked.size != PS_BIOS_SIZE) {
+                target = biosFile();
+                bucket = gba;
+            } else if (lowerCase.equals("neogeo.zip")) {
+                target = neoGeoBiosFile();
+                bucket = neoGeo;
+            } else if (isPsBiosName(name, picked.size) || (picked.size < 0 && lowerCase.endsWith(".bin"))) {
+                // Without a reported size the file is checked after copying.
+                target = new File(systemDir, name);
+                bucket = ps;
+            } else if (lowerCase.endsWith(".zip") && (BIOS_SOURCE_MAME.equals(source) || Arrays.asList(KNOWN_ARCADE_BIOS).contains(lowerCase))) {
+                target = new File(mameBiosDir(), name);
+                bucket = mame;
+            }
+            if (target == null) {
+                ignored++;
+                continue;
+            }
+            reporter.report("복사 중 (" + index + "/" + files.size() + ")\n" + name);
+            try {
+                copyUriToFile(picked.uri, target);
+                if (bucket == gba && target.length() != 16384) {
+                    if (!target.delete()) {
+                        target.deleteOnExit();
+                    }
+                    throw new IOException("GBA BIOS는 16KB 파일이어야 합니다");
+                }
+                if (bucket == ps && !isPsBiosName(name, target.length())) {
+                    if (!target.delete()) {
+                        target.deleteOnExit();
+                    }
+                    throw new IOException("PS BIOS는 512KB 파일이어야 합니다");
+                }
+                if (bucket == mame && !isReadableZip(target)) {
+                    if (!target.delete()) {
+                        target.deleteOnExit();
+                    }
+                    throw new IOException("올바른 ZIP 파일이 아닙니다");
+                }
+                if (bucket == neoGeo) {
+                    File romDir = arcadeRomDir();
+                    if (!romDir.exists() && !romDir.mkdirs()) {
+                        throw new IOException("ROM 폴더를 만들 수 없습니다");
+                    }
+                    prepareNeoGeoBiosForArcade(target, new File(romDir, "neogeo.zip"));
+                }
+                bucket.add(name);
+            } catch (IOException e) {
+                failed.add(name + ": " + e.getMessage());
+            }
+        }
+        int total = gba.size() + neoGeo.size() + ps.size() + mame.size();
+        StringBuilder sb = new StringBuilder("등록한 BIOS: " + total + "개");
+        appendList(sb, "GBA", gba);
+        appendList(sb, "Neo Geo", neoGeo);
+        appendList(sb, "PlayStation", ps);
+        appendList(sb, "MAME 기판", mame);
+        if (ignored > 0) {
+            sb.append("\n\nBIOS가 아니어서 건너뛴 파일: ").append(ignored).append("개");
+        }
+        appendList(sb, "실패", failed);
+        if (total == 0 && failed.isEmpty()) {
+            sb.append("\n\n알아볼 수 있는 BIOS가 없습니다. gba_bios.bin, neogeo.zip, scph*.bin, 기판 BIOS ZIP을 원래 파일명 그대로 넣어 주세요.");
+        }
+        return sb.toString();
+    }
+
     private void refreshLibrary() {
         LinearLayout linearLayout = this.romList;
         if (linearLayout == null) {
@@ -1205,6 +1861,15 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("Neo Geo BIOS가 필요합니다").setMessage("neogeo.zip을 등록해야 Neo Geo 게임을 실행할 수 있어요.").setNegativeButton("취소", null).setPositiveButton("BIOS 등록", (dialog, which) -> openNeoGeoBiosPicker()).show();
             return;
         }
+        if (MODE_PS.equals(mode) && psBiosFiles().length == 0 && !settingsPrefs().getBoolean(PREF_PS_SKIP_BIOS_WARNING, false)) {
+            confirmPsLaunchWithoutBios(file);
+            return;
+        }
+        startGameActivity(file);
+    }
+
+    private void startGameActivity(File file) {
+        String mode = modeForFile(file);
         if ("arcade".equals(mode)) {
             syncArcadeBiosFiles();
         }
@@ -1461,7 +2126,13 @@ public final class MainActivity extends Activity {
     }
 
     private void deleteRomConfirmed(File file, DialogInterface dialogInterface, int i) {
+        List<File> companions = MODE_PS.equals(modeForFile(file)) ? psCompanionFiles(file) : new ArrayList<>();
         if (file.delete()) {
+            for (File companion : companions) {
+                if (companion.exists() && !companion.delete()) {
+                    companion.deleteOnExit();
+                }
+            }
             romPrefs().edit().remove("title:" + file.getName()).remove("save:" + file.getName()).remove("favorite:" + file.getName()).remove("recent:" + file.getName()).remove("core:" + file.getName()).apply();
             showMessage("ROM을 삭제했습니다.");
             refreshLibrary();
@@ -1657,7 +2328,7 @@ public final class MainActivity extends Activity {
         int i = 0;
         for (File file : listFiles) {
             RomCheck checkRomFile = checkRomFile(file);
-            String safeCrc32Hex = safeCrc32Hex(file);
+            String safeCrc32Hex = MODE_PS.equals(modeForFile(file)) ? file.getName().toLowerCase(Locale.US) : safeCrc32Hex(file);
             File file2 = (File) hashMap.get(safeCrc32Hex);
             if (file2 != null) {
                 sb.append(displayGameNameFor(file)).append(": 중복 ROM - ").append(displayGameNameFor(file2)).append('\n');
@@ -1678,6 +2349,9 @@ public final class MainActivity extends Activity {
     }
 
     private RomCheck checkRomFile(File file) {
+        if (MODE_PS.equals(modeForFile(file))) {
+            return checkPsGame(file);
+        }
         if (!file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
             return checkRomHeader(file);
         }
@@ -1693,6 +2367,37 @@ public final class MainActivity extends Activity {
         } catch (IOException unused) {
             return new RomCheck(false, "ZIP 읽기 실패");
         }
+    }
+
+    private RomCheck checkPsGame(File file) {
+        String lowerCase = file.getName().toLowerCase(Locale.US);
+        if (lowerCase.endsWith(".cue") || lowerCase.endsWith(".m3u")) {
+            List<String> missing = new ArrayList<>();
+            for (String referenced : lowerCase.endsWith(".cue") ? cueTracks(file) : readPlaylist(file)) {
+                if (!new File(file.getParentFile(), new File(referenced).getName()).exists()) {
+                    missing.add(new File(referenced).getName());
+                }
+            }
+            if (!missing.isEmpty()) {
+                return new RomCheck(false, "빠진 파일: " + android.text.TextUtils.join(", ", missing));
+            }
+            return new RomCheck(true, "구성 파일 모두 있음");
+        }
+        return file.length() > 0 ? new RomCheck(true, "디스크 이미지") : new RomCheck(false, "빈 파일");
+    }
+
+    private List<String> cueTracks(File cue) {
+        List<String> tracks = new ArrayList<>();
+        for (String line : readPlaylist(cue)) {
+            if (line.toUpperCase(Locale.US).startsWith("FILE ")) {
+                int first = line.indexOf('"');
+                int last = line.lastIndexOf('"');
+                if (first >= 0 && last > first) {
+                    tracks.add(line.substring(first + 1, last));
+                }
+            }
+        }
+        return tracks;
     }
 
     private RomCheck checkRomHeader(File file) {
@@ -1738,6 +2443,9 @@ public final class MainActivity extends Activity {
         String bios;
         if ("neogeo".equals(this.currentMode)) {
             bios = "Neo Geo BIOS: " + neoGeoBiosStatusText();
+        } else if (MODE_PS.equals(this.currentMode)) {
+            int count = psBiosFiles().length;
+            bios = "PS BIOS: " + (count == 0 ? "없음 (호환 모드로 실행)" : count + "개 등록됨") + " · 게임 메뉴에서 아날로그 스틱과 디스크 교체를 쓸 수 있습니다.";
         } else if ("arcade".equals(this.currentMode)) {
             bios = "MAME BIOS: " + mameBiosStatus() + " · 게임을 길게 누르면 실행 엔진을 바꿀 수 있습니다.";
         } else {
@@ -1765,6 +2473,9 @@ public final class MainActivity extends Activity {
         if ("arcade".equals(mode)) {
             return arcadeRomDir();
         }
+        if (MODE_PS.equals(mode)) {
+            return new File(getFilesDir(), "roms_ps");
+        }
         return romDir();
     }
 
@@ -1783,6 +2494,9 @@ public final class MainActivity extends Activity {
         }
         if (arcadeRomDir().equals(parent)) {
             return "arcade";
+        }
+        if (romDirFor(MODE_PS).equals(parent)) {
+            return MODE_PS;
         }
         return MODE_GBA;
     }
@@ -2336,7 +3050,8 @@ public final class MainActivity extends Activity {
         if (string != null && !string.trim().isEmpty()) {
             return string;
         }
-        String sanitizeSaveBaseName = sanitizeSaveBaseName(displayGameNameFor(file) + " [" + safeCrc32Hex(file) + "]");
+        // Disc images can be hundreds of MB, so PlayStation saves are named without a CRC.
+        String sanitizeSaveBaseName = MODE_PS.equals(modeForFile(file)) ? sanitizeSaveBaseName(displayGameNameFor(file)) : sanitizeSaveBaseName(displayGameNameFor(file) + " [" + safeCrc32Hex(file) + "]");
         romPrefs.edit().putString("save:" + file.getName(), sanitizeSaveBaseName).apply();
         return sanitizeSaveBaseName;
     }
@@ -2353,11 +3068,62 @@ public final class MainActivity extends Activity {
 
     private boolean isSupportedRom(File file) {
         String lowerCase = file.getName().toLowerCase(Locale.US);
-        if (MODE_GBA.equals(modeForFile(file))) {
+        String mode = modeForFile(file);
+        if (MODE_GBA.equals(mode)) {
             return lowerCase.endsWith(".gba") || !(!lowerCase.endsWith(".zip") || lowerCase.equals("neogeo.zip") || lowerCase.equals("stvbios.zip"));
+        }
+        if (MODE_PS.equals(mode)) {
+            return hasExtension(lowerCase, PS_GAME_EXTENSIONS) && !isListedInPlaylist(file);
         }
         // Arcade folders also hold copies of the BIOS archives the cores look for.
         return lowerCase.endsWith(".zip") && !lowerCase.equals("neogeo.zip") && !new File(mameBiosDir(), file.getName()).exists();
+    }
+
+    private static boolean hasExtension(String lowerCaseName, String[] extensions) {
+        for (String extension : extensions) {
+            if (lowerCaseName.endsWith(extension)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Discs that belong to an .m3u playlist are reached through the playlist.
+    private boolean isListedInPlaylist(File file) {
+        if (file.getName().toLowerCase(Locale.US).endsWith(".m3u")) {
+            return false;
+        }
+        File[] playlists = file.getParentFile() == null ? null : file.getParentFile().listFiles((dir, name) -> name.toLowerCase(Locale.US).endsWith(".m3u"));
+        if (playlists == null) {
+            return false;
+        }
+        for (File playlist : playlists) {
+            for (String entry : readPlaylist(playlist)) {
+                if (new File(entry).getName().equalsIgnoreCase(file.getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<String> readPlaylist(File playlist) {
+        List<String> entries = new ArrayList<>();
+        if (playlist.length() > 65536) {
+            return entries;
+        }
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(playlist), "UTF-8"))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (!line.isEmpty() && !line.startsWith("#")) {
+                    entries.add(line);
+                }
+            }
+        } catch (IOException unused) {
+            // An unreadable playlist just lists nothing.
+        }
+        return entries;
     }
 
     private String coreFor(File file) {
@@ -2367,6 +3133,9 @@ public final class MainActivity extends Activity {
         }
         if ("arcade".equals(mode)) {
             return romPrefs().getString("core:" + file.getName(), defaultArcadeCore());
+        }
+        if (MODE_PS.equals(mode)) {
+            return MODE_PS;
         }
         return MODE_GBA;
     }
@@ -2387,6 +3156,9 @@ public final class MainActivity extends Activity {
         }
         if ("fbneo".equals(str)) {
             return "FinalBurn Neo";
+        }
+        if (MODE_PS.equals(str)) {
+            return "PCSX ReARMed";
         }
         return "Game Boy Advance";
     }

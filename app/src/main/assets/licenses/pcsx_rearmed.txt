@@ -1,0 +1,16 @@
+Bundled native core:
+libpcsx_rearmed_libretro_android.so
+
+Built from the libretro PCSX ReARMed source (commit c8816799b50388e61cfe237fe2cdbb7d8175f20a)
+for Android arm64-v8a with 16 KB ELF alignment.
+
+PCSX ReARMed source:
+https://github.com/libretro/pcsx_rearmed
+
+PCSX ReARMed is licensed under the GNU General Public License, version 2:
+https://github.com/libretro/pcsx_rearmed/blob/master/COPYING
+
+The complete corresponding source code is available at the link above
+for the commit listed here.
+
+No game or BIOS files are bundled with this application.

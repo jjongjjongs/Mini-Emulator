@@ -48,7 +48,15 @@ enum : int {
     kButtonD = 2048,
     kButtonE = 4096,
     kButtonF = 8192,
+    // PlayStation-only buttons.
+    kButtonL2 = 16384,
+    kButtonR2 = 32768,
+    kButtonL3 = 65536,
+    kButtonR3 = 131072,
 };
+
+// PCSX ReARMed's DualShock device id (RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1)).
+constexpr unsigned kDeviceDualShock = (1 + 1) << 8 | RETRO_DEVICE_ANALOG;
 
 constexpr int kDefaultSampleRate = 32768;
 constexpr double kDefaultFps = 59.64;
@@ -80,12 +88,18 @@ struct Core {
     size_t (*retroSerializeSize)() = nullptr;
     bool (*retroSerialize)(void*, size_t) = nullptr;
     bool (*retroUnserialize)(const void*, size_t) = nullptr;
+    // Optional: only some cores export it.
+    void (*retroSetControllerPortDevice)(unsigned, unsigned) = nullptr;
+    retro_disk_control_callback diskControl{};
+    bool hasDiskControl = false;
 
     std::thread thread;
     std::atomic<bool> running{false};
     std::atomic<bool> paused{false};
     std::atomic<int> speedMultiplier{1};
     std::atomic<int> inputMask{0};
+    // Left X/Y and right X/Y analog axes, -32767..32767.
+    std::atomic<int> analog[4] = {{0}, {0}, {0}, {0}};
     // Guards window, which the UI thread can swap while the core draws.
     std::mutex videoMutex;
     // Guards every call into the core.
@@ -197,6 +211,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "fbneo") return "libfbneo_libretro_android.so";
     if (coreId == "mamearcade") return "libmamearcade_libretro_android.so";
     if (coreId == "mame2003plus") return "libmame2003_plus_libretro_android.so";
+    if (coreId == "ps") return "libpcsx_rearmed_libretro_android.so";
     return nullptr;
 }
 
@@ -231,6 +246,11 @@ bool loadCoreSymbols(Core* core) {
            loadSymbol(lib, core->retroSerializeSize, "retro_serialize_size") &&
            loadSymbol(lib, core->retroSerialize, "retro_serialize") &&
            loadSymbol(lib, core->retroUnserialize, "retro_unserialize");
+}
+
+void loadOptionalSymbols(Core* core) {
+    core->retroSetControllerPortDevice = reinterpret_cast<void (*)(unsigned, unsigned)>(
+        dlsym(core->library, "retro_set_controller_port_device"));
 }
 
 // ---- Save data -------------------------------------------------------------
@@ -416,6 +436,11 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (data == nullptr) return false;
             static_cast<retro_log_callback*>(data)->log = logCallback;
             return true;
+        case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
+            if (data == nullptr) return false;
+            core->diskControl = *static_cast<const retro_disk_control_callback*>(data);
+            core->hasDiskControl = true;
+            return true;
         case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
         // Plain 51 without the experimental flag, as accepted by the original build.
         case 51:
@@ -499,14 +524,43 @@ int buttonBitFor(unsigned id, bool arcade) {
     }
 }
 
-int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned /*index*/, unsigned id) {
+// PlayStation pad: cross/circle/square/triangle come in as B/A/C/D.
+int psButtonBitFor(unsigned id) {
+    switch (id) {
+        case RETRO_DEVICE_ID_JOYPAD_B: return kButtonB;
+        case RETRO_DEVICE_ID_JOYPAD_A: return kButtonA;
+        case RETRO_DEVICE_ID_JOYPAD_Y: return kButtonC;
+        case RETRO_DEVICE_ID_JOYPAD_X: return kButtonD;
+        case RETRO_DEVICE_ID_JOYPAD_L2: return kButtonL2;
+        case RETRO_DEVICE_ID_JOYPAD_R2: return kButtonR2;
+        case RETRO_DEVICE_ID_JOYPAD_L3: return kButtonL3;
+        case RETRO_DEVICE_ID_JOYPAD_R3: return kButtonR3;
+        default: return buttonBitFor(id, false);
+    }
+}
+
+int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned index, unsigned id) {
     Core* core = gCore;
-    if (port != 0 || device != RETRO_DEVICE_JOYPAD || core == nullptr) {
+    if (port != 0 || core == nullptr) {
+        return 0;
+    }
+    if (device == RETRO_DEVICE_ANALOG) {
+        if (index > RETRO_DEVICE_INDEX_ANALOG_RIGHT || id > RETRO_DEVICE_ID_ANALOG_Y) {
+            return 0;
+        }
+        return static_cast<int16_t>(core->analog[index * 2 + id].load());
+    }
+    if (device != RETRO_DEVICE_JOYPAD) {
         return 0;
     }
     int mask = core->inputMask.load();
-    bool arcade = core->coreId != "gba";
-    return (mask & buttonBitFor(id, arcade)) != 0 ? 1 : 0;
+    int bit;
+    if (core->coreId == "ps") {
+        bit = psButtonBitFor(id);
+    } else {
+        bit = buttonBitFor(id, core->coreId != "gba");
+    }
+    return (mask & bit) != 0 ? 1 : 0;
 }
 
 // ---- Emulation thread ------------------------------------------------------
@@ -642,6 +696,9 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         if (core->library == nullptr) {
             LOGE("dlopen core failed: %s", dlerror());
         }
+    }
+    if (core->library != nullptr) {
+        loadOptionalSymbols(core);
     }
     if (core->library == nullptr || !loadCoreSymbols(core)) {
         destroyCore(core);
@@ -800,6 +857,62 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/,
     }
     std::lock_guard<std::mutex> lock(core->coreMutex);
     core->retroReset();
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalog(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint leftX, jint leftY, jint rightX, jint rightY) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr) {
+        return;
+    }
+    core->analog[0].store(leftX);
+    core->analog[1].store(leftY);
+    core->analog[2].store(rightX);
+    core->analog[3].store(rightY);
+}
+
+// Switches port 1 between a digital pad and a DualShock (PlayStation).
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalogPad(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jboolean enabled) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->gameLoaded || core->retroSetControllerPortDevice == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(core->coreMutex);
+    core->retroSetControllerPortDevice(0, enabled == JNI_TRUE ? kDeviceDualShock : RETRO_DEVICE_JOYPAD);
+}
+
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_getDiskCount(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->hasDiskControl || core->diskControl.get_num_images == nullptr) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(core->coreMutex);
+    return static_cast<jint>(core->diskControl.get_num_images());
+}
+
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_getDiskIndex(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->hasDiskControl || core->diskControl.get_image_index == nullptr) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(core->coreMutex);
+    return static_cast<jint>(core->diskControl.get_image_index());
+}
+
+// Opens the tray, swaps to the given disc and closes it again.
+JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setDiskIndex(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint index) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->hasDiskControl || core->diskControl.set_eject_state == nullptr ||
+        core->diskControl.set_image_index == nullptr) {
+        return JNI_FALSE;
+    }
+    std::lock_guard<std::mutex> lock(core->coreMutex);
+    bool ok = core->diskControl.set_eject_state(true) &&
+              core->diskControl.set_image_index(static_cast<unsigned>(index));
+    ok = core->diskControl.set_eject_state(false) && ok;
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_destroy(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {

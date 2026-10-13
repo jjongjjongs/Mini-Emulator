@@ -22,7 +22,8 @@ release/
 # native-test 빌드 결과물
 native-test/build/
 
-# 아케이드 엔진: cores/build-cores.sh가 빌드해서 넣음
+# 아케이드 · PlayStation 엔진: cores/build-cores.sh가 빌드해서 넣음
 cores/build/
 app/src/main/jniLibs/arm64-v8a/libfbneo_libretro_android.so
 app/src/main/jniLibs/arm64-v8a/libmame2003_plus_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libpcsx_rearmed_libretro_android.so

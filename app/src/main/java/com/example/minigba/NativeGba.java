@@ -27,6 +27,16 @@ final class NativeGba {
 
     static native void setSurface(long j, Surface surface);
 
+    static native void setAnalog(long j, int leftX, int leftY, int rightX, int rightY);
+
+    static native void setAnalogPad(long j, boolean enabled);
+
+    static native int getDiskCount(long j);
+
+    static native int getDiskIndex(long j);
+
+    static native boolean setDiskIndex(long j, int index);
+
     static {
         System.loadLibrary("gbabridge");
     }
