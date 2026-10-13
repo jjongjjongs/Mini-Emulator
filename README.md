@@ -30,6 +30,7 @@ libretro 코어를 쓰는 안드로이드용 에뮬레이터 앱입니다. 앱�
 - 화면: `ANativeWindow`에 RGB565로 그립니다(코어가 XRGB8888/0RGB1555를 주면 변환).
 - 소리: 코어의 오디오 샘플을 `AudioSink.write()`로 넘깁니다. 배속(최대 2배)일 때는 `AudioSink.configure()`로 샘플레이트를 같은 배수로 올립니다.
 - 저장: `files/saves/<코어>/<이름>.sav`(게임 내 세이브), `<이름>.state`(빠른 저장). 게임을 시작할 때 둘 다 자동으로 불러오고, 종료할 때 자동으로 저장합니다.
+- 게임 불러오기·저장·종료처럼 엔진을 기다리는 호출은 작업 스레드에서 하고, 엔진 스레드는 프레임 사이에 그 호출에 차례를 넘깁니다. 엔진이 느려도 버튼과 뒤로가기가 멈추지 않습니다.
 - 게임 화면(`GameActivity`)은 `:game` 프로세스에서 돌고 게임을 닫으면 프로세스를 끝냅니다. 엔진이 죽으면 크래시 위치와 마지막 로그를 `files/last_crash.txt`에 남기고, 게임 목록이 다음에 보여 줍니다.
 - mGBA 옵션 고정값: `mgba_use_bios=ON`, `mgba_skip_bios=OFF`, `mgba_idle_optimization=Remove Known`, `mgba_frameskip=0`.
 

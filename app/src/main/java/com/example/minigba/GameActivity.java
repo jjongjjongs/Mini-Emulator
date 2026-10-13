@@ -48,6 +48,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private boolean landscapeMode;
     private boolean menuExiting;
     private long nativeHandle;
+    // Calls that wait for the engine (loading, saving, stopping) run here, never on the UI
+    // thread, so a slow or stuck engine cannot freeze the buttons and the back key. Loading a
+    // MAME set recurses deeply, hence the large stack (the main thread it replaces has 8 MB).
+    private final java.util.concurrent.ExecutorService coreWorker =
+            java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> new Thread(null, runnable, "core-worker", 16L * 1024 * 1024));
+    private boolean coreStarting;
+    private volatile boolean destroyed;
+    private boolean activityResumed;
     private String romPath;
     private String saveBaseName;
     private int speedMultiplier = 1;
@@ -264,16 +272,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             Emulator.pause();
             return;
         }
+        this.activityResumed = false;
         long j = this.nativeHandle;
         if (j != 0) {
             NativeGba.pause(j, true);
-            NativeGba.saveNow(this.nativeHandle);
+            callCore(NativeGba::saveNow, null, null);
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        this.activityResumed = true;
         if (isMame139()) {
             Emulator.resume();
             return;
@@ -286,25 +296,65 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     protected void onDestroy() {
-        if (isMame139() && isFinishing()) {
+        this.destroyed = true;
+        final boolean finishing = isFinishing();
+        if (isMame139() && finishing) {
             Emulator.stop();
-        } else {
-            long j = this.nativeHandle;
-            if (j != 0) {
-                NativeGba.destroy(j);
-                this.nativeHandle = 0L;
-            }
         }
-        AudioSink audioSink = this.audioSink;
-        if (audioSink != null) {
-            audioSink.release();
+        final long handle = this.nativeHandle;
+        this.nativeHandle = 0L;
+        final AudioSink sink = this.audioSink;
+        // Stopping saves the game and waits for the engine's current frame, so it runs on
+        // the worker after any queued saves. Games run in their own process (see the
+        // manifest), which ends here so the next game starts with a clean engine.
+        coreWorker.execute(() -> {
+            if (handle != 0) {
+                NativeGba.destroy(handle);
+            }
+            if (sink != null) {
+                sink.release();
+            }
+            if (finishing) {
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }
+        });
+        coreWorker.shutdown();
+        if (finishing) {
+            // An engine stuck inside a frame never returns; leave anyway.
+            Thread watchdog = new Thread(() -> {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ignored) {
+                    // Exit now.
+                }
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }, "exit-watchdog");
+            watchdog.setDaemon(true);
+            watchdog.start();
         }
         super.onDestroy();
-        // Games run in their own process (see the manifest) so a core that leaves broken
-        // state behind, like MAME 2010 after a failed load, starts clean next time.
-        if (isFinishing()) {
-            android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    private interface CoreCall {
+        boolean run(long handle);
+    }
+
+    // Runs an engine call on the worker and shows the matching message when it is done.
+    private void callCore(CoreCall call, String okMessage, String failMessage) {
+        final long handle = this.nativeHandle;
+        if (handle == 0 || this.destroyed) {
+            return;
         }
+        coreWorker.execute(() -> {
+            String message = call.run(handle) ? okMessage : failMessage;
+            if (message != null) {
+                runOnUiThread(() -> {
+                    if (!isFinishing()) {
+                        Toast.makeText(this, message, 0).show();
+                    }
+                });
+            }
+        });
     }
 
     @Override
@@ -374,7 +424,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void startCore(Surface surface) {
-        if ((isMame139() || this.nativeHandle == 0) && surface.isValid()) {
+        if ((isMame139() || (this.nativeHandle == 0 && !this.coreStarting)) && surface.isValid()) {
             if (isMame139()) {
                 try {
                     Emulator.start(this, this.activeSurfaceHolder, this.romPath);
@@ -403,16 +453,56 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 showFatalError("ROM 실행 실패: 시스템 폴더를 만들 수 없습니다");
                 return;
             }
-            try {
-                long create = NativeGba.create(surface, this.romPath, file.getAbsolutePath(), file2.getAbsolutePath(), this.saveBaseName, this.coreId, this.audioSink);
-                this.nativeHandle = create;
-                NativeGba.setInput(create, this.buttonMask);
-                NativeGba.setSpeedMultiplier(this.nativeHandle, this.speedMultiplier);
-            } catch (RuntimeException e3) {
-                showFatalError(e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage());
-            } catch (UnsatisfiedLinkError e4) {
-                showFatalError("코어 로드 실패: " + e4.getMessage());
-            }
+            // Big arcade sets take seconds to load; do it on the worker so the screen stays live.
+            this.coreStarting = true;
+            final String savePath = file.getAbsolutePath();
+            final String systemPath = file2.getAbsolutePath();
+            coreWorker.execute(() -> {
+                long handle = 0;
+                String error = null;
+                try {
+                    handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
+                } catch (RuntimeException e3) {
+                    error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
+                } catch (UnsatisfiedLinkError e4) {
+                    error = "코어 로드 실패: " + e4.getMessage();
+                }
+                if (handle != 0 && this.destroyed) {
+                    NativeGba.destroy(handle);
+                    return;
+                }
+                final long started = handle;
+                final String failure = error;
+                runOnUiThread(() -> onCoreStarted(started, failure, surface));
+            });
+            getWindow().getDecorView().postDelayed(() -> {
+                if (this.coreStarting && !this.destroyed) {
+                    Toast.makeText(this, "게임을 불러오는 중입니다…", 0).show();
+                }
+            }, 800);
+        }
+    }
+
+    private void onCoreStarted(long handle, String error, Surface startSurface) {
+        this.coreStarting = false;
+        if (this.destroyed) {
+            return;
+        }
+        if (handle == 0) {
+            showFatalError(error);
+            return;
+        }
+        this.nativeHandle = handle;
+        NativeGba.setInput(handle, this.buttonMask);
+        NativeGba.setSpeedMultiplier(handle, this.speedMultiplier);
+        // The surface or the activity state may have changed while the game was loading.
+        if (!this.surfaceReady || this.activeSurfaceHolder == null) {
+            NativeGba.clearSurface(handle);
+        } else if (this.activeSurfaceHolder.getSurface() != startSurface) {
+            NativeGba.setSurface(handle, this.activeSurfaceHolder.getSurface());
+        }
+        if (!this.activityResumed) {
+            NativeGba.pause(handle, true);
         }
     }
 
@@ -475,10 +565,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             Emulator.saveState();
             Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
         } else {
-            long j = this.nativeHandle;
-            if (j != 0) {
-                Toast.makeText(this, NativeGba.saveNow(j) ? "빠른 저장과 게임 내 세이브를 저장했습니다." : "저장 실패.", 0).show();
-            }
+            callCore(NativeGba::saveNow, "빠른 저장과 게임 내 세이브를 저장했습니다.", "저장 실패.");
         }
     }
 
@@ -487,11 +574,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             Toast.makeText(this, "MAME 0.139 재시작은 ROM 목록에서 다시 실행하세요.", 0).show();
             return;
         }
-        long j = this.nativeHandle;
-        if (j != 0) {
-            NativeGba.reset(j);
-            Toast.makeText(this, "게임을 재시작했습니다.", 0).show();
-        }
+        callCore(handle -> {
+            NativeGba.reset(handle);
+            return true;
+        }, "게임을 재시작했습니다.", null);
     }
 
     private void addTopSpeedButton(LinearLayout linearLayout) {
@@ -513,10 +599,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void toggleOrientation() {
-        long j = this.nativeHandle;
-        if (j != 0) {
-            NativeGba.saveNow(j);
-        }
+        callCore(NativeGba::saveNow, null, null);
         int i = !this.landscapeMode ? 1 : 0;
         getSharedPreferences("settings", 0).edit().putInt("orientation_mode", i).commit();
         setRequestedOrientation(i == 1 ? 6 : 1);
@@ -657,11 +740,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
                 return;
             } else {
-                long j = this.nativeHandle;
-                if (j != 0) {
-                    Toast.makeText(this, NativeGba.saveStateNow(j) ? "빠른 저장을 완료했습니다." : "빠른 저장 실패.", 0).show();
-                    return;
-                }
+                callCore(NativeGba::saveStateNow, "빠른 저장을 완료했습니다.", "빠른 저장 실패.");
                 return;
             }
         }
@@ -671,11 +750,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Toast.makeText(this, "MAME 0.139 빠른 저장 불러오기를 요청했습니다.", 0).show();
                 return;
             } else {
-                long j2 = this.nativeHandle;
-                if (j2 != 0) {
-                    Toast.makeText(this, NativeGba.loadStateNow(j2) ? "빠른 저장을 불러왔습니다." : "빠른 저장 파일이 없습니다.", 0).show();
-                    return;
-                }
+                callCore(NativeGba::loadStateNow, "빠른 저장을 불러왔습니다.", "빠른 저장 파일이 없습니다.");
                 return;
             }
         }
@@ -685,11 +760,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Toast.makeText(this, "MAME 0.139 상태를 저장했습니다.", 0).show();
                 return;
             } else {
-                long j3 = this.nativeHandle;
-                if (j3 != 0) {
-                    Toast.makeText(this, NativeGba.saveSramNow(j3) ? "게임 내 세이브 파일을 저장했습니다." : "게임 내 세이브 데이터가 없습니다.", 0).show();
-                    return;
-                }
+                callCore(NativeGba::saveSramNow, "게임 내 세이브 파일을 저장했습니다.", "게임 내 세이브 데이터가 없습니다.");
                 return;
             }
         }
@@ -710,11 +781,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             Toast.makeText(this, "ROM 목록에서 다시 실행하면 재시작됩니다.", 0).show();
             return;
         }
-        long j4 = this.nativeHandle;
-        if (j4 != 0) {
-            NativeGba.reset(j4);
-            Toast.makeText(this, "게임을 재시작했습니다.", 0).show();
-        }
+        callCore(handle -> {
+            NativeGba.reset(handle);
+            return true;
+        }, "게임을 재시작했습니다.", null);
     }
 
     private void resumeUnlessExiting() {
@@ -763,10 +833,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isMame139()) {
             Emulator.stop();
         } else {
-            long j = this.nativeHandle;
-            if (j != 0) {
-                NativeGba.saveNow(j);
-            }
+            callCore(NativeGba::saveNow, null, null);
         }
         finish();
     }

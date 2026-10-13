@@ -100,6 +100,9 @@ struct Core {
     std::mutex videoMutex;
     // Guards every call into the core.
     std::mutex coreMutex;
+    // Calls from Java waiting for coreMutex; the emulation thread lets them in
+    // between frames instead of re-taking the lock straight away.
+    std::atomic<int> coreWaiters{0};
 
     std::string romPath;
     std::string coreId;
@@ -639,6 +642,22 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
     }
 }
 
+// Takes coreMutex for a call from Java, ahead of the emulation thread's next frame.
+class CoreLock {
+public:
+    explicit CoreLock(Core* core) : core_(core) {
+        core_->coreWaiters.fetch_add(1);
+        core_->coreMutex.lock();
+        core_->coreWaiters.fetch_sub(1);
+    }
+    ~CoreLock() { core_->coreMutex.unlock(); }
+    CoreLock(const CoreLock&) = delete;
+    CoreLock& operator=(const CoreLock&) = delete;
+
+private:
+    Core* core_;
+};
+
 // Copies one frame into the window, converting it to RGB565.
 void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsigned height, size_t pitch) {
     Core* core = gCore;
@@ -750,6 +769,9 @@ void runLoop(Core* core) {
         double fps = core->fps;
         auto start = std::chrono::steady_clock::now();
         if (!core->paused.load()) {
+            while (core->coreWaiters.load() > 0 && core->running.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
             std::lock_guard<std::mutex> lock(core->coreMutex);
             core->retroRun();
         }
@@ -1007,7 +1029,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveNow(JNIEnv* /*
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
+    CoreLock lock(core);
     bool state = saveState(core);
     bool sram = saveSram(core);
     return (state || sram) ? JNI_TRUE : JNI_FALSE;
@@ -1019,7 +1041,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveStateNow(
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
+    CoreLock lock(core);
     return saveState(core) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -1029,7 +1051,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
+    CoreLock lock(core);
     return loadState(core) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -1039,7 +1061,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveSramNow(
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
+    CoreLock lock(core);
     return saveSram(core) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -1048,7 +1070,7 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/,
     if (core == nullptr || !core->gameLoaded || core->retroReset == nullptr) {
         return;
     }
-    std::lock_guard<std::mutex> lock(core->coreMutex);
+    CoreLock lock(core);
     core->retroReset();
 }
 
