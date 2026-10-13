@@ -53,7 +53,7 @@ GitHub Actions는 엔진을 캐시해 두고 `cores/build-cores.sh`가 바뀔 �
 | Neo Geo | `roms_neogeo` | FinalBurn Neo 기본, 게임별로 MAME 2003-Plus · MAME 2010 선택 가능 | `system/neogeo.zip` (필수) |
 | 아케이드 | `roms_arcade` | MAME 2003-Plus 기본, 게임별로 FBNeo · MAME 2010 선택 가능 | `system/mame/bios/*.zip` (실행 전에 ROM 폴더로 복사) |
 
-- 아케이드 엔진들은 ZIP **파일 이름**으로 게임을 찾습니다. 그래서 앱이 ZIP 안 파일의 CRC로 롬셋을 알아보고(`assets/romsets.bin`, `cores/gen-romsets.py`로 생성) `neobombe.zip`처럼 롬셋 이름으로 바꿔 둡니다. 목록에는 원래 이름이 그대로 보입니다. 롬셋 버전에 맞는 엔진도 자동으로 고르고, 파일이나 기판 BIOS(`psarc95.zip` 등)가 부족하거나 지원하지 않는 게임이면 실행 전에 알려 줍니다. ROM으로 가져온 기판 BIOS ZIP은 MAME BIOS로 등록됩니다.
+- 아케이드 엔진들은 ZIP **파일 이름**으로 게임을 찾습니다. 그래서 앱이 ZIP 안 파일의 CRC로 롬셋을 알아보고(`assets/romsets.bin`, `cores/gen-romsets.py`로 생성) `neobombe.zip`처럼 롬셋 이름으로 바꿔 둡니다. 목록에는 원래 이름이 그대로 보입니다. 롬셋 버전에 맞는 엔진도 자동으로 고르고, 파일이나 기판 BIOS(`psarc95.zip` 등)가 부족하거나 지원하지 않는 게임이면 실행 전에 알려 줍니다. ROM으로 가져온 기판 BIOS ZIP은 MAME BIOS로 등록됩니다. 엔진의 게임 목록에서 아직 동작하지 않는(preliminary) 게임으로 표시된 경우 실행 전에 알려 주고, 동작하는 엔진이 있으면 그쪽을 고릅니다.
 - BIOS 타일에서 **폴더째 등록**을 고르면 폴더 안의 파일을 종류별로 나눠 등록합니다: `gba_bios.bin` → GBA, `neogeo.zip` → Neo Geo, 알려진 기판 BIOS ZIP(`pgm.zip`, `stvbios.zip` 등) → MAME. MAME 타일에서 고르면 폴더의 ZIP을 모두 MAME BIOS로 등록합니다.
 
 ### 릴리스 서명

@@ -12,7 +12,7 @@ Output (gzip text; not named .gz because the Android build unpacks those), one s
   #<core>
   !bios\t<crcs of BIOS sets, ignored when matching>
   !biosnames\t<names of BIOS sets>
-  <set>\t<parent or ->\t<own crcs, comma separated>\t<crcs shared with parent>\t<BIOS set or ->
+  <set>\t<parent or ->\t<own crcs, comma separated>\t<crcs shared with parent>\t<BIOS set or ->\t<x if the core marks it not working>
 """
 import gzip, os, re, sys, urllib.parse, urllib.request, xml.etree.ElementTree as ET
 
@@ -73,9 +73,11 @@ def section(core, root):
             (shared if r.get("merge") else own).append(crc)
         if not own and not shared:
             continue
-        lines.append("%s\t%s\t%s\t%s\t%s" % (g.get("name"), g.get("cloneof") or "-",
-                                             ",".join(dict.fromkeys(own)), ",".join(dict.fromkeys(shared)),
-                                             bios_of(g) or "-"))
+        driver = g.find("driver")
+        broken = driver is not None and driver.get("status") in ("preliminary", "protection")
+        lines.append("%s\t%s\t%s\t%s\t%s\t%s" % (g.get("name"), g.get("cloneof") or "-",
+                                                 ",".join(dict.fromkeys(own)), ",".join(dict.fromkeys(shared)),
+                                                 bios_of(g) or "-", "x" if broken else "-"))
     return lines
 
 

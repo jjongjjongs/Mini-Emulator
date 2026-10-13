@@ -27,12 +27,15 @@ final class RomsetIndex {
         final String name;
         final String parent;
         final String bios;
+        // False when the core's own list marks the game as not working (preliminary).
+        final boolean working;
         final int matched;
         final int missingOwn;
         final int missingShared;
 
-        Match(String core, String name, String parent, String bios, int matched, int missingOwn, int missingShared) {
+        Match(String core, String name, String parent, String bios, boolean working, int matched, int missingOwn, int missingShared) {
             this.core = core;
+            this.working = working;
             this.name = name;
             this.parent = parent;
             this.bios = bios;
@@ -54,6 +57,7 @@ final class RomsetIndex {
         final List<String> names = new ArrayList<>();
         final List<String> parents = new ArrayList<>();
         final List<String> bioses = new ArrayList<>();
+        final List<Boolean> broken = new ArrayList<>();
         final java.util.Set<String> biosNames = new java.util.HashSet<>();
         final List<int[]> own = new ArrayList<>();
         final List<int[]> shared = new ArrayList<>();
@@ -103,6 +107,7 @@ final class RomsetIndex {
                     current.own.add(parseCrcs(fields[2]));
                     current.shared.add(parseCrcs(fields[3]));
                     current.bioses.add(fields.length < 5 || fields[4].equals("-") ? null : fields[4]);
+                    current.broken.add(fields.length >= 6 && fields[5].equals("x"));
                 }
             }
         } catch (IOException e) {
@@ -206,7 +211,7 @@ final class RomsetIndex {
         int[] own = sets.own.get(best);
         int[] shared = sets.shared.get(best);
         int ownMatched = count(own, zipCrcs);
-        return new Match(core, sets.names.get(best), sets.parents.get(best), sets.bioses.get(best), bestMatched, own.length - ownMatched, shared.length - (bestMatched - ownMatched));
+        return new Match(core, sets.names.get(best), sets.parents.get(best), sets.bioses.get(best), !sets.broken.get(best), bestMatched, own.length - ownMatched, shared.length - (bestMatched - ownMatched));
     }
 
     private static int count(int[] crcs, int[] sortedZipCrcs) {

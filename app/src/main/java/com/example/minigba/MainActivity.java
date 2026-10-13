@@ -1452,8 +1452,10 @@ public final class MainActivity extends Activity {
             if (match == null) {
                 continue;
             }
+            // Prefer a complete set, then an engine that has the game marked as working.
             if (best == null
                     || (match.isComplete(dir) && !best.isComplete(dir))
+                    || (match.isComplete(dir) && best.isComplete(dir) && match.working && !best.working)
                     || (!match.isComplete(dir) && !best.isComplete(dir) && match.missingOwn < best.missingOwn)) {
                 best = match;
             }
@@ -1547,7 +1549,8 @@ public final class MainActivity extends Activity {
         RomsetIndex.Match best = null;
         for (String core : ARCADE_CORE_IDS) {
             RomsetIndex.Match match = RomsetIndex.identify(this, core, crcs);
-            if (match != null && (best == null || (match.isComplete(dir) && !best.isComplete(dir)))) {
+            if (match != null && (best == null || (match.isComplete(dir) && !best.isComplete(dir))
+                    || (match.isComplete(dir) == best.isComplete(dir) && match.working && !best.working))) {
                 best = match;
             }
         }
@@ -1559,6 +1562,9 @@ public final class MainActivity extends Activity {
         }
         if (!best.isComplete(dir)) {
             return new RomCheck(false, best.name + " · 파일 부족" + (best.missingShared > 0 && best.parent != null ? " (" + best.parent + ".zip 필요)" : ""));
+        }
+        if (!best.working) {
+            return new RomCheck(false, best.name + " · " + coreDisplayName(best.core) + "에서 아직 동작하지 않는 게임");
         }
         return new RomCheck(true, best.name + " · " + coreDisplayName(best.core));
     }
@@ -1587,6 +1593,10 @@ public final class MainActivity extends Activity {
         }
         if (!hasBoardBios(result.match, resolved.getParentFile())) {
             new AlertDialog.Builder(this).setTitle("기판 BIOS가 필요합니다").setMessage(coreDisplayName(result.match.core) + "의 '" + result.match.name + "' 게임은 기판 BIOS " + result.match.bios + ".zip이 있어야 실행됩니다.\n\nMAME BIOS에 " + result.match.bios + ".zip을 등록해 주세요.").setNegativeButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).setPositiveButton("BIOS 등록", (dialog, which) -> showBiosChooser(BIOS_SOURCE_MAME)).show();
+            return;
+        }
+        if (!result.match.working) {
+            new AlertDialog.Builder(this).setTitle("아직 동작하지 않는 게임입니다").setMessage(coreDisplayName(result.match.core) + "의 게임 목록에 '" + result.match.name + "'은(는) 아직 제대로 동작하지 않는 게임(preliminary)으로 표시돼 있습니다.\n\n실행해도 검은 화면에서 멈추거나 진행이 안 될 수 있어요. 다른 엔진에서 동작하는 게임이면 앱이 자동으로 그 엔진을 고릅니다.").setNegativeButton("취소", null).setPositiveButton("그래도 실행", (dialog, which) -> startGameActivity(resolved)).show();
             return;
         }
         if (result.coreChanged) {
