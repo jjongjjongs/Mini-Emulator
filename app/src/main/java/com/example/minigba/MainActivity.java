@@ -69,9 +69,9 @@ public final class MainActivity extends Activity {
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
     private static final String[] MODE_IDS = {MODE_GBA, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA", "Neo Geo", "아케이드"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "Neo Geo", "아케이드"};
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     private static final String[] MODE_ICONS = {"GBA", "NEO", "MAME"};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
     private static final String PREF_TITLE_PREFIX = "title:";
@@ -378,7 +378,7 @@ public final class MainActivity extends Activity {
             this.mameBiosStatusView = (TextView) mameBiosTile.getTag();
             actionRow.addView(mameBiosTile, actionTileParams());
         } else {
-            actionRow.addView(createActionCard("GBA ROM", ".gba / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
+            actionRow.addView(createActionCard("GBA · GBC ROM", ".gba / .gbc / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
             LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_GBA));
             this.biosStatusView = (TextView) biosTile.getTag();
             actionRow.addView(biosTile, actionTileParams());
@@ -724,7 +724,7 @@ public final class MainActivity extends Activity {
         Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
         intent.addCategory("android.intent.category.OPENABLE");
         intent.setType("*/*");
-        intent.putExtra("android.intent.extra.MIME_TYPES", new String[]{"application/octet-stream", "application/x-gba-rom", "application/x-gameboy-advance-rom", "application/zip"});
+        intent.putExtra("android.intent.extra.MIME_TYPES", new String[]{"application/octet-stream", "application/x-gba-rom", "application/x-gameboy-advance-rom", "application/x-gameboy-color-rom", "application/x-gameboy-rom", "application/zip"});
         intent.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
         startActivityForResult(intent, 1001);
     }
@@ -935,7 +935,7 @@ public final class MainActivity extends Activity {
         for (Uri uri2 : arrayList) {
             String displayNameFor = displayNameFor(uri2);
             String lowerCase = displayNameFor.toLowerCase(Locale.US);
-            if (!lowerCase.endsWith(".gba") && !lowerCase.endsWith(".zip")) {
+            if (!isHandheldRomName(lowerCase) && !lowerCase.endsWith(".zip")) {
                 sb.append(displayNameFor).append(": 지원하지 않는 파일\n");
             } else {
                 try {
@@ -2123,7 +2123,7 @@ public final class MainActivity extends Activity {
                     continue;
                 }
                 String name = new File(nextEntry.getName()).getName();
-                if (name.toLowerCase(Locale.US).endsWith(".gba")) {
+                if (isHandheldRomName(name.toLowerCase(Locale.US))) {
                     File uniqueFile = uniqueFile(romDir, sanitizeFileName(name));
                     try (FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile)) {
                         copy(zipInputStream, fileOutputStream);
@@ -2136,7 +2136,7 @@ public final class MainActivity extends Activity {
             }
         }
         if (arrayList.isEmpty()) {
-            throw new IOException(str + " 안에서 새 .gba 파일을 찾지 못했습니다");
+            throw new IOException(str + " 안에서 새 .gba / .gbc / .gb 파일을 찾지 못했습니다");
         }
         return arrayList;
     }
@@ -2291,7 +2291,61 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // GBA ROMs and Game Boy / Game Boy Color ROMs share the GBA mode and the mGBA engine.
+    static boolean isHandheldRomName(String lowerCaseName) {
+        return lowerCaseName.endsWith(".gba") || isGameBoyRomName(lowerCaseName);
+    }
+
+    static boolean isGameBoyRomName(String lowerCaseName) {
+        return lowerCaseName.endsWith(".gbc") || lowerCaseName.endsWith(".gb");
+    }
+
+    // Game Boy header: Nintendo logo at 0x104 and a checksum over 0x134-0x14C at 0x14D.
+    private RomCheck checkGameBoyHeader(File file) {
+        if (file.length() < 0x150) {
+            return new RomCheck(false, "파일이 너무 작음");
+        }
+        if (file.length() > 8388608) {
+            return new RomCheck(false, "표준 8MB Game Boy ROM보다 큼");
+        }
+        byte[] header = new byte[0x150];
+        try (FileInputStream in = new FileInputStream(file)) {
+            int read = 0;
+            while (read < header.length) {
+                int n = in.read(header, read, header.length - read);
+                if (n < 0) {
+                    return new RomCheck(false, "Game Boy 헤더를 끝까지 읽을 수 없음");
+                }
+                read += n;
+            }
+        } catch (IOException unused) {
+            return new RomCheck(false, "읽기 실패");
+        }
+        // The first 24 bytes of the logo are the same in every licensed cartridge.
+        int[] logo = {0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D, 0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E};
+        boolean logoOk = true;
+        for (int i = 0; i < logo.length; i++) {
+            if ((header[0x104 + i] & 255) != logo[i]) {
+                logoOk = false;
+                break;
+            }
+        }
+        int sum = 0;
+        for (int i = 0x134; i <= 0x14C; i++) {
+            sum = (sum - (header[i] & 255) - 1) & 255;
+        }
+        boolean checksumOk = (header[0x14D] & 255) == sum;
+        boolean color = (header[0x143] & 255) == 0x80 || (header[0x143] & 255) == 0xC0;
+        if (logoOk && checksumOk) {
+            return new RomCheck(true, color ? "GBC 헤더 정상" : "Game Boy 헤더 정상");
+        }
+        return new RomCheck(false, !logoOk ? "Nintendo 로고/헤더 불일치" : "헤더 체크섬 불일치");
+    }
+
     private RomCheck checkRomHeader(File file) {
+        if (isGameBoyRomName(file.getName().toLowerCase(Locale.US))) {
+            return checkGameBoyHeader(file);
+        }
         if (file.length() < 192) {
             return new RomCheck(false, "파일이 너무 작음");
         }
@@ -2980,7 +3034,7 @@ public final class MainActivity extends Activity {
         String lowerCase = file.getName().toLowerCase(Locale.US);
         String mode = modeForFile(file);
         if (MODE_GBA.equals(mode)) {
-            return lowerCase.endsWith(".gba") || !(!lowerCase.endsWith(".zip") || lowerCase.equals("neogeo.zip") || lowerCase.equals("stvbios.zip"));
+            return isHandheldRomName(lowerCase) || !(!lowerCase.endsWith(".zip") || lowerCase.equals("neogeo.zip") || lowerCase.equals("stvbios.zip"));
         }
         // Arcade folders also hold copies of the BIOS archives the cores look for.
         return lowerCase.endsWith(".zip") && !lowerCase.equals("neogeo.zip") && !new File(mameBiosDir(), file.getName()).exists() && !RomsetIndex.isBiosName(this, baseNameWithoutExtension(lowerCase));
@@ -3043,16 +3097,20 @@ public final class MainActivity extends Activity {
     }
 
     private String readGbaHeaderTitle(File file) {
-        byte[] bArr = new byte[12];
+        // GBA titles are 12 bytes at 0xA0; Game Boy titles up to 15 bytes at 0x134.
+        boolean gameBoy = isGameBoyRomName(file.getName().toLowerCase(Locale.US));
+        int offset = gameBoy ? 0x134 : 160;
+        int length = gameBoy ? 15 : 12;
+        byte[] bArr = new byte[length];
         try (FileInputStream fileInputStream = new FileInputStream(file)) {
-            if (fileInputStream.skip(160L) != 160 || fileInputStream.read(bArr) != 12) {
+            if (fileInputStream.skip(offset) != offset || fileInputStream.read(bArr) != length) {
                 return null;
             }
         } catch (IOException unused) {
             return null;
         }
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < length; i++) {
             int i2 = bArr[i] & 255;
             if (i2 == 0 || i2 == 255) {
                 break;

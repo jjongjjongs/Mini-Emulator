@@ -600,6 +600,8 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
     if (strcmp(key, "mgba_frameskip") == 0) return "0";
+    // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
+    if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
     if (strcmp(key, "mame_current_skip_warnings") == 0) return "enabled";
     if (strcmp(key, "mame_current_skip_gameinfo") == 0) return "enabled";

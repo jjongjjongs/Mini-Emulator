@@ -142,7 +142,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(this.surfaceView, layoutParams);
         // Leave room around the screen for the case's bezel and its screws.
         i += dp(34);
-        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, Math.max(dp(176), Math.round(Math.max(dp(200), (getResources().getDisplayMetrics().widthPixels - (i * 2)) - (i2 * 2)) * (this.coreId.equals("gba") ? 0.6666667f : 0.75f)) + dp + dp2));
+        int screenWidth = Math.max(dp(200), (getResources().getDisplayMetrics().widthPixels - (i * 2)) - (i2 * 2));
+        if (isGameBoy()) {
+            // The nearly square Game Boy screen would push the controls off a short phone.
+            int widest = Math.round(dp(250) * screenAspect());
+            if (screenWidth > widest) {
+                i += (screenWidth - widest) / 2;
+                screenWidth = widest;
+            }
+        }
+        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, Math.max(dp(176), Math.round(screenWidth / screenAspect()) + dp + dp2));
         layoutParams2.setMargins(i, dp(18), i, 0);
         linearLayout.addView(frameLayout, layoutParams2);
         FrameLayout frameLayout2 = new FrameLayout(this);
@@ -191,7 +200,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         String name;
         if (this.coreId.equals("gba")) {
             tint = ClearShellView.TINT_WHITE;
-            name = "GBA";
+            name = isGameBoy() ? "GBC" : "GBA";
         } else if (isNeoGeoMode()) {
             tint = ClearShellView.TINT_PURPLE;
             name = "NEO GEO";
@@ -214,7 +223,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // GBA keeps the speed button below the screen, so its screen sits at the top.
         // The bezel takes dp(10) above the screen and dp(26) below it.
         int maxHeight = Math.max(dp(150), (height - (isGba ? dp(18) + dp(26) + dp(46) : dp(12) + dp(36))) - (inset * 2));
-        float aspect = isGba ? 1.5f : 1.3333334f;
+        float aspect = screenAspect();
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
@@ -241,8 +250,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         createDirectionControl.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
         frameLayout.addView(createDirectionControl, layoutParams);
         if (isGba) {
-            addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
-            addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
+            if (!isGameBoy()) {
+                addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
+                addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
+            }
             addLandscapeActionButton(frameLayout, "A", 1, dp(26), -dp(42), 3);
             addLandscapeActionButton(frameLayout, "B", 2, dp(92), dp(42), 3);
         } else if (isNeoGeoMode()) {
@@ -705,7 +716,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         layoutParams.gravity = 8388691;
         layoutParams.setMargins(dp(isGba ? 24 : 16), 0, 0, dp(isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
-        if (isGba) {
+        if (isGba && !isGameBoy()) {
             addButton(frameLayout, "L", 512, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
             addButton(frameLayout, "R", 256, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
         }
@@ -1067,10 +1078,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return (int) ((i * getResources().getDisplayMetrics().density) + 0.5f);
     }
 
+    // Game Boy and Game Boy Color games run on the GBA engine but have no L/R and a 10:9 screen.
+    private boolean isGameBoy() {
+        return this.coreId.equals("gba") && this.romPath != null && MainActivity.isGameBoyRomName(this.romPath.toLowerCase(Locale.US));
+    }
+
+    private float screenAspect() {
+        if (isGameBoy()) {
+            return 160.0f / 144.0f;
+        }
+        return this.coreId.equals("gba") ? 1.5f : 1.3333334f;
+    }
+
     private boolean isSupportedGameFile(String lowerCasePath) {
         switch (this.coreId) {
             case "gba":
-                return lowerCasePath.endsWith(".gba");
+                return MainActivity.isHandheldRomName(lowerCasePath);
             case "fbneo":
             case "mame2003plus":
             case "mame2010":
