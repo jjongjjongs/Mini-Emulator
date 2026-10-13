@@ -11,12 +11,27 @@ on:
         description: 'Publish a GitHub release with this tag (e.g. v0.0.2). Leave empty to only build.'
         required: false
         default: ''
+      delete_release:
+        description: 'Delete the GitHub release and tag with this name (e.g. v0.0.7) instead of building.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 jobs:
+  delete-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.delete_release != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.delete_release }}
+        run: gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.delete_release == ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
