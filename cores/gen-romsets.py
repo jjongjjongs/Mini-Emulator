@@ -14,7 +14,7 @@ Output (gzip text; not named .gz because the Android build unpacks those), one s
   !biosnames\t<names of BIOS sets>
   <set>\t<parent or ->\t<own crcs, comma separated>\t<crcs shared with parent>\t<BIOS set or ->\t<x if the core marks it not working>
 """
-import gzip, os, re, sys, urllib.parse, urllib.request, xml.etree.ElementTree as ET
+import gzip, os, re, sys, urllib.parse, urllib.request, xml.etree.ElementTree as ET, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "app", "src", "main", "assets", "romsets.bin")
@@ -32,6 +32,8 @@ SOURCES = [
                      "mame2003-plus.xml" % pinned("MAME2003P")),
     ("mame2010", "https://raw.githubusercontent.com/libretro/mame2010-libretro/%s/metadata/"
                  "mame2010.xml" % pinned("MAME2010", "build-mame2010.sh")),
+    ("mame2015", "https://raw.githubusercontent.com/libretro/mame2015-libretro/%s/metadata/"
+                 "mame2015-xml.zip" % pinned("MAME2015", "build-mame2015.sh")),
 ]
 
 
@@ -40,6 +42,11 @@ def load(url):
     if not os.path.exists(cache):
         os.makedirs(os.path.dirname(cache), exist_ok=True)
         urllib.request.urlretrieve(url, cache)
+    if cache.endswith(".zip"):
+        with zipfile.ZipFile(cache) as z:
+            name = next(n for n in z.namelist() if n.endswith(".xml"))
+            with z.open(name) as f:
+                return ET.parse(f).getroot()
     return ET.parse(cache).getroot()
 
 
@@ -64,6 +71,9 @@ def section(core, root):
     lines = ["#" + core, "!bios\t" + ",".join(sorted(bios_crcs)), "!biosnames\t" + ",".join(bios_names)]
     for g in games:
         if g.get("isbios") == "yes" or g.get("runnable") == "no":
+            continue
+        # Devices and slot machines are not games anyone launches here.
+        if g.get("isdevice") == "yes" or g.get("ismechanical") == "yes":
             continue
         own, shared = [], []
         for r in g.findall("rom"):

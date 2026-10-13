@@ -786,6 +786,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "fbneo":
             case "mame2003plus":
             case "mame2010":
+            case "mame2015":
             case "mame139":
             case "mamearcade":
                 return lowerCasePath.endsWith(".zip");

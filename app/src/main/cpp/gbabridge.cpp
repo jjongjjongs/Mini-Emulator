@@ -208,6 +208,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "mamearcade") return "libmamearcade_libretro_android.so";
     if (coreId == "mame2003plus") return "libmame2003_plus_libretro_android.so";
     if (coreId == "mame2010") return "libmame2010_libretro_android.so";
+    if (coreId == "mame2015") return "libmame2015_libretro_android.so";
     return nullptr;
 }
 
@@ -562,6 +563,9 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mame_current_skip_warnings") == 0) return "enabled";
     if (strcmp(key, "mame_current_skip_gameinfo") == 0) return "enabled";
     if (strcmp(key, "mame_current_skip_nagscreen") == 0) return "enabled";
+    if (strcmp(key, "mame2015_hide_nagscreen") == 0) return "enabled";
+    if (strcmp(key, "mame2015_hide_infoscreen") == 0) return "enabled";
+    if (strcmp(key, "mame2015_hide_warnings") == 0) return "enabled";
     return nullptr;
 }
 
@@ -713,7 +717,7 @@ int buttonBitFor(unsigned id, bool arcade) {
     }
 }
 
-// MAME 2010 reads buttons 1-4 from A/B/X/Y rather than B/A/Y/X.
+// MAME 2010 and 2015 read buttons 1-4 from A/B/X/Y rather than B/A/Y/X.
 int mame2010ButtonBitFor(unsigned id) {
     switch (id) {
         case RETRO_DEVICE_ID_JOYPAD_A: return kButtonA;
@@ -731,7 +735,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     }
     int mask = core->inputMask.load();
     int bit;
-    if (core->coreId == "mame2010") {
+    if (core->coreId == "mame2010" || core->coreId == "mame2015") {
         bit = mame2010ButtonBitFor(id);
     } else {
         bit = buttonBitFor(id, core->coreId != "gba");
@@ -905,7 +909,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     retro_game_info game{};
     game.path = core->romPath.c_str();
     if (!core->retroLoadGame(&game)) {
-        core->keepLibraryLoaded = core->coreId == "mame2010";
+        core->keepLibraryLoaded = core->coreId == "mame2010" || core->coreId == "mame2015";
         destroyCore(core);
         throwIllegalState(env, "ROM load failure: selected file could not be loaded by the core");
         return 0;

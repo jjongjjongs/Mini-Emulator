@@ -58,8 +58,8 @@ public final class MainActivity extends Activity {
     private static final String PREF_REMEMBER_MODE = "remember_mode";
     private static final String PREF_ARCADE_CORE = "arcade_default_core";
     private static final String PREF_NEOGEO_CORE = "neogeo_default_core";
-    private static final String[] ARCADE_CORE_IDS = {"mame2003plus", "fbneo", "mame2010"};
-    private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드, 가벼움)", "FinalBurn Neo (Neo Geo · CPS 등)", "MAME 2010 (0.139, ZN·3D 기판 등 더 많은 게임)"};
+    private static final String[] ARCADE_CORE_IDS = {"mame2003plus", "fbneo", "mame2010", "mame2015"};
+    private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드, 가벼움)", "FinalBurn Neo (Neo Geo · CPS 등)", "MAME 2010 (0.139, ZN·3D 기판 등 더 많은 게임)", "MAME 2015 (ST-V 등 더 최신 지원, 무거움)"};
     private static final String MODE_GBA = "gba";
     private static final String STATE_MODE = "current_mode";
     private static final int REQUEST_OPEN_BIOS_FOLDER = 1012;
@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
     // Game modes shown on the picker. Only GBA ships an engine so far.
     private static final String[] MODE_IDS = {MODE_GBA, "neogeo", "arcade"};
     private static final String[] MODE_NAMES = {"GBA", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
     private static final String[] MODE_FILES = {".gba · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     private static final String[] MODE_ICONS = {"GBA", "NEO", "MAME"};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
@@ -662,6 +662,9 @@ public final class MainActivity extends Activity {
     private String shortCoreName(String core) {
         if ("fbneo".equals(core)) {
             return "FBNeo";
+        }
+        if ("mame2015".equals(core)) {
+            return "MAME 2015";
         }
         return "mame2010".equals(core) ? "MAME 2010" : "MAME 2003+";
     }
@@ -3007,6 +3010,9 @@ public final class MainActivity extends Activity {
         }
         if ("mame2010".equals(str)) {
             return "MAME 2010";
+        }
+        if ("mame2015".equals(str)) {
+            return "MAME 2015";
         }
         if ("mamearcade".equals(str)) {
             return "MAME Arcade";

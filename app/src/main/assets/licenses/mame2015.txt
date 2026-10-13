@@ -1,0 +1,14 @@
+Bundled native core:
+libmame2015_libretro_android.so
+
+Built from the libretro MAME 2015 source
+(commit 7adbf440d5f554097f58f8c6ebb673adc4320a31)
+for Android arm64-v8a with 16 KB ELF alignment.
+
+MAME 2015 source:
+https://github.com/libretro/mame2015-libretro
+
+MAME of this era is distributed under the MAME license (non-commercial):
+https://github.com/libretro/mame2015-libretro/blob/master/docs/license.txt
+
+No ROM or BIOS files are bundled with this application.
