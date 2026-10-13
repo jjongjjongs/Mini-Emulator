@@ -202,13 +202,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addLandscapeArcadeButton(frameLayout, "B", 2, 64, 52, 50, TouchButton.STYLE_ARCADE_YELLOW);
             addLandscapeArcadeButton(frameLayout, "A", 1, 116, 0, 50, TouchButton.STYLE_ARCADE_RED);
         } else {
-            // 3x2 grid: A B C on top, D E F below.
-            addLandscapeArcadeButton(frameLayout, "A", 1, 120, -27, 46, TouchButton.STYLE_ARCADE_BLUE);
-            addLandscapeArcadeButton(frameLayout, "B", 2, 66, -27, 46, TouchButton.STYLE_ARCADE_BLUE);
-            addLandscapeArcadeButton(frameLayout, "C", 1024, 12, -27, 46, TouchButton.STYLE_ARCADE_BLUE);
-            addLandscapeArcadeButton(frameLayout, "D", 2048, 120, 27, 46, TouchButton.STYLE_ARCADE_RED);
-            addLandscapeArcadeButton(frameLayout, "E", 4096, 66, 27, 46, TouchButton.STYLE_ARCADE_RED);
-            addLandscapeArcadeButton(frameLayout, "F", 8192, 12, 27, 46, TouchButton.STYLE_ARCADE_RED);
+            // 3x2 grid: D E F on top, A B C below.
+            addLandscapeArcadeButton(frameLayout, "A", 1, 120, 27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "B", 2, 66, 27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "C", 1024, 12, 27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "D", 2048, 120, -27, 46, TouchButton.STYLE_ARCADE_RED);
+            addLandscapeArcadeButton(frameLayout, "E", 4096, 66, -27, 46, TouchButton.STYLE_ARCADE_RED);
+            addLandscapeArcadeButton(frameLayout, "F", 8192, 12, -27, 46, TouchButton.STYLE_ARCADE_RED);
         }
         addButton(frameLayout, isGba ? "SELECT" : "COIN", 4, 8388691, dp(42), dp(18), dp(94), dp(34));
         addButton(frameLayout, "START", 8, 8388693, dp(42), dp(18), dp(94), dp(34));
@@ -554,13 +554,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addButton(frameLayout, "B", 2, 8388693, dp(70), dp(142), dp(52), dp(52), TouchButton.STYLE_ARCADE_YELLOW);
             addButton(frameLayout, "A", 1, 8388693, dp(124), dp(196), dp(52), dp(52), TouchButton.STYLE_ARCADE_RED);
         } else {
-            // 3x2 grid with 10dp gaps: A B C on top, D E F below.
-            addButton(frameLayout, "A", 1, 8388693, dp(136), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
-            addButton(frameLayout, "B", 2, 8388693, dp(76), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
-            addButton(frameLayout, "C", 1024, 8388693, dp(16), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
-            addButton(frameLayout, "D", 2048, 8388693, dp(136), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
-            addButton(frameLayout, "E", 4096, 8388693, dp(76), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
-            addButton(frameLayout, "F", 8192, 8388693, dp(16), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+            // 3x2 grid with 10dp gaps: D E F on top, A B C below.
+            addButton(frameLayout, "A", 1, 8388693, dp(136), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "B", 2, 8388693, dp(76), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "C", 1024, 8388693, dp(16), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "D", 2048, 8388693, dp(136), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "E", 4096, 8388693, dp(76), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "F", 8192, 8388693, dp(16), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
         }
         addCenterButton(frameLayout, isGba ? "SELECT" : "COIN", 4, -66);
         addCenterButton(frameLayout, "START", 8, 66);
@@ -786,7 +786,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "fbneo":
             case "mame2003plus":
             case "mame2010":
-            case "mame2015":
             case "mame139":
             case "mamearcade":
                 return lowerCasePath.endsWith(".zip");
