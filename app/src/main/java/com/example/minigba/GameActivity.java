@@ -782,20 +782,25 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(i), dp(i));
         layoutParams.gravity = 8388691;
         // The PSP's D-pad sits higher to leave room for the analog stick below it.
-        layoutParams.setMargins(dp(compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isSonyPad() ? 214 : isGba ? 154 : 144));
+        // The PS1/PS2 pads keep both sticks along the bottom, so their D-pad sits lower still.
+        layoutParams.setMargins(dp(compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isDualShock() ? 128 : isSonyPad() ? 214 : isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
-        if (isSonyPad()) {
+        if (isPsp()) {
             FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
             stickParams.gravity = 8388691;
             stickParams.setMargins(dp(40), 0, 0, dp(112));
             frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
         }
         if (isDualShock()) {
-            // Right stick mirrors the left one, under △○×□.
-            FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
-            stickParams.gravity = 8388693;
-            stickParams.setMargins(0, 0, dp(40), dp(112));
-            frameLayout.addView(new AnalogStickView(this, this::onAnalogRightChanged), stickParams);
+            // Both sticks in the bottom corners, SELECT/START between them as on a DualShock.
+            FrameLayout.LayoutParams leftStick = new FrameLayout.LayoutParams(dp(84), dp(84));
+            leftStick.gravity = 8388691;
+            leftStick.setMargins(dp(26), 0, 0, dp(22));
+            frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), leftStick);
+            FrameLayout.LayoutParams rightStick = new FrameLayout.LayoutParams(dp(84), dp(84));
+            rightStick.gravity = 8388693;
+            rightStick.setMargins(0, 0, dp(26), dp(22));
+            frameLayout.addView(new AnalogStickView(this, this::onAnalogRightChanged), rightStick);
             // L2 L1 on the left and R1 R2 on the right, either side of the speed button.
             int shoulderStyle = isPs1() ? TouchButton.STYLE_LIGHT : 2;
             addButton(frameLayout, "L2", kL2, 8388659, dp(14), dp(34), dp(54), dp(42), shoulderStyle);
@@ -844,6 +849,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addButton(frameLayout, "D", 2048, 8388693, dp(136), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
             addButton(frameLayout, "E", 4096, 8388693, dp(76), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
             addButton(frameLayout, "F", 8192, 8388693, dp(16), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+        }
+        if (isDualShock()) {
+            for (int k = 0; k < 2; k++) {
+                TouchButton key = new TouchButton(this, k == 0 ? "SELECT" : "START", k == 0 ? 4 : 8, this::setButtonPressed);
+                FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(60), dp(30));
+                keyParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                keyParams.setMargins(0, 0, 0, dp(49));
+                key.setTranslationX(dp(k == 0 ? -34 : 34));
+                frameLayout.addView(key, keyParams);
+            }
+            return;
         }
         addCenterButton(frameLayout, selectLabel(), 4, -66);
         addCenterButton(frameLayout, startLabel(), 8, 66);
@@ -1354,12 +1370,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void addPspFace(FrameLayout frameLayout) {
         // Diamond: △ top, ○ right, × bottom, □ left.
         int[][] margins = {{72, 314}, {20, 262}, {72, 210}, {124, 262}};
+        // PS1/PS2: centred on the lower D-pad (its centre is 196dp up rather than 284dp).
+        int lift = isDualShock() ? -88 : 0;
         for (int k = 0; k < 4; k++) {
             TouchButton button = new TouchButton(this, PSP_LABELS[k], PSP_BITS[k], this::setButtonPressed, faceStyle());
             button.setLabelColor(PSP_COLORS[k]);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(54), dp(54));
             params.gravity = 8388693;
-            params.setMargins(0, 0, dp(margins[k][0]), dp(margins[k][1]));
+            params.setMargins(0, 0, dp(margins[k][0]), dp(margins[k][1] + lift));
             frameLayout.addView(button, params);
         }
     }
