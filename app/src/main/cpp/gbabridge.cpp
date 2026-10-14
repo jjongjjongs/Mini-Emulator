@@ -239,6 +239,9 @@ struct Core {
     unsigned pixelFormat = RETRO_PIXEL_FORMAT_RGB565;
     double fps = kDefaultFps;
     int sampleRate = kDefaultSampleRate;
+    // Samples the core produced this frame; handed to Java once per frame. Guarded by
+    // coreMutex like every call into the core.
+    std::vector<int16_t> audioPending;
     bool initialized = false;
     bool gameLoaded = false;
     // Frames run so far; guarded by coreMutex.
@@ -1164,15 +1167,29 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
 }
 
 void RETRO_CALLCONV audioSampleCallback(int16_t left, int16_t right) {
-    int16_t frame[2] = {left, right};
-    writeAudio(frame, 2);
+    Core* core = gCore;
+    if (core != nullptr) {
+        core->audioPending.push_back(left);
+        core->audioPending.push_back(right);
+    }
 }
 
 size_t RETRO_CALLCONV audioSampleBatchCallback(const int16_t* data, size_t frames) {
-    if (data != nullptr && frames != 0) {
-        writeAudio(data, static_cast<jsize>(frames * 2));
+    Core* core = gCore;
+    if (core != nullptr && data != nullptr && frames != 0) {
+        core->audioPending.insert(core->audioPending.end(), data, data + frames * 2);
     }
     return frames;
+}
+
+// One JNI call per frame instead of one per callback (some cores send a few samples
+// at a time, which cost a JNI round trip each).
+void flushAudio(Core* core) {
+    if (core->audioPending.empty()) {
+        return;
+    }
+    writeAudio(core->audioPending.data(), static_cast<jsize>(core->audioPending.size()));
+    core->audioPending.clear();
 }
 
 void RETRO_CALLCONV inputPollCallback() {}
@@ -1423,6 +1440,15 @@ void tearDownHw(Core* core) {
 }
 
 void runLoop(Core* core) {
+    // Stay attached to Java for the whole session: audio goes to Java every frame and
+    // attaching for each call is expensive.
+    JNIEnv* threadEnv = nullptr;
+#ifdef __ANDROID__
+    bool attached = core->vm != nullptr && core->vm->AttachCurrentThread(&threadEnv, nullptr) == JNI_OK;
+#else
+    bool attached = core->vm != nullptr && core->vm->AttachCurrentThread(reinterpret_cast<void**>(&threadEnv), nullptr) == JNI_OK;
+#endif
+    core->audioPending.reserve(8192);
     if (core->hwRender && !setUpHwContext(core)) {
         // Nothing can be drawn; keep answering Java until the game is closed.
         core->hwRender = false;
@@ -1449,6 +1475,7 @@ void runLoop(Core* core) {
             }
             core->retroRun();
             core->framesRun++;
+            flushAudio(core);
             if (core->resumePending) {
                 core->resumePending = false;
                 resumeState(core);
@@ -1463,6 +1490,9 @@ void runLoop(Core* core) {
         }
     }
     tearDownHw(core);
+    if (attached) {
+        core->vm->DetachCurrentThread();
+    }
     // Wake a Java call still waiting for a job that will not run now.
     {
         std::lock_guard<std::mutex> lock(core->jobMutex);
