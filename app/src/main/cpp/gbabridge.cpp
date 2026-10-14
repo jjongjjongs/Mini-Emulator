@@ -248,6 +248,8 @@ struct Core {
     uint64_t framesRun = 0;
     // The quick save to resume from once the first frame has run.
     bool resumePending = false;
+    // The next frame a pending quick save is tried again (PCEE2 refuses one while booting).
+    uint64_t resumeRetryAt = 0;
     // While a restored quick save is still on trial, the frame its marker comes off at.
     uint64_t resumeTrialEnd = 0;
 
@@ -438,11 +440,10 @@ size_t stateHeaderSize(const Core* core) {
 }
 
 // Whether the quick save is written when a game closes and restored when it starts. Not for
-// the PS2 engines: Play!'s states are slow (40 MB) and not reliable enough to restore on
-// every launch, and PCEE2's are untried here yet. PS2 games keep their progress on the
-// memory card, and the menu's quick save still works.
+// Play!: its states are slow (40 MB) and not reliable enough to restore on every launch;
+// PS2 games keep their progress on the memory card, and the menu's quick save still works.
 bool autoState(const Core* core) {
-    return core->coreId != "play" && core->coreId != "pcee2";
+    return core->coreId != "play";
 }
 
 bool saveState(Core* core) {
@@ -465,6 +466,15 @@ bool saveState(Core* core) {
         return false;
     }
     size += header;
+    if (core->coreId == "pcee2" && size >= 16) {
+        // PCEE2 pads its state to a fixed 96 MB; the real length follows its 8-byte
+        // magic/reserved words, and it takes the state back without the padding.
+        uint64_t zipSize = 0;
+        memcpy(&zipSize, buffer.data() + 8, sizeof(zipSize));
+        if (zipSize + 16 <= size) {
+            size = static_cast<size_t>(zipSize + 16);
+        }
+    }
     FILE* file = fopen(core->statePath.c_str(), "wb");
     if (file == nullptr) {
         LOGE("Could not write state: %s", core->statePath.c_str());
@@ -529,17 +539,18 @@ void endResumeTrial(Core* core) {
 // Restores the quick save when a game starts. A marker file is kept while the core
 // reads the state and for the first frames after; if it is still there next time, that
 // state crashed the core, so it is moved aside instead of crashing every launch.
-void resumeState(Core* core) {
+// Returns false only when a quick save is there but the core would not take it.
+bool resumeState(Core* core) {
     std::string marker = resumeMarker(core);
     struct stat st {};
     if (stat(marker.c_str(), &st) == 0) {
         LOGE("Quick save crashed the core last time; moving it aside: %s", core->statePath.c_str());
         rename(core->statePath.c_str(), (core->statePath + ".failed").c_str());
         unlink(marker.c_str());
-        return;
+        return true;
     }
     if (stat(core->statePath.c_str(), &st) != 0) {
-        return;
+        return true;
     }
     FILE* file = fopen(marker.c_str(), "wb");
     if (file != nullptr) {
@@ -547,9 +558,16 @@ void resumeState(Core* core) {
     }
     if (loadState(core)) {
         core->resumeTrialEnd = core->framesRun + kResumeTrialFrames;
-    } else {
-        unlink(marker.c_str());
+        return true;
     }
+    unlink(marker.c_str());
+    return false;
+}
+
+// PCEE2 takes a state only once its virtual machine runs, which can be many frames
+// after the first while the PS2 boots; keep trying for about 15 seconds.
+bool retryResume(const Core* core) {
+    return core->coreId == "pcee2" && core->framesRun < 900;
 }
 
 bool saveSram(Core* core) {
@@ -993,6 +1011,11 @@ const char* fixedVariable(const char* key) {
     // "Fit Screen" letterboxes games whose picture is smaller than the output (GTA San
     // Andreas showed in a box); fill the 4:3 output instead.
     if (strcmp(key, "play_presentation_mode") == 0) return "Fill Screen";
+    // PCSX2 skips presenting frames the GS did not redraw (a 30 fps game such as GTA San
+    // Andreas) and runs that time as extra emulated frames inside one retro_run, counting on
+    // the frontend blocking on audio to hold the speed. Audio here does not block, so the
+    // game ran up to twice as fast; present every frame and let the bridge pace them.
+    if (strcmp(key, "pcsx2_skip_duplicate_frames") == 0) return "disabled";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -1539,8 +1562,13 @@ void runLoop(Core* core) {
             core->framesRun++;
             flushAudio(core);
             if (core->resumePending) {
-                core->resumePending = false;
-                resumeState(core);
+                if (core->framesRun >= core->resumeRetryAt) {
+                    if (resumeState(core) || !retryResume(core)) {
+                        core->resumePending = false;
+                    } else {
+                        core->resumeRetryAt = core->framesRun + 30;
+                    }
+                }
             } else if (core->resumeTrialEnd != 0 && core->framesRun >= core->resumeTrialEnd) {
                 endResumeTrial(core);
             }
