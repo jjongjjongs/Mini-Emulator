@@ -1460,7 +1460,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean isPs2() {
-        return "play".equals(this.coreId);
+        return "play".equals(this.coreId) || "pcee2".equals(this.coreId);
     }
 
     // PSP, PS1 and PS2 share △○×□, a D-pad and analog sticks.
@@ -1694,6 +1694,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "ppsspp":
             case "pcsx_rearmed":
             case "play":
+            case "pcee2":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

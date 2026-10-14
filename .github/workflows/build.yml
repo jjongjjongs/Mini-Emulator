@@ -200,6 +200,25 @@ jobs:
           path: app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so
           key: play-${{ hashFiles('cores/build-play.sh', 'cores/patches/play-*.patch') }}
 
+      # PCEE2 (PCSX2) is built by the "Build PCEE2 core" workflow; without its cache the
+      # APK ships without it and PS2 games run on Play!.
+      - name: Restore PCEE2 core
+        id: pcee2-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so
+            app/src/main/assets/pcsx2_resources.zip
+          key: pcee2-${{ hashFiles('cores/build-pcee2.sh', 'cores/patches/pcee2-*.patch') }}
+
+      - name: Report PCEE2 core
+        run: |
+          if [ -f app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so app/src/main/assets/pcsx2_resources.zip
+          else
+            echo "::warning::PCEE2 core not in the cache; this APK runs PS2 games on Play! only"
+          fi
+
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug
 

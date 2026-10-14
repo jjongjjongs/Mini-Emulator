@@ -115,6 +115,9 @@ public final class MainActivity extends Activity {
 
     // ROM file names an engine of a cartridge console accepts (used by GameActivity too).
     static boolean isConsoleRomNameForCore(String core, String lowerCaseName) {
+        if (CORE_PCSX2.equals(core)) {
+            core = "play";
+        }
         for (String[] console : CONSOLES) {
             if (console[1].equals(core)) {
                 return hasExtension(lowerCaseName, console[2]);
@@ -2867,6 +2870,9 @@ public final class MainActivity extends Activity {
         } else if (MODE_PSP.equals(mode) && !preparePspSystemFiles()) {
             showError("PSP 시스템 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
+        } else if (CORE_PCSX2.equals(coreFor(file)) && !unpackSystemAsset("pcsx2_resources.zip", new File(new File(systemDir(), "pcsx2"), "resources"))) {
+            showError("PCSX2 게임 데이터베이스를 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
+            return;
         }
         migrateSaveFileIfNeeded(file);
         markRecentlyPlayed(file);
@@ -2882,7 +2888,11 @@ public final class MainActivity extends Activity {
     // PPSSPP reads its fonts, VFPU tables and compat.ini from <system>/PPSSPP; they ship in
     // assets/ppsspp_system.zip and are unpacked again whenever the app version changes.
     private boolean preparePspSystemFiles() {
-        File dir = new File(systemDir(), "PPSSPP");
+        return unpackSystemAsset("ppsspp_system.zip", new File(systemDir(), "PPSSPP"));
+    }
+
+    // Unpacks a zip from the assets into a system folder, again whenever the app version changes.
+    private boolean unpackSystemAsset(String asset, File dir) {
         File marker = new File(dir, ".mini_emulator_version");
         String version;
         try {
@@ -2893,7 +2903,7 @@ public final class MainActivity extends Activity {
         if (marker.isFile() && version.equals(readSmallText(marker))) {
             return true;
         }
-        try (ZipInputStream zip = new ZipInputStream(getAssets().open("ppsspp_system.zip"))) {
+        try (ZipInputStream zip = new ZipInputStream(getAssets().open(asset))) {
             String root = dir.getCanonicalPath() + File.separator;
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -4799,9 +4809,30 @@ public final class MainActivity extends Activity {
         }
         String[] console = consoleFor(mode);
         if (console != null) {
+            if ("play".equals(console[1]) && pcsx2Ready()) {
+                return CORE_PCSX2;
+            }
             return console[1];
         }
         return MODE_GBA;
+    }
+
+    // PS2 games run on PCSX2 (the PCEE2 core) when it ships in this build and a PS2 BIOS
+    // has been imported; otherwise on Play!, which needs no BIOS.
+    static final String CORE_PCSX2 = "pcee2";
+
+    private boolean pcsx2Ready() {
+        return new File(getApplicationInfo().nativeLibraryDir, "libpcee2_libretro_android.so").isFile() && ps2BiosFile() != null;
+    }
+
+    private File ps2BiosDir() {
+        return new File(new File(systemDir(), "pcsx2"), "bios");
+    }
+
+    // The imported PS2 BIOS (4 MB and up), where PCSX2 looks for it.
+    private File ps2BiosFile() {
+        File[] files = ps2BiosDir().listFiles(file -> file.isFile() && file.length() >= 4194304L);
+        return files == null || files.length == 0 ? null : files[0];
     }
 
     private String defaultCoreFor(String mode) {
@@ -4856,6 +4887,9 @@ public final class MainActivity extends Activity {
         }
         if ("play".equals(str)) {
             return "Play!";
+        }
+        if (CORE_PCSX2.equals(str)) {
+            return "PCSX2";
         }
         return "Game Boy Advance";
     }

@@ -381,6 +381,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "ppsspp") return "libppsspp_libretro_android.so";
     if (coreId == "pcsx_rearmed") return "libpcsx_rearmed_libretro_android.so";
     if (coreId == "play") return "libplay_libretro_android.so";
+    if (coreId == "pcee2") return "libpcee2_libretro_android.so";
     return nullptr;
 }
 
@@ -423,7 +424,8 @@ bool loadCoreSymbols(Core* core) {
 // restored before that dereferences a machine that does not exist yet; PPSSPP and
 // Play! restore through their GL context, which is made on the emulation thread.
 bool needsFrameBeforeState(const Core* core) {
-    return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play";
+    return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play" ||
+           core->coreId == "pcee2";
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
@@ -436,10 +438,11 @@ size_t stateHeaderSize(const Core* core) {
 }
 
 // Whether the quick save is written when a game closes and restored when it starts. Not for
-// Play!: its states are slow (40 MB) and not reliable enough to restore on every launch;
-// PS2 games keep their progress on the memory card, and the menu's quick save still works.
+// the PS2 engines: Play!'s states are slow (40 MB) and not reliable enough to restore on
+// every launch, and PCEE2's are untried here yet. PS2 games keep their progress on the
+// memory card, and the menu's quick save still works.
 bool autoState(const Core* core) {
-    return core->coreId != "play";
+    return core->coreId != "play" && core->coreId != "pcee2";
 }
 
 bool saveState(Core* core) {
@@ -1317,7 +1320,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
                        core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
-                       core->coreId == "pcsx_rearmed" || core->coreId == "play";
+                       core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -1529,7 +1532,7 @@ void runLoop(Core* core) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
-            if (core->coreId == "play") {
+            if (core->coreId == "play" || core->coreId == "pcee2") {
                 crash::wrapForeignSegvHandler();
             }
             core->retroRun();
