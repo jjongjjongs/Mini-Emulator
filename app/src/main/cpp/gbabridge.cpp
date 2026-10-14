@@ -1195,8 +1195,10 @@ void runPendingJob(Core* core) {
     core->jobCv.notify_all();
 }
 
-// On the way out a hardware-rendered core saves, unloads and lets go of its GL
-// objects while the context is still current.
+// On the way out a hardware-rendered core saves, lets go of its GL objects and
+// unloads while the context is still current. context_destroy comes before
+// unload, as in RetroArch: PPSSPP frees the object context_destroy uses when it
+// unloads the game.
 void tearDownHw(Core* core) {
     if (!core->hwReady) {
         return;
@@ -1206,12 +1208,12 @@ void tearDownHw(Core* core) {
         if (core->gameLoaded) {
             saveState(core);
             saveSram(core);
+            if (core->hw.context_destroy != nullptr) {
+                core->hw.context_destroy();
+            }
             core->retroUnloadGame();
             core->gameLoaded = false;
         }
-    }
-    if (core->hw.context_destroy != nullptr) {
-        core->hw.context_destroy();
     }
     if (core->fbo != 0) gGl.DeleteFramebuffers(1, &core->fbo);
     if (core->fboTexture != 0) gGl.DeleteTextures(1, &core->fboTexture);
