@@ -20,12 +20,14 @@ final class ClearShellView extends View {
     static final int TINT_WHITE = 0;
     static final int TINT_PURPLE = 1;
     static final int TINT_ORANGE = 2;
+    static final int TINT_GRAY = 3;
 
     private static final int[][] TINTS = {
             // case colour, rim highlight, plate colour
             {Color.rgb(235, 238, 241), Color.argb(150, 255, 255, 255), Color.rgb(238, 240, 241)},
             {Color.rgb(226, 218, 244), Color.argb(150, 245, 240, 255), Color.rgb(239, 234, 249)},
             {Color.rgb(244, 229, 218), Color.argb(150, 255, 246, 238), Color.rgb(246, 238, 231)},
+            {Color.rgb(229, 229, 236), Color.argb(150, 255, 255, 255), Color.rgb(239, 239, 244)},
     };
     private static final int TRACE_RED = Color.argb(150, 208, 80, 79);
     private static final int TRACE_SILVER = Color.argb(150, 154, 164, 171);

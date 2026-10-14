@@ -20,6 +20,7 @@ final class TouchButton extends View {
     static final int STYLE_SHOULDER = 2;
     static final int STYLE_ARCADE_YELLOW = 6;
     static final int STYLE_ARCADE_GREEN = 7;
+    static final int STYLE_SNES_BLUE = 8;
     private final int button;
     private final Paint fill;
     private final Paint highlight;
@@ -91,6 +92,8 @@ final class TouchButton extends View {
                 return new int[]{Color.rgb(248, 179, 26), Color.rgb(201, 133, 10), Color.rgb(135, 87, 3)};
             case STYLE_ARCADE_GREEN:
                 return new int[]{Color.rgb(34, 179, 90), Color.rgb(19, 128, 60), Color.rgb(10, 83, 38)};
+            case STYLE_SNES_BLUE:
+                return new int[]{Color.rgb(47, 111, 224), Color.rgb(27, 79, 174), Color.rgb(15, 47, 110)};
             default:
                 // GBA A/B and anything else round: smoky black.
                 return new int[]{Color.rgb(58, 58, 63), Color.rgb(20, 20, 22), Color.rgb(0, 0, 0)};

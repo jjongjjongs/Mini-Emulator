@@ -83,7 +83,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -201,6 +201,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (this.coreId.equals("gba")) {
             tint = ClearShellView.TINT_WHITE;
             name = isGameBoy() ? "GBC" : "GBA";
+        } else if (isSnes()) {
+            tint = ClearShellView.TINT_GRAY;
+            name = "SUPER FAMICOM";
         } else if (isNeoGeoMode()) {
             tint = ClearShellView.TINT_PURPLE;
             name = "NEO GEO";
@@ -218,7 +221,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         int inset = i == 1 ? dp(10) : i == 2 ? dp(20) : 0;
-        boolean isGba = this.coreId.equals("gba");
+        // Pad layouts (GBA, Super Famicom) keep the speed button below the screen.
+        boolean isGba = isPadLayout();
         int maxWidth = Math.max(dp(240), width - ((dp(isGba ? 174 : 188) + inset) * 2));
         // GBA keeps the speed button below the screen, so its screen sits at the top.
         // The bezel takes dp(10) above the screen and dp(26) below it.
@@ -242,7 +246,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void addLandscapeControls(FrameLayout frameLayout) {
         View createDirectionControl = createDirectionControl();
-        boolean isGba = this.coreId.equals("gba");
+        boolean isGba = isPadLayout();
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(150), dp(150));
         layoutParams.gravity = 8388627;
         layoutParams.setMargins(dp(12), 0, 0, 0);
@@ -254,8 +258,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
                 addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
             }
-            addLandscapeActionButton(frameLayout, "A", 1, dp(26), -dp(42), 3);
-            addLandscapeActionButton(frameLayout, "B", 2, dp(92), dp(42), 3);
+            if (isSnes()) {
+                // X on top, A right, B bottom, Y left, in the Super Famicom colours.
+                addLandscapeArcadeButton(frameLayout, "X", 1024, 66, -48, 50, TouchButton.STYLE_SNES_BLUE);
+                addLandscapeArcadeButton(frameLayout, "A", 1, 18, 0, 50, TouchButton.STYLE_ARCADE_RED);
+                addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, TouchButton.STYLE_ARCADE_YELLOW);
+                addLandscapeArcadeButton(frameLayout, "Y", 2048, 114, 0, 50, TouchButton.STYLE_ARCADE_GREEN);
+            } else {
+                addLandscapeActionButton(frameLayout, "A", 1, dp(26), -dp(42), 3);
+                addLandscapeActionButton(frameLayout, "B", 2, dp(92), dp(42), 3);
+            }
         } else if (isNeoGeoMode()) {
             // Diamond with equal spacing; the right edge matches the joystick's left margin.
             addLandscapeArcadeButton(frameLayout, "C", 1024, 64, -52, 50, TouchButton.STYLE_ARCADE_GREEN);
@@ -276,7 +288,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private View createDirectionControl() {
-        if (!this.coreId.equals("gba")) {
+        if (!isPadLayout()) {
             return new ArcadeJoystickView(this, this::onDirectionChanged);
         }
         return new DPadView(this, this::onDirectionChanged);
@@ -633,7 +645,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         speedButtonView.setMultiplier(this.speedMultiplier);
         speedButtonView.setContentDescription("배속");
         FrameLayout.LayoutParams speedParams = new FrameLayout.LayoutParams(dp(80), dp(36));
-        if (this.coreId.equals("gba")) {
+        if (isPadLayout()) {
             speedParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
             speedParams.setMargins(0, 0, 0, dp(6));
         } else {
@@ -710,18 +722,25 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void addControls(FrameLayout frameLayout) {
         View createDirectionControl = createDirectionControl();
-        boolean isGba = this.coreId.equals("gba");
-        int i = isGba ? 166 : 156;
+        boolean isGba = isPadLayout();
+        // The Super Famicom's four face buttons need more room, so its D-pad is a little smaller.
+        int i = isSnes() ? 150 : isGba ? 166 : 156;
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(i), dp(i));
         layoutParams.gravity = 8388691;
-        layoutParams.setMargins(dp(isGba ? 24 : 16), 0, 0, dp(isGba ? 154 : 144));
+        layoutParams.setMargins(dp(isSnes() ? 16 : isGba ? 24 : 16), 0, 0, dp(isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
         if (isGba && !isGameBoy()) {
             addButton(frameLayout, "L", 512, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
             addButton(frameLayout, "R", 256, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
         }
         addFastForwardButton(frameLayout);
-        if (isGba) {
+        if (isSnes()) {
+            // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left.
+            addButton(frameLayout, "X", 1024, 8388693, dp(72), dp(254), dp(54), dp(54), TouchButton.STYLE_SNES_BLUE);
+            addButton(frameLayout, "A", 1, 8388693, dp(20), dp(202), dp(54), dp(54), TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "B", 2, 8388693, dp(72), dp(150), dp(54), dp(54), TouchButton.STYLE_ARCADE_YELLOW);
+            addButton(frameLayout, "Y", 2048, 8388693, dp(124), dp(202), dp(54), dp(54), TouchButton.STYLE_ARCADE_GREEN);
+        } else if (isGba) {
             addButton(frameLayout, "A", 1, 8388693, dp(44), dp(243), dp(72), dp(72), 3);
             addButton(frameLayout, "B", 2, 8388693, dp(78), dp(159), dp(72), dp(72), 3);
         } else if (isNeoGeoMode()) {
@@ -1071,7 +1090,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void showFatalError(String str) {
-        new AlertDialog.Builder(this).setTitle(this.coreId.equals("gba") ? "Mini Emulator" : "Mini Arcade").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
+        new AlertDialog.Builder(this).setTitle(isPadLayout() ? "Mini Emulator" : "Mini Arcade").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
     }
 
     private int dp(int i) {
@@ -1081,6 +1100,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Game Boy and Game Boy Color games run on the GBA engine but have no L/R and a 10:9 screen.
     private boolean isGameBoy() {
         return this.coreId.equals("gba") && this.romPath != null && MainActivity.isGameBoyRomName(this.romPath.toLowerCase(Locale.US));
+    }
+
+    private boolean isSnes() {
+        return "snes9x".equals(this.coreId);
+    }
+
+    // Consoles with a D-pad, shoulder buttons and SELECT/START, laid out like the GBA.
+    private boolean isPadLayout() {
+        return this.coreId.equals("gba") || isSnes();
     }
 
     private float screenAspect() {
@@ -1094,6 +1122,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         switch (this.coreId) {
             case "gba":
                 return MainActivity.isHandheldRomName(lowerCasePath);
+            case "snes9x":
+                return MainActivity.isSnesRomName(lowerCasePath);
             case "fbneo":
             case "mame2003plus":
             case "mame2010":

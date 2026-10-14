@@ -216,6 +216,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "mame2003plus") return "libmame2003_plus_libretro_android.so";
     if (coreId == "mame2010") return "libmame2010_libretro_android.so";
     if (coreId == "mame2015") return "libmame2015_libretro_android.so";
+    if (coreId == "snes9x") return "libsnes9x_libretro_android.so";
     return nullptr;
 }
 
@@ -797,7 +798,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     if (core->coreId == "mame2010" || core->coreId == "mame2015") {
         bit = mame2010ButtonBitFor(id);
     } else {
-        bit = buttonBitFor(id, core->coreId != "gba");
+        // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
+        bit = buttonBitFor(id, core->coreId != "gba" && core->coreId != "snes9x");
     }
     return (mask & bit) != 0 ? 1 : 0;
 }

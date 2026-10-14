@@ -32,6 +32,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -61,6 +62,8 @@ public final class MainActivity extends Activity {
     private static final String[] ARCADE_CORE_IDS = {"mame2003plus", "fbneo", "mame2010", "mame2015"};
     private static final String[] ARCADE_CORE_LABELS = {"MAME 2003-Plus (구형 아케이드, 가벼움)", "FinalBurn Neo (Neo Geo · CPS 등)", "MAME 2010 (0.139, ZN·3D 기판 등 더 많은 게임)", "MAME 2015 (ST-V 등 더 최신 지원, 무거움)"};
     private static final String MODE_GBA = "gba";
+    private static final String MODE_SNES = "snes";
+    private static final int REQUEST_OPEN_SNES_ROM = 1008;
     private static final String STATE_MODE = "current_mode";
     private static final int REQUEST_OPEN_BIOS_FOLDER = 1012;
 ;
@@ -68,12 +71,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_SNES, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "슈퍼패미컴", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "Snes9x", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".sfc · .smc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "SFC", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(84, 92, 168), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -377,6 +380,8 @@ public final class MainActivity extends Activity {
             LinearLayout mameBiosTile = createActionCard("MAME BIOS", mameBiosStatus(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(BIOS_SOURCE_MAME));
             this.mameBiosStatusView = (TextView) mameBiosTile.getTag();
             actionRow.addView(mameBiosTile, actionTileParams());
+        } else if (MODE_SNES.equals(this.currentMode)) {
+            actionRow.addView(createActionCard("ROM 추가", ".sfc / .smc / .zip", "SFC", MODE_COLORS[index], view -> openSnesRomPicker()), actionTileParams());
         } else {
             actionRow.addView(createActionCard("GBA · GBC ROM", ".gba / .gbc / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
             LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_GBA));
@@ -517,6 +522,9 @@ public final class MainActivity extends Activity {
         }
         if ("arcade".equals(this.currentMode)) {
             return "아직 가져온 아케이드 게임이 없습니다.";
+        }
+        if (MODE_SNES.equals(this.currentMode)) {
+            return "아직 가져온 슈퍼패미컴 게임이 없습니다.";
         }
         return "아직 가져온 ROM이 없습니다.";
     }
@@ -729,6 +737,15 @@ public final class MainActivity extends Activity {
         startActivityForResult(intent, 1001);
     }
 
+    private void openSnesRomPicker() {
+        Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+        intent.addCategory("android.intent.category.OPENABLE");
+        intent.setType("*/*");
+        intent.putExtra("android.intent.extra.MIME_TYPES", new String[]{"application/octet-stream", "application/vnd.nintendo.snes.rom", "application/x-snes-rom", "application/zip"});
+        intent.putExtra("android.intent.extra.ALLOW_MULTIPLE", true);
+        startActivityForResult(intent, REQUEST_OPEN_SNES_ROM);
+    }
+
     private void openArcadeRomPicker() {
         Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
         intent.addCategory("android.intent.category.OPENABLE");
@@ -878,7 +895,11 @@ public final class MainActivity extends Activity {
             return;
         }
         if (i == 1001) {
-            importRoms(intent);
+            importRoms(intent, MODE_GBA);
+            return;
+        }
+        if (i == REQUEST_OPEN_SNES_ROM) {
+            importRoms(intent, MODE_SNES);
             return;
         }
         if (i == 1005) {
@@ -911,7 +932,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void importRoms(Intent intent) {
+    private void importRoms(Intent intent, String mode) {
         List<File> singletonOrEmpty;
         ArrayList<Uri> arrayList = new ArrayList();
         ClipData clipData = intent.getClipData();
@@ -935,14 +956,14 @@ public final class MainActivity extends Activity {
         for (Uri uri2 : arrayList) {
             String displayNameFor = displayNameFor(uri2);
             String lowerCase = displayNameFor.toLowerCase(Locale.US);
-            if (!isHandheldRomName(lowerCase) && !lowerCase.endsWith(".zip")) {
+            if (!isRomNameFor(mode, lowerCase) && !lowerCase.endsWith(".zip")) {
                 sb.append(displayNameFor).append(": 지원하지 않는 파일\n");
             } else {
                 try {
                     if (lowerCase.endsWith(".zip")) {
-                        singletonOrEmpty = copyZippedRomsToAppStorage(uri2, displayNameFor);
+                        singletonOrEmpty = copyZippedRomsToAppStorage(uri2, displayNameFor, mode);
                     } else {
-                        singletonOrEmpty = singletonOrEmpty(copyRomToAppStorage(uri2, displayNameFor));
+                        singletonOrEmpty = singletonOrEmpty(copyRomToAppStorage(uri2, displayNameFor, mode));
                     }
                     if (singletonOrEmpty.isEmpty()) {
                         i3++;
@@ -2063,8 +2084,8 @@ public final class MainActivity extends Activity {
         showError("ROM을 삭제할 수 없습니다.");
     }
 
-    private File copyRomToAppStorage(Uri uri, String str) throws IOException {
-        File romDir = romDir();
+    private File copyRomToAppStorage(Uri uri, String str, String mode) throws IOException {
+        File romDir = romDirFor(mode);
         if (!romDir.exists() && !romDir.mkdirs()) {
             throw new IOException("ROM 폴더를 만들 수 없습니다");
         }
@@ -2103,8 +2124,8 @@ public final class MainActivity extends Activity {
         return finalizeImportedRom;
     }
 
-    private List<File> copyZippedRomsToAppStorage(Uri uri, String str) throws IOException {
-        File romDir = romDir();
+    private List<File> copyZippedRomsToAppStorage(Uri uri, String str, String mode) throws IOException {
+        File romDir = romDirFor(mode);
         if (!romDir.exists() && !romDir.mkdirs()) {
             throw new IOException("ROM 폴더를 만들 수 없습니다");
         }
@@ -2123,7 +2144,7 @@ public final class MainActivity extends Activity {
                     continue;
                 }
                 String name = new File(nextEntry.getName()).getName();
-                if (isHandheldRomName(name.toLowerCase(Locale.US))) {
+                if (isRomNameFor(mode, name.toLowerCase(Locale.US))) {
                     File uniqueFile = uniqueFile(romDir, sanitizeFileName(name));
                     try (FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile)) {
                         copy(zipInputStream, fileOutputStream);
@@ -2136,7 +2157,7 @@ public final class MainActivity extends Activity {
             }
         }
         if (arrayList.isEmpty()) {
-            throw new IOException(str + " 안에서 새 .gba / .gbc / .gb 파일을 찾지 못했습니다");
+            throw new IOException(str + (MODE_SNES.equals(mode) ? " 안에서 새 .sfc / .smc 파일을 찾지 못했습니다" : " 안에서 새 .gba / .gbc / .gb 파일을 찾지 못했습니다"));
         }
         return arrayList;
     }
@@ -2274,7 +2295,7 @@ public final class MainActivity extends Activity {
         if (!file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
             return checkRomHeader(file);
         }
-        if (!MODE_GBA.equals(modeForFile(file))) {
+        if (!MODE_GBA.equals(modeForFile(file)) && !MODE_SNES.equals(modeForFile(file))) {
             return checkArcadeRomset(file);
         }
         try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(file))) {
@@ -2294,6 +2315,14 @@ public final class MainActivity extends Activity {
     // GBA ROMs and Game Boy / Game Boy Color ROMs share the GBA mode and the mGBA engine.
     static boolean isHandheldRomName(String lowerCaseName) {
         return lowerCaseName.endsWith(".gba") || isGameBoyRomName(lowerCaseName);
+    }
+
+    static boolean isSnesRomName(String lowerCaseName) {
+        return lowerCaseName.endsWith(".sfc") || lowerCaseName.endsWith(".smc");
+    }
+
+    private static boolean isRomNameFor(String mode, String lowerCaseName) {
+        return MODE_SNES.equals(mode) ? isSnesRomName(lowerCaseName) : isHandheldRomName(lowerCaseName);
     }
 
     static boolean isGameBoyRomName(String lowerCaseName) {
@@ -2342,7 +2371,41 @@ public final class MainActivity extends Activity {
         return new RomCheck(false, !logoOk ? "Nintendo 로고/헤더 불일치" : "헤더 체크섬 불일치");
     }
 
+    // SNES internal header: a checksum and its complement at 0x7FDC (LoROM) or 0xFFDC
+    // (HiROM), after an optional 512-byte copier header.
+    private RomCheck checkSnesHeader(File file) {
+        long length = file.length();
+        if (length < 0x8000) {
+            return new RomCheck(false, "파일이 너무 작음");
+        }
+        if (length > 12 * 1024 * 1024) {
+            return new RomCheck(false, "표준 SNES ROM보다 큼");
+        }
+        int skip = (length % 1024) == 512 ? 512 : 0;
+        int[] bases = {0x7FC0, 0xFFC0};
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            for (int base : bases) {
+                long at = skip + base + 0x1C;
+                if (at + 4 > length) {
+                    continue;
+                }
+                raf.seek(at);
+                int complement = raf.read() | (raf.read() << 8);
+                int checksum = raf.read() | (raf.read() << 8);
+                if ((complement ^ checksum) == 0xFFFF) {
+                    return new RomCheck(true, (base == 0x7FC0 ? "LoROM" : "HiROM") + " 헤더 정상");
+                }
+            }
+        } catch (IOException unused) {
+            return new RomCheck(false, "읽기 실패");
+        }
+        return new RomCheck(false, "SNES 헤더를 찾지 못함 (실행은 될 수 있음)");
+    }
+
     private RomCheck checkRomHeader(File file) {
+        if (isSnesRomName(file.getName().toLowerCase(Locale.US))) {
+            return checkSnesHeader(file);
+        }
         if (isGameBoyRomName(file.getName().toLowerCase(Locale.US))) {
             return checkGameBoyHeader(file);
         }
@@ -2390,6 +2453,8 @@ public final class MainActivity extends Activity {
             bios = "Neo Geo BIOS: " + neoGeoBiosStatusText();
         } else if ("arcade".equals(this.currentMode)) {
             bios = "MAME BIOS: " + mameBiosStatus() + " · 게임을 길게 누르면 실행 엔진을 바꿀 수 있습니다.";
+        } else if (MODE_SNES.equals(this.currentMode)) {
+            bios = "슈퍼패미컴 게임은 BIOS 없이 실행됩니다.";
         } else {
             bios = "GBA BIOS: " + biosStatusText();
         }
@@ -2409,6 +2474,9 @@ public final class MainActivity extends Activity {
     }
 
     private File romDirFor(String mode) {
+        if (MODE_SNES.equals(mode)) {
+            return new File(getFilesDir(), "roms_snes");
+        }
         if ("neogeo".equals(mode)) {
             return new File(getFilesDir(), "roms_neogeo");
         }
@@ -2430,6 +2498,9 @@ public final class MainActivity extends Activity {
         File parent = file.getParentFile();
         if (romDirFor("neogeo").equals(parent)) {
             return "neogeo";
+        }
+        if (romDirFor(MODE_SNES).equals(parent)) {
+            return MODE_SNES;
         }
         if (arcadeRomDir().equals(parent)) {
             return "arcade";
@@ -3027,12 +3098,18 @@ public final class MainActivity extends Activity {
             return string;
         }
         String baseNameWithoutExtension = baseNameWithoutExtension(file.getName());
+        if (!MODE_GBA.equals(modeForFile(file))) {
+            return baseNameWithoutExtension;
+        }
         return (hasDisplayableName(baseNameWithoutExtension) || (readGbaHeaderTitle = readGbaHeaderTitle(file)) == null) ? baseNameWithoutExtension : readGbaHeaderTitle;
     }
 
     private boolean isSupportedRom(File file) {
         String lowerCase = file.getName().toLowerCase(Locale.US);
         String mode = modeForFile(file);
+        if (MODE_SNES.equals(mode)) {
+            return isSnesRomName(lowerCase);
+        }
         if (MODE_GBA.equals(mode)) {
             return isHandheldRomName(lowerCase) || !(!lowerCase.endsWith(".zip") || lowerCase.equals("neogeo.zip") || lowerCase.equals("stvbios.zip"));
         }
@@ -3047,6 +3124,9 @@ public final class MainActivity extends Activity {
         }
         if ("arcade".equals(mode)) {
             return knownCore(romPrefs().getString("core:" + file.getName(), null), defaultArcadeCore());
+        }
+        if (MODE_SNES.equals(mode)) {
+            return "snes9x";
         }
         return MODE_GBA;
     }
@@ -3082,6 +3162,9 @@ public final class MainActivity extends Activity {
         }
         if ("fbneo".equals(str)) {
             return "FinalBurn Neo";
+        }
+        if ("snes9x".equals(str)) {
+            return "Snes9x";
         }
         return "Game Boy Advance";
     }
