@@ -152,6 +152,9 @@ public final class MainActivity extends Activity {
     private String currentMode;
     private TextView engineStatusView;
     private TextView neoGeoBiosBanner;
+    private TextView ps2BiosStatusView;
+    private TextView ps2BiosBanner;
+    private static final int REQUEST_IMPORT_PS2_BIOS = 1020;
     private String pendingBiosSource;
     // Mode the picked ROM folder is imported into, kept while the folder picker is open.
     private String pendingFolderMode;
@@ -453,6 +456,11 @@ public final class MainActivity extends Activity {
             actionRow.addView(mameBiosTile, actionTileParams());
         } else if (isConsoleMode(this.currentMode)) {
             actionRow.addView(createActionCard("ROM 추가", consoleFor(this.currentMode)[3], MODE_ICONS[index], MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
+            if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
+                LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
+                this.ps2BiosStatusView = (TextView) ps2BiosTile.getTag();
+                actionRow.addView(ps2BiosTile, actionTileParams());
+            }
         } else {
             actionRow.addView(createActionCard("GBA · GBC ROM", ".gba / .gbc / .zip", "GBA", Color.rgb(34, 166, 197), view -> showRomAddChooser()), actionTileParams());
             LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_GBA));
@@ -470,6 +478,16 @@ public final class MainActivity extends Activity {
         this.screenModeStatusView = (TextView) screenModeTile.getTag();
         actionRow.addView(screenModeTile, actionTileParams());
         linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
+            TextView banner = new TextView(this);
+            banner.setTextSize(12.0f);
+            banner.setLineSpacing(0.0f, 1.2f);
+            banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+            this.ps2BiosBanner = banner;
+            LinearLayout.LayoutParams bannerParams = new LinearLayout.LayoutParams(-1, -2);
+            bannerParams.setMargins(0, dp(4), 0, 0);
+            linearLayout3.addView(banner, bannerParams);
+        }
         if ("neogeo".equals(this.currentMode)) {
             TextView banner = new TextView(this);
             banner.setText("Neo Geo BIOS가 필요합니다. neogeo.zip을 등록해야 게임을 실행할 수 있어요.");
@@ -799,6 +817,23 @@ public final class MainActivity extends Activity {
         if (this.neoGeoBiosBanner != null) {
             this.neoGeoBiosBanner.setVisibility(neoGeoBiosFile().exists() ? 8 : 0);
         }
+        if (this.ps2BiosStatusView != null) {
+            this.ps2BiosStatusView.setText(ps2BiosStatusText());
+            this.ps2BiosStatusView.setTextColor(ps2BiosFile() != null ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        }
+        if (this.ps2BiosBanner != null) {
+            File bios = ps2BiosFile();
+            if (bios == null) {
+                this.ps2BiosBanner.setText(android.text.Html.fromHtml("<b>PS2 BIOS를 넣으면 PCSX2 엔진으로 실행돼요.</b><br>더 빠르고 그래픽이 정확해요. 지금은 BIOS가 필요 없는 Play! 엔진으로 실행됩니다.", 0));
+                this.ps2BiosBanner.setTextColor(Color.rgb(30, 58, 138));
+                this.ps2BiosBanner.setBackground(rounded(Color.rgb(232, 239, 255), dp(12)));
+            } else {
+                String info = ps2BiosDescription(bios);
+                this.ps2BiosBanner.setText(android.text.Html.fromHtml("<b>✓ PCSX2 엔진으로 실행됩니다.</b> BIOS: " + android.text.TextUtils.htmlEncode(info), 0));
+                this.ps2BiosBanner.setTextColor(Color.rgb(22, 101, 52));
+                this.ps2BiosBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
+            }
+        }
         if (this.engineStatusView != null) {
             this.engineStatusView.setText(shortCoreName(defaultCoreFor(this.currentMode)));
         }
@@ -1125,6 +1160,10 @@ public final class MainActivity extends Activity {
         } else if (i == 1006) {
             if (data != null) {
                 importNeoGeoBios(data);
+            }
+        } else if (i == REQUEST_IMPORT_PS2_BIOS) {
+            if (data != null) {
+                importPs2Bios(data);
             }
         } else if (i == 1007) {
             importMameBios(intent);
@@ -4833,6 +4872,293 @@ public final class MainActivity extends Activity {
     private File ps2BiosFile() {
         File[] files = ps2BiosDir().listFiles(file -> file.isFile() && file.length() >= 4194304L);
         return files == null || files.length == 0 ? null : files[0];
+    }
+
+    private boolean pcsx2Shipped() {
+        return new File(getApplicationInfo().nativeLibraryDir, "libpcee2_libretro_android.so").isFile();
+    }
+
+    private String ps2BiosStatusText() {
+        File bios = ps2BiosFile();
+        if (bios == null) {
+            return "없음 · Play!";
+        }
+        String version = ps2BiosVersion(bios);
+        return version != null ? version : "등록됨";
+    }
+
+    // "v2.00 · 북미 (2004-06-14)" from the BIOS's ROMVER, else the file name.
+    private String ps2BiosDescription(File bios) {
+        String version = ps2BiosVersion(bios);
+        String date = ps2BiosRomver(bios);
+        if (version == null || date == null || date.length() < 15) {
+            return bios.getName();
+        }
+        return version + " (" + date.substring(7, 11) + "-" + date.substring(11, 13) + "-" + date.substring(13, 15) + ")";
+    }
+
+    private String ps2BiosVersion(File bios) {
+        String romver = ps2BiosRomver(bios);
+        if (romver == null || romver.length() < 5) {
+            return null;
+        }
+        String region;
+        switch (romver.charAt(4)) {
+            case 'J': region = "일본"; break;
+            case 'A': region = "북미"; break;
+            case 'E': region = "유럽"; break;
+            case 'H': region = "아시아"; break;
+            case 'C': region = "중국"; break;
+            case 'T': region = "개발기"; break;
+            default: region = "기타"; break;
+        }
+        String major = romver.substring(0, 2);
+        if (major.charAt(0) == '0') {
+            major = major.substring(1);
+        }
+        return "v" + major + "." + romver.substring(2, 4) + " · " + region;
+    }
+
+    // The ROMVER file inside a PS2 BIOS image ("0200AEC20040614": version 02.00, region A,
+    // console type, build date 2004-06-14), found through its
+    // ROMDIR table: 16-byte entries of name[10], extinfo size (u16) and size (u32), whose
+    // files lie one after another from the start of the image, each padded to 16 bytes.
+    // Null when the image has no ROMDIR, i.e. it is not a PS2 BIOS.
+    private static String ps2BiosRomver(File bios) {
+        byte[] head = readHead(bios, 64 * 1024);
+        if (head == null) {
+            return null;
+        }
+        int dir = -1;
+        for (int i = 0; i + 32 <= head.length; i += 16) {
+            if (head[i] == 'R' && head[i + 1] == 'E' && head[i + 2] == 'S' && head[i + 3] == 'E' && head[i + 4] == 'T' && head[i + 5] == 0
+                    && head[i + 16] == 'R' && head[i + 17] == 'O' && head[i + 18] == 'M' && head[i + 19] == 'D' && head[i + 20] == 'I' && head[i + 21] == 'R') {
+                dir = i;
+                break;
+            }
+        }
+        if (dir < 0) {
+            return null;
+        }
+        long offset = 0;
+        for (int i = dir; i + 16 <= head.length && head[i] != 0; i += 16) {
+            long size = (head[i + 12] & 0xFFL) | (head[i + 13] & 0xFFL) << 8 | (head[i + 14] & 0xFFL) << 16 | (head[i + 15] & 0xFFL) << 24;
+            String name = new String(head, i, 10, StandardCharsets.US_ASCII).trim().replace("\0", "");
+            if (name.startsWith("ROMVER")) {
+                if (offset + 15 > bios.length()) {
+                    return "";
+                }
+                try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(bios, "r")) {
+                    byte[] text = new byte[15];
+                    file.seek(offset);
+                    file.readFully(text);
+                    return new String(text, StandardCharsets.US_ASCII);
+                } catch (IOException e) {
+                    return "";
+                }
+            }
+            offset += (size + 15) & ~15L;
+        }
+        return "";
+    }
+
+    private void showPs2BiosSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        final File bios = ps2BiosFile();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView icon = new TextView(this);
+        icon.setText("BIOS");
+        icon.setTextColor(-1);
+        icon.setTextSize(13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(239, 84, 103), dp(13)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("PS2 BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView state = new TextView(this);
+        state.setText(bios == null ? "등록된 BIOS 없음" : ps2BiosDescription(bios));
+        state.setTextSize(12.0f);
+        state.setTextColor(bios == null ? Color.rgb(239, 84, 103) : Color.rgb(22, 163, 74));
+        titles.addView(state);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout engines = new LinearLayout(this);
+        engines.setOrientation(0);
+        engines.addView(engineCard("BIOS 없을 때", "Play!", "느리고 그래픽 오류 있음", bios == null), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        secondParams.setMargins(dp(8), 0, 0, 0);
+        engines.addView(engineCard("BIOS 있을 때", "PCSX2", "더 빠르고 정확함", bios != null), secondParams);
+        LinearLayout.LayoutParams enginesParams = new LinearLayout.LayoutParams(-1, -2);
+        enginesParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(engines, enginesParams);
+
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("직접 가진 PS2에서 추출한 BIOS 파일을 골라 주세요.<br>보통 <b>scph</b>로 시작하는 <b>4MB .bin</b> 파일이에요.", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        TextView choose = sheetButton(bios == null ? "BIOS 파일 선택" : "다른 BIOS로 바꾸기", Color.rgb(36, 84, 168), -1);
+        choose.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_IMPORT_PS2_BIOS);
+        });
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+        chooseParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(choose, chooseParams);
+        if (bios != null) {
+            TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
+            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("PS2 BIOS 삭제").setMessage("BIOS를 지우면 PS2 게임이 Play! 엔진으로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+                dialog.dismiss();
+                File[] files = ps2BiosDir().listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        file.delete();
+                    }
+                }
+                showMessage("PS2 BIOS를 삭제했습니다.");
+                updateHomeStatusCards();
+                refreshLibrary();
+            }).show());
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+            deleteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(delete, deleteParams);
+        }
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout engineCard(String label, String engine, String note, boolean current) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(1);
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(current ? Color.rgb(232, 239, 255) : Color.rgb(246, 247, 249));
+        background.setCornerRadius(dp(12));
+        if (current) {
+            background.setStroke(dp(1), Color.rgb(157, 180, 245));
+        }
+        card.setBackground(background);
+        TextView labelView = new TextView(this);
+        labelView.setText(label);
+        labelView.setTextSize(12.0f);
+        labelView.setTypeface(Typeface.DEFAULT_BOLD);
+        labelView.setTextColor(current ? Color.rgb(36, 84, 168) : Color.rgb(122, 130, 140));
+        card.addView(labelView);
+        TextView engineView = new TextView(this);
+        engineView.setText(engine);
+        engineView.setTextSize(14.0f);
+        engineView.setTypeface(Typeface.DEFAULT_BOLD);
+        engineView.setTextColor(Color.rgb(31, 41, 51));
+        card.addView(engineView);
+        TextView noteView = new TextView(this);
+        noteView.setText(note);
+        noteView.setTextSize(11.0f);
+        noteView.setTextColor(current ? Color.rgb(75, 95, 138) : Color.rgb(122, 130, 140));
+        card.addView(noteView);
+        return card;
+    }
+
+    private TextView sheetButton(String text, int background, int textColor) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(15.0f);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setTextColor(textColor);
+        button.setGravity(17);
+        button.setBackground(rounded(background, dp(14)));
+        return button;
+    }
+
+    // Copies a picked PS2 BIOS into <system>/pcsx2/bios, replacing the one there. It must be
+    // at least 4 MB and carry a ROMDIR table, or it is not a PS2 BIOS.
+    private void importPs2Bios(Uri uri) {
+        File dir = ps2BiosDir();
+        File incoming = new File(dir, ".incoming");
+        try {
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("BIOS 폴더를 만들 수 없습니다");
+            }
+            try (InputStream in = getContentResolver().openInputStream(uri);
+                 FileOutputStream out = new FileOutputStream(incoming)) {
+                if (in == null) {
+                    throw new IOException("선택한 파일을 열 수 없습니다");
+                }
+                copy(in, out);
+            }
+            if (incoming.length() < 4194304L || incoming.length() > 32L * 1024 * 1024 || ps2BiosRomver(incoming) == null) {
+                throw new IOException("PS2 BIOS가 아니에요. 보통 scph로 시작하는 4MB .bin 파일이에요.");
+            }
+            String name = displayNameFor(uri);
+            name = name == null ? "" : name.replaceAll("[^A-Za-z0-9._ -]", "_").trim();
+            if (name.isEmpty() || name.startsWith(".")) {
+                name = "ps2_bios.bin";
+            }
+            File[] old = dir.listFiles();
+            if (old != null) {
+                for (File file : old) {
+                    if (!file.equals(incoming)) {
+                        file.delete();
+                    }
+                }
+            }
+            if (!incoming.renameTo(new File(dir, name))) {
+                throw new IOException("BIOS를 저장할 수 없습니다");
+            }
+            File bios = ps2BiosFile();
+            showMessage("PS2 BIOS를 가져왔습니다: " + (bios == null ? name : ps2BiosDescription(bios)) + "\nPS2 게임은 이제 PCSX2 엔진으로 실행됩니다.");
+            updateHomeStatusCards();
+            refreshLibrary();
+        } catch (IOException e) {
+            incoming.delete();
+            showError("PS2 BIOS 가져오기 실패: " + e.getMessage());
+        }
     }
 
     private String defaultCoreFor(String mode) {
