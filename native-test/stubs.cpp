@@ -38,7 +38,11 @@ extern "C" ANativeWindow* ANativeWindow_fromSurface(JNIEnv*, jobject surface) {
     gWindows++;
     return new ANativeWindow();
 }
+extern "C" void ANativeWindow_acquire(ANativeWindow* w) {
+    w->refs++;
+}
 extern "C" void ANativeWindow_release(ANativeWindow* w) {
+    if (--w->refs > 0) return;
     gWindows--;
     free(w->pixels);
     delete w;

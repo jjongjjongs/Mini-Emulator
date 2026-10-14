@@ -82,7 +82,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -216,6 +216,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isPcEngine()) {
             tint = ClearShellView.TINT_WHITE;
             name = "PC ENGINE";
+        } else if (isPsp()) {
+            tint = ClearShellView.TINT_SMOKE;
+            name = "PSP";
         } else if (isNeoGeoMode()) {
             tint = ClearShellView.TINT_PURPLE;
             name = "NEO GEO";
@@ -268,18 +271,30 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // GBA in full-screen style moves its D-pad and A/B a little outward so the wide
         // screen can grow until it meets the speed button.
         boolean wideGba = isGbaWideFull();
-        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(150), dp(150));
+        int padSize = isPsp() ? 130 : 150;
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(padSize), dp(padSize));
         layoutParams.gravity = 8388627;
         layoutParams.setMargins(wideGba ? 0 : dp(12), 0, 0, 0);
-        // Everything sits a little lower to leave the top corners to the round buttons.
-        createDirectionControl.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
+        // Everything sits a little lower to leave the top corners to the round buttons;
+        // the PSP's D-pad goes up instead, with the analog stick under it.
+        createDirectionControl.setTranslationY(dp(isPsp() ? -36 : LANDSCAPE_SHIFT_DP));
         frameLayout.addView(createDirectionControl, layoutParams);
+        if (isPsp()) {
+            FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(84), dp(84));
+            stickParams.gravity = 8388627;
+            stickParams.setMargins(dp(35), 0, 0, 0);
+            AnalogStickView stick = new AnalogStickView(this, this::onAnalogChanged);
+            stick.setTranslationY(dp(92));
+            frameLayout.addView(stick, stickParams);
+        }
         if (isGba) {
             if (hasShoulders()) {
                 addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
                 addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
             }
-            if (hasTurboPair()) {
+            if (isPsp()) {
+                addPspFace(frameLayout, true);
+            } else if (hasTurboPair()) {
                 String[] labels = turboLabels();
                 int style = isPcEngine() ? TouchButton.STYLE_ACTION : TouchButton.STYLE_ARCADE_RED;
                 addLandscapeArcadeButton(frameLayout, labels[0], 1, 20, 0, 60, style);
@@ -312,6 +327,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addLandscapeArcadeButton(frameLayout, "D", 2048, 120, -27, 46, TouchButton.STYLE_ARCADE_RED);
             addLandscapeArcadeButton(frameLayout, "E", 4096, 66, -27, 46, TouchButton.STYLE_ARCADE_RED);
             addLandscapeArcadeButton(frameLayout, "F", 8192, 12, -27, 46, TouchButton.STYLE_ARCADE_RED);
+        }
+        if (isPsp()) {
+            // The analog stick takes the lower left corner, so SELECT/START flank the speed button.
+            for (int k = 0; k < 2; k++) {
+                TouchButton key = new TouchButton(this, k == 0 ? "SELECT" : "START", k == 0 ? 4 : 8, this::setButtonPressed);
+                FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(78), dp(30));
+                keyParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                keyParams.setMargins(0, 0, 0, dp(9));
+                key.setTranslationX(dp(k == 0 ? -100 : 100));
+                frameLayout.addView(key, keyParams);
+            }
+            return;
         }
         addButton(frameLayout, selectLabel(), 4, 8388691, dp(42), dp(18), dp(94), dp(34));
         addButton(frameLayout, startLabel(), 8, 8388693, dp(42), dp(18), dp(94), dp(34));
@@ -755,17 +782,26 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         boolean isGba = isPadLayout();
         // The Super Famicom's four face buttons need more room, so its D-pad is a little smaller.
         boolean compactPad = isSnes() || isMegaDrive();
-        int i = compactPad ? 150 : isGba ? 166 : 156;
+        int i = isPsp() ? 140 : compactPad ? 150 : isGba ? 166 : 156;
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(i), dp(i));
         layoutParams.gravity = 8388691;
-        layoutParams.setMargins(dp(compactPad ? 16 : isGba ? 24 : 16), 0, 0, dp(isGba ? 154 : 144));
+        // The PSP's D-pad sits higher to leave room for the analog stick below it.
+        layoutParams.setMargins(dp(compactPad || isPsp() ? 16 : isGba ? 24 : 16), 0, 0, dp(isPsp() ? 214 : isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
+        if (isPsp()) {
+            FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
+            stickParams.gravity = 8388691;
+            stickParams.setMargins(dp(40), 0, 0, dp(112));
+            frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        }
         if (hasShoulders()) {
             addButton(frameLayout, "L", 512, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
             addButton(frameLayout, "R", 256, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
         }
         addFastForwardButton(frameLayout);
-        if (isSnes()) {
+        if (isPsp()) {
+            addPspFace(frameLayout, false);
+        } else if (isSnes()) {
             // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left.
             addButton(frameLayout, "X", 1024, 8388693, dp(72), dp(254), dp(54), dp(54), TouchButton.STYLE_SNES_BLUE);
             addButton(frameLayout, "A", 1, 8388693, dp(20), dp(202), dp(54), dp(54), TouchButton.STYLE_ARCADE_RED);
@@ -1160,6 +1196,44 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "pce_fast".equals(this.coreId);
     }
 
+    private boolean isPsp() {
+        return "ppsspp".equals(this.coreId);
+    }
+
+    // PSP face buttons: label, bit (the libretro X/A/B/Y the core reads as △○×□), colour.
+    private static final String[] PSP_LABELS = {"△", "○", "×", "□"};
+    private static final int[] PSP_BITS = {1024, 1, 2, 2048};
+    private static final int[] PSP_COLORS = {Color.rgb(47, 182, 122), Color.rgb(226, 71, 90), Color.rgb(77, 142, 240), Color.rgb(212, 107, 196)};
+
+    private void addPspFace(FrameLayout frameLayout, boolean landscape) {
+        // Diamond: △ top, ○ right, × bottom, □ left.
+        int[][] portrait = {{72, 314}, {20, 262}, {72, 210}, {124, 262}};
+        int[][] side = {{62, -46}, {14, 0}, {62, 46}, {110, 0}};
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, PSP_LABELS[k], PSP_BITS[k], this::setButtonPressed, TouchButton.STYLE_ACTION);
+            button.setLabelColor(PSP_COLORS[k]);
+            if (landscape) {
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(48), dp(48));
+                params.gravity = 8388629;
+                params.setMargins(0, 0, dp(side[k][0]), 0);
+                button.setTranslationY(dp(side[k][1] + LANDSCAPE_SHIFT_DP));
+                frameLayout.addView(button, params);
+            } else {
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(54), dp(54));
+                params.gravity = 8388693;
+                params.setMargins(0, 0, dp(portrait[k][0]), dp(portrait[k][1]));
+                frameLayout.addView(button, params);
+            }
+        }
+    }
+
+    private void onAnalogChanged(float x, float y) {
+        long handle = this.nativeHandle;
+        if (handle != 0) {
+            NativeGba.setAnalog(handle, Math.round(x * 32767), Math.round(y * 32767));
+        }
+    }
+
     // Two face buttons with turbo buttons above them: Famicom (B A / TB TA) and PC Engine (II I / TII TI).
     private boolean hasTurboPair() {
         return isNes() || isPcEngine();
@@ -1167,11 +1241,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Consoles with a D-pad and SELECT/START, laid out like the GBA.
     private boolean isPadLayout() {
-        return this.coreId.equals("gba") || isSnes() || isNes() || isMegaDrive() || isPcEngine();
+        return this.coreId.equals("gba") || isSnes() || isNes() || isMegaDrive() || isPcEngine() || isPsp();
     }
 
     private boolean hasShoulders() {
-        return (this.coreId.equals("gba") && !isGameBoy()) || isSnes();
+        return (this.coreId.equals("gba") && !isGameBoy()) || isSnes() || isPsp();
     }
 
     private String selectLabel() {
@@ -1208,6 +1282,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private float screenAspect() {
+        if (isPsp()) {
+            return 480.0f / 272.0f;
+        }
         if (isGameBoy()) {
             return 160.0f / 144.0f;
         }
@@ -1222,6 +1299,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "fceumm":
             case "genesis_plus_gx":
             case "pce_fast":
+            case "ppsspp":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

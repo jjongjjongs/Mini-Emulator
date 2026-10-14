@@ -34,13 +34,13 @@ fi
 SKIP=" pspautotests frametests ios/MoltenVK SDL/macOS assets/debugger ext/discord-rpc ext/oboe "
 for path in $(git -C "$DIR" config --file .gitmodules --get-regexp '\.path$' | awk '{print $2}'); do
     case "$SKIP" in *" $path "*) continue ;; esac
-    git -C "$DIR" submodule update -q --init --depth 1 -- "$path"
+    git -C "$DIR" submodule update -q --init --recursive --depth 1 -- "$path"
 done
 
 echo "== building ppsspp"
 "$NDK/ndk-build" -C "$DIR/libretro/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
     "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -j"$JOBS" > "$WORK/ppsspp.log" 2>&1 || {
-    grep -n "error" "$WORK/ppsspp.log" | head -n 40
+    grep -n -i "error" "$WORK/ppsspp.log" | head -n 40 || true
     tail -n 60 "$WORK/ppsspp.log"
     exit 1
 }

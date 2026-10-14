@@ -20,6 +20,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <functional>
 #include <cmath>
 #include <cstdarg>
 #include <cstdint>
@@ -56,6 +58,120 @@ enum : int {
     kButtonE = 4096,
     kButtonF = 8192,
 };
+
+// ---- Hardware rendering (OpenGL ES 3 through EGL) ---------------------------
+// Only the PSP core renders with OpenGL. EGL and GLES are opened at run time so
+// the bridge has no link-time dependency on them (and builds for the host test).
+namespace gl {
+typedef void* EGLDisplay;
+typedef void* EGLConfig;
+typedef void* EGLContext;
+typedef void* EGLSurface;
+typedef int32_t EGLint;
+typedef unsigned GLenum;
+typedef unsigned GLuint;
+typedef int GLint;
+typedef int GLsizei;
+typedef unsigned GLbitfield;
+typedef unsigned char GLboolean;
+
+constexpr EGLint EGL_NONE = 0x3038, EGL_RED_SIZE = 0x3024, EGL_GREEN_SIZE = 0x3023, EGL_BLUE_SIZE = 0x3022,
+                 EGL_ALPHA_SIZE = 0x3021, EGL_SURFACE_TYPE = 0x3033, EGL_WINDOW_BIT = 0x0004, EGL_PBUFFER_BIT = 0x0001,
+                 EGL_RENDERABLE_TYPE = 0x3040, EGL_OPENGL_ES3_BIT = 0x0040, EGL_CONTEXT_CLIENT_VERSION = 0x3098,
+                 EGL_NATIVE_VISUAL_ID = 0x302E, EGL_WIDTH = 0x3057, EGL_HEIGHT = 0x3056;
+constexpr GLenum GL_FRAMEBUFFER = 0x8D40, GL_READ_FRAMEBUFFER = 0x8CA8, GL_DRAW_FRAMEBUFFER = 0x8CA9,
+                 GL_RENDERBUFFER = 0x8D41, GL_TEXTURE_2D = 0x0DE1, GL_RGBA = 0x1908, GL_RGBA8 = 0x8058,
+                 GL_UNSIGNED_BYTE = 0x1401, GL_TEXTURE_MIN_FILTER = 0x2801, GL_TEXTURE_MAG_FILTER = 0x2800,
+                 GL_LINEAR = 0x2601, GL_COLOR_ATTACHMENT0 = 0x8CE0, GL_DEPTH24_STENCIL8 = 0x88F0,
+                 GL_DEPTH_STENCIL_ATTACHMENT = 0x821A, GL_FRAMEBUFFER_COMPLETE = 0x8CD5, GL_COLOR_BUFFER_BIT = 0x4000,
+                 GL_SCISSOR_TEST = 0x0C11, GL_DRAW_FRAMEBUFFER_BINDING = 0x8CA6, GL_READ_FRAMEBUFFER_BINDING = 0x8CAA;
+
+struct Api {
+    void* egl = nullptr;
+    void* gles = nullptr;
+    EGLDisplay (*GetDisplay)(void*) = nullptr;
+    unsigned (*Initialize)(EGLDisplay, EGLint*, EGLint*) = nullptr;
+    unsigned (*ChooseConfig)(EGLDisplay, const EGLint*, EGLConfig*, EGLint, EGLint*) = nullptr;
+    unsigned (*GetConfigAttrib)(EGLDisplay, EGLConfig, EGLint, EGLint*) = nullptr;
+    EGLContext (*CreateContext)(EGLDisplay, EGLConfig, EGLContext, const EGLint*) = nullptr;
+    EGLSurface (*CreatePbufferSurface)(EGLDisplay, EGLConfig, const EGLint*) = nullptr;
+    EGLSurface (*CreateWindowSurface)(EGLDisplay, EGLConfig, ANativeWindow*, const EGLint*) = nullptr;
+    unsigned (*MakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext) = nullptr;
+    unsigned (*SwapBuffers)(EGLDisplay, EGLSurface) = nullptr;
+    unsigned (*DestroySurface)(EGLDisplay, EGLSurface) = nullptr;
+    unsigned (*DestroyContext)(EGLDisplay, EGLContext) = nullptr;
+    unsigned (*QuerySurface)(EGLDisplay, EGLSurface, EGLint, EGLint*) = nullptr;
+    unsigned (*SwapInterval)(EGLDisplay, EGLint) = nullptr;
+    void* (*GetProcAddress)(const char*) = nullptr;
+    void (*GenFramebuffers)(GLsizei, GLuint*) = nullptr;
+    void (*BindFramebuffer)(GLenum, GLuint) = nullptr;
+    void (*DeleteFramebuffers)(GLsizei, const GLuint*) = nullptr;
+    void (*GenTextures)(GLsizei, GLuint*) = nullptr;
+    void (*BindTexture)(GLenum, GLuint) = nullptr;
+    void (*DeleteTextures)(GLsizei, const GLuint*) = nullptr;
+    void (*TexImage2D)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) = nullptr;
+    void (*TexParameteri)(GLenum, GLenum, GLint) = nullptr;
+    void (*FramebufferTexture2D)(GLenum, GLenum, GLenum, GLuint, GLint) = nullptr;
+    void (*GenRenderbuffers)(GLsizei, GLuint*) = nullptr;
+    void (*BindRenderbuffer)(GLenum, GLuint) = nullptr;
+    void (*DeleteRenderbuffers)(GLsizei, const GLuint*) = nullptr;
+    void (*RenderbufferStorage)(GLenum, GLenum, GLsizei, GLsizei) = nullptr;
+    void (*FramebufferRenderbuffer)(GLenum, GLenum, GLenum, GLuint) = nullptr;
+    GLenum (*CheckFramebufferStatus)(GLenum) = nullptr;
+    void (*BlitFramebuffer)(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum) = nullptr;
+    void (*GetIntegerv)(GLenum, GLint*) = nullptr;
+    GLboolean (*IsEnabled)(GLenum) = nullptr;
+    void (*Enable)(GLenum) = nullptr;
+    void (*Disable)(GLenum) = nullptr;
+};
+
+template <typename T>
+bool bind(void* lib, T& fn, const char* name) {
+    fn = reinterpret_cast<T>(dlsym(lib, name));
+    return fn != nullptr;
+}
+
+// Opens libEGL/libGLESv3 once; false when the device has neither.
+bool load(Api& a) {
+    if (a.egl != nullptr) {
+        return true;
+    }
+    void* egl = dlopen("libEGL.so", RTLD_NOW);
+    void* gles = dlopen("libGLESv3.so", RTLD_NOW);
+    if (gles == nullptr) {
+        gles = dlopen("libGLESv2.so", RTLD_NOW);
+    }
+    if (egl == nullptr || gles == nullptr) {
+        return false;
+    }
+    bool ok = bind(egl, a.GetDisplay, "eglGetDisplay") && bind(egl, a.Initialize, "eglInitialize") &&
+              bind(egl, a.ChooseConfig, "eglChooseConfig") && bind(egl, a.GetConfigAttrib, "eglGetConfigAttrib") &&
+              bind(egl, a.CreateContext, "eglCreateContext") && bind(egl, a.CreatePbufferSurface, "eglCreatePbufferSurface") &&
+              bind(egl, a.CreateWindowSurface, "eglCreateWindowSurface") && bind(egl, a.MakeCurrent, "eglMakeCurrent") &&
+              bind(egl, a.SwapBuffers, "eglSwapBuffers") && bind(egl, a.DestroySurface, "eglDestroySurface") &&
+              bind(egl, a.DestroyContext, "eglDestroyContext") && bind(egl, a.QuerySurface, "eglQuerySurface") &&
+              bind(egl, a.SwapInterval, "eglSwapInterval") && bind(egl, a.GetProcAddress, "eglGetProcAddress") &&
+              bind(gles, a.GenFramebuffers, "glGenFramebuffers") && bind(gles, a.BindFramebuffer, "glBindFramebuffer") &&
+              bind(gles, a.DeleteFramebuffers, "glDeleteFramebuffers") && bind(gles, a.GenTextures, "glGenTextures") &&
+              bind(gles, a.BindTexture, "glBindTexture") && bind(gles, a.DeleteTextures, "glDeleteTextures") &&
+              bind(gles, a.TexImage2D, "glTexImage2D") && bind(gles, a.TexParameteri, "glTexParameteri") &&
+              bind(gles, a.FramebufferTexture2D, "glFramebufferTexture2D") && bind(gles, a.GenRenderbuffers, "glGenRenderbuffers") &&
+              bind(gles, a.BindRenderbuffer, "glBindRenderbuffer") && bind(gles, a.DeleteRenderbuffers, "glDeleteRenderbuffers") &&
+              bind(gles, a.RenderbufferStorage, "glRenderbufferStorage") &&
+              bind(gles, a.FramebufferRenderbuffer, "glFramebufferRenderbuffer") &&
+              bind(gles, a.CheckFramebufferStatus, "glCheckFramebufferStatus") && bind(gles, a.BlitFramebuffer, "glBlitFramebuffer") &&
+              bind(gles, a.GetIntegerv, "glGetIntegerv") && bind(gles, a.IsEnabled, "glIsEnabled") &&
+              bind(gles, a.Enable, "glEnable") && bind(gles, a.Disable, "glDisable");
+    if (!ok) {
+        return false;
+    }
+    a.egl = egl;
+    a.gles = gles;
+    return true;
+}
+}  // namespace gl
+
+gl::Api gGl;
 
 constexpr int kDefaultSampleRate = 32768;
 constexpr double kDefaultFps = 59.64;
@@ -121,6 +237,32 @@ struct Core {
     uint64_t framesRun = 0;
     // The quick save to resume from once the first frame has run.
     bool resumePending = false;
+
+    // Left analog stick, -32767..32767 (PSP).
+    std::atomic<int> analogX{0};
+    std::atomic<int> analogY{0};
+
+    // Hardware rendering: the core draws with OpenGL ES into fbo on the emulation
+    // thread, which then stretches it onto the window.
+    bool hwRender = false;
+    retro_hw_render_callback hw{};
+    bool hwReady = false;
+    gl::EGLDisplay eglDisplay = nullptr;
+    gl::EGLConfig eglConfig = nullptr;
+    gl::EGLContext eglContext = nullptr;
+    gl::EGLSurface eglPbuffer = nullptr;
+    gl::EGLSurface eglWindowSurface = nullptr;
+    ANativeWindow* eglWindow = nullptr;
+    gl::GLuint fbo = 0, fboTexture = 0, fboDepth = 0;
+    int fboWidth = 0, fboHeight = 0;
+    unsigned maxWidth = 0, maxHeight = 0;
+    unsigned lastWidth = 0, lastHeight = 0;
+    // Calls from Java that must run on the GL thread (save states and reset).
+    std::mutex jobMutex;
+    std::condition_variable jobCv;
+    std::function<bool()> job;
+    bool jobDone = false;
+    bool jobResult = false;
 };
 
 JavaVM* gVm = nullptr;
@@ -220,6 +362,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "fceumm") return "libfceumm_libretro_android.so";
     if (coreId == "genesis_plus_gx") return "libgenesis_plus_gx_libretro_android.so";
     if (coreId == "pce_fast") return "libmednafen_pce_fast_libretro_android.so";
+    if (coreId == "ppsspp") return "libppsspp_libretro_android.so";
     return nullptr;
 }
 
@@ -261,7 +404,7 @@ bool loadCoreSymbols(Core* core) {
 // MAME 2010/2015 only build their machine inside the first retro_run, so a state
 // restored before that dereferences a machine that does not exist yet.
 bool needsFrameBeforeState(const Core* core) {
-    return core->coreId == "mame2010" || core->coreId == "mame2015";
+    return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp";
 }
 
 bool saveState(Core* core) {
@@ -606,6 +749,9 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_frameskip") == 0) return "0";
     // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
     if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
+    // PSP: the bridge offers OpenGL ES only; render at twice the PSP's resolution.
+    if (strcmp(key, "ppsspp_backend") == 0) return "opengl";
+    if (strcmp(key, "ppsspp_internal_resolution") == 0) return "960x544";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -636,6 +782,19 @@ void storeDefaultVariables(Core* core, const retro_variable* vars) {
         std::string value = bar != nullptr ? std::string(start, bar - start) : std::string(start);
         core->variables[vars->key] = value;
     }
+}
+
+uintptr_t RETRO_CALLCONV hwCurrentFramebuffer() {
+    Core* core = gCore;
+    return core != nullptr ? core->fbo : 0;
+}
+
+retro_proc_address_t RETRO_CALLCONV hwProcAddress(const char* sym) {
+    void* fn = gGl.gles != nullptr ? dlsym(gGl.gles, sym) : nullptr;
+    if (fn == nullptr && gGl.GetProcAddress != nullptr) {
+        fn = gGl.GetProcAddress(sym);
+    }
+    return reinterpret_cast<retro_proc_address_t>(fn);
 }
 
 bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
@@ -687,6 +846,36 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         // Plain 51 without the experimental flag, as accepted by the original build.
         case 51:
             return true;
+        case RETRO_ENVIRONMENT_SET_HW_RENDER: {
+            // OpenGL ES only; the context itself is made on the emulation thread.
+            auto* hw = static_cast<retro_hw_render_callback*>(data);
+            if (hw == nullptr) return false;
+            if (hw->context_type != RETRO_HW_CONTEXT_OPENGLES2 && hw->context_type != RETRO_HW_CONTEXT_OPENGLES3 &&
+                hw->context_type != RETRO_HW_CONTEXT_OPENGLES_VERSION && hw->context_type != RETRO_HW_CONTEXT_OPENGL) {
+                return false;
+            }
+            if (!gl::load(gGl)) {
+                LOGE("OpenGL ES is not available");
+                return false;
+            }
+            hw->get_current_framebuffer = hwCurrentFramebuffer;
+            hw->get_proc_address = hwProcAddress;
+            core->hw = *hw;
+            core->hwRender = true;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
+            auto* info = static_cast<const retro_system_av_info*>(data);
+            if (info == nullptr) return false;
+            core->maxWidth = info->geometry.max_width;
+            core->maxHeight = info->geometry.max_height;
+            if (info->timing.fps > 1.0) {
+                core->fps = info->timing.fps;
+            }
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_GEOMETRY:
+            return true;
         default:
             return false;
     }
@@ -708,9 +897,54 @@ private:
     Core* core_;
 };
 
+// Stretches the core's last frame from fbo onto the window and shows it. Runs on
+// the emulation thread with the context current.
+void presentHwFrame(Core* core) {
+    if (core->eglWindowSurface == nullptr || core->lastWidth == 0 || core->lastHeight == 0) {
+        return;
+    }
+    gl::EGLint width = 0, height = 0;
+    gGl.QuerySurface(core->eglDisplay, core->eglWindowSurface, gl::EGL_WIDTH, &width);
+    gGl.QuerySurface(core->eglDisplay, core->eglWindowSurface, gl::EGL_HEIGHT, &height);
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    // The core keeps its own GL state; put back what the blit touches.
+    gl::GLint readBinding = 0, drawBinding = 0;
+    gGl.GetIntegerv(gl::GL_READ_FRAMEBUFFER_BINDING, &readBinding);
+    gGl.GetIntegerv(gl::GL_DRAW_FRAMEBUFFER_BINDING, &drawBinding);
+    bool scissor = gGl.IsEnabled(gl::GL_SCISSOR_TEST) != 0;
+    if (scissor) gGl.Disable(gl::GL_SCISSOR_TEST);
+    gGl.BindFramebuffer(gl::GL_READ_FRAMEBUFFER, core->fbo);
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
+    int w = static_cast<int>(core->lastWidth), h = static_cast<int>(core->lastHeight);
+    // Without bottom_left_origin the frame's first row is its top, so it is flipped
+    // onto the window, whose first row is the bottom.
+    if (core->hw.bottom_left_origin) {
+        gGl.BlitFramebuffer(0, 0, w, h, 0, 0, width, height, gl::GL_COLOR_BUFFER_BIT, gl::GL_LINEAR);
+    } else {
+        gGl.BlitFramebuffer(0, 0, w, h, 0, height, width, 0, gl::GL_COLOR_BUFFER_BIT, gl::GL_LINEAR);
+    }
+    gGl.SwapBuffers(core->eglDisplay, core->eglWindowSurface);
+    gGl.BindFramebuffer(gl::GL_READ_FRAMEBUFFER, static_cast<gl::GLuint>(readBinding));
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, static_cast<gl::GLuint>(drawBinding));
+    if (scissor) gGl.Enable(gl::GL_SCISSOR_TEST);
+}
+
 // Copies one frame into the window, converting it to RGB565.
 void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsigned height, size_t pitch) {
     Core* core = gCore;
+    if (core != nullptr && core->hwRender) {
+        if (!core->hwReady) {
+            return;
+        }
+        if (data == RETRO_HW_FRAME_BUFFER_VALID) {
+            core->lastWidth = width;
+            core->lastHeight = height;
+        }
+        presentHwFrame(core);
+        return;
+    }
     if (data == nullptr || core == nullptr) {
         return;
     }
@@ -793,8 +1027,11 @@ int mame2010ButtonBitFor(unsigned id) {
     }
 }
 
-int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned /*index*/, unsigned id) {
+int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned index, unsigned id) {
     Core* core = gCore;
+    if (port == 0 && device == RETRO_DEVICE_ANALOG && core != nullptr && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
+        return static_cast<int16_t>(id == RETRO_DEVICE_ID_ANALOG_X ? core->analogX.load() : core->analogY.load());
+    }
     if (port != 0 || device != RETRO_DEVICE_JOYPAD || core == nullptr) {
         return 0;
     }
@@ -819,7 +1056,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         bit = buttonBitFor(id, false);
     } else {
         // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
-        bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" || core->coreId == "genesis_plus_gx";
+        bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
+                       core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -827,8 +1065,181 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
 
 // ---- Emulation thread ------------------------------------------------------
 
+// Makes the context the core draws with, plus an offscreen surface to keep it current
+// while no window is attached, and the framebuffer it renders into.
+bool setUpHwContext(Core* core) {
+    core->eglDisplay = gGl.GetDisplay(nullptr);
+    if (core->eglDisplay == nullptr || !gGl.Initialize(core->eglDisplay, nullptr, nullptr)) {
+        LOGE("eglInitialize failed");
+        return false;
+    }
+    const gl::EGLint configAttribs[] = {gl::EGL_RED_SIZE, 8, gl::EGL_GREEN_SIZE, 8, gl::EGL_BLUE_SIZE, 8,
+                                        gl::EGL_ALPHA_SIZE, 8, gl::EGL_SURFACE_TYPE, gl::EGL_WINDOW_BIT | gl::EGL_PBUFFER_BIT,
+                                        gl::EGL_RENDERABLE_TYPE, gl::EGL_OPENGL_ES3_BIT, gl::EGL_NONE};
+    gl::EGLint count = 0;
+    if (!gGl.ChooseConfig(core->eglDisplay, configAttribs, &core->eglConfig, 1, &count) || count < 1) {
+        LOGE("No OpenGL ES 3 config");
+        return false;
+    }
+    const gl::EGLint contextAttribs[] = {gl::EGL_CONTEXT_CLIENT_VERSION, 3, gl::EGL_NONE};
+    core->eglContext = gGl.CreateContext(core->eglDisplay, core->eglConfig, nullptr, contextAttribs);
+    const gl::EGLint pbufferAttribs[] = {gl::EGL_WIDTH, 16, gl::EGL_HEIGHT, 16, gl::EGL_NONE};
+    core->eglPbuffer = gGl.CreatePbufferSurface(core->eglDisplay, core->eglConfig, pbufferAttribs);
+    if (core->eglContext == nullptr || core->eglPbuffer == nullptr ||
+        !gGl.MakeCurrent(core->eglDisplay, core->eglPbuffer, core->eglPbuffer, core->eglContext)) {
+        LOGE("Could not create the OpenGL ES context");
+        return false;
+    }
+    int width = static_cast<int>(core->maxWidth > 0 ? core->maxWidth : 1024);
+    int height = static_cast<int>(core->maxHeight > 0 ? core->maxHeight : 1024);
+    width = width > 4096 ? 4096 : width;
+    height = height > 4096 ? 4096 : height;
+    gGl.GenTextures(1, &core->fboTexture);
+    gGl.BindTexture(gl::GL_TEXTURE_2D, core->fboTexture);
+    gGl.TexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR);
+    gGl.TexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+    gGl.TexImage2D(gl::GL_TEXTURE_2D, 0, gl::GL_RGBA8, width, height, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, nullptr);
+    gGl.GenFramebuffers(1, &core->fbo);
+    gGl.BindFramebuffer(gl::GL_FRAMEBUFFER, core->fbo);
+    gGl.FramebufferTexture2D(gl::GL_FRAMEBUFFER, gl::GL_COLOR_ATTACHMENT0, gl::GL_TEXTURE_2D, core->fboTexture, 0);
+    if (core->hw.depth || core->hw.stencil) {
+        gGl.GenRenderbuffers(1, &core->fboDepth);
+        gGl.BindRenderbuffer(gl::GL_RENDERBUFFER, core->fboDepth);
+        gGl.RenderbufferStorage(gl::GL_RENDERBUFFER, gl::GL_DEPTH24_STENCIL8, width, height);
+        gGl.FramebufferRenderbuffer(gl::GL_FRAMEBUFFER, gl::GL_DEPTH_STENCIL_ATTACHMENT, gl::GL_RENDERBUFFER, core->fboDepth);
+    }
+    if (gGl.CheckFramebufferStatus(gl::GL_FRAMEBUFFER) != gl::GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("Framebuffer incomplete");
+        return false;
+    }
+    core->fboWidth = width;
+    core->fboHeight = height;
+    core->hwReady = true;
+    if (core->hw.context_reset != nullptr) {
+        core->hw.context_reset();
+    }
+    return true;
+}
+
+// Follows the window Java hands over: a new EGL surface for a new window, the
+// offscreen one while there is none. The bridge holds its own reference to the
+// window it draws into, so Java releasing its one does not pull it away mid-frame.
+void bindHwWindow(Core* core) {
+    ANativeWindow* wanted;
+    {
+        std::lock_guard<std::mutex> lock(core->videoMutex);
+        wanted = core->window;
+        if (wanted != nullptr) {
+            ANativeWindow_acquire(wanted);
+        }
+    }
+    if (wanted == core->eglWindow) {
+        if (wanted != nullptr) {
+            ANativeWindow_release(wanted);
+        }
+        return;
+    }
+    if (core->eglWindowSurface != nullptr) {
+        gGl.MakeCurrent(core->eglDisplay, core->eglPbuffer, core->eglPbuffer, core->eglContext);
+        gGl.DestroySurface(core->eglDisplay, core->eglWindowSurface);
+        core->eglWindowSurface = nullptr;
+    }
+    if (core->eglWindow != nullptr) {
+        ANativeWindow_release(core->eglWindow);
+    }
+    core->eglWindow = wanted;
+    if (wanted == nullptr) {
+        return;
+    }
+    gl::EGLint format = 0;
+    gGl.GetConfigAttrib(core->eglDisplay, core->eglConfig, gl::EGL_NATIVE_VISUAL_ID, &format);
+    ANativeWindow_setBuffersGeometry(wanted, 0, 0, format);
+    core->eglWindowSurface = gGl.CreateWindowSurface(core->eglDisplay, core->eglConfig, wanted, nullptr);
+    if (core->eglWindowSurface == nullptr ||
+        !gGl.MakeCurrent(core->eglDisplay, core->eglWindowSurface, core->eglWindowSurface, core->eglContext)) {
+        LOGE("Could not draw into the window");
+        if (core->eglWindowSurface != nullptr) {
+            gGl.DestroySurface(core->eglDisplay, core->eglWindowSurface);
+            core->eglWindowSurface = nullptr;
+        }
+        gGl.MakeCurrent(core->eglDisplay, core->eglPbuffer, core->eglPbuffer, core->eglContext);
+        return;
+    }
+    // The emulation thread paces frames itself.
+    gGl.SwapInterval(core->eglDisplay, 0);
+    // Show the last frame straight away, e.g. while paused after a rotation.
+    presentHwFrame(core);
+}
+
+// Runs a call Java queued for the GL thread.
+void runPendingJob(Core* core) {
+    std::function<bool()> job;
+    {
+        std::lock_guard<std::mutex> lock(core->jobMutex);
+        if (!core->job) {
+            return;
+        }
+        job = core->job;
+        core->job = nullptr;
+    }
+    bool result;
+    {
+        std::lock_guard<std::mutex> lock(core->coreMutex);
+        result = job();
+    }
+    {
+        std::lock_guard<std::mutex> lock(core->jobMutex);
+        core->jobResult = result;
+        core->jobDone = true;
+    }
+    core->jobCv.notify_all();
+}
+
+// On the way out a hardware-rendered core saves, unloads and lets go of its GL
+// objects while the context is still current.
+void tearDownHw(Core* core) {
+    if (!core->hwReady) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(core->coreMutex);
+        if (core->gameLoaded) {
+            saveState(core);
+            saveSram(core);
+            core->retroUnloadGame();
+            core->gameLoaded = false;
+        }
+    }
+    if (core->hw.context_destroy != nullptr) {
+        core->hw.context_destroy();
+    }
+    if (core->fbo != 0) gGl.DeleteFramebuffers(1, &core->fbo);
+    if (core->fboTexture != 0) gGl.DeleteTextures(1, &core->fboTexture);
+    if (core->fboDepth != 0) gGl.DeleteRenderbuffers(1, &core->fboDepth);
+    core->fbo = core->fboTexture = core->fboDepth = 0;
+    gGl.MakeCurrent(core->eglDisplay, nullptr, nullptr, nullptr);
+    if (core->eglWindowSurface != nullptr) gGl.DestroySurface(core->eglDisplay, core->eglWindowSurface);
+    if (core->eglPbuffer != nullptr) gGl.DestroySurface(core->eglDisplay, core->eglPbuffer);
+    if (core->eglContext != nullptr) gGl.DestroyContext(core->eglDisplay, core->eglContext);
+    core->eglWindowSurface = core->eglPbuffer = core->eglContext = nullptr;
+    if (core->eglWindow != nullptr) {
+        ANativeWindow_release(core->eglWindow);
+        core->eglWindow = nullptr;
+    }
+    core->hwReady = false;
+}
+
 void runLoop(Core* core) {
+    if (core->hwRender && !setUpHwContext(core)) {
+        // Nothing can be drawn; keep answering Java until the game is closed.
+        core->hwRender = false;
+        LOGE("Hardware rendering unavailable");
+    }
     while (core->running.load()) {
+        if (core->hwReady) {
+            bindHwWindow(core);
+            runPendingJob(core);
+        }
         int speed = core->speedMultiplier.load();
         if (speed < 1) {
             speed = 1;
@@ -855,6 +1266,38 @@ void runLoop(Core* core) {
             std::this_thread::sleep_for(std::chrono::nanoseconds(static_cast<int64_t>(std::ceil(remainingNs))));
         }
     }
+    tearDownHw(core);
+    // Wake a Java call still waiting for a job that will not run now.
+    {
+        std::lock_guard<std::mutex> lock(core->jobMutex);
+        if (core->job) {
+            core->job = nullptr;
+            core->jobResult = false;
+            core->jobDone = true;
+        }
+    }
+    core->jobCv.notify_all();
+}
+
+// Runs fn with the core locked: directly for software cores, on the emulation
+// thread (where the GL context lives) for hardware-rendered ones.
+bool callCore(Core* core, const std::function<bool()>& fn) {
+    if (!core->hwReady || !core->threadStarted || !core->running.load()) {
+        CoreLock lock(core);
+        return fn();
+    }
+    std::unique_lock<std::mutex> lock(core->jobMutex);
+    core->jobCv.wait_for(lock, std::chrono::seconds(5), [core] { return !core->job; });
+    if (core->job) {
+        return false;
+    }
+    core->job = fn;
+    core->jobDone = false;
+    if (!core->jobCv.wait_for(lock, std::chrono::seconds(10), [core] { return core->jobDone; })) {
+        core->job = nullptr;
+        return false;
+    }
+    return core->jobResult;
 }
 
 void* emulationThread(void* arg) {
@@ -1011,6 +1454,10 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     if (info.timing.fps > 1.0) {
         core->fps = info.timing.fps;
     }
+    if (core->maxWidth == 0 || core->maxHeight == 0) {
+        core->maxWidth = info.geometry.max_width;
+        core->maxHeight = info.geometry.max_height;
+    }
     core->sampleRate = info.timing.sample_rate > 1.0 ? static_cast<int>(info.timing.sample_rate)
                                                       : kDefaultSampleRate;
     configureAudio(core, core->sampleRate);
@@ -1105,10 +1552,11 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveNow(JNIEnv* /*
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    CoreLock lock(core);
-    bool state = saveState(core);
-    bool sram = saveSram(core);
-    return (state || sram) ? JNI_TRUE : JNI_FALSE;
+    return callCore(core, [core] {
+        bool state = saveState(core);
+        bool sram = saveSram(core);
+        return state || sram;
+    }) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveStateNow(
@@ -1117,8 +1565,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveStateNow(
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    CoreLock lock(core);
-    return saveState(core) ? JNI_TRUE : JNI_FALSE;
+    return callCore(core, [core] { return saveState(core); }) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
@@ -1127,12 +1574,13 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    CoreLock lock(core);
-    if (needsFrameBeforeState(core) && core->framesRun == 0) {
-        return JNI_FALSE;
-    }
-    core->resumePending = false;
-    return loadState(core) ? JNI_TRUE : JNI_FALSE;
+    return callCore(core, [core] {
+        if (needsFrameBeforeState(core) && core->framesRun == 0) {
+            return false;
+        }
+        core->resumePending = false;
+        return loadState(core);
+    }) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveSramNow(
@@ -1141,8 +1589,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveSramNow(
     if (core == nullptr || !core->gameLoaded) {
         return JNI_FALSE;
     }
-    CoreLock lock(core);
-    return saveSram(core) ? JNI_TRUE : JNI_FALSE;
+    return callCore(core, [core] { return saveSram(core); }) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
@@ -1150,8 +1597,20 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/,
     if (core == nullptr || !core->gameLoaded || core->retroReset == nullptr) {
         return;
     }
-    CoreLock lock(core);
-    core->retroReset();
+    callCore(core, [core] {
+        core->retroReset();
+        return true;
+    });
+}
+
+// PSP left stick, each axis -32767..32767.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalog(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint x, jint y) {
+    Core* core = fromHandle(handle);
+    if (core != nullptr) {
+        core->analogX.store(x);
+        core->analogY.store(y);
+    }
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_destroy(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {

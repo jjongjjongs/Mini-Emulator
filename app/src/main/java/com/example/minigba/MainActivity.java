@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_NES = "nes";
     private static final String MODE_MD = "md";
     private static final String MODE_PCE = "pce";
+    private static final String MODE_PSP = "psp";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
     private static final String[][] CONSOLES = {
@@ -79,6 +80,7 @@ public final class MainActivity extends Activity {
             {MODE_NES, "fceumm", ".nes,.unf,.unif", ".nes / .zip", "roms_nes", "1014"},
             {MODE_MD, "genesis_plus_gx", ".md,.gen,.smd,.bin,.sms,.gg", ".md / .gen / .bin / .zip", "roms_md", "1015"},
             {MODE_PCE, "pce_fast", ".pce", ".pce / .zip", "roms_pce", "1016"},
+            {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
     };
 
     private static String[] consoleFor(String mode) {
@@ -125,12 +127,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_SNES, MODE_NES, MODE_MD, MODE_PCE, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "슈퍼패미컴", "패미컴", "메가드라이브", "PC엔진", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "Snes9x", "FCEUmm", "Genesis Plus GX", "Beetle PCE Fast", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", ".pce · .zip (HuCard)", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "SFC", "FC", "MD", "PCE", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(52, 58, 70), Color.rgb(232, 96, 44), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_SNES, MODE_NES, MODE_MD, MODE_PCE, MODE_PSP, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "슈퍼패미컴", "패미컴", "메가드라이브", "PC엔진", "PSP", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "Snes9x", "FCEUmm", "Genesis Plus GX", "Beetle PCE Fast", "PPSSPP", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", ".pce · .zip (HuCard)", ".iso · .cso · .pbp", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "SFC", "FC", "MD", "PCE", "PSP", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(52, 58, 70), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -1003,6 +1005,57 @@ public final class MainActivity extends Activity {
     }
 
     private void importRoms(Intent intent, String mode) {
+        if (MODE_PSP.equals(mode)) {
+            // UMD images run to gigabytes; copy them off the UI thread.
+            final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+            progress.setTitle("PSP 게임 가져오기");
+            progress.setMessage("복사 중… 용량이 커서 시간이 걸릴 수 있어요");
+            progress.setCancelable(false);
+            progress.show();
+            new Thread(() -> {
+                final ImportOutcome outcome = copyRoms(intent, mode);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    progress.dismiss();
+                    finishRomImport(outcome);
+                });
+            }, "import").start();
+            return;
+        }
+        finishRomImport(copyRoms(intent, mode));
+    }
+
+    private static final class ImportOutcome {
+        int imported;
+        int duplicates;
+        int picked;
+        File first;
+        final StringBuilder errors = new StringBuilder();
+    }
+
+    private void finishRomImport(ImportOutcome outcome) {
+        if (outcome.picked == 0) {
+            return;
+        }
+        refreshLibrary();
+        String str = "가져오기 완료: " + outcome.imported + "개";
+        if (outcome.duplicates > 0) {
+            str = str + "  |  중복 건너뜀: " + outcome.duplicates + "개";
+        }
+        if (outcome.errors.length() > 0) {
+            showError(str + "\n" + outcome.errors);
+        } else {
+            showMessage(str);
+        }
+        if (outcome.picked == 1 && outcome.imported == 1 && outcome.first != null) {
+            launchGame(outcome.first);
+        }
+    }
+
+    private ImportOutcome copyRoms(Intent intent, String mode) {
+        ImportOutcome outcome = new ImportOutcome();
         List<File> singletonOrEmpty;
         ArrayList<Uri> arrayList = new ArrayList();
         ClipData clipData = intent.getClipData();
@@ -1017,10 +1070,11 @@ public final class MainActivity extends Activity {
         } else if (intent.getData() != null) {
             arrayList.add(intent.getData());
         }
+        outcome.picked = arrayList.size();
         if (arrayList.isEmpty()) {
-            return;
+            return outcome;
         }
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = outcome.errors;
         File file = null;
         int i3 = 0;
         for (Uri uri2 : arrayList) {
@@ -1049,19 +1103,10 @@ public final class MainActivity extends Activity {
                 }
             }
         }
-        refreshLibrary();
-        String str = "가져오기 완료: " + i + "개";
-        if (i3 > 0) {
-            str = str + "  |  중복 건너뜀: " + i3 + "개";
-        }
-        if (sb.length() > 0) {
-            showError(str + "\n" + ((Object) sb));
-        } else {
-            showMessage(str);
-        }
-        if (arrayList.size() == 1 && i == 1 && file != null) {
-            launchGame(file);
-        }
+        outcome.imported = i;
+        outcome.duplicates = i3;
+        outcome.first = file;
+        return outcome;
     }
 
     private void importArcadeRoms(Intent intent) {
@@ -2695,6 +2740,9 @@ public final class MainActivity extends Activity {
             syncArcadeBiosFiles();
         } else if ("neogeo".equals(mode)) {
             syncNeoGeoBiosInto(file.getParentFile());
+        } else if (MODE_PSP.equals(mode) && !preparePspSystemFiles()) {
+            showError("PSP 시스템 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
+            return;
         }
         migrateSaveFileIfNeeded(file);
         markRecentlyPlayed(file);
@@ -2705,6 +2753,54 @@ public final class MainActivity extends Activity {
         intent.putExtra(GameActivity.EXTRA_MODE, mode);
         intent.putExtra(GameActivity.EXTRA_TITLE, displayGameNameFor(file));
         startActivity(intent);
+    }
+
+    // PPSSPP reads its fonts, VFPU tables and compat.ini from <system>/PPSSPP; they ship in
+    // assets/ppsspp_system.zip and are unpacked again whenever the app version changes.
+    private boolean preparePspSystemFiles() {
+        File dir = new File(systemDir(), "PPSSPP");
+        File marker = new File(dir, ".mini_emulator_version");
+        String version;
+        try {
+            version = String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).versionCode);
+        } catch (Exception e) {
+            version = "0";
+        }
+        if (marker.isFile() && version.equals(readSmallText(marker))) {
+            return true;
+        }
+        try (ZipInputStream zip = new ZipInputStream(getAssets().open("ppsspp_system.zip"))) {
+            String root = dir.getCanonicalPath() + File.separator;
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                File target = new File(dir, entry.getName());
+                if (!target.getCanonicalPath().startsWith(root)) {
+                    continue;
+                }
+                if (entry.isDirectory()) {
+                    target.mkdirs();
+                    continue;
+                }
+                File parent = target.getParentFile();
+                if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                    return false;
+                }
+                try (FileOutputStream out = new FileOutputStream(target)) {
+                    copy(zip, out);
+                }
+            }
+            try (FileOutputStream out = new FileOutputStream(marker)) {
+                out.write(version.getBytes(StandardCharsets.UTF_8));
+            }
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static String readSmallText(File file) {
+        byte[] data = readHead(file, (int) Math.min(file.length(), 64));
+        return data == null ? "" : new String(data, StandardCharsets.UTF_8).trim();
     }
 
     private void startSaveExport(File file) {
@@ -3254,7 +3350,8 @@ public final class MainActivity extends Activity {
             return null;
         }
         for (File file2 : listFiles) {
-            if (!file2.equals(file) && str.equals(safeCrc32Hex(file2))) {
+            // Only same-sized files can be duplicates; skips hashing gigabyte PSP images.
+            if (!file2.equals(file) && file2.length() == file.length() && str.equals(safeCrc32Hex(file2))) {
                 return file2;
             }
         }
@@ -3343,9 +3440,15 @@ public final class MainActivity extends Activity {
         List<String[]> issues = new ArrayList<>();
         int ok = 0;
         int duplicates = 0;
+        HashMap<Long, Integer> sizes = new HashMap<>();
+        for (File file : listFiles) {
+            Integer count = sizes.get(file.length());
+            sizes.put(file.length(), count == null ? 1 : count + 1);
+        }
         for (File file : listFiles) {
             RomCheck check = checkRomFile(file);
-            String crc = safeCrc32Hex(file);
+            // Only same-sized files are hashed; a unique size cannot be a duplicate.
+            String crc = sizes.get(file.length()) > 1 ? safeCrc32Hex(file) : "size:" + file.length();
             File first = seen.get(crc);
             if (first != null) {
                 duplicates++;
@@ -3644,6 +3747,29 @@ public final class MainActivity extends Activity {
         return sega.contains("SEGA") ? new RomCheck(true, "메가드라이브 헤더 정상") : new RomCheck(false, "SEGA 헤더 없음");
     }
 
+    // UMD images: ISO 9660 ("CD001" at 0x8001), compressed CSO ("CISO"), PSN EBOOT ("\0PBP")
+    // or MAME CHD ("MComprHD").
+    private RomCheck checkPspImage(File file) {
+        byte[] head = readHead(file, 0x8006);
+        if (head == null) {
+            return new RomCheck(false, "읽기 실패");
+        }
+        String start = new String(head, 0, 8, StandardCharsets.ISO_8859_1);
+        if (start.startsWith("CISO")) {
+            return new RomCheck(true, "CSO 이미지 정상");
+        }
+        if (start.startsWith("\0PBP")) {
+            return new RomCheck(true, "EBOOT.PBP 정상");
+        }
+        if (start.startsWith("MComprHD")) {
+            return new RomCheck(true, "CHD 이미지 정상");
+        }
+        if ("CD001".equals(new String(head, 0x8001, 5, StandardCharsets.ISO_8859_1))) {
+            return new RomCheck(true, "UMD ISO 정상");
+        }
+        return new RomCheck(false, "PSP 이미지 헤더 없음");
+    }
+
     private static byte[] readHead(File file, int length) {
         byte[] head = new byte[length];
         try (FileInputStream in = new FileInputStream(file)) {
@@ -3668,6 +3794,9 @@ public final class MainActivity extends Activity {
         }
         if (MODE_MD.equals(mode)) {
             return checkMegaDriveHeader(file);
+        }
+        if (MODE_PSP.equals(mode)) {
+            return checkPspImage(file);
         }
         if (MODE_PCE.equals(mode)) {
             // HuCards have no header; dumps are whole 8KB banks, some with a 512-byte copier header.
@@ -4504,6 +4633,9 @@ public final class MainActivity extends Activity {
         }
         if ("pce_fast".equals(str)) {
             return "Beetle PCE Fast";
+        }
+        if ("ppsspp".equals(str)) {
+            return "PPSSPP";
         }
         return "Game Boy Advance";
     }

@@ -31,6 +31,8 @@ final class TouchButton extends View {
     private final Paint stroke;
     private final int style;
     private final Paint text;
+    // Colour for the label of round buttons; 0 keeps white (PSP symbols are coloured).
+    private int labelColor;
 
     interface Listener {
         void onButtonChanged(int i, boolean z);
@@ -141,7 +143,7 @@ final class TouchButton extends View {
         canvas.rotate(-25.0f, cx - radius * 0.28f, cy - radius * 0.58f);
         canvas.drawOval(new RectF(cx - radius * 0.64f, cy - radius * 0.78f, cx + radius * 0.08f, cy - radius * 0.38f), this.highlight);
         canvas.restore();
-        drawLabel(canvas, cx, cy, radius * 0.86f, Color.WHITE);
+        drawLabel(canvas, cx, cy, radius * 0.86f, this.labelColor != 0 ? this.labelColor : Color.WHITE);
     }
 
     // Wide keys (L/R, SELECT/START, coin and the like): smoky see-through plastic.
@@ -198,6 +200,11 @@ final class TouchButton extends View {
         canvas.drawText(this.label, x, baseline + (darkLabel ? 1.0f : 1.5f), this.text);
         this.text.setColor(color);
         canvas.drawText(this.label, x, baseline, this.text);
+    }
+
+    void setLabelColor(int color) {
+        this.labelColor = color;
+        invalidate();
     }
 
     @Override
