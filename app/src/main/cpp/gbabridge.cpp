@@ -925,6 +925,9 @@ const char* fixedVariable(const char* key) {
     // PSP: the bridge offers OpenGL ES only; render at twice the PSP's resolution.
     if (strcmp(key, "ppsspp_backend") == 0) return "opengl";
     if (strcmp(key, "ppsspp_internal_resolution") == 0) return "960x544";
+    // PSP system language Korean: Korean games (and Korean patches) pick their text and
+    // the kr0.pgf system font from it; games without Korean fall back to English.
+    if (strcmp(key, "ppsspp_language") == 0) return "Korean";
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
