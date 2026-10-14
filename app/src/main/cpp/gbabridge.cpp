@@ -1010,6 +1010,8 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 std::string gPspLanguage = "Korean";
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
+// DS screens touch (landscape) instead of keeping a 4-row gap (portrait).
+std::atomic<bool> gNdsGapless{false};
 
 // Core options the app pins regardless of what the core reports as default.
 const char* fixedVariable(const char* key) {
@@ -1036,11 +1038,11 @@ const char* fixedVariable(const char* key) {
     // the frontend blocking on audio to hold the speed. Audio here does not block, so the
     // game ran up to twice as fast; present every frame and let the bridge pace them.
     if (strcmp(key, "pcsx2_skip_duplicate_frames") == 0) return "disabled";
-    // DS: both screens stacked, with the gap the app draws its hinge into (4 of the 388
-    // rows), touched with a finger (no cursor drawn).
+    // DS: both screens stacked, touching in landscape and 4 rows apart in portrait,
+    // touched with a finger (no cursor drawn).
     if (strcmp(key, "melonds_number_of_screen_layouts") == 0) return "1";
     if (strcmp(key, "melonds_screen_layout1") == 0) return "top-bottom";
-    if (strcmp(key, "melonds_screen_gap") == 0) return "4";
+    if (strcmp(key, "melonds_screen_gap") == 0) return gNdsGapless.load() ? "0" : "4";
     if (strcmp(key, "melonds_touch_mode") == 0) return "touch";
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
@@ -2040,6 +2042,15 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspLanguage(
         core->retroReset();
         return true;
     });
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNdsGapless(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jboolean gapless) {
+    bool value = gapless == JNI_TRUE;
+    if (gNdsGapless.exchange(value) != value && fromHandle(handle) != nullptr) {
+        // melonDS DS lays its screens out again when it sees the option change.
+        gVariablesUpdated.store(true);
+    }
 }
 
 // PSP left stick, each axis -32767..32767.

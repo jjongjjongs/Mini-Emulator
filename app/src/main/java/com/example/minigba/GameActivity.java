@@ -113,6 +113,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createPortraitContent() {
+        if (isNds()) {
+            NativeGba.setNdsGapless(this.nativeHandle, this.landscapeMode);
+        }
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
@@ -162,12 +165,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createLandscapeContent() {
+        if (isNds()) {
+            NativeGba.setNdsGapless(this.nativeHandle, this.landscapeMode);
+        }
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         FrameLayout frameLayout = new FrameLayout(this);
         final boolean full = isFullScreenStyle();
         final int i = full ? 1 : 0;
-        int dp = full ? 0 : dp(2);
+        // The DS screens run from the top edge to the bottom edge, without a bezel.
+        int dp = full || isNds() ? 0 : dp(2);
         final FrameLayout frameLayout2 = new FrameLayout(this);
         frameLayout2.setBackgroundColor(Color.rgb(18, 22, 32));
         frameLayout2.setPadding(dp, dp, dp, dp);
@@ -187,7 +194,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
         shell.setCompactBezel(!full && (isDualShock() || isNds()));
-        shell.track(frameLayout2, frameLayout);
+        shell.track(isNds() ? null : frameLayout2, frameLayout);
         setContentView(root);
     }
 
@@ -307,8 +314,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // The bezel takes dp(10) above the screen and dp(26) below it; full style has none.
         int maxHeight;
         if (isNds()) {
-            // Stacked DS screens take the full height: dp(14) above, a compact bezel below.
-            maxHeight = Math.max(dp(150), height - (full ? dp(14) + dp(6) : dp(14) + dp(10) + dp(8)));
+            // Stacked DS screens take the full height, edge to edge.
+            maxHeight = Math.max(dp(150), height);
         } else if (full) {
             // Room for the thin glass bezel (dp(5) each side) included.
             maxHeight = Math.max(dp(150), height - (isGba ? dp(13) + dp(5) + dp(46) : dp(12) + dp(10)));
@@ -319,7 +326,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        int topMargin = isNds() ? dp(14) : isGba ? dp(full ? 13 : 18) : 0;
+        int topMargin = isNds() ? 0 : isGba ? dp(full ? 13 : 18) : 0;
         // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
         int bottomMargin = isGba || full ? 0 : dp(16);
         if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
@@ -1788,8 +1795,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private float screenAspect() {
         if (isNds()) {
-            // Both 256x192 screens stacked with the 4-row gap the bridge asks melonDS DS for.
-            return 256.0f / 388.0f;
+            // Both 256x192 screens stacked: touching in landscape, with a 4-row gap in portrait
+            // (the bridge asks melonDS DS for it).
+            return this.landscapeMode ? 256.0f / 384.0f : 256.0f / 388.0f;
         }
         if (isPsp()) {
             return 480.0f / 272.0f;

@@ -37,6 +37,10 @@ final class NativeGba {
     // next game created; with a running game it applies and restarts the game.
     static native void setPspLanguage(long handle, String language);
 
+    // DS: true stacks the two screens with no gap (landscape), false with a 4-row gap.
+    // With handle 0 it applies to the next game created; a running game changes layout.
+    static native void setNdsGapless(long handle, boolean gapless);
+
     static native void setSurface(long j, Surface surface);
 
     static {
