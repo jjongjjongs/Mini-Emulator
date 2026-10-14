@@ -1564,7 +1564,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             setBox(v[1], r1 - rw, shoulderTop, rw, shoulderHeight);
         }
         int columnTop = shoulderTop + shoulderHeight + dp(8);
-        int columnBottom = height - dp(46);
+        // SELECT/START sit in the middle of the bottom row, clear of the side columns, so the
+        // columns run down to the case edge; leaving the bottom row out as well made the
+        // D-pad and stick small on phones that are not very tall in landscape.
+        int columnBottom = height - dp(14);
         int avail = Math.max(dp(120), columnBottom - columnTop);
         int pad = Math.min(Math.min(lw, dp(142)), Math.round(avail * 0.62f));
         setBox(v[2], lc - pad / 2, columnTop, pad, pad);
