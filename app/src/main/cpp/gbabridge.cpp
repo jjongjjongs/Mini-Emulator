@@ -1463,6 +1463,13 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     core->retroSetAudioSampleBatch(audioSampleBatchCallback);
     core->retroSetInputPoll(inputPollCallback);
     core->retroSetInputState(inputStateCallback);
+    if (core->coreId == "play") {
+        // Play! keeps its data ("Play Data Files": memory cards, settings) under
+        // $EXTERNAL_STORAGE, which the app may not write to; give it the save folder.
+        std::string dataDir = core->saveDir + "/play";
+        mkdir(dataDir.c_str(), 0700);
+        setenv("EXTERNAL_STORAGE", dataDir.c_str(), 1);
+    }
     core->retroInit();
     core->initialized = true;
 
