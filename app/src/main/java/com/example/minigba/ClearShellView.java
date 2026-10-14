@@ -36,6 +36,7 @@ final class ClearShellView extends View {
     private final String label;
     private final boolean landscape;
     private View screenView;
+    private boolean thinBezel;
     private View plateView;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -53,6 +54,12 @@ final class ClearShellView extends View {
         text.setFakeBoldText(true);
         text.setColor(Color.rgb(93, 101, 108));
         text.setLetterSpacing(0.22f);
+    }
+
+    // Full-screen style: a thin glass rim around the screen instead of the grey bezel.
+    void setThinBezel(boolean thin) {
+        this.thinBezel = thin;
+        invalidate();
     }
 
     // The bezel is drawn around screen, the frosted plate behind controls.
@@ -124,7 +131,11 @@ final class ClearShellView extends View {
         paint.setStyle(Paint.Style.FILL);
 
         if (screenView != null && screenView.getWidth() > 0) {
-            drawBezel(canvas, boundsOf(screenView));
+            if (thinBezel) {
+                drawGlassRim(canvas, boundsOf(screenView));
+            } else {
+                drawBezel(canvas, boundsOf(screenView));
+            }
         }
         if (plate != null) {
             drawScrew(canvas, plate.left + dp(18), plate.bottom - dp(16));
@@ -201,6 +212,27 @@ final class ClearShellView extends View {
         drawScrew(canvas, bezel.right + dp(10), bezel.top + dp(10));
         drawScrew(canvas, bezel.left - dp(10), bezel.bottom - dp(10));
         drawScrew(canvas, bezel.right + dp(10), bezel.bottom - dp(10));
+    }
+
+    // A see-through glass edge a few dp wide with a soft shadow, rounded at the corners.
+    private void drawGlassRim(Canvas canvas, RectF screen) {
+        float edge = dp(5);
+        RectF rim = new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
+        float radius = dp(10);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(36, 0, 0, 0));
+        canvas.drawRoundRect(new RectF(rim.left, rim.top + dp(3), rim.right, rim.bottom + dp(4)), radius, radius, paint);
+        paint.setColor(Color.argb(150, 255, 255, 255));
+        canvas.drawRoundRect(rim, radius, radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1.5f));
+        paint.setColor(Color.argb(150, 150, 160, 170));
+        canvas.drawRoundRect(rim, radius, radius, paint);
+        paint.setStrokeWidth(dp(1));
+        paint.setColor(Color.argb(220, 255, 255, 255));
+        float inner = dp(1.5f);
+        canvas.drawRoundRect(new RectF(rim.left + inner, rim.top + inner, rim.right - inner, rim.bottom - inner), radius - inner, radius - inner, paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawScrew(Canvas canvas, float x, float y) {

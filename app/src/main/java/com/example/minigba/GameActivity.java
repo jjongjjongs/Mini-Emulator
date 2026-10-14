@@ -124,23 +124,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // Frame style leaves room around the screen for the case's bezel and its screws;
         // full style runs the screen edge to edge.
         int[] frame = portraitScreen(dp(34), dp(4) + dp(2));
-        int[] screen = full ? portraitScreen(0, 0) : frame;
+        int[] screen = full ? portraitScreen(dp(6), 0) : frame;
         int side = screen[0];
         LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, screen[1]);
-        layoutParams2.setMargins(side, full ? 0 : dp(18), side, 0);
+        layoutParams2.setMargins(side, full ? dp(6) : dp(18), side, 0);
         linearLayout.addView(frameLayout, layoutParams2);
         FrameLayout frameLayout2 = new FrameLayout(this);
         frameLayout2.setBackgroundColor(0);
         addControls(frameLayout2);
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
         // The controls start where the frame style puts them, whatever the style.
-        controlsParams.topMargin = full ? Math.max(dp(8), dp(18) + frame[1] + dp(36) - screen[1]) : dp(36);
+        controlsParams.topMargin = full ? Math.max(dp(10), dp(18) + frame[1] + dp(36) - dp(6) - screen[1]) : dp(36);
         linearLayout.addView(frameLayout2, controlsParams);
         FrameLayout root = new FrameLayout(this);
         ClearShellView shell = createShell(false);
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
-        shell.track(full ? null : frameLayout, frameLayout2);
+        shell.setThinBezel(full);
+        shell.track(frameLayout, frameLayout2);
         setContentView(root);
     }
 
@@ -167,12 +168,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         ClearShellView shell = createShell(true);
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
-        shell.track(full ? null : frameLayout2, frameLayout);
+        shell.setThinBezel(full);
+        shell.track(frameLayout2, frameLayout);
         setContentView(root);
     }
 
     // "프레임" (the default) draws the case's bezel around the screen; "전체 화면" drops it
     // and makes the screen as large as fits beside the controls.
+    private boolean isGbaWideFull() {
+        return this.coreId.equals("gba") && this.landscapeMode && isFullScreenStyle();
+    }
+
     private boolean isFullScreenStyle() {
         return "full".equals(getSharedPreferences("settings", 0).getString("screen_style", "frame"));
     }
@@ -220,12 +226,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         boolean full = i == 1;
         // Pad layouts (GBA, Super Famicom) keep the speed button below the screen.
         boolean isGba = isPadLayout();
-        int maxWidth = Math.max(dp(240), width - dp(isGba ? 174 : 188) * 2);
+        int maxWidth = Math.max(dp(240), width - dp(isGbaWideFull() ? 156 : isGba ? 174 : 188) * 2);
         // GBA keeps the speed button below the screen, so its screen sits at the top.
         // The bezel takes dp(10) above the screen and dp(26) below it; full style has none.
         int maxHeight;
         if (full) {
-            maxHeight = Math.max(dp(150), height - (isGba ? dp(8) + dp(46) : dp(12)));
+            // Room for the thin glass bezel (dp(5) each side) included.
+            maxHeight = Math.max(dp(150), height - (isGba ? dp(13) + dp(5) + dp(46) : dp(12) + dp(10)));
         } else {
             maxHeight = Math.max(dp(150), height - (isGba ? dp(18) + dp(26) + dp(46) : dp(12) + dp(36)));
         }
@@ -233,7 +240,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        int topMargin = isGba ? dp(full ? 8 : 18) : 0;
+        int topMargin = isGba ? dp(full ? 13 : 18) : 0;
         // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
         int bottomMargin = isGba || full ? 0 : dp(16);
         if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
@@ -249,9 +256,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void addLandscapeControls(FrameLayout frameLayout) {
         View createDirectionControl = createDirectionControl();
         boolean isGba = isPadLayout();
+        // GBA in full-screen style moves its D-pad and A/B a little outward so the wide
+        // screen can grow until it meets the speed button.
+        boolean wideGba = isGbaWideFull();
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(150), dp(150));
         layoutParams.gravity = 8388627;
-        layoutParams.setMargins(dp(12), 0, 0, 0);
+        layoutParams.setMargins(wideGba ? 0 : dp(12), 0, 0, 0);
         // Everything sits a little lower to leave the top corners to the round buttons.
         createDirectionControl.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
         frameLayout.addView(createDirectionControl, layoutParams);
@@ -267,8 +277,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, TouchButton.STYLE_ARCADE_YELLOW);
                 addLandscapeArcadeButton(frameLayout, "Y", 2048, 114, 0, 50, TouchButton.STYLE_ARCADE_GREEN);
             } else {
-                addLandscapeActionButton(frameLayout, "A", 1, dp(26), -dp(42), 3);
-                addLandscapeActionButton(frameLayout, "B", 2, dp(92), dp(42), 3);
+                addLandscapeActionButton(frameLayout, "A", 1, dp(wideGba ? 6 : 26), -dp(42), 3);
+                addLandscapeActionButton(frameLayout, "B", 2, dp(wideGba ? 62 : 92), dp(42), 3);
             }
         } else if (isNeoGeoMode()) {
             // Diamond with equal spacing; the right edge matches the joystick's left margin.
