@@ -642,6 +642,91 @@ _Unwind_Reason_Code unwindFrame(struct _Unwind_Context* context, void* arg) {
 }
 
 std::atomic<bool> gReported{false};
+// A SIGSEGV handler a core installed over ours (see wrapForeignSegvHandler).
+struct sigaction gForeignSegv;
+
+uintptr_t parseHex(const char*& p) {
+    uintptr_t value = 0;
+    for (;; ++p) {
+        char c = *p;
+        int digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+        if (digit < 0) {
+            return value;
+        }
+        value = value * 16 + static_cast<uintptr_t>(digit);
+    }
+}
+
+// Writes the /proc/self/maps lines around a fault address (signal safe: no allocation).
+void describeMapping(int fd, uintptr_t address) {
+    int maps = open("/proc/self/maps", O_RDONLY);
+    if (maps < 0) {
+        return;
+    }
+    static char buffer[4096];
+    static char line[512];
+    static char previous[512];
+    size_t used = 0;
+    bool found = false;
+    int after = 0;
+    previous[0] = '\0';
+    for (;;) {
+        ssize_t count = read(maps, buffer + used, sizeof(buffer) - 1 - used);
+        if (count <= 0 && used == 0) {
+            break;
+        }
+        used += count > 0 ? static_cast<size_t>(count) : 0;
+        buffer[used] = '\0';
+        char* newline = strchr(buffer, '\n');
+        if (newline == nullptr) {
+            if (count <= 0 || used >= sizeof(buffer) - 1) {
+                break;
+            }
+            continue;
+        }
+        size_t length = static_cast<size_t>(newline - buffer);
+        size_t copy = length < sizeof(line) - 1 ? length : sizeof(line) - 1;
+        memcpy(line, buffer, copy);
+        line[copy] = '\0';
+        memmove(buffer, newline + 1, used - length - 1);
+        used -= length + 1;
+        if (found) {
+            writeText(fd, "  next ");
+            writeText(fd, line);
+            writeText(fd, "\n");
+            if (++after >= 1) {
+                break;
+            }
+            continue;
+        }
+        const char* p = line;
+        uintptr_t start = parseHex(p);
+        if (*p == '-') {
+            ++p;
+        }
+        uintptr_t end = parseHex(p);
+        if (address >= start && address < end) {
+            found = true;
+            if (previous[0] != '\0') {
+                writeText(fd, "  prev ");
+                writeText(fd, previous);
+                writeText(fd, "\n");
+            }
+            writeText(fd, "  map  ");
+            writeText(fd, line);
+            writeText(fd, "\n");
+        } else if (start > address) {
+            writeText(fd, "  (no mapping)\n  prev ");
+            writeText(fd, previous);
+            writeText(fd, "\n  next ");
+            writeText(fd, line);
+            writeText(fd, "\n");
+            break;
+        }
+        memcpy(previous, line, copy + 1);
+    }
+    close(maps);
+}
 
 void handler(int signal, siginfo_t* info, void* context) {
     // Only the first fault is reported; the abort that often follows would overwrite it.
@@ -661,6 +746,13 @@ void handler(int signal, siginfo_t* info, void* context) {
 #else
         (void) context;
 #endif
+        if (signal == SIGSEGV || signal == SIGBUS) {
+            writeText(fd, "memory:\n");
+            describeMapping(fd, info != nullptr ? reinterpret_cast<uintptr_t>(info->si_addr) : 0);
+            if (gForeignSegv.sa_sigaction != nullptr) {
+                describeAddress(fd, "engine handler", reinterpret_cast<uintptr_t>(gForeignSegv.sa_sigaction));
+            }
+        }
         writeText(fd, "backtrace:\n");
         Unwind state{fd, 0};
         _Unwind_Backtrace(unwindFrame, &state);
@@ -684,8 +776,6 @@ void handler(int signal, siginfo_t* info, void* context) {
 // protection) without passing faults on; for a fault it cannot use it resets SIGSEGV to
 // the default and the process dies silently. Wrap whatever handler a core installed:
 // the core's runs first, and if it gave up, the fault is reported like any other.
-struct sigaction gForeignSegv;
-
 void foreignSegvWrapper(int signal, siginfo_t* info, void* context) {
     if ((gForeignSegv.sa_flags & SA_SIGINFO) != 0 && gForeignSegv.sa_sigaction != nullptr) {
         gForeignSegv.sa_sigaction(signal, info, context);
