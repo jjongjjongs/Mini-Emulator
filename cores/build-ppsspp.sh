@@ -38,9 +38,10 @@ for path in $(git -C "$DIR" config --file .gitmodules --get-regexp '\.path$' | a
 done
 
 # Fixes on top of the pinned commit (each says what it fixes):
-#   pgf-text: the libretro build has no system text drawer, so system dialog text the PPGe
-#     atlas lacks (the Korean OSK's jamo keys) showed as U+FFFD; it is drawn with the
-#     PSP's own flash0 fonts instead.
+#   korean-text: Hangul showed as missing-character marks. Games that draw a Korean
+#     keyboard with the Japanese or Latin font they opened now get those characters from
+#     kr0.pgf, and system dialog text the PPGe atlas lacks (the libretro build has no
+#     system text drawer) is drawn with the PSP's own flash0 fonts.
 for PATCH in "$HERE"/patches/ppsspp-*.patch; do
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
         git -C "$DIR" apply "$PATCH"

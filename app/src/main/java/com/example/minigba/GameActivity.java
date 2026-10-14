@@ -748,6 +748,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isMame139()) {
             Emulator.saveState();
             Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
+        } else if (isPs2()) {
+            // PS2 games save to the memory card themselves; saveNow skips Play!'s state.
+            callCore(NativeGba::saveStateNow, "빠른 저장을 완료했습니다.", "저장 실패.");
         } else {
             callCore(NativeGba::saveNow, "빠른 저장과 게임 내 세이브를 저장했습니다.", "저장 실패.");
         }

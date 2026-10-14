@@ -435,6 +435,13 @@ size_t stateHeaderSize(const Core* core) {
     return core->coreId == "play" ? sizeof(kPlayStateHeader) : 0;
 }
 
+// Whether the quick save is written when a game closes and restored when it starts. Not for
+// Play!: its states are slow (40 MB) and not reliable enough to restore on every launch;
+// PS2 games keep their progress on the memory card, and the menu's quick save still works.
+bool autoState(const Core* core) {
+    return core->coreId != "play";
+}
+
 bool saveState(Core* core) {
     // Before the quick save has been restored (or before MAME has a machine), saving
     // would replace the player's state with the bare start of the game.
@@ -1454,7 +1461,9 @@ void tearDownHw(Core* core) {
     {
         std::lock_guard<std::mutex> lock(core->coreMutex);
         if (core->gameLoaded) {
-            saveState(core);
+            if (autoState(core)) {
+                saveState(core);
+            }
             saveSram(core);
             if (core->hw.context_destroy != nullptr) {
                 core->hw.context_destroy();
@@ -1592,7 +1601,9 @@ void destroyCore(Core* core) {
         core->window = nullptr;
     }
     if (core->gameLoaded) {
-        saveState(core);
+        if (autoState(core)) {
+            saveState(core);
+        }
         saveSram(core);
         core->retroUnloadGame();
         core->gameLoaded = false;
@@ -1758,7 +1769,9 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
 
     // Resume where the player left off: in-game save first, then the quick save.
     loadSram(core);
-    if (needsFrameBeforeState(core)) {
+    if (!autoState(core)) {
+        // Nothing to restore.
+    } else if (needsFrameBeforeState(core)) {
         core->resumePending = true;
     } else {
         resumeState(core);
@@ -1847,7 +1860,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveNow(JNIEnv* /*
         return JNI_FALSE;
     }
     return callCore(core, [core] {
-        bool state = saveState(core);
+        bool state = autoState(core) && saveState(core);
         bool sram = saveSram(core);
         return state || sram;
     }) ? JNI_TRUE : JNI_FALSE;

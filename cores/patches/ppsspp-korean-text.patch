@@ -1,8 +1,20 @@
 diff --git a/Core/Font/PGF.cpp b/Core/Font/PGF.cpp
-index b3503a7..666ed18 100644
+index b3503a7..40557f4 100644
 --- a/Core/Font/PGF.cpp
 +++ b/Core/Font/PGF.cpp
-@@ -549,6 +549,51 @@ bool PGF::GetCharGlyph(int charCode, int glyphType, Glyph &glyph) const {
+@@ -322,6 +322,11 @@ int PGF::GetCharIndex(int charCode, const std::vector<int> &charmapCompressed) {
+ 	return -1;
+ }
+ 
++bool PGF::HasChar(int charCode, int glyphType) const {
++	Glyph glyph;
++	return GetCharGlyph(charCode, glyphType, glyph);
++}
++
+ bool PGF::GetCharInfo(int charCode, PGFCharInfo *charInfo, int altCharCode, int glyphType) const {
+ 	Glyph glyph;
+ 	memset(charInfo, 0, sizeof(*charInfo));
+@@ -549,6 +554,51 @@ bool PGF::GetCharGlyph(int charCode, int glyphType, Glyph &glyph) const {
  	return true;
  }
  
@@ -55,11 +67,14 @@ index b3503a7..666ed18 100644
  	Glyph glyph;
  	if (!GetCharGlyph(charCode, glyphType, glyph)) {
 diff --git a/Core/Font/PGF.h b/Core/Font/PGF.h
-index a4e3f42..42a41fb 100644
+index a4e3f42..cb83f5f 100644
 --- a/Core/Font/PGF.h
 +++ b/Core/Font/PGF.h
-@@ -267,6 +267,9 @@ class PGF {
+@@ -265,8 +265,12 @@ class PGF {
+ 	bool ReadPtr(const u8 *ptr, size_t dataSize);
+ 
  	bool GetCharInfo(int charCode, PGFCharInfo *ci, int altCharCode, int glyphType = FONT_PGF_CHARGLYPH) const;
++	bool HasChar(int charCode, int glyphType = FONT_PGF_CHARGLYPH) const;
  	void GetFontInfo(PGFFontInfo *fi) const;
  	void DrawCharacter(const GlyphImage *image, int clipX, int clipY, int clipWidth, int clipHeight, int charCode, int altCharCode, int glyphType) const;
 +	// Decodes one character to 8-bit coverage (w*h, rows top to bottom). left/top place it
@@ -68,6 +83,49 @@ index a4e3f42..42a41fb 100644
  
  	void DoState(PointerWrap &p);
  
+diff --git a/Core/HLE/sceFont.cpp b/Core/HLE/sceFont.cpp
+index 2856a52..557e46c 100644
+--- a/Core/HLE/sceFont.cpp
++++ b/Core/HLE/sceFont.cpp
+@@ -835,18 +835,36 @@ void PostCharInfoFreeCallback::run(MipsCall &call) {
+ 	hleEnqueueCall(fontLib->allocFuncAddr(), 2, args, action);
+ }
+ 
++static bool IsHangul(int charCode) {
++	return (charCode >= 0x1100 && charCode <= 0x11FF) || (charCode >= 0x3130 && charCode <= 0x318F) ||
++		(charCode >= 0xAC00 && charCode <= 0xD7A3);
++}
++
++// The font to take a character from: the opened one, or for Hangul it lacks, the PSP's Korean
++// font. Games with a Korean keyboard draw it with the Japanese or Latin font they opened, and
++// every key came out as the game's missing-character mark.
++static const PGF *PGFForChar(const PGF *opened, int charCode, int glyphType) {
++	if (!IsHangul(charCode) || opened->HasChar(charCode, glyphType))
++		return opened;
++	for (const Font *font : internalFonts) {
++		if (strcmp(font->GetFontStyle().fontFileName, "kr0.pgf") == 0 && font->GetPGF()->HasChar(charCode, glyphType))
++			return font->GetPGF();
++	}
++	return opened;
++}
++
+ inline bool LoadedFont::GetCharInfo(int charCode, PGFCharInfo *charInfo, int glyphType) const {
+ 	_dbg_assert_(IsValid());
+ 	auto fontLib = GetFontLib();
+ 	int altCharCode = fontLib == NULL ? -1 : fontLib->GetAltCharCode();
+-	return GetPGF()->GetCharInfo(charCode, charInfo, altCharCode, glyphType);
++	return PGFForChar(GetPGF(), charCode, glyphType)->GetCharInfo(charCode, charInfo, altCharCode, glyphType);
+ }
+ 
+ inline void LoadedFont::DrawCharacter(const GlyphImage *image, int clipX, int clipY, int clipWidth, int clipHeight, int charCode, int glyphType) const {
+ 	_dbg_assert_(IsValid());
+ 	auto fontLib = GetFontLib();
+ 	int altCharCode = fontLib == NULL ? -1 : fontLib->GetAltCharCode();
+-	GetPGF()->DrawCharacter(image, clipX, clipY, clipWidth, clipHeight, charCode, altCharCode, glyphType);
++	PGFForChar(GetPGF(), charCode, glyphType)->DrawCharacter(image, clipX, clipY, clipWidth, clipHeight, charCode, altCharCode, glyphType);
+ }
+ 
+ static FontLib *GetFontLib(u32 handle) {
 diff --git a/Core/Util/PPGeDraw.cpp b/Core/Util/PPGeDraw.cpp
 index 8effbb1..a00c477 100644
 --- a/Core/Util/PPGeDraw.cpp

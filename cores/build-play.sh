@@ -33,6 +33,8 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1
 #     the process (Tekken 5 crashed in CSifManPs2::ExecuteSifDma).
 #   state-pause: retro_serialize/unserialize ran while the VM thread kept emulating, so
 #     restored states crashed the game (CIopBios::SleepThread, EE jumping to 0).
+#   audio-queue: the libretro sound handler kept only the last block the VM wrote each
+#     frame, so most of the sound was dropped and it crackled like radio static.
 for PATCH in "$HERE"/patches/play-*.patch; do
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
         git -C "$DIR" apply "$PATCH"
