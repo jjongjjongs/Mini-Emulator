@@ -219,6 +219,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "snes9x") return "libsnes9x_libretro_android.so";
     if (coreId == "fceumm") return "libfceumm_libretro_android.so";
     if (coreId == "genesis_plus_gx") return "libgenesis_plus_gx_libretro_android.so";
+    if (coreId == "pce_fast") return "libmednafen_pce_fast_libretro_android.so";
     return nullptr;
 }
 
@@ -801,6 +802,21 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     int bit;
     if (core->coreId == "mame2010" || core->coreId == "mame2015") {
         bit = mame2010ButtonBitFor(id);
+    } else if (core->coreId == "pce_fast") {
+        // TI/TII (the C and D bits) fire I/II for 2 of every 4 frames while held; PC Engine
+        // games need a press to last 2 frames. The core's own turbo is an on/off toggle on
+        // X/Y, so those stay unpressed.
+        bool turbo = (core->framesRun % 4) < 2;
+        if (id == RETRO_DEVICE_ID_JOYPAD_A) {
+            return ((mask & kButtonA) != 0 || (turbo && (mask & kButtonC) != 0)) ? 1 : 0;
+        }
+        if (id == RETRO_DEVICE_ID_JOYPAD_B) {
+            return ((mask & kButtonB) != 0 || (turbo && (mask & kButtonD) != 0)) ? 1 : 0;
+        }
+        if (id == RETRO_DEVICE_ID_JOYPAD_X || id == RETRO_DEVICE_ID_JOYPAD_Y) {
+            return 0;
+        }
+        bit = buttonBitFor(id, false);
     } else {
         // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" || core->coreId == "genesis_plus_gx";

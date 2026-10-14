@@ -82,7 +82,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMegaDrive() ? "md" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -213,6 +213,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isMegaDrive()) {
             tint = ClearShellView.TINT_SMOKE;
             name = "MEGA DRIVE";
+        } else if (isPcEngine()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "PC ENGINE";
         } else if (isNeoGeoMode()) {
             tint = ClearShellView.TINT_PURPLE;
             name = "NEO GEO";
@@ -276,11 +279,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
                 addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
             }
-            if (isNes()) {
-                addLandscapeArcadeButton(frameLayout, "A", 1, 20, 0, 60, TouchButton.STYLE_ARCADE_RED);
-                addLandscapeArcadeButton(frameLayout, "B", 2, 92, 14, 60, TouchButton.STYLE_ARCADE_RED);
-                addLandscapeArcadeButton(frameLayout, "TA", 1024, 29, -56, 42, TouchButton.STYLE_ARCADE_RED);
-                addLandscapeArcadeButton(frameLayout, "TB", 2048, 101, -42, 42, TouchButton.STYLE_ARCADE_RED);
+            if (hasTurboPair()) {
+                String[] labels = turboLabels();
+                int style = isPcEngine() ? TouchButton.STYLE_ACTION : TouchButton.STYLE_ARCADE_RED;
+                addLandscapeArcadeButton(frameLayout, labels[0], 1, 20, 0, 60, style);
+                addLandscapeArcadeButton(frameLayout, labels[1], 2, 92, 14, 60, style);
+                addLandscapeArcadeButton(frameLayout, labels[2], 1024, 29, -56, 42, style);
+                addLandscapeArcadeButton(frameLayout, labels[3], 2048, 101, -42, 42, style);
             } else if (isMegaDrive()) {
                 addMegaDriveButtons(frameLayout, true);
             } else if (isSnes()) {
@@ -309,7 +314,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addLandscapeArcadeButton(frameLayout, "F", 8192, 12, -27, 46, TouchButton.STYLE_ARCADE_RED);
         }
         addButton(frameLayout, selectLabel(), 4, 8388691, dp(42), dp(18), dp(94), dp(34));
-        addButton(frameLayout, "START", 8, 8388693, dp(42), dp(18), dp(94), dp(34));
+        addButton(frameLayout, startLabel(), 8, 8388693, dp(42), dp(18), dp(94), dp(34));
     }
 
     private View createDirectionControl() {
@@ -766,12 +771,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addButton(frameLayout, "A", 1, 8388693, dp(20), dp(202), dp(54), dp(54), TouchButton.STYLE_ARCADE_RED);
             addButton(frameLayout, "B", 2, 8388693, dp(72), dp(150), dp(54), dp(54), TouchButton.STYLE_ARCADE_YELLOW);
             addButton(frameLayout, "Y", 2048, 8388693, dp(124), dp(202), dp(54), dp(54), TouchButton.STYLE_ARCADE_GREEN);
-        } else if (isNes()) {
-            // B and A like the Famicom pad, with smaller turbo buttons above them.
-            addButton(frameLayout, "A", 1, 8388693, dp(30), dp(210), dp(62), dp(62), TouchButton.STYLE_ARCADE_RED);
-            addButton(frameLayout, "B", 2, 8388693, dp(102), dp(196), dp(62), dp(62), TouchButton.STYLE_ARCADE_RED);
-            addButton(frameLayout, "TA", 1024, 8388693, dp(40), dp(286), dp(42), dp(42), TouchButton.STYLE_ARCADE_RED);
-            addButton(frameLayout, "TB", 2048, 8388693, dp(112), dp(272), dp(42), dp(42), TouchButton.STYLE_ARCADE_RED);
+        } else if (hasTurboPair()) {
+            // B and A like the Famicom pad (II and I on the PC Engine), with smaller turbo buttons above them.
+            String[] labels = turboLabels();
+            int style = isPcEngine() ? TouchButton.STYLE_ACTION : TouchButton.STYLE_ARCADE_RED;
+            addButton(frameLayout, labels[0], 1, 8388693, dp(30), dp(210), dp(62), dp(62), style);
+            addButton(frameLayout, labels[1], 2, 8388693, dp(102), dp(196), dp(62), dp(62), style);
+            addButton(frameLayout, labels[2], 1024, 8388693, dp(40), dp(286), dp(42), dp(42), style);
+            addButton(frameLayout, labels[3], 2048, 8388693, dp(112), dp(272), dp(42), dp(42), style);
         } else if (isMegaDrive()) {
             // Six-button pad: X Y Z above A B C, each row rising to the right.
             addMegaDriveButtons(frameLayout, false);
@@ -794,7 +801,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addButton(frameLayout, "F", 8192, 8388693, dp(16), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
         }
         addCenterButton(frameLayout, selectLabel(), 4, -66);
-        addCenterButton(frameLayout, "START", 8, 66);
+        addCenterButton(frameLayout, startLabel(), 8, 66);
     }
 
     private void addButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4, int i5, int i6) {
@@ -1149,9 +1156,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "genesis_plus_gx".equals(this.coreId);
     }
 
+    private boolean isPcEngine() {
+        return "pce_fast".equals(this.coreId);
+    }
+
+    // Two face buttons with turbo buttons above them: Famicom (B A / TB TA) and PC Engine (II I / TII TI).
+    private boolean hasTurboPair() {
+        return isNes() || isPcEngine();
+    }
+
     // Consoles with a D-pad and SELECT/START, laid out like the GBA.
     private boolean isPadLayout() {
-        return this.coreId.equals("gba") || isSnes() || isNes() || isMegaDrive();
+        return this.coreId.equals("gba") || isSnes() || isNes() || isMegaDrive() || isPcEngine();
     }
 
     private boolean hasShoulders() {
@@ -1160,6 +1176,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private String selectLabel() {
         return isMegaDrive() ? "MODE" : isPadLayout() ? "SELECT" : "COIN";
+    }
+
+    // Labels for the face pair and its turbo pair: right button, left button, turbo right, turbo left.
+    private String[] turboLabels() {
+        return isPcEngine() ? new String[]{"I", "II", "TI", "TII"} : new String[]{"A", "B", "TA", "TB"};
+    }
+
+    private String startLabel() {
+        return isPcEngine() ? "RUN" : "START";
     }
 
     // Mega Drive six-button pad. The bits follow Genesis Plus GX's mapping of the libretro
@@ -1196,6 +1221,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "snes9x":
             case "fceumm":
             case "genesis_plus_gx":
+            case "pce_fast":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

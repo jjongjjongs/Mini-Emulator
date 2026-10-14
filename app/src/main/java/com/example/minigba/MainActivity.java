@@ -71,12 +71,14 @@ public final class MainActivity extends Activity {
     private static final String MODE_SNES = "snes";
     private static final String MODE_NES = "nes";
     private static final String MODE_MD = "md";
+    private static final String MODE_PCE = "pce";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
     private static final String[][] CONSOLES = {
             {MODE_SNES, "snes9x", ".sfc,.smc", ".sfc / .smc / .zip", "roms_snes", "1008"},
             {MODE_NES, "fceumm", ".nes,.unf,.unif", ".nes / .zip", "roms_nes", "1014"},
             {MODE_MD, "genesis_plus_gx", ".md,.gen,.smd,.bin,.sms,.gg", ".md / .gen / .bin / .zip", "roms_md", "1015"},
+            {MODE_PCE, "pce_fast", ".pce", ".pce / .zip", "roms_pce", "1016"},
     };
 
     private static String[] consoleFor(String mode) {
@@ -123,12 +125,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_SNES, MODE_NES, MODE_MD, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "슈퍼패미컴", "패미컴", "메가드라이브", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "Snes9x", "FCEUmm", "Genesis Plus GX", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "SFC", "FC", "MD", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(52, 58, 70), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_SNES, MODE_NES, MODE_MD, MODE_PCE, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "슈퍼패미컴", "패미컴", "메가드라이브", "PC엔진", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "Snes9x", "FCEUmm", "Genesis Plus GX", "Beetle PCE Fast", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", ".pce · .zip (HuCard)", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "SFC", "FC", "MD", "PCE", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(52, 58, 70), Color.rgb(232, 96, 44), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -3667,6 +3669,11 @@ public final class MainActivity extends Activity {
         if (MODE_MD.equals(mode)) {
             return checkMegaDriveHeader(file);
         }
+        if (MODE_PCE.equals(mode)) {
+            // HuCards have no header; dumps are whole 8KB banks, some with a 512-byte copier header.
+            long size = file.length() % 8192;
+            return size == 0 || size == 512 ? new RomCheck(true, "크기 정상") : new RomCheck(false, "HuCard 크기가 아님");
+        }
         if (isSnesRomName(file.getName().toLowerCase(Locale.US))) {
             return checkSnesHeader(file);
         }
@@ -4494,6 +4501,9 @@ public final class MainActivity extends Activity {
         }
         if ("genesis_plus_gx".equals(str)) {
             return "Genesis Plus GX";
+        }
+        if ("pce_fast".equals(str)) {
+            return "Beetle PCE Fast";
         }
         return "Game Boy Advance";
     }

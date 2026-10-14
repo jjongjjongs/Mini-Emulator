@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds the Famicom/NES (FCEUmm) and Mega Drive (Genesis Plus GX) libretro
-# cores for arm64-v8a with the Android NDK and copies them into
+# Builds the Famicom/NES (FCEUmm), Mega Drive (Genesis Plus GX) and PC Engine
+# (Beetle PCE Fast) libretro cores for arm64-v8a with the Android NDK and copies them into
 # app/src/main/jniLibs. Kept apart from the other build scripts so CI caches
 # these separately.
 #
@@ -11,6 +11,8 @@ FCEUMM_REPO=https://github.com/libretro/libretro-fceumm.git
 FCEUMM_COMMIT=ac0d00a7fc01166f84c7bac01d1084ebfd2b865e
 GPGX_REPO=https://github.com/libretro/Genesis-Plus-GX.git
 GPGX_COMMIT=393f70cd64c7334564c19a424c383f53986c13f4
+PCE_REPO=https://github.com/libretro/beetle-pce-fast-libretro.git
+PCE_COMMIT=3f946f277aef3aa99a95551618bbcd1dd2bda0d9
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
@@ -47,5 +49,7 @@ build() {
 mkdir -p "$WORK"
 checkout "$WORK/fceumm" "$FCEUMM_REPO" "$FCEUMM_COMMIT"
 checkout "$WORK/genesis_plus_gx" "$GPGX_REPO" "$GPGX_COMMIT"
+checkout "$WORK/beetle_pce_fast" "$PCE_REPO" "$PCE_COMMIT"
 build fceumm "$WORK/fceumm/jni" libfceumm_libretro_android.so
 build genesis_plus_gx "$WORK/genesis_plus_gx/libretro/jni" libgenesis_plus_gx_libretro_android.so
+build beetle_pce_fast "$WORK/beetle_pce_fast/jni" libmednafen_pce_fast_libretro_android.so
