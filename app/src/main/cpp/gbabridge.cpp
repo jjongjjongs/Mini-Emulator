@@ -249,6 +249,8 @@ struct Core {
     uint64_t framesRun = 0;
     // The quick save to resume from once the first frame has run.
     bool resumePending = false;
+    // The ROM's bytes, for a core that takes the game from memory (kept while it is loaded).
+    std::vector<uint8_t> gameData;
     // The next frame a pending quick save is tried again (PCEE2 refuses one while booting).
     uint64_t resumeRetryAt = 0;
     // While a restored quick save is still on trial, the frame its marker comes off at.
@@ -971,6 +973,11 @@ void install(const std::string& systemDir, const std::string& coreId, const std:
 
 // ---- libretro callbacks ----------------------------------------------------
 
+// The core's last error or warning line, shown with a load failure. Cores log from their
+// own threads too, hence the lock.
+std::string gLastCoreProblem;
+std::mutex gLastCoreProblemMutex;
+
 void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...) {
     if (fmt == nullptr) {
         return;
@@ -988,6 +995,13 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
     vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
     crash::remember(message);
+    if (level >= RETRO_LOG_WARN) {
+        std::lock_guard<std::mutex> lock(gLastCoreProblemMutex);
+        gLastCoreProblem = message;
+        while (!gLastCoreProblem.empty() && (gLastCoreProblem.back() == '\n' || gLastCoreProblem.back() == '\r')) {
+            gLastCoreProblem.pop_back();
+        }
+    }
     __android_log_print(priority, LOG_TAG, "%s", message);
 }
 
@@ -1804,10 +1818,40 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
 
     retro_game_info game{};
     game.path = core->romPath.c_str();
+    if (core->coreId == "melonds") {
+        // melonDS DS reports need_fullpath = false and reads the game only from data/size
+        // (the other cores here open the path themselves), so hand it the file's bytes.
+        FILE* rom = fopen(core->romPath.c_str(), "rb");
+        if (rom != nullptr) {
+            fseek(rom, 0, SEEK_END);
+            long size = ftell(rom);
+            rewind(rom);
+            if (size > 0) {
+                core->gameData.resize(static_cast<size_t>(size));
+                if (fread(core->gameData.data(), 1, core->gameData.size(), rom) != core->gameData.size()) {
+                    core->gameData.clear();
+                }
+            }
+            fclose(rom);
+        }
+        game.data = core->gameData.empty() ? nullptr : core->gameData.data();
+        game.size = core->gameData.size();
+    }
+    {
+        std::lock_guard<std::mutex> lock(gLastCoreProblemMutex);
+        gLastCoreProblem.clear();
+    }
     if (!core->retroLoadGame(&game)) {
         core->keepLibraryLoaded = core->coreId == "mame2010" || core->coreId == "mame2015";
         destroyCore(core);
-        throwIllegalState(env, "ROM load failure: selected file could not be loaded by the core");
+        std::string message = "ROM load failure: selected file could not be loaded by the core";
+        {
+            std::lock_guard<std::mutex> lock(gLastCoreProblemMutex);
+            if (!gLastCoreProblem.empty()) {
+                message += "\n\n" + gLastCoreProblem.substr(0, 400);
+            }
+        }
+        throwIllegalState(env, message.c_str());
         return 0;
     }
     core->gameLoaded = true;
