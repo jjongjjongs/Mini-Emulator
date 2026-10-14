@@ -15,6 +15,12 @@
             android:exported="false"
             android:configChanges="screenSize|orientation|keyboardHidden|keyboard"/>
         <activity
+            android:name="com.example.minigba.RestartActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
+        <activity
             android:name="com.example.minigba.MainActivity"
             android:exported="true">
             <intent-filter>

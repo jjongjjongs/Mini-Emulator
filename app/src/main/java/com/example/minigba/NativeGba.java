@@ -15,6 +15,10 @@ final class NativeGba {
 
     static native void reset(long j);
 
+    static native void keepQuickSave(long j);
+
+    static native void setResumeOnStart(boolean resume);
+
     static native boolean saveNow(long j);
 
     static native boolean saveSramNow(long j);
