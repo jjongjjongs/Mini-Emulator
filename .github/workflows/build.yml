@@ -68,7 +68,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/src/main/jniLibs/arm64-v8a/libmame2010_libretro_android.so
-          key: mame2010-${{ hashFiles('cores/build-mame2010.sh') }}
+          key: mame2010-${{ hashFiles('cores/build-mame2010.sh', 'cores/patches/mame2010-*.patch') }}
 
       - name: Build MAME 2010 core
         if: steps.mame2010-cache.outputs.cache-hit != 'true'
@@ -79,7 +79,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/src/main/jniLibs/arm64-v8a/libmame2010_libretro_android.so
-          key: mame2010-${{ hashFiles('cores/build-mame2010.sh') }}
+          key: mame2010-${{ hashFiles('cores/build-mame2010.sh', 'cores/patches/mame2010-*.patch') }}
 
       # Saved right after the build, so a later failing step does not throw away this long build.
       - name: Restore MAME 2015 core

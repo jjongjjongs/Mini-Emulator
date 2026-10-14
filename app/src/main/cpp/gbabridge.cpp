@@ -237,6 +237,9 @@ struct Core {
     uint64_t framesRun = 0;
     // The quick save to resume from once the first frame has run.
     bool resumePending = false;
+    // Restart asked for a core whose own reset does not reset every driver (MAME 2010):
+    // the emulation thread unloads and loads the game again.
+    std::atomic<bool> reloadPending{false};
 
     // Left analog stick, -32767..32767 (PSP).
     std::atomic<int> analogX{0};
@@ -410,7 +413,7 @@ bool needsFrameBeforeState(const Core* core) {
 bool saveState(Core* core) {
     // Before the quick save has been restored (or before MAME has a machine), saving
     // would replace the player's state with the bare start of the game.
-    if (core->resumePending || (needsFrameBeforeState(core) && core->framesRun == 0)) {
+    if (!core->gameLoaded || core->resumePending || (needsFrameBeforeState(core) && core->framesRun == 0)) {
         return false;
     }
     if (core->retroSerializeSize == nullptr || core->retroSerialize == nullptr) {
@@ -435,7 +438,7 @@ bool saveState(Core* core) {
 }
 
 bool loadState(Core* core) {
-    if (core->retroUnserialize == nullptr) {
+    if (!core->gameLoaded || core->retroUnserialize == nullptr) {
         return false;
     }
     struct stat st {};
@@ -486,6 +489,9 @@ void resumeState(Core* core) {
 }
 
 bool saveSram(Core* core) {
+    if (!core->gameLoaded) {
+        return false;
+    }
     void* data = core->retroGetMemoryData(RETRO_MEMORY_SAVE_RAM);
     size_t size = core->retroGetMemorySize(RETRO_MEMORY_SAVE_RAM);
     if (data == nullptr || size == 0) {
@@ -1229,6 +1235,32 @@ void tearDownHw(Core* core) {
     core->hwReady = false;
 }
 
+// Starts the game over by loading it again, keeping the in-game save but not
+// restoring the quick save. Runs on the emulation thread with the core locked.
+void reloadGame(Core* core) {
+    saveSram(core);
+    core->retroUnloadGame();
+    core->gameLoaded = false;
+    core->retroDeinit();
+    core->retroSetEnvironment(environmentCallback);
+    core->retroSetVideoRefresh(videoRefreshCallback);
+    core->retroSetAudioSample(audioSampleCallback);
+    core->retroSetAudioSampleBatch(audioSampleBatchCallback);
+    core->retroSetInputPoll(inputPollCallback);
+    core->retroSetInputState(inputStateCallback);
+    core->retroInit();
+    retro_game_info game{};
+    game.path = core->romPath.c_str();
+    if (!core->retroLoadGame(&game)) {
+        LOGE("Restart failed: the core could not load the game again");
+        return;
+    }
+    core->gameLoaded = true;
+    core->framesRun = 0;
+    core->resumePending = false;
+    loadSram(core);
+}
+
 void runLoop(Core* core) {
     if (core->hwRender && !setUpHwContext(core)) {
         // Nothing can be drawn; keep answering Java until the game is closed.
@@ -1251,11 +1283,17 @@ void runLoop(Core* core) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
-            core->retroRun();
-            core->framesRun++;
-            if (core->resumePending) {
-                core->resumePending = false;
-                resumeState(core);
+            if (core->reloadPending.exchange(false)) {
+                reloadGame(core);
+            }
+            // A failed restart leaves no game; keep the thread idle until the game is closed.
+            if (core->gameLoaded) {
+                core->retroRun();
+                core->framesRun++;
+                if (core->resumePending) {
+                    core->resumePending = false;
+                    resumeState(core);
+                }
             }
         }
         double frameNs = 1.0 / (fps * speed) * 1e9;
@@ -1595,6 +1633,13 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveSramNow(
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
     Core* core = fromHandle(handle);
     if (core == nullptr || !core->gameLoaded || core->retroReset == nullptr) {
+        return;
+    }
+    // MAME 2010's soft reset leaves some drivers' state behind (Tekken Tag Tournament
+    // hangs on its first screen after it), and its hard reset does nothing in the
+    // libretro port, so it restarts by loading the game again.
+    if (core->coreId == "mame2010" && core->threadStarted) {
+        core->reloadPending.store(true);
         return;
     }
     callCore(core, [core] {
