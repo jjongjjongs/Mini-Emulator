@@ -196,8 +196,6 @@ struct Core {
     bool (*retroLoadGame)(const retro_game_info*) = nullptr;
     // MAME 2010 crashes in its static destructors when unloaded after a failed load.
     bool keepLibraryLoaded = false;
-    // Set when the game restarts in a new process: closing keeps the quick save as it was.
-    std::atomic<bool> keepQuickSave{false};
     void (*retroUnloadGame)() = nullptr;
     void (*retroRun)() = nullptr;
     void (*retroReset)() = nullptr;
@@ -270,9 +268,6 @@ struct Core {
 JavaVM* gVm = nullptr;
 // libretro callbacks carry no user pointer, so the running core is global.
 Core* gCore = nullptr;
-// False in a process started for a restart: the game starts over instead of
-// continuing from the quick save.
-std::atomic<bool> gResumeOnStart{true};
 
 // Gets a JNIEnv for the current thread, attaching it to the VM if needed.
 class ScopedEnv {
@@ -1209,9 +1204,7 @@ void tearDownHw(Core* core) {
     {
         std::lock_guard<std::mutex> lock(core->coreMutex);
         if (core->gameLoaded) {
-            if (!core->keepQuickSave.load()) {
-                saveState(core);
-            }
+            saveState(core);
             saveSram(core);
             core->retroUnloadGame();
             core->gameLoaded = false;
@@ -1327,9 +1320,7 @@ void destroyCore(Core* core) {
         core->window = nullptr;
     }
     if (core->gameLoaded) {
-        if (!core->keepQuickSave.load()) {
-            saveState(core);
-        }
+        saveState(core);
         saveSram(core);
         core->retroUnloadGame();
         core->gameLoaded = false;
@@ -1471,15 +1462,12 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
                                                       : kDefaultSampleRate;
     configureAudio(core, core->sampleRate);
 
-    // Resume where the player left off: in-game save first, then the quick save
-    // (not when restarting, which starts over with the in-game save only).
+    // Resume where the player left off: in-game save first, then the quick save.
     loadSram(core);
-    if (gResumeOnStart.load()) {
-        if (needsFrameBeforeState(core)) {
-            core->resumePending = true;
-        } else {
-            resumeState(core);
-        }
+    if (needsFrameBeforeState(core)) {
+        core->resumePending = true;
+    } else {
+        resumeState(core);
     }
 
     core->running.store(true);
@@ -1613,19 +1601,6 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/,
         core->retroReset();
         return true;
     });
-}
-
-// Restart in a new process: this session closes without replacing the quick save.
-JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_keepQuickSave(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
-    Core* core = fromHandle(handle);
-    if (core != nullptr) {
-        core->keepQuickSave.store(true);
-    }
-}
-
-// Called before create in a process started for a restart.
-JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setResumeOnStart(JNIEnv* /*env*/, jclass /*cls*/, jboolean resume) {
-    gResumeOnStart.store(resume == JNI_TRUE);
 }
 
 // PSP left stick, each axis -32767..32767.

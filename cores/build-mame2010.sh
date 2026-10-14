@@ -38,6 +38,9 @@ grep -q 'static char res\[16\];' "$DIR/src/emu/cpu/h83002/h8_8.c"
 #   cps1-priority-pass: the CPS tilemap renderer dereferenced the missing destination
 #     bitmap on CPS1's priority-only pass (sf2 and others crashed).
 #   reload: a game loaded again in the same process exited at once (pauseg stayed -1).
+#   hard-reset: retro_reset did a soft reset, which leaves some drivers' state behind
+#     (Tekken Tag Tournament hung on its first screen); it now starts a new machine,
+#     which the port's hard reset never did (it freed the machine and stopped).
 for PATCH in "$HERE"/patches/mame2010-*.patch; do
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
         git -C "$DIR" apply "$PATCH"

@@ -32,8 +32,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     static final String EXTRA_SAVE_BASE_NAME = "com.example.minigba.SAVE_BASE_NAME";
     static final String EXTRA_TITLE = "com.example.minigba.TITLE";
     static final String EXTRA_MODE = "com.example.minigba.MODE";
-    // Set by RestartActivity: start the game over instead of continuing from the quick save.
-    static final String EXTRA_FRESH_START = "com.example.minigba.FRESH_START";
     private static final String MENU_CONTINUE = "계속하기";
     private static final String MENU_SAVE_STATE = "빠른 저장";
     private static final String MENU_LOAD_STATE = "빠른 저장 불러오기";
@@ -79,9 +77,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         requestWindowFeature(1);
         getWindow().setFlags(1024, 1024);
         this.romPath = getIntent().getStringExtra("com.example.minigba.ROM_PATH");
-        if (getIntent().getBooleanExtra(EXTRA_FRESH_START, false)) {
-            NativeGba.setResumeOnStart(false);
-        }
         String stringExtra = getIntent().getStringExtra("com.example.minigba.CORE_ID");
         this.coreId = stringExtra;
         if (stringExtra == null) {
@@ -749,33 +744,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             Toast.makeText(this, "MAME 0.139 재시작은 ROM 목록에서 다시 실행하세요.", 0).show();
             return;
         }
-        if ("mame2010".equals(this.coreId)) {
-            restartInNewProcess();
-            return;
-        }
         callCore(handle -> {
             NativeGba.reset(handle);
             return true;
         }, "게임을 재시작했습니다.", null);
-    }
-
-    // MAME 2010 can neither reset every driver in place (Tekken Tag Tournament hangs on
-    // its first screen) nor load a game twice in one process, so a restart closes this
-    // game process and opens the game again from the start, as leaving and coming back
-    // does. The in-game save is kept; the quick save stays as it was.
-    private void restartInNewProcess() {
-        long handle = this.nativeHandle;
-        if (handle != 0) {
-            NativeGba.keepQuickSave(handle);
-        }
-        android.content.Intent intent = new android.content.Intent(getIntent());
-        intent.setClass(this, RestartActivity.class);
-        intent.removeExtra(EXTRA_FRESH_START);
-        intent.putExtra(RestartActivity.EXTRA_OLD_PID, android.os.Process.myPid());
-        startActivity(intent);
-        overridePendingTransition(0, 0);
-        finish();
-        overridePendingTransition(0, 0);
     }
 
     private void onSpeedChanged(int i) {
