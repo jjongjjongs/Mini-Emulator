@@ -127,7 +127,7 @@ index 2856a52..557e46c 100644
  
  static FontLib *GetFontLib(u32 handle) {
 diff --git a/Core/Util/PPGeDraw.cpp b/Core/Util/PPGeDraw.cpp
-index 8effbb1..a00c477 100644
+index 8effbb1..d63d1ef 100644
 --- a/Core/Util/PPGeDraw.cpp
 +++ b/Core/Util/PPGeDraw.cpp
 @@ -37,6 +37,7 @@
@@ -147,16 +147,18 @@ index 8effbb1..a00c477 100644
  struct PPGeTextDrawerCacheKey {
  	bool operator < (const PPGeTextDrawerCacheKey &other) const {
  		if (align != other.align)
-@@ -308,6 +311,8 @@ void __PPGeInit() {
+@@ -308,6 +311,10 @@ void __PPGeInit() {
  	// Avoid creating ever on headless just to be safe.
  	textDrawerInited = PSP_CoreParameter().headLess;
  	textDrawer = nullptr;
-+	pgfDrawerInited = PSP_CoreParameter().headLess;
++	// Unlike the platform drawer this one needs no window or UI thread, so it is used even
++	// when headLess (which the libretro core always sets).
++	pgfDrawerInited = false;
 +	pgfDrawer = nullptr;
  	textDrawerImages.clear();
  
  	atlasRequiresReset = false;
-@@ -412,6 +417,8 @@ void __PPGeShutdown()
+@@ -412,6 +419,8 @@ void __PPGeShutdown()
  
  	delete textDrawer;
  	textDrawer = nullptr;
@@ -165,7 +167,7 @@ index 8effbb1..a00c477 100644
  
  	for (auto im : textDrawerImages)
  		kernelMemory.Free(im.second.ptr);
-@@ -758,6 +765,160 @@ static AtlasTextMetrics BreakLines(std::string_view text, const AtlasFont &atlas
+@@ -758,6 +767,160 @@ static AtlasTextMetrics BreakLines(std::string_view text, const AtlasFont &atlas
  	return metrics;
  }
  
@@ -326,7 +328,7 @@ index 8effbb1..a00c477 100644
  static bool HasTextDrawer() {
  	// We create this on first use so it's on the correct thread.
  	if (textDrawerInited) {
-@@ -775,6 +936,39 @@ static bool HasTextDrawer() {
+@@ -775,6 +938,39 @@ static bool HasTextDrawer() {
  	return textDrawer != nullptr;
  }
  
@@ -366,7 +368,7 @@ index 8effbb1..a00c477 100644
  static std::string PPGeSanitizeText(std::string_view text) {
  	return SanitizeUTF8(text);
  }
-@@ -782,13 +976,13 @@ static std::string PPGeSanitizeText(std::string_view text) {
+@@ -782,13 +978,13 @@ static std::string PPGeSanitizeText(std::string_view text) {
  void PPGeMeasureText(float *w, float *h, std::string_view text, float scale, int WrapType, int wrapWidth) {
  	std::string s = PPGeSanitizeText(text);
  
@@ -383,7 +385,7 @@ index 8effbb1..a00c477 100644
  
  		if (w)
  			*w = mw;
-@@ -898,7 +1092,7 @@ inline int GetPow2(int x) {
+@@ -898,7 +1094,7 @@ inline int GetPow2(int x) {
  	return ret;
  }
  
@@ -392,7 +394,7 @@ index 8effbb1..a00c477 100644
  	int tdalign = 0;
  	tdalign |= FLAG_ELLIPSIZE_TEXT;
  	if (wrap) {
-@@ -914,10 +1108,10 @@ static PPGeTextDrawerImage PPGeGetTextImage(std::string_view text, const PPGeSty
+@@ -914,10 +1110,10 @@ static PPGeTextDrawerImage PPGeGetTextImage(std::string_view text, const PPGeSty
  		cacheItem->second.entry.lastUsedFrame = gpuStats.numFlips;
  	} else {
  		std::vector<uint8_t> bitmapData;
@@ -405,7 +407,7 @@ index 8effbb1..a00c477 100644
  
  		int bufwBytes = ((im.entry.bmWidth + 31) / 32) * 16;
  		u32 sz = bufwBytes * (im.entry.bmHeight + 1);
-@@ -1064,8 +1258,8 @@ void PPGeDrawText(std::string_view text, float x, float y, const PPGeStyle &styl
+@@ -1064,8 +1260,8 @@ void PPGeDrawText(std::string_view text, float x, float y, const PPGeStyle &styl
  		return;
  	}
  
@@ -416,7 +418,7 @@ index 8effbb1..a00c477 100644
  		if (im.ptr) {
  			PPGeDrawTextImage(im, x, y, style);
  			return;
-@@ -1115,20 +1309,20 @@ void PPGeDrawTextWrapped(std::string_view text, float x, float y, float wrapWidt
+@@ -1115,20 +1311,20 @@ void PPGeDrawTextWrapped(std::string_view text, float x, float y, float wrapWidt
  	zoom = std::min(zoom, PSP_CoreParameter().renderScaleFactor);
  	float maxScaleDown = zoom == 1 ? 1.3f : 2.0f;
  
@@ -442,7 +444,7 @@ index 8effbb1..a00c477 100644
  
  			float lineHeight = twoLines - oneLine;
  			if (actualHeight > wrapHeight * maxScaleDown) {
-@@ -1143,7 +1337,7 @@ void PPGeDrawTextWrapped(std::string_view text, float x, float y, float wrapWidt
+@@ -1143,7 +1339,7 @@ void PPGeDrawTextWrapped(std::string_view text, float x, float y, float wrapWidt
  			adjustedStyle.scale *= wrapHeight / actualHeight;
  		}
  
@@ -451,7 +453,7 @@ index 8effbb1..a00c477 100644
  		if (im.ptr) {
  			PPGeDrawTextImage(im, x, y, adjustedStyle);
  			return;
-@@ -1495,6 +1689,9 @@ void PPGeNotifyFrame() {
+@@ -1495,6 +1691,9 @@ void PPGeNotifyFrame() {
  	if (textDrawer) {
  		textDrawer->OncePerFrame();
  	}
