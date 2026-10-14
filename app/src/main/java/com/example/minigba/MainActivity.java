@@ -3335,11 +3335,21 @@ public final class MainActivity extends Activity {
     private String displayGameNameFor(File file) {
         String readGbaHeaderTitle;
         String string = romPrefs().getString("title:" + file.getName(), null);
+        String baseNameWithoutExtension = baseNameWithoutExtension(file.getName());
+        String mode = modeForFile(file);
+        if ("arcade".equals(mode) || "neogeo".equals(mode)) {
+            // Arcade ZIPs are named after their romset; show the game's title unless the
+            // player gave it a name of their own.
+            if (string == null || string.trim().isEmpty() || string.trim().equalsIgnoreCase(baseNameWithoutExtension)) {
+                String title = GameTitles.lookup(this, baseNameWithoutExtension);
+                return title != null ? title : baseNameWithoutExtension;
+            }
+            return string;
+        }
         if (string != null && !string.trim().isEmpty()) {
             return string;
         }
-        String baseNameWithoutExtension = baseNameWithoutExtension(file.getName());
-        if (!MODE_GBA.equals(modeForFile(file))) {
+        if (!MODE_GBA.equals(mode)) {
             return baseNameWithoutExtension;
         }
         return (hasDisplayableName(baseNameWithoutExtension) || (readGbaHeaderTitle = readGbaHeaderTitle(file)) == null) ? baseNameWithoutExtension : readGbaHeaderTitle;

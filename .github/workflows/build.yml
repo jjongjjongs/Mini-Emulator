@@ -160,7 +160,7 @@ jobs:
       - name: Check APK contents
         run: |
           for apk in app/build/outputs/apk/*/*.apk; do
-            for entry in assets/romsets.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so lib/arm64-v8a/libmame2015_libretro_android.so lib/arm64-v8a/libsnes9x_libretro_android.so; do
+            for entry in assets/romsets.bin assets/titles.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so lib/arm64-v8a/libmame2015_libretro_android.so lib/arm64-v8a/libsnes9x_libretro_android.so; do
               unzip -l "$apk" | grep -q " $entry\$" || { echo "::error::$apk is missing $entry"; exit 1; }
             done
           done
