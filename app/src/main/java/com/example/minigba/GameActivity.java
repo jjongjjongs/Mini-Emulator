@@ -176,6 +176,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
+        shell.setCompactBezel(!full && isDualShock());
         shell.track(frameLayout2, frameLayout);
         setContentView(root);
     }
@@ -1528,7 +1529,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // than it needs, so the columns beside it are wide enough for big buttons), and at
         // least dp(136) on each side for the control columns.
         float aspect = screenAspect();
-        int screenHeight = Math.max(dp(150), height - dp(124));
+        // PS1/PS2 (4:3) are narrow enough to leave wide columns anyway, so their screen takes
+        // nearly the full height: dp(12) above, a compact dp(10) bezel below (no name strip,
+        // see ClearShellView.setCompactBezel) and the SELECT/START row.
+        boolean dual = this.pspSideViews.length > 8;
+        int screenHeight = Math.max(dp(150), height - dp(dual ? 68 : 124));
         int screenWidth = Math.round(screenHeight * aspect);
         int widest = width - dp(136) * 2;
         if (screenWidth > widest) {
@@ -1551,7 +1556,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // L/R sit under the round corner buttons; PS1/PS2 split each into L2 L1 and R1 R2.
         int shoulderTop = dp(62);
         int shoulderHeight = dp(42);
-        boolean dual = v.length > 8;
         if (dual) {
             int lh = (lw - dp(8)) / 2;
             int rh = (rw - dp(8)) / 2;
@@ -1574,8 +1578,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int stick = Math.max(dp(56), Math.min(Math.min(lw - dp(20), dp(100)), avail - pad - dp(10)));
         setBox(v[3], lc - stick / 2, columnTop + pad + dp(10), stick, stick);
         // △○×□ diamond centred a little below the D-pad's centre, fitted to the right column.
-        float gap = Math.min(dp(54), rw / 3.0f);
-        int size = Math.round(gap * 1.15f);
+        // PS1/PS2 keep them a little smaller, clear of R1/R2 above and the right stick below.
+        float gap = Math.min(dp(dual ? 48 : 54), rw / 3.0f);
+        int size = Math.round(gap * (dual ? 1.12f : 1.15f));
         // With a right stick below them the buttons line up with the D-pad instead.
         int cy = columnTop + pad / 2 + (dual ? 0 : dp(22));
         int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};

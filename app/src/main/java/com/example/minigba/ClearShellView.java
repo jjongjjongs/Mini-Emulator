@@ -43,6 +43,7 @@ final class ClearShellView extends View {
     private final boolean landscape;
     private View screenView;
     private boolean thinBezel;
+    private boolean compactBezel;
     private View plateView;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -65,6 +66,13 @@ final class ClearShellView extends View {
     // Full-screen style: a thin glass rim around the screen instead of the grey bezel.
     void setThinBezel(boolean thin) {
         this.thinBezel = thin;
+        invalidate();
+    }
+
+    // Grey bezel as wide below the screen as at its sides, without the engraved name
+    // (PS1/PS2 in landscape, whose 4:3 screen takes that height instead).
+    void setCompactBezel(boolean compact) {
+        this.compactBezel = compact;
         invalidate();
     }
 
@@ -190,7 +198,7 @@ final class ClearShellView extends View {
     private void drawBezel(Canvas canvas, RectF screen) {
         float side = dp(landscape ? 10 : 14);
         float top = dp(landscape ? 10 : 16);
-        float bottom = dp(landscape ? 26 : 34);
+        float bottom = compactBezel ? side : dp(landscape ? 26 : 34);
         RectF bezel = new RectF(screen.left - side, screen.top - top, screen.right + side, screen.bottom + bottom);
         float small = dp(14);
         float large = dp(34);
@@ -210,7 +218,7 @@ final class ClearShellView extends View {
         paint.setColor(Color.argb(128, 255, 255, 255));
         canvas.drawPath(path, paint);
         paint.setStyle(Paint.Style.FILL);
-        if (label != null) {
+        if (label != null && !compactBezel) {
             text.setTextSize(dp(landscape ? 8 : 9));
             canvas.drawText(label, bezel.centerX(), screen.bottom + bottom * 0.62f, text);
         }

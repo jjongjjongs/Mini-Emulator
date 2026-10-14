@@ -81,7 +81,7 @@ public final class MainActivity extends Activity {
             {MODE_SNES, "snes9x", ".sfc,.smc", ".sfc / .smc / .zip", "roms_snes", "1008"},
             {MODE_NES, "fceumm", ".nes,.unf,.unif", ".nes / .zip", "roms_nes", "1014"},
             {MODE_MD, "genesis_plus_gx", ".md,.gen,.smd,.bin,.sms,.gg", ".md / .gen / .bin / .zip", "roms_md", "1015"},
-            {MODE_PCE, "pce_fast", ".pce", ".pce / .zip", "roms_pce", "1016"},
+            {MODE_PCE, "pce_fast", ".pce,.cue,.bin,.img,.chd", ".pce / .cue+.bin / .chd", "roms_pce", "1016"},
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
@@ -153,6 +153,9 @@ public final class MainActivity extends Activity {
     private TextView engineStatusView;
     private TextView neoGeoBiosBanner;
     private TextView ps2BiosStatusView;
+    private TextView pceBiosStatusView;
+    private TextView pceBiosBanner;
+    private static final int REQUEST_IMPORT_PCE_BIOS = 1021;
     private TextView ps2BiosBanner;
     private static final int REQUEST_IMPORT_PS2_BIOS = 1020;
     private String pendingBiosSource;
@@ -456,6 +459,11 @@ public final class MainActivity extends Activity {
             actionRow.addView(mameBiosTile, actionTileParams());
         } else if (isConsoleMode(this.currentMode)) {
             actionRow.addView(createActionCard("ROM 추가", consoleFor(this.currentMode)[3], MODE_ICONS[index], MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
+            if (MODE_PCE.equals(this.currentMode)) {
+                LinearLayout pceBiosTile = createActionCard("CD BIOS", pceBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPceBiosSheet());
+                this.pceBiosStatusView = (TextView) pceBiosTile.getTag();
+                actionRow.addView(pceBiosTile, actionTileParams());
+            }
             if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
                 LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
                 this.ps2BiosStatusView = (TextView) ps2BiosTile.getTag();
@@ -478,6 +486,16 @@ public final class MainActivity extends Activity {
         this.screenModeStatusView = (TextView) screenModeTile.getTag();
         actionRow.addView(screenModeTile, actionTileParams());
         linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        if (MODE_PCE.equals(this.currentMode)) {
+            TextView banner = new TextView(this);
+            banner.setTextSize(12.0f);
+            banner.setLineSpacing(0.0f, 1.2f);
+            banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+            this.pceBiosBanner = banner;
+            LinearLayout.LayoutParams bannerParams = new LinearLayout.LayoutParams(-1, -2);
+            bannerParams.setMargins(0, dp(4), 0, 0);
+            linearLayout3.addView(banner, bannerParams);
+        }
         if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
             TextView banner = new TextView(this);
             banner.setTextSize(12.0f);
@@ -843,6 +861,21 @@ public final class MainActivity extends Activity {
         if (this.neoGeoBiosBanner != null) {
             this.neoGeoBiosBanner.setVisibility(neoGeoBiosFile().exists() ? 8 : 0);
         }
+        if (this.pceBiosStatusView != null) {
+            this.pceBiosStatusView.setText(pceBiosStatusText());
+            this.pceBiosStatusView.setTextColor(pceBiosFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        }
+        if (this.pceBiosBanner != null) {
+            if (!pceBiosFile().isFile()) {
+                this.pceBiosBanner.setText(android.text.Html.fromHtml("<b>CD-ROM² 게임은 System Card BIOS가 필요해요.</b><br>HuCard(.pce) 게임은 BIOS 없이 그대로 실행됩니다.", 0));
+                this.pceBiosBanner.setTextColor(Color.rgb(154, 52, 18));
+                this.pceBiosBanner.setBackground(rounded(Color.rgb(255, 241, 232), dp(12)));
+            } else {
+                this.pceBiosBanner.setText(android.text.Html.fromHtml("<b>✓ CD-ROM² 게임을 실행할 수 있어요.</b> BIOS: " + android.text.TextUtils.htmlEncode(pceBiosStatusText()), 0));
+                this.pceBiosBanner.setTextColor(Color.rgb(22, 101, 52));
+                this.pceBiosBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
+            }
+        }
         if (this.ps2BiosStatusView != null) {
             this.ps2BiosStatusView.setText(ps2BiosStatusText());
             this.ps2BiosStatusView.setTextColor(ps2BiosFile() != null ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
@@ -1187,6 +1220,10 @@ public final class MainActivity extends Activity {
             if (data != null) {
                 importNeoGeoBios(data);
             }
+        } else if (i == REQUEST_IMPORT_PCE_BIOS) {
+            if (data != null) {
+                importPceBios(data);
+            }
         } else if (i == REQUEST_IMPORT_PS2_BIOS) {
             if (data != null) {
                 importPs2Bios(data);
@@ -1197,7 +1234,7 @@ public final class MainActivity extends Activity {
     }
 
     private void importRoms(Intent intent, String mode) {
-        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode)) {
+        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PCE.equals(mode)) {
             // Disc images run to gigabytes; copy them off the UI thread.
             final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
             progress.setTitle(MODE_NAMES[modeIndex(mode)] + " 게임 가져오기");
@@ -2514,7 +2551,8 @@ public final class MainActivity extends Activity {
     }
 
     private boolean isRomFile(File file) {
-        return file.isFile() && isSupportedRom(file) && !(romDirFor(MODE_PS1).equals(file.getParentFile()) && isCueTrack(file));
+        File dir = file.getParentFile();
+        return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir)) && isCueTrack(file));
     }
 
     private LinearLayout createRomRow(final File file) {
@@ -2928,6 +2966,11 @@ public final class MainActivity extends Activity {
 
     private void startGameActivity(File file) {
         String mode = modeForFile(file);
+        if (MODE_PCE.equals(mode) && isPceCd(file) && !pceBiosFile().isFile()) {
+            showError("CD-ROM² 게임은 System Card BIOS가 필요해요. PC엔진 화면의 CD BIOS 칸에서 가져와 주세요.");
+            showPceBiosSheet();
+            return;
+        }
         if ("arcade".equals(mode)) {
             syncArcadeBiosFiles();
         } else if ("neogeo".equals(mode)) {
@@ -4087,6 +4130,9 @@ public final class MainActivity extends Activity {
         if (MODE_PS1.equals(mode)) {
             return checkPs1Image(file);
         }
+        if (MODE_PCE.equals(mode) && isPceCd(file)) {
+            return checkPs1Image(file);
+        }
         if (MODE_PCE.equals(mode)) {
             // HuCards have no header; dumps are whole 8KB banks, some with a 512-byte copier header.
             long size = file.length() % 8192;
@@ -4898,6 +4944,182 @@ public final class MainActivity extends Activity {
     private File ps2BiosFile() {
         File[] files = ps2BiosDir().listFiles(file -> file.isFile() && file.length() >= 4194304L);
         return files == null || files.length == 0 ? null : files[0];
+    }
+
+    // PC Engine CD-ROM² images (a .cue sheet with its tracks, or a .chd) as opposed to HuCards.
+    private static boolean isPceCd(File file) {
+        String lower = file.getName().toLowerCase(Locale.US);
+        return lower.endsWith(".cue") || lower.endsWith(".chd") || lower.endsWith(".bin") || lower.endsWith(".img");
+    }
+
+    // The System Card BIOS Beetle PCE Fast loads for CD games ("System Card 3" option).
+    private File pceBiosFile() {
+        return new File(systemDir(), "syscard3.pce");
+    }
+
+    private String pceBiosStatusText() {
+        File bios = pceBiosFile();
+        if (!bios.isFile()) {
+            return "없음";
+        }
+        String version = pceBiosVersion(readHead(bios, (int) Math.min(bios.length(), 262144)));
+        return version != null ? version : "등록됨";
+    }
+
+    // "System Card 3.0" from the "VER. 3.00" string in a System Card image.
+    private static String pceBiosVersion(byte[] data) {
+        if (data == null) {
+            return null;
+        }
+        String text = new String(data, StandardCharsets.ISO_8859_1);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("VER\\. ?(\\d)\\.(\\d)").matcher(text);
+        return m.find() ? "System Card " + m.group(1) + "." + m.group(2) : null;
+    }
+
+    private void showPceBiosSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        final File bios = pceBiosFile();
+        boolean present = bios.isFile();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView icon = new TextView(this);
+        icon.setText("BIOS");
+        icon.setTextColor(-1);
+        icon.setTextSize(13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(239, 84, 103), dp(13)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("PC엔진 CD BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView state = new TextView(this);
+        state.setText(present ? pceBiosStatusText() + " · syscard3.pce" : "등록된 BIOS 없음");
+        state.setTextSize(12.0f);
+        state.setTextColor(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        titles.addView(state);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout kinds = new LinearLayout(this);
+        kinds.setOrientation(0);
+        kinds.addView(engineCard("HuCard 게임", ".pce", "BIOS 없이 실행", false), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        secondParams.setMargins(dp(8), 0, 0, 0);
+        kinds.addView(engineCard("CD-ROM² 게임", ".cue+.bin / .chd", "System Card BIOS 필요", true), secondParams);
+        LinearLayout.LayoutParams kindsParams = new LinearLayout.LayoutParams(-1, -2);
+        kindsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(kinds, kindsParams);
+
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("직접 가진 System Card에서 추출한 BIOS를 골라 주세요.<br>보통 <b>syscard3.pce</b> (256KB) 파일이에요.", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        TextView choose = sheetButton(present ? "다른 BIOS로 바꾸기" : "BIOS 파일 선택", MODE_COLORS[modeIndex(MODE_PCE)], -1);
+        choose.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_IMPORT_PCE_BIOS);
+        });
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+        chooseParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(choose, chooseParams);
+        if (present) {
+            TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
+            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("PC엔진 CD BIOS 삭제").setMessage("BIOS를 지우면 CD-ROM² 게임을 실행할 수 없어요. HuCard 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+                dialog.dismiss();
+                pceBiosFile().delete();
+                showMessage("PC엔진 CD BIOS를 삭제했습니다.");
+                updateHomeStatusCards();
+            }).show());
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+            deleteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(delete, deleteParams);
+        }
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    // Saves a picked System Card BIOS as <system>/syscard3.pce. Dumps come with a 512-byte
+    // copier header and padded to 384 KB at times; the card itself is the first 256 KB, which
+    // must carry the "PC Engine CD-ROM SYSTEM" signature.
+    private void importPceBios(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("선택한 파일을 열 수 없습니다");
+            }
+            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[65536];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                buffer.write(chunk, 0, n);
+                if (buffer.size() > 4 * 1024 * 1024) {
+                    throw new IOException("System Card BIOS가 아니에요 (파일이 너무 큼).");
+                }
+            }
+            byte[] data = buffer.toByteArray();
+            int start = data.length % 8192 == 512 ? 512 : 0;
+            int length = Math.min(data.length - start, 262144);
+            byte[] card = java.util.Arrays.copyOfRange(data, start, start + Math.max(0, length));
+            if (card.length < 131072 || !new String(card, StandardCharsets.ISO_8859_1).contains("PC Engine CD-ROM SYSTEM")) {
+                throw new IOException("System Card BIOS가 아니에요. 보통 syscard3.pce (256KB) 파일이에요.");
+            }
+            File dir = systemDir();
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("BIOS 폴더를 만들 수 없습니다");
+            }
+            try (FileOutputStream out = new FileOutputStream(pceBiosFile())) {
+                out.write(card);
+            }
+            String version = pceBiosVersion(card);
+            showMessage("PC엔진 CD BIOS를 가져왔습니다" + (version != null ? ": " + version : "") + ".\nCD-ROM² 게임을 실행할 수 있어요.");
+            updateHomeStatusCards();
+        } catch (IOException e) {
+            showError("PC엔진 CD BIOS 가져오기 실패: " + e.getMessage());
+        }
     }
 
     private boolean pcsx2Shipped() {
