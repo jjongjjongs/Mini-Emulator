@@ -143,6 +143,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
         // The controls start where the frame style puts them, whatever the style.
         controlsParams.topMargin = full ? Math.max(dp(10), dp(18) + frame[1] + dp(36) - dp(6) - screen[1]) : dp(36);
+        if (isNds()) {
+            // The DS screens grow into whatever the controls leave, so the bezel under them is short.
+            controlsParams.topMargin = dp(20);
+            final int screenTop = layoutParams2.topMargin;
+            final int minSide = full ? dp(6) : dp(34);
+            final int padding = full ? 0 : dp(4) + dp(2);
+            linearLayout.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitNdsPortrait(frameLayout, r - l, b - t, screenTop, minSide, padding));
+        }
         linearLayout.addView(frameLayout2, controlsParams);
         FrameLayout root = new FrameLayout(this);
         ClearShellView shell = createShell(false);
@@ -191,6 +199,26 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean isFullScreenStyle() {
         return "full".equals(getSharedPreferences("settings", 0).getString("screen_style", "frame"));
+    }
+
+    // Sizes the stacked DS screens to the height the window really has: the controls keep
+    // dp(268) (L/R, then the D-pad and face buttons, then SELECT/START), the screens get the rest.
+    private void fitNdsPortrait(FrameLayout screenFrame, int width, int height, int screenTop, int minSide, int padding) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        float aspect = screenAspect();
+        int tallest = height - dp(64) - screenTop - dp(20) - dp(268) - padding;
+        int screenWidth = Math.max(dp(200), Math.min(width - minSide * 2, Math.round(tallest * aspect)));
+        int side = (width - screenWidth) / 2;
+        int screenHeight = Math.round(screenWidth / aspect) + padding;
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) screenFrame.getLayoutParams();
+        if (params.height != screenHeight || params.leftMargin != side || params.rightMargin != side) {
+            params.height = screenHeight;
+            params.leftMargin = side;
+            params.rightMargin = side;
+            screenFrame.post(() -> screenFrame.setLayoutParams(params));
+        }
     }
 
     // Side margin and height of the portrait screen for a side margin and vertical padding.
