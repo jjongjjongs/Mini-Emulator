@@ -1230,24 +1230,128 @@ public final class MainActivity extends Activity {
     }
 
     // BIOS tiles offer a single file or a whole folder; a folder is sorted by file type.
+    // The card opens with what is registered so far.
     private void showBiosChooser(String source) {
-        List<String> labels = new ArrayList<>();
-        if (BIOS_SOURCE_MAME.equals(source)) {
-            labels.add("등록된 BIOS 관리");
-        }
-        labels.add("파일 선택");
-        labels.add("폴더째 등록 (여러 BIOS 한 번에)");
-        final int offset = labels.size() - 2;
-        new AlertDialog.Builder(this).setTitle("BIOS 등록").setItems(labels.toArray(new String[0]), (dialog, which) -> {
-            if (which < offset) {
-                showMameBiosManager();
-            } else if (which == offset) {
-                openSingleBiosPicker(source);
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        boolean mame = BIOS_SOURCE_MAME.equals(source);
+        boolean neoGeo = "neogeo".equals(source);
+        TextView title = new TextView(this);
+        title.setText(mame ? "MAME BIOS" : neoGeo ? "Neo Geo BIOS" : "GBA BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setPadding(dp(4), 0, dp(4), 0);
+        panel.addView(title);
+
+        // Status: green when ready, amber when something is missing, red when nothing is there.
+        int state;
+        String headline;
+        String note = null;
+        int count = 0;
+        if (mame) {
+            File[] files = mameBiosDir().listFiles(MainActivity::isZipFile);
+            count = files == null ? 0 : files.length;
+            String status = mameBiosStatus();
+            if (count == 0) {
+                state = 2;
+                headline = "등록된 BIOS가 없어요";
+                note = "BIOS가 필요한 기판 게임은 실행되지 않아요";
             } else {
-                this.pendingBiosSource = source;
-                openFolderPicker(REQUEST_OPEN_BIOS_FOLDER);
+                headline = "BIOS " + count + "개 등록됨";
+                state = status.startsWith("ST-V 불완전") ? 1 : 0;
+                if (state == 1) {
+                    note = "ST-V (stvbios.zip) 파일 일부 부족";
+                }
             }
-        }).setNegativeButton("취소", null).show();
+        } else if (neoGeo) {
+            boolean ok = neoGeoBiosFile().exists();
+            state = ok ? 0 : 2;
+            headline = ok ? "Neo Geo BIOS 등록됨" : "Neo Geo BIOS가 없어요";
+            note = ok ? "neogeo.zip" : "Neo Geo 게임을 실행하려면 neogeo.zip이 필요해요";
+        } else {
+            boolean ok = biosFile().exists();
+            state = ok ? 0 : 1;
+            headline = ok ? "GBA BIOS 등록됨" : "GBA BIOS가 없어요";
+            note = ok ? "gba_bios.bin" : "없어도 대부분의 게임은 실행돼요";
+        }
+        int[] fills = {Color.rgb(240, 253, 244), Color.rgb(255, 247, 237), Color.rgb(254, 242, 242)};
+        int[] icons = {Color.rgb(34, 179, 90), Color.rgb(245, 158, 11), Color.rgb(229, 72, 77)};
+        int[] heads = {Color.rgb(20, 83, 45), Color.rgb(124, 45, 18), Color.rgb(127, 29, 29)};
+        LinearLayout statusCard = new LinearLayout(this);
+        statusCard.setOrientation(0);
+        statusCard.setGravity(16);
+        statusCard.setPadding(dp(12), dp(11), dp(12), dp(11));
+        statusCard.setBackground(rounded(fills[state], dp(14)));
+        TextView mark = new TextView(this);
+        mark.setText(state == 0 ? "✓" : "!");
+        mark.setTextColor(-1);
+        mark.setTextSize(15.0f);
+        mark.setTypeface(Typeface.DEFAULT_BOLD);
+        mark.setGravity(17);
+        mark.setBackground(rounded(icons[state], dp(15)));
+        statusCard.addView(mark, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        LinearLayout statusTexts = new LinearLayout(this);
+        statusTexts.setOrientation(1);
+        TextView head = new TextView(this);
+        head.setText(headline);
+        head.setTextSize(13.5f);
+        head.setTypeface(Typeface.DEFAULT_BOLD);
+        head.setTextColor(heads[state]);
+        statusTexts.addView(head);
+        if (note != null) {
+            TextView noteView = new TextView(this);
+            noteView.setText(note);
+            noteView.setTextSize(11.5f);
+            noteView.setTextColor(state == 0 ? Color.rgb(77, 124, 96) : Color.rgb(180, 83, 9));
+            statusTexts.addView(noteView);
+        }
+        LinearLayout.LayoutParams statusTextsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        statusTextsParams.setMargins(dp(10), 0, 0, 0);
+        statusCard.addView(statusTexts, statusTextsParams);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
+        statusParams.setMargins(0, dp(12), 0, dp(10));
+        panel.addView(statusCard, statusParams);
+
+        LinearLayout tiles = new LinearLayout(this);
+        int column = 0;
+        int last = mame ? 2 : 1;
+        if (mame) {
+            tiles.addView(createActionTile(dialog, RoundIconView.MULTI, Color.rgb(239, 84, 103), "관리", count + "개", false, this::showMameBiosManager), gridParams(column++, last));
+        }
+        tiles.addView(createActionTile(dialog, RoundIconView.CARD, RoundIconView.COLOR_LOAD, "파일", null, false, () -> openSingleBiosPicker(source)), gridParams(column++, last));
+        tiles.addView(createActionTile(dialog, RoundIconView.FOLDER, RoundIconView.COLOR_SAVE, "폴더째", null, false, () -> {
+            this.pendingBiosSource = source;
+            openFolderPicker(REQUEST_OPEN_BIOS_FOLDER);
+        }), gridParams(column, last));
+        panel.addView(tiles, new LinearLayout.LayoutParams(-1, -2));
+        panel.addView(createCancelButton(dialog, "취소"));
+        showCardDialog(dialog, panel, -2);
+    }
+
+    private LinearLayout.LayoutParams gridParams(int column, int last) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+        params.setMargins(column == 0 ? 0 : dp(4), 0, column == last ? 0 : dp(4), 0);
+        return params;
+    }
+
+    private TextView createCancelButton(Dialog dialog, String label) {
+        TextView cancel = new TextView(this);
+        cancel.setText(label);
+        cancel.setTextSize(14.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(13)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(44));
+        params.setMargins(0, dp(12), 0, 0);
+        cancel.setLayoutParams(params);
+        return cancel;
     }
 
     private void openSingleBiosPicker(String source) {
@@ -2387,17 +2491,130 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("실행 엔진 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
     }
 
+    // Speed and how many games each engine runs, out of 5, for the engine cards.
+    private static final int[] ENGINE_SPEED = {5, 5, 3, 1};
+    private static final int[] ENGINE_GAMES = {2, 3, 4, 5};
+    private static final String[] ENGINE_NAMES = {"MAME 2003-Plus", "FinalBurn Neo", "MAME 2010", "MAME 2015"};
+    private static final String[] ENGINE_NOTES = {"구형 아케이드 · 가벼움", "Neo Geo · CPS 계열", "0.139 · ZN·3D 기판", "ST-V 등 최신 지원 · 무거움"};
+
     // Engine for games in this mode; a game whose romset fits only the other engine still switches to it.
     private void showDefaultCorePicker() {
         final String key = "neogeo".equals(this.currentMode) ? PREF_NEOGEO_CORE : PREF_ARCADE_CORE;
-        int checked = Math.max(0, Arrays.asList(ARCADE_CORE_IDS).indexOf(defaultCoreFor(this.currentMode)));
-        new AlertDialog.Builder(this).setTitle("기본 엔진").setNeutralButton("ROM 검사", (dialog, which) -> checkImportedRoms()).setSingleChoiceItems(ARCADE_CORE_LABELS, checked, (dialog, which) -> {
-            settingsPrefs().edit().putString(key, ARCADE_CORE_IDS[which]).apply();
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        TextView title = new TextView(this);
+        title.setText("기본 엔진");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setPadding(dp(4), 0, dp(4), 0);
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(MODE_NAMES[modeIndex(this.currentMode)] + " · 게임을 길게 누르면 게임별로 바꿀 수 있어요");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setPadding(dp(4), dp(2), dp(4), dp(4));
+        panel.addView(sub);
+        String current = defaultCoreFor(this.currentMode);
+        for (int i = 0; i < ARCADE_CORE_IDS.length; i++) {
+            final String core = ARCADE_CORE_IDS[i];
+            View card = createEngineCard(i, core.equals(current));
+            card.setOnClickListener(view -> {
+                dialog.dismiss();
+                settingsPrefs().edit().putString(key, core).apply();
+                updateHomeStatusCards();
+                refreshLibrary();
+                showMessage("기본 엔진: " + coreDisplayName(core) + "\n게임별 엔진은 게임을 길게 눌러 바꿀 수 있습니다.");
+            });
+            panel.addView(card);
+        }
+        LinearLayout buttons = new LinearLayout(this);
+        TextView check = createCancelButton(dialog, "ROM 검사");
+        check.setOnClickListener(view -> {
             dialog.dismiss();
-            updateHomeStatusCards();
-            refreshLibrary();
-            showMessage("기본 엔진: " + coreDisplayName(ARCADE_CORE_IDS[which]) + "\n게임별 엔진은 게임을 길게 눌러 바꿀 수 있습니다.");
-        }).show();
+            checkImportedRoms();
+        });
+        LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(0, dp(44), 1.0f);
+        checkParams.setMargins(0, 0, dp(5), 0);
+        buttons.addView(check, checkParams);
+        TextView close = createCancelButton(dialog, "닫기");
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(0, dp(44), 1.0f);
+        closeParams.setMargins(dp(5), 0, 0, 0);
+        buttons.addView(close, closeParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        showCardDialog(dialog, scroll, -2);
+    }
+
+    // One engine: name, note and two 5-step bars; the engine in use is a blue card.
+    private View createEngineCard(int index, boolean selected) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(1);
+        card.setPadding(dp(12), dp(11), dp(12), dp(11));
+        card.setBackground(rounded(selected ? RoundIconView.COLOR_SAVE : Color.rgb(246, 247, 249), dp(14)));
+        int text = selected ? -1 : Color.rgb(31, 41, 51);
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(0);
+        top.setGravity(16);
+        TextView name = new TextView(this);
+        name.setText(ENGINE_NAMES[index]);
+        name.setTextSize(14.5f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(text);
+        top.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        if (selected) {
+            TextView badge = new TextView(this);
+            badge.setText("사용 중");
+            badge.setTextSize(11.0f);
+            badge.setTypeface(Typeface.DEFAULT_BOLD);
+            badge.setTextColor(-1);
+            badge.setPadding(dp(8), dp(2), dp(8), dp(2));
+            badge.setBackground(rounded(Color.argb(64, 255, 255, 255), dp(8)));
+            top.addView(badge);
+        }
+        card.addView(top);
+        TextView note = new TextView(this);
+        note.setText(ENGINE_NOTES[index]);
+        note.setTextSize(11.5f);
+        note.setTextColor(selected ? Color.argb(200, 255, 255, 255) : Color.rgb(122, 130, 140));
+        card.addView(note);
+        LinearLayout bars = new LinearLayout(this);
+        bars.setOrientation(0);
+        bars.setGravity(16);
+        bars.setPadding(0, dp(7), 0, 0);
+        addEngineBar(bars, "속도", ENGINE_SPEED[index], selected ? -1 : Color.rgb(34, 179, 90), text);
+        addEngineBar(bars, "지원 게임", ENGINE_GAMES[index], selected ? -1 : Color.rgb(245, 158, 11), text);
+        card.addView(bars);
+        card.setClickable(true);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(8), 0, 0);
+        card.setLayoutParams(params);
+        return card;
+    }
+
+    private void addEngineBar(LinearLayout row, String label, int value, int on, int text) {
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextSize(11.0f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(text);
+        row.addView(name);
+        for (int i = 0; i < 5; i++) {
+            View step = new View(this);
+            step.setBackground(rounded(i < value ? on : (on == -1 ? Color.argb(70, 255, 255, 255) : Color.rgb(229, 231, 235)), dp(3)));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(14), dp(6));
+            params.setMargins(i == 0 ? dp(6) : dp(3), 0, 0, 0);
+            row.addView(step, params);
+        }
+        View gap = new View(this);
+        row.addView(gap, new LinearLayout.LayoutParams(dp(16), 1));
     }
 
     private void onCoreSelected(File file, String[] strArr, DialogInterface dialogInterface, int i) {
@@ -3075,29 +3292,164 @@ public final class MainActivity extends Activity {
             return;
         }
         Arrays.sort(listFiles, Comparator.comparing((File f) -> f.getName().toLowerCase(Locale.US)));
-        StringBuilder sb = new StringBuilder();
-        HashMap hashMap = new HashMap();
-        int i = 0;
+        HashMap<String, File> seen = new HashMap<>();
+        List<String[]> issues = new ArrayList<>();
+        int ok = 0;
+        int duplicates = 0;
         for (File file : listFiles) {
-            RomCheck checkRomFile = checkRomFile(file);
-            String safeCrc32Hex = safeCrc32Hex(file);
-            File file2 = (File) hashMap.get(safeCrc32Hex);
-            if (file2 != null) {
-                sb.append(displayGameNameFor(file)).append(": 중복 ROM - ").append(displayGameNameFor(file2)).append('\n');
+            RomCheck check = checkRomFile(file);
+            String crc = safeCrc32Hex(file);
+            File first = seen.get(crc);
+            if (first != null) {
+                duplicates++;
+                issues.add(new String[]{displayGameNameFor(file), "중복", "중복 ROM - " + displayGameNameFor(first)});
             } else {
-                hashMap.put(safeCrc32Hex, file);
-                if (checkRomFile.ok) {
-                    i++;
+                seen.put(crc, file);
+                if (check.ok) {
+                    ok++;
                 } else {
-                    sb.append(displayGameNameFor(file)).append(": ").append(checkRomFile.detail).append('\n');
+                    issues.add(new String[]{displayGameNameFor(file), shortIssue(check.detail), check.detail});
                 }
             }
         }
-        String str = "검사한 ROM: " + listFiles.length + "개\n파일 기본 검사 통과: " + i + "개\n직접 실행 확인 필요: " + (listFiles.length - i) + "개";
-        if (sb.length() > 0) {
-            str = str + "\n\n" + ((Object) sb);
+        showRomCheckResult(listFiles.length, ok, duplicates, issues);
+    }
+
+    // Short badge text for a check result.
+    private static String shortIssue(String detail) {
+        if (detail.contains("체크섬")) {
+            return "체크섬";
         }
-        new AlertDialog.Builder(this).setTitle("ROM 호환성 검사").setMessage(str).setPositiveButton(17039370, (DialogInterface.OnClickListener) null).show();
+        if (detail.contains("로고")) {
+            return "로고 불일치";
+        }
+        if (detail.contains("파일 부족")) {
+            return "파일 부족";
+        }
+        if (detail.contains("읽기")) {
+            return "읽기 실패";
+        }
+        if (detail.contains("찾지 못")) {
+            return "모르는 롬셋";
+        }
+        return detail.length() > 8 ? detail.substring(0, 8) + "…" : detail;
+    }
+
+    private void showRomCheckResult(int total, int ok, int duplicates, List<String[]> issues) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        TextView title = new TextView(this);
+        title.setText("ROM 검사");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setPadding(dp(4), 0, dp(4), 0);
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(MODE_NAMES[modeIndex(this.currentMode)] + " · " + total + "개 검사");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setPadding(dp(4), dp(2), dp(4), 0);
+        panel.addView(sub);
+
+        int warn = total - ok - duplicates;
+        RingView ring = new RingView(this, ok, warn, duplicates);
+        ring.setCenter(String.valueOf(ok), "/ " + total + " 정상");
+        LinearLayout.LayoutParams ringParams = new LinearLayout.LayoutParams(dp(104), dp(104));
+        ringParams.gravity = 1;
+        ringParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(ring, ringParams);
+        TextView legend = new TextView(this);
+        String legendText = "● 정상 " + ok + "    ● 확인 필요 " + warn + (duplicates > 0 ? "    ● 중복 " + duplicates : "");
+        android.text.SpannableString spans = new android.text.SpannableString(legendText);
+        colorSpan(spans, legendText, "● 정상 " + ok, RingView.GREEN);
+        colorSpan(spans, legendText, "● 확인 필요 " + warn, RingView.AMBER);
+        if (duplicates > 0) {
+            colorSpan(spans, legendText, "● 중복 " + duplicates, RingView.GREY);
+        }
+        legend.setText(spans);
+        legend.setTextSize(12.0f);
+        legend.setTypeface(Typeface.DEFAULT_BOLD);
+        legend.setGravity(1);
+        legend.setPadding(0, dp(8), 0, dp(4));
+        panel.addView(legend, new LinearLayout.LayoutParams(-1, -2));
+
+        if (!issues.isEmpty()) {
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(1);
+            for (String[] issue : issues) {
+                list.addView(createIssueRow(issue[0], issue[1], issue[2]));
+            }
+            ScrollView scroll = new ScrollView(this);
+            scroll.addView(list);
+            int height = issues.size() > 5 ? dp(250) : -2;
+            panel.addView(scroll, new LinearLayout.LayoutParams(-1, height));
+            TextView hint = new TextView(this);
+            boolean arcade = "arcade".equals(this.currentMode) || "neogeo".equals(this.currentMode);
+            hint.setText(arcade ? "파일이 부족한 롬셋은 실행되지 않을 수 있어요" : "한글 패치 롬은 헤더가 달라도 대부분 실행돼요");
+            hint.setTextSize(11.0f);
+            hint.setTextColor(Color.rgb(138, 146, 156));
+            hint.setGravity(1);
+            hint.setPadding(0, dp(8), 0, 0);
+            panel.addView(hint, new LinearLayout.LayoutParams(-1, -2));
+        }
+        TextView done = new TextView(this);
+        done.setText("확인");
+        done.setTextSize(15.0f);
+        done.setTypeface(Typeface.DEFAULT_BOLD);
+        done.setTextColor(-1);
+        done.setGravity(17);
+        done.setBackground(rounded(Color.rgb(22, 185, 207), dp(14)));
+        done.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(-1, dp(48));
+        doneParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(done, doneParams);
+        showCardDialog(dialog, panel, -2);
+    }
+
+    private static void colorSpan(android.text.SpannableString spans, String text, String part, int color) {
+        int start = text.indexOf(part);
+        if (start >= 0) {
+            spans.setSpan(new android.text.style.ForegroundColorSpan(color), start, start + part.length(), 0);
+        }
+    }
+
+    // A problem ROM: its name and a coloured badge; the full reason is shown on tap.
+    private View createIssueRow(String name, String badge, String detail) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(12), dp(9), dp(12), dp(9));
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(13.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        row.addView(title, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        int color = "중복".equals(badge) ? RingView.GREY : "체크섬".equals(badge) ? RingView.AMBER : RoundIconView.COLOR_EXIT;
+        TextView tag = new TextView(this);
+        tag.setText(badge);
+        tag.setTextSize(10.5f);
+        tag.setTypeface(Typeface.DEFAULT_BOLD);
+        tag.setTextColor(color);
+        tag.setPadding(dp(7), dp(3), dp(7), dp(3));
+        tag.setBackground(rounded(Color.argb(31, Color.red(color), Color.green(color), Color.blue(color)), dp(7)));
+        LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(-2, -2);
+        tagParams.setMargins(dp(8), 0, 0, 0);
+        row.addView(tag, tagParams);
+        row.setClickable(true);
+        row.setOnClickListener(view -> showMessage(name + "\n" + detail));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(6), 0, 0);
+        row.setLayoutParams(params);
+        return row;
     }
 
     private RomCheck checkRomFile(File file) {
