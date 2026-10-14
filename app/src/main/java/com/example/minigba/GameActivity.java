@@ -585,6 +585,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 long handle = 0;
                 String error = null;
                 try {
+                    if (isPsp()) {
+                        NativeGba.setPspLanguage(0, pspLanguage());
+                    }
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
                 } catch (RuntimeException e3) {
                     error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
@@ -986,6 +989,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(10), 0, 0);
         panel.addView(row2, row2Params);
+        if (isPsp()) {
+            LinearLayout.LayoutParams languageParams = new LinearLayout.LayoutParams(-1, dp(52));
+            languageParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(createLanguageRow(dialog), languageParams);
+        }
 
         TextView resume = new TextView(this);
         resume.setText("▶  계속하기");
@@ -1011,6 +1019,219 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             window.setLayout(width, -2);
         }
         dialog.show();
+    }
+
+    // PSP system language, per game. PSP games pick their text (and some their keyboard)
+    // from it; an English game following a Korean setting shows a Hangul keyboard it has no
+    // font for.
+    private static final String[] PSP_LANGUAGES = {"Korean", "English", "Japanese"};
+    private static final String[] PSP_LANGUAGE_NAMES = {"한국어", "English", "日本語"};
+    private static final String[] PSP_LANGUAGE_NOTES = {"기본값 · 한국어 지원 게임·한글 패치용", "영문판 게임 (이름 입력 키보드가 영어로)", "일본판 게임"};
+
+    private String pspLanguage() {
+        String value = getSharedPreferences("settings", 0).getString("psp_language:" + this.saveBaseName, "Korean");
+        for (String language : PSP_LANGUAGES) {
+            if (language.equals(value)) {
+                return value;
+            }
+        }
+        return "Korean";
+    }
+
+    private int pspLanguageIndex() {
+        return java.util.Arrays.asList(PSP_LANGUAGES).indexOf(pspLanguage());
+    }
+
+    private LinearLayout createLanguageRow(android.app.Dialog menu) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(246, 247, 249));
+        background.setCornerRadius(dp(14));
+        row.setBackground(background);
+        row.addView(new RoundIconView(this, RoundIconView.GLOBE, RoundIconView.COLOR_GLOBE), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText("PSP 시스템 언어");
+        label.setTextSize(14.0f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        TextView value = new TextView(this);
+        value.setText(PSP_LANGUAGE_NAMES[pspLanguageIndex()] + "  ›");
+        value.setTextSize(13.5f);
+        value.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        value.setTextColor(RoundIconView.COLOR_GLOBE);
+        row.addView(value, new LinearLayout.LayoutParams(-2, -2));
+        row.setOnClickListener(view -> {
+            // The pause menu stays open underneath; the game stays paused meanwhile.
+            showLanguageDialog(menu);
+        });
+        return row;
+    }
+
+    private void showLanguageDialog(android.app.Dialog menu) {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.GLOBE, RoundIconView.COLOR_GLOBE), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("PSP 시스템 언어");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView game = new TextView(this);
+        game.setText(this.gameTitle);
+        game.setTextSize(12.0f);
+        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(game);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        final int[] selected = {pspLanguageIndex()};
+        final LinearLayout[] options = new LinearLayout[PSP_LANGUAGES.length];
+        final View[] dots = new View[PSP_LANGUAGES.length];
+        Runnable refresh = () -> {
+            for (int k = 0; k < options.length; k++) {
+                boolean on = k == selected[0];
+                android.graphics.drawable.GradientDrawable optionBackground = new android.graphics.drawable.GradientDrawable();
+                optionBackground.setColor(on ? Color.rgb(238, 240, 255) : Color.rgb(246, 247, 249));
+                optionBackground.setCornerRadius(dp(14));
+                options[k].setBackground(optionBackground);
+                android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+                dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                dot.setStroke(dp(2), on ? RoundIconView.COLOR_GLOBE : Color.rgb(201, 206, 214));
+                dot.setColor(Color.WHITE);
+                dots[k].setBackground(on ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{dot, innerDot()}) : dot);
+            }
+        };
+        for (int k = 0; k < PSP_LANGUAGES.length; k++) {
+            final int index = k;
+            LinearLayout option = new LinearLayout(this);
+            option.setOrientation(0);
+            option.setGravity(16);
+            option.setPadding(dp(14), dp(12), dp(14), dp(12));
+            View dot = new View(this);
+            option.addView(dot, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            TextView name = new TextView(this);
+            name.setText(PSP_LANGUAGE_NAMES[k]);
+            name.setTextSize(14.5f);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            texts.addView(name);
+            TextView note = new TextView(this);
+            note.setText(PSP_LANGUAGE_NOTES[k]);
+            note.setTextSize(11.5f);
+            note.setTextColor(Color.rgb(122, 130, 140));
+            texts.addView(note);
+            LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            textsParams.setMargins(dp(12), 0, 0, 0);
+            option.addView(texts, textsParams);
+            option.setOnClickListener(view -> {
+                selected[0] = index;
+                refresh.run();
+            });
+            LinearLayout.LayoutParams optionParams = new LinearLayout.LayoutParams(-1, -2);
+            optionParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(option, optionParams);
+            options[k] = option;
+            dots[k] = dot;
+        }
+        refresh.run();
+
+        TextView warning = new TextView(this);
+        warning.setText("이 게임에만 적용돼요. 바꾸면 게임이 처음부터 다시 시작돼요.\n게임 안 세이브(메모리스틱)는 그대로 남아요.");
+        warning.setTextSize(12.0f);
+        warning.setLineSpacing(0, 1.15f);
+        warning.setTextColor(Color.rgb(138, 90, 0));
+        warning.setPadding(dp(12), dp(10), dp(12), dp(10));
+        android.graphics.drawable.GradientDrawable warningBackground = new android.graphics.drawable.GradientDrawable();
+        warningBackground.setColor(Color.rgb(255, 247, 232));
+        warningBackground.setCornerRadius(dp(12));
+        warning.setBackground(warningBackground);
+        LinearLayout.LayoutParams warningParams = new LinearLayout.LayoutParams(-1, -2);
+        warningParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(warning, warningParams);
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView apply = dialogButton("적용하고 재시작", RoundIconView.COLOR_GLOBE, Color.WHITE);
+        apply.setOnClickListener(view -> {
+            String language = PSP_LANGUAGES[selected[0]];
+            dialog.dismiss();
+            if (language.equals(pspLanguage())) {
+                return;
+            }
+            getSharedPreferences("settings", 0).edit().putString("psp_language:" + this.saveBaseName, language).apply();
+            menu.dismiss();
+            callCore(handle -> {
+                NativeGba.setPspLanguage(handle, language);
+                return true;
+            }, "PSP 시스템 언어를 " + PSP_LANGUAGE_NAMES[selected[0]] + "로 바꾸고 게임을 재시작했습니다.", null);
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    // The filled centre of a selected radio dot.
+    private android.graphics.drawable.Drawable innerDot() {
+        android.graphics.drawable.GradientDrawable inner = new android.graphics.drawable.GradientDrawable();
+        inner.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        inner.setColor(RoundIconView.COLOR_GLOBE);
+        android.graphics.drawable.InsetDrawable inset = new android.graphics.drawable.InsetDrawable(inner, dp(5));
+        return inset;
+    }
+
+    private TextView dialogButton(String text, int background, int textColor) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(15.0f);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setTextColor(textColor);
+        button.setGravity(17);
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+        drawable.setColor(background);
+        drawable.setCornerRadius(dp(14));
+        button.setBackground(drawable);
+        return button;
     }
 
     private LinearLayout.LayoutParams menuTileParams(int column) {

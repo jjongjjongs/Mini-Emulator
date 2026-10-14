@@ -29,6 +29,10 @@ final class NativeGba {
 
     static native void setSpeedMultiplier(long j, int i);
 
+    // PSP system language ("Korean", "English", "Japanese"). With handle 0 it applies to the
+    // next game created; with a running game it applies and restarts the game.
+    static native void setPspLanguage(long handle, String language);
+
     static native void setSurface(long j, Surface surface);
 
     static {

@@ -29,6 +29,7 @@ final class RoundIconView extends View {
     static final int TRASH = 14;
     static final int MULTI = 15;
     static final int FOLDER = 16;
+    static final int GLOBE = 17;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -40,6 +41,7 @@ final class RoundIconView extends View {
     static final int COLOR_STAR = Color.rgb(245, 166, 35);
     static final int COLOR_EDIT = Color.rgb(91, 108, 240);
     static final int COLOR_GEAR = Color.rgb(245, 158, 11);
+    static final int COLOR_GLOBE = Color.rgb(99, 102, 241);
 
     private final int icon;
     private final int color;
@@ -266,6 +268,16 @@ final class RoundIconView extends View {
                 path.lineTo(5.5f, 19.5f);
                 path.quadTo(3.5f, 19.5f, 3.5f, 17.5f);
                 path.close();
+                canvas.drawPath(path, line);
+                break;
+            case GLOBE:
+                canvas.drawCircle(12, 12, 8.5f, line);
+                path.moveTo(3.5f, 12);
+                path.lineTo(20.5f, 12);
+                path.moveTo(12, 3.5f);
+                path.cubicTo(15.2f, 6.5f, 15.2f, 17.5f, 12, 20.5f);
+                path.moveTo(12, 3.5f);
+                path.cubicTo(8.8f, 6.5f, 8.8f, 17.5f, 12, 20.5f);
                 canvas.drawPath(path, line);
                 break;
             case PLAY:

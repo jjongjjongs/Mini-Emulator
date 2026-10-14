@@ -964,6 +964,12 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
     __android_log_print(priority, LOG_TAG, "%s", message);
 }
 
+// PSP system language, chosen per game ("Korean" unless the player picked another). Only
+// changed before the game starts or on the emulation thread, which reads it.
+std::string gPspLanguage = "Korean";
+// Set when an option changed while the game runs; the core asks for it every frame.
+std::atomic<bool> gVariablesUpdated{false};
+
 // Core options the app pins regardless of what the core reports as default.
 const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_use_bios") == 0) return "ON";
@@ -975,9 +981,10 @@ const char* fixedVariable(const char* key) {
     // PSP: the bridge offers OpenGL ES only; render at twice the PSP's resolution.
     if (strcmp(key, "ppsspp_backend") == 0) return "opengl";
     if (strcmp(key, "ppsspp_internal_resolution") == 0) return "960x544";
-    // PSP system language Korean: Korean games (and Korean patches) pick their text and
-    // the kr0.pgf system font from it; games without Korean fall back to English.
-    if (strcmp(key, "ppsspp_language") == 0) return "Korean";
+    // PSP system language, Korean by default: Korean games (and Korean patches) pick their
+    // text and the kr0.pgf system font from it. Games without Korean that still follow it
+    // (Call of Duty: Roads to Victory's name keyboard) are set to English per game.
+    if (strcmp(key, "ppsspp_language") == 0) return gPspLanguage.c_str();
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
     // "Fit Screen" letterboxes games whose picture is smaller than the output (GTA San
@@ -1067,7 +1074,7 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             return true;
         case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
             if (data == nullptr) return false;
-            *static_cast<bool*>(data) = false;
+            *static_cast<bool*>(data) = gVariablesUpdated.exchange(false);
             return true;
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
             if (data == nullptr) return false;
@@ -1911,6 +1918,30 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/,
         return;
     }
     callCore(core, [core] {
+        core->retroReset();
+        return true;
+    });
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspLanguage(
+        JNIEnv* env, jclass /*cls*/, jlong handle, jstring language) {
+    std::string value = jstringToString(env, language);
+    if (value != "Korean" && value != "English" && value != "Japanese") {
+        return;
+    }
+    Core* core = fromHandle(handle);
+    if (core == nullptr) {
+        gPspLanguage = value;
+        return;
+    }
+    if (!core->gameLoaded || core->retroReset == nullptr) {
+        return;
+    }
+    // The PSP game reads the language while it runs, so restart it; the next frame's
+    // retro_run picks up the new value before any game code runs.
+    callCore(core, [core, value] {
+        gPspLanguage = value;
+        gVariablesUpdated.store(true);
         core->retroReset();
         return true;
     });
