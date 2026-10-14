@@ -217,6 +217,8 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "mame2010") return "libmame2010_libretro_android.so";
     if (coreId == "mame2015") return "libmame2015_libretro_android.so";
     if (coreId == "snes9x") return "libsnes9x_libretro_android.so";
+    if (coreId == "fceumm") return "libfceumm_libretro_android.so";
+    if (coreId == "genesis_plus_gx") return "libgenesis_plus_gx_libretro_android.so";
     return nullptr;
 }
 
@@ -601,6 +603,8 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
     if (strcmp(key, "mgba_frameskip") == 0) return "0";
+    // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
+    if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -799,7 +803,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         bit = mame2010ButtonBitFor(id);
     } else {
         // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
-        bit = buttonBitFor(id, core->coreId != "gba" && core->coreId != "snes9x");
+        bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" || core->coreId == "genesis_plus_gx";
+        bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
 }
