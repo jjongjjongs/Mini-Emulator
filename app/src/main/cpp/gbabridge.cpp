@@ -680,6 +680,48 @@ void handler(int signal, siginfo_t* info, void* context) {
     }
 }
 
+// Play! installs its own SIGSEGV handler on its emulation thread (for its memory
+// protection) without passing faults on; for a fault it cannot use it resets SIGSEGV to
+// the default and the process dies silently. Wrap whatever handler a core installed:
+// the core's runs first, and if it gave up, the fault is reported like any other.
+struct sigaction gForeignSegv;
+
+void foreignSegvWrapper(int signal, siginfo_t* info, void* context) {
+    if ((gForeignSegv.sa_flags & SA_SIGINFO) != 0 && gForeignSegv.sa_sigaction != nullptr) {
+        gForeignSegv.sa_sigaction(signal, info, context);
+    } else if (gForeignSegv.sa_handler != SIG_DFL && gForeignSegv.sa_handler != SIG_IGN && gForeignSegv.sa_handler != nullptr) {
+        gForeignSegv.sa_handler(signal);
+    }
+    struct sigaction now{};
+    sigaction(SIGSEGV, nullptr, &now);
+    if ((now.sa_flags & SA_SIGINFO) == 0 && now.sa_handler == SIG_DFL) {
+        handler(signal, info, context);
+    }
+}
+
+void wrapForeignSegvHandler() {
+    if (!gInstalled) {
+        return;
+    }
+    struct sigaction current{};
+    if (sigaction(SIGSEGV, nullptr, &current) != 0) {
+        return;
+    }
+    bool siginfo = (current.sa_flags & SA_SIGINFO) != 0;
+    if (siginfo && (current.sa_sigaction == foreignSegvWrapper || current.sa_sigaction == handler)) {
+        return;
+    }
+    if (!siginfo && (current.sa_handler == SIG_DFL || current.sa_handler == SIG_IGN)) {
+        return;
+    }
+    gForeignSegv = current;
+    struct sigaction wrapper{};
+    wrapper.sa_sigaction = foreignSegvWrapper;
+    wrapper.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&wrapper.sa_mask);
+    sigaction(SIGSEGV, &wrapper, nullptr);
+}
+
 // The handler runs on its own stack so a stack overflow can still be reported.
 void useAlternateStack() {
     static thread_local bool done = false;
@@ -1306,6 +1348,9 @@ void runLoop(Core* core) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
+            if (core->coreId == "play") {
+                crash::wrapForeignSegvHandler();
+            }
             core->retroRun();
             core->framesRun++;
             if (core->resumePending) {

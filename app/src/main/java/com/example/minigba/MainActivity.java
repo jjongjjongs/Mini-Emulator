@@ -615,14 +615,32 @@ public final class MainActivity extends Activity {
         updateNote();
         refreshLibrary();
         boolean reported = showLastCrashReport();
+        checkGameSession(reported, 0);
+    }
+
+    // A game session that was not closed from the game screen ended some other way. The
+    // game process can still be on its way out when this screen comes back, so look again
+    // for a few seconds before deciding.
+    private void checkGameSession(boolean reported, int attempt) {
         SharedPreferences prefs = settingsPrefs();
         long sessionStart = prefs.getLong(GameActivity.SESSION_START, 0);
-        boolean closed = prefs.getBoolean(GameActivity.SESSION_CLOSED, true);
-        if (sessionStart != 0 && !closed && !isGameProcessRunning()) {
-            prefs.edit().remove(GameActivity.SESSION_START).apply();
-            if (!reported) {
-                showUnexpectedGameExit(sessionStart);
-            }
+        if (sessionStart == 0 || prefs.getBoolean(GameActivity.SESSION_CLOSED, true)) {
+            return;
+        }
+        if (isGameProcessRunning() && attempt < 6) {
+            getWindow().getDecorView().postDelayed(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    checkGameSession(reported || showLastCrashReport(), attempt + 1);
+                }
+            }, 1000);
+            return;
+        }
+        if (isGameProcessRunning()) {
+            return;
+        }
+        prefs.edit().remove(GameActivity.SESSION_START).apply();
+        if (!reported && !showLastCrashReport()) {
+            showUnexpectedGameExit(sessionStart);
         }
     }
 
@@ -665,8 +683,8 @@ public final class MainActivity extends Activity {
             }
         }
         String log = readGameLog();
-        if (text.length() == 0 && log.isEmpty()) {
-            return;
+        if (text.length() == 0) {
+            text.append("(시스템 종료 기록 없음)\n");
         }
         if (!log.isEmpty()) {
             text.append("log:\n").append(log);
