@@ -187,7 +187,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so
-          key: play-${{ hashFiles('cores/build-play.sh') }}
+          key: play-${{ hashFiles('cores/build-play.sh', 'cores/patches/play-*.patch') }}
 
       - name: Build Play! core
         if: steps.play-cache.outputs.cache-hit != 'true'
@@ -198,7 +198,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so
-          key: play-${{ hashFiles('cores/build-play.sh') }}
+          key: play-${{ hashFiles('cores/build-play.sh', 'cores/patches/play-*.patch') }}
 
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug

@@ -28,6 +28,14 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$PLAY_COMMIT" ]; 
     git -C "$DIR" checkout -q --force FETCH_HEAD
 fi
 git -C "$DIR" submodule update -q --init --recursive --depth 1
+# Fixes on top of the pinned commit (each says what it fixes):
+#   sif-dma-bounds: SIF DMA copies could run past the end of IOP or EE RAM and kill
+#     the process (Tekken 5 crashed in CSifManPs2::ExecuteSifDma).
+for PATCH in "$HERE"/patches/play-*.patch; do
+    if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+        git -C "$DIR" apply "$PATCH"
+    fi
+done
 
 GENERATOR="Unix Makefiles"
 if command -v ninja > /dev/null; then
