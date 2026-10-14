@@ -614,14 +614,111 @@ public final class MainActivity extends Activity {
         updateHomeStatusCards();
         updateNote();
         refreshLibrary();
-        showLastCrashReport();
+        boolean reported = showLastCrashReport();
+        SharedPreferences prefs = settingsPrefs();
+        long sessionStart = prefs.getLong(GameActivity.SESSION_START, 0);
+        boolean closed = prefs.getBoolean(GameActivity.SESSION_CLOSED, true);
+        if (sessionStart != 0 && !closed && !isGameProcessRunning()) {
+            prefs.edit().remove(GameActivity.SESSION_START).apply();
+            if (!reported) {
+                showUnexpectedGameExit(sessionStart);
+            }
+        }
+    }
+
+    private boolean isGameProcessRunning() {
+        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        List<android.app.ActivityManager.RunningAppProcessInfo> processes = am == null ? null : am.getRunningAppProcesses();
+        if (processes != null) {
+            for (android.app.ActivityManager.RunningAppProcessInfo process : processes) {
+                if (process.processName != null && process.processName.endsWith(":game")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // A game that ended without its engine crashing (no last_crash.txt): the system was
+    // asked to stop it, killed it (memory) or it exited. Shows the system's record of why
+    // (Android 11+) and the engine's last log lines, which the bridge keeps in a file.
+    private void showUnexpectedGameExit(long sessionStart) {
+        StringBuilder text = new StringBuilder();
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            List<android.app.ApplicationExitInfo> exits = am == null ? null : am.getHistoricalProcessExitReasons(null, 0, 10);
+            if (exits != null) {
+                for (android.app.ApplicationExitInfo exit : exits) {
+                    if (exit.getProcessName() == null || !exit.getProcessName().endsWith(":game") || exit.getTimestamp() < sessionStart) {
+                        continue;
+                    }
+                    text.append("reason ").append(exitReasonName(exit.getReason())).append(" (").append(exit.getReason()).append(")")
+                            .append(", status ").append(exit.getStatus())
+                            .append(", importance ").append(exit.getImportance())
+                            .append("\npss ").append(exit.getPss() / 1024).append(" MB, rss ").append(exit.getRss() / 1024).append(" MB");
+                    if (exit.getDescription() != null) {
+                        text.append("\n").append(exit.getDescription());
+                    }
+                    text.append('\n');
+                    break;
+                }
+            }
+        }
+        String log = readGameLog();
+        if (text.length() == 0 && log.isEmpty()) {
+            return;
+        }
+        if (!log.isEmpty()) {
+            text.append("log:\n").append(log);
+        }
+        showReport("게임이 갑자기 종료됐습니다", "엔진이 오류 없이 꺼졌습니다. 아래 내용을 복사해서 보내 주시면 원인을 찾는 데 도움이 됩니다.", text.toString());
+    }
+
+    private static String exitReasonName(int reason) {
+        switch (reason) {
+            case 1: return "EXIT_SELF";
+            case 2: return "SIGNALED";
+            case 3: return "LOW_MEMORY";
+            case 4: return "CRASH";
+            case 5: return "CRASH_NATIVE";
+            case 6: return "ANR";
+            case 7: return "INITIALIZATION_FAILURE";
+            case 8: return "PERMISSION_CHANGE";
+            case 9: return "EXCESSIVE_RESOURCE_USAGE";
+            case 10: return "USER_REQUESTED";
+            case 11: return "USER_STOPPED";
+            case 12: return "DEPENDENCY_DIED";
+            case 13: return "OTHER";
+            case 14: return "FREEZER";
+            default: return "UNKNOWN";
+        }
+    }
+
+    // files/game_log.bin: a little-endian line count, then 48 slots of 240 bytes.
+    private String readGameLog() {
+        File file = new File(getFilesDir(), "game_log.bin");
+        byte[] data = readHead(file, (int) Math.min(file.length(), 4 + 48 * 240));
+        if (data == null || data.length < 4) {
+            return "";
+        }
+        long count = (data[0] & 255) | ((data[1] & 255) << 8) | ((data[2] & 255) << 16) | ((long) (data[3] & 255) << 24);
+        StringBuilder sb = new StringBuilder();
+        for (long i = Math.max(0, count - 48); i < count; i++) {
+            int at = 4 + (int) (i % 48) * 240;
+            int end = at;
+            while (end < Math.min(data.length, at + 240) && data[end] != 0) {
+                end++;
+            }
+            sb.append(new String(data, at, end - at, StandardCharsets.UTF_8)).append('\n');
+        }
+        return sb.toString();
     }
 
     // The native bridge writes this file when a game's engine crashes.
-    private void showLastCrashReport() {
+    private boolean showLastCrashReport() {
         File file = new File(getFilesDir(), "last_crash.txt");
         if (!file.isFile()) {
-            return;
+            return false;
         }
         String report;
         try (FileInputStream in = new FileInputStream(file)) {
@@ -635,8 +732,13 @@ public final class MainActivity extends Activity {
             file.deleteOnExit();
         }
         if (report.trim().isEmpty()) {
-            return;
+            return false;
         }
+        showReport("게임이 비정상 종료됐습니다", "엔진이 멈춘 위치를 기록했습니다. 아래 내용을 복사해서 보내 주시면 원인을 찾는 데 도움이 됩니다.", report);
+        return true;
+    }
+
+    private void showReport(String title, String intro, String report) {
         String version;
         try {
             version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
@@ -652,7 +754,7 @@ public final class MainActivity extends Activity {
         view.setPadding(dp(16), dp(8), dp(16), dp(8));
         ScrollView scroll = new ScrollView(this);
         scroll.addView(view);
-        new AlertDialog.Builder(this).setTitle("게임이 비정상 종료됐습니다").setMessage("엔진이 멈춘 위치를 기록했습니다. 아래 내용을 복사해서 보내 주시면 원인을 찾는 데 도움이 됩니다.").setView(scroll).setNegativeButton("닫기", null).setPositiveButton("복사", (dialog, which) -> {
+        new AlertDialog.Builder(this).setTitle(title).setMessage(intro).setView(scroll).setNegativeButton("닫기", null).setPositiveButton("복사", (dialog, which) -> {
             android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (clipboard != null) {
                 clipboard.setPrimaryClip(ClipData.newPlainText("Mini Emulator crash", text));

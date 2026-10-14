@@ -32,6 +32,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     static final String EXTRA_SAVE_BASE_NAME = "com.example.minigba.SAVE_BASE_NAME";
     static final String EXTRA_TITLE = "com.example.minigba.TITLE";
     static final String EXTRA_MODE = "com.example.minigba.MODE";
+    static final String SESSION_START = "game_session_start";
+    static final String SESSION_CLOSED = "game_session_closed";
     private static final String MENU_CONTINUE = "계속하기";
     private static final String MENU_SAVE_STATE = "빠른 저장";
     private static final String MENU_LOAD_STATE = "빠른 저장 불러오기";
@@ -77,6 +79,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         requestWindowFeature(1);
         getWindow().setFlags(1024, 1024);
         this.romPath = getIntent().getStringExtra("com.example.minigba.ROM_PATH");
+        // Marks a game session; closing the game clears it. If the game process ends any
+        // other way the game list asks the system why (MainActivity.showUnexpectedGameExit).
+        getSharedPreferences("settings", 0).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
         String stringExtra = getIntent().getStringExtra("com.example.minigba.CORE_ID");
         this.coreId = stringExtra;
         if (stringExtra == null) {
@@ -433,6 +438,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 sink.release();
             }
             if (finishing) {
+                getSharedPreferences("settings", 0).edit().putBoolean(SESSION_CLOSED, true).commit();
                 android.os.Process.killProcess(android.os.Process.myPid());
             }
         });

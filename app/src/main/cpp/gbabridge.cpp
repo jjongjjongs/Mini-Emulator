@@ -13,6 +13,7 @@
 #include <jni.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <ucontext.h>
 #include <unistd.h>
@@ -552,18 +553,44 @@ char gPath[512];
 char gContext[512];
 bool gInstalled = false;
 struct sigaction gPrevious[NSIG];
-const int kSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT};
+const int kSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP, SIGSYS};
+// The same lines in files/game_log.bin (a 4-byte count, then the ring), mapped so
+// they survive a process the system kills outright, which no handler sees.
+char* gMapped = nullptr;
 
 void remember(const char* text) {
     if (text == nullptr || *text == '\0') {
         return;
     }
-    unsigned slot = gNextLine.fetch_add(1) % kLines;
+    unsigned number = gNextLine.fetch_add(1);
+    unsigned slot = number % kLines;
     snprintf(gLines[slot], kLineLength, "%s", text);
     size_t length = strlen(gLines[slot]);
     while (length > 0 && (gLines[slot][length - 1] == '\n' || gLines[slot][length - 1] == '\r')) {
         gLines[slot][--length] = '\0';
     }
+    if (gMapped != nullptr) {
+        memcpy(gMapped + 4 + slot * kLineLength, gLines[slot], kLineLength);
+        uint32_t count = number + 1;
+        memcpy(gMapped, &count, 4);
+    }
+}
+
+void mapLogFile(const std::string& filesDir) {
+    std::string path = filesDir + "/game_log.bin";
+    size_t size = 4 + static_cast<size_t>(kLines) * kLineLength;
+    int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        return;
+    }
+    if (ftruncate(fd, static_cast<off_t>(size)) == 0) {
+        void* map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (map != MAP_FAILED) {
+            memset(map, 0, size);
+            gMapped = static_cast<char*>(map);
+        }
+    }
+    close(fd);
 }
 
 void writeText(int fd, const char* text) {
@@ -713,6 +740,7 @@ void install(const std::string& systemDir, const std::string& coreId, const std:
         return;
     }
     gInstalled = true;
+    mapLogFile(filesDir);
 #ifdef __ANDROID__
     captureStdio();
 #else
