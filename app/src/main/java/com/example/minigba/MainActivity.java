@@ -38,6 +38,7 @@ import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -72,6 +73,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     private static final String STATE_MODE = "current_mode";
     private static final int REQUEST_OPEN_BIOS_FOLDER = 1012;
+    private static final int REQUEST_OPEN_ROM_FOLDER = 1013;
+    private static final String STATE_FOLDER_MODE = "pending_folder_mode";
 ;
 ;
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
@@ -96,6 +99,8 @@ public final class MainActivity extends Activity {
     private TextView engineStatusView;
     private TextView neoGeoBiosBanner;
     private String pendingBiosSource;
+    // Mode the picked ROM folder is imported into, kept while the folder picker is open.
+    private String pendingFolderMode;
     private static final String STATE_BIOS_SOURCE = "pending_bios_source";
     private TextView emptyView;
     private TextView mameBiosStatusView;
@@ -115,6 +120,7 @@ public final class MainActivity extends Activity {
         // Keep the open mode across rotation and other activity recreation.
         String restoredMode = bundle == null ? null : bundle.getString(STATE_MODE);
         this.pendingBiosSource = bundle == null ? null : bundle.getString(STATE_BIOS_SOURCE);
+        this.pendingFolderMode = bundle == null ? null : bundle.getString(STATE_FOLDER_MODE);
         if (restoredMode != null) {
             showHome(restoredMode);
             return;
@@ -188,6 +194,9 @@ public final class MainActivity extends Activity {
         }
         if (this.pendingBiosSource != null) {
             bundle.putString(STATE_BIOS_SOURCE, this.pendingBiosSource);
+        }
+        if (this.pendingFolderMode != null) {
+            bundle.putString(STATE_FOLDER_MODE, this.pendingFolderMode);
         }
     }
 
@@ -377,19 +386,19 @@ public final class MainActivity extends Activity {
         actionRow.setOrientation(0);
         actionRow.setPadding(0, dp(6), 0, dp(6));
         if ("neogeo".equals(this.currentMode)) {
-            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "NEO", MODE_COLORS[index], view -> openArcadeRomPicker()), actionTileParams());
+            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "NEO", MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
             LinearLayout neoBiosTile = createActionCard("Neo Geo BIOS", neoGeoBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser("neogeo"));
             this.neoGeoBiosStatusView = (TextView) neoBiosTile.getTag();
             actionRow.addView(neoBiosTile, actionTileParams());
         } else if ("arcade".equals(this.currentMode)) {
-            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "MAME", MODE_COLORS[index], view -> openArcadeRomPicker()), actionTileParams());
+            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "MAME", MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
             LinearLayout mameBiosTile = createActionCard("MAME BIOS", mameBiosStatus(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(BIOS_SOURCE_MAME));
             this.mameBiosStatusView = (TextView) mameBiosTile.getTag();
             actionRow.addView(mameBiosTile, actionTileParams());
         } else if (MODE_SNES.equals(this.currentMode)) {
-            actionRow.addView(createActionCard("ROM 추가", ".sfc / .smc / .zip", "SFC", MODE_COLORS[index], view -> openSnesRomPicker()), actionTileParams());
+            actionRow.addView(createActionCard("ROM 추가", ".sfc / .smc / .zip", "SFC", MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
         } else {
-            actionRow.addView(createActionCard("GBA · GBC ROM", ".gba / .gbc / .zip", "GBA", Color.rgb(34, 166, 197), view -> openRomPicker()), actionTileParams());
+            actionRow.addView(createActionCard("GBA · GBC ROM", ".gba / .gbc / .zip", "GBA", Color.rgb(34, 166, 197), view -> showRomAddChooser()), actionTileParams());
             LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_GBA));
             this.biosStatusView = (TextView) biosTile.getTag();
             actionRow.addView(biosTile, actionTileParams());
@@ -892,6 +901,14 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri data = intent.getData();
+        if (i == REQUEST_OPEN_ROM_FOLDER) {
+            String mode = this.pendingFolderMode;
+            this.pendingFolderMode = null;
+            if (data != null && mode != null) {
+                scanRomFolder(data, mode);
+            }
+            return;
+        }
         if (i == REQUEST_OPEN_BIOS_FOLDER) {
             String source = this.pendingBiosSource;
             this.pendingBiosSource = null;
@@ -1240,6 +1257,458 @@ public final class MainActivity extends Activity {
             openMameBiosPicker();
         } else {
             openBiosPicker();
+        }
+    }
+
+    // ---- ROM folder import ----
+
+    // "ROM 추가": pick files as before, or a whole folder to preview and pick from.
+    private void showRomAddChooser() {
+        final String mode = this.currentMode;
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        TextView title = new TextView(this);
+        title.setText("ROM 추가");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setPadding(dp(4), 0, dp(4), dp(2));
+        panel.addView(title);
+        String files = MODE_SNES.equals(mode) ? ".sfc / .smc / .zip" : MODE_GBA.equals(mode) ? ".gba / .gbc / .gb / .zip" : "ZIP";
+        panel.addView(createChoiceRow(RoundIconView.CARD, MODE_COLORS[modeIndex(mode)], "파일 고르기", files + " 파일을 하나 또는 여러 개 골라서 가져오기", () -> {
+            dialog.dismiss();
+            openRomFilePicker(mode);
+        }));
+        panel.addView(createChoiceRow(RoundIconView.FOLDER, RoundIconView.COLOR_SAVE, "폴더째로 가져오기", "폴더를 고르면 안의 게임을 보여 주고 골라서 가져오기 · 하위 폴더 포함", () -> {
+            dialog.dismiss();
+            this.pendingFolderMode = mode;
+            openFolderPicker(REQUEST_OPEN_ROM_FOLDER);
+        }));
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(14.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(13)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(44));
+        cancelParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(cancel, cancelParams);
+        showCardDialog(dialog, panel, -2);
+    }
+
+    private void openRomFilePicker(String mode) {
+        if (MODE_SNES.equals(mode)) {
+            openSnesRomPicker();
+        } else if (MODE_GBA.equals(mode)) {
+            openRomPicker();
+        } else {
+            openArcadeRomPicker();
+        }
+    }
+
+    private void showCardDialog(Dialog dialog, View content, int height) {
+        dialog.setContentView(content);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), height);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout createChoiceRow(int icon, int color, String label, String sub, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), dp(14), dp(14), dp(14));
+        int normal = Color.rgb(246, 247, 249);
+        row.setBackground(rounded(normal, dp(16)));
+        row.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(46), dp(46)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextSize(15.0f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(Color.rgb(31, 41, 51));
+        texts.addView(name);
+        TextView detail = new TextView(this);
+        detail.setText(sub);
+        detail.setTextSize(12.0f);
+        detail.setTextColor(Color.rgb(122, 130, 140));
+        texts.addView(detail);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(14), 0, 0, 0);
+        row.addView(texts, textsParams);
+        pressable(row, normal, Color.rgb(228, 231, 236), dp(16));
+        row.setOnClickListener(view -> action.run());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(10), 0, 0);
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    // A file found in the picked folder, as shown in the preview list.
+    private static final class FolderItem {
+        final PickedFile file;
+        final String title;
+        final String detail;
+        final boolean present;
+        boolean selected;
+
+        FolderItem(PickedFile file, String title, String detail, boolean present) {
+            this.file = file;
+            this.title = title;
+            this.detail = detail;
+            this.present = present;
+            this.selected = !present;
+        }
+    }
+
+    private boolean isFolderCandidate(String mode, String lowerCaseName) {
+        if (MODE_SNES.equals(mode) || MODE_GBA.equals(mode)) {
+            return isRomNameFor(mode, lowerCaseName) || lowerCaseName.endsWith(".zip");
+        }
+        return lowerCaseName.endsWith(".zip");
+    }
+
+    private boolean isArcadeBiosName(String lowerCaseName) {
+        return lowerCaseName.equals("neogeo.zip") || Arrays.asList(KNOWN_ARCADE_BIOS).contains(lowerCaseName)
+                || RomsetIndex.isBiosName(this, baseNameWithoutExtension(lowerCaseName));
+    }
+
+    // Lists the folder off the UI thread, then shows what it found.
+    @SuppressWarnings("deprecation")
+    private void scanRomFolder(Uri treeUri, String mode) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setTitle("폴더 살펴보는 중");
+        progress.setMessage("파일 목록을 읽고 있습니다…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            List<FolderItem> items = new ArrayList<>();
+            String error = null;
+            try {
+                boolean arcade = !MODE_GBA.equals(mode) && !MODE_SNES.equals(mode);
+                File romDir = romDirFor(mode);
+                for (PickedFile picked : listTree(treeUri)) {
+                    String lower = picked.name.toLowerCase(Locale.US);
+                    if (!isFolderCandidate(mode, lower)) {
+                        continue;
+                    }
+                    String base = baseNameWithoutExtension(picked.name);
+                    String size = picked.size > 0 ? formatSize(picked.size) : "";
+                    if (arcade && isArcadeBiosName(lower)) {
+                        items.add(new FolderItem(picked, picked.name, "BIOS · BIOS로 등록", false));
+                        continue;
+                    }
+                    boolean present = new File(romDir, sanitizeFileName(picked.name)).exists();
+                    String title = base;
+                    if (arcade) {
+                        String known = GameTitles.lookup(this, base);
+                        if (known != null) {
+                            title = known;
+                        }
+                    }
+                    String detail = picked.name + (present ? " · 이미 있음" : size.isEmpty() ? "" : " · " + size);
+                    items.add(new FolderItem(picked, title, detail, present));
+                }
+                Collections.sort(items, (a, b) -> a.present != b.present ? (a.present ? 1 : -1) : a.title.compareToIgnoreCase(b.title));
+            } catch (RuntimeException e) {
+                error = e.getMessage();
+            }
+            final String failure = error;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (failure != null) {
+                    showError("폴더를 읽을 수 없습니다: " + failure);
+                } else if (items.isEmpty()) {
+                    showMessage("이 폴더에서 가져올 수 있는 게임을 찾지 못했습니다.");
+                } else {
+                    showFolderPreview(treeUri, mode, items);
+                }
+            });
+        }, "scan").start();
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes >= 1024 * 1024) {
+            return String.format(Locale.US, "%.1fMB", bytes / 1048576.0);
+        }
+        return Math.max(1, bytes / 1024) + "KB";
+    }
+
+    private void showFolderPreview(Uri treeUri, String mode, List<FolderItem> items) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        panel.setBackground(rounded(-1, dp(24)));
+
+        int available = 0;
+        for (FolderItem item : items) {
+            if (!item.present) {
+                available++;
+            }
+        }
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.setPadding(dp(4), 0, dp(4), 0);
+        header.addView(new RoundIconView(this, RoundIconView.FOLDER, RoundIconView.COLOR_SAVE), new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView found = new TextView(this);
+        found.setText("게임 " + items.size() + "개를 찾았어요");
+        found.setTextSize(16.0f);
+        found.setTypeface(Typeface.DEFAULT_BOLD);
+        found.setTextColor(Color.rgb(31, 41, 51));
+        texts.addView(found);
+        TextView where = new TextView(this);
+        where.setText(folderLabel(treeUri) + " · 하위 폴더 포함");
+        where.setTextSize(12.0f);
+        where.setTextColor(Color.rgb(122, 130, 140));
+        texts.addView(where);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(texts, textsParams);
+        panel.addView(header);
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(0);
+        bar.setGravity(16);
+        bar.setPadding(dp(4), dp(12), dp(4), dp(4));
+        final TextView selectAll = new TextView(this);
+        selectAll.setTextSize(12.5f);
+        selectAll.setTypeface(Typeface.DEFAULT_BOLD);
+        selectAll.setTextColor(RoundIconView.COLOR_SAVE);
+        bar.addView(selectAll, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        final TextView count = new TextView(this);
+        count.setTextSize(12.0f);
+        count.setTextColor(Color.rgb(122, 130, 140));
+        bar.addView(count);
+        panel.addView(bar);
+
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(14.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(dp(96), -1));
+        final TextView go = new TextView(this);
+        go.setTextSize(15.0f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setTextColor(-1);
+        go.setGravity(17);
+        go.setBackground(rounded(RoundIconView.COLOR_SAVE, dp(14)));
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, -1, 1.0f);
+        goParams.setMargins(dp(9), 0, 0, 0);
+        buttons.addView(go, goParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(48));
+        buttonsParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(buttons, buttonsParams);
+
+        final int availableCount = available;
+        final Runnable refresh = () -> {
+            int selected = 0;
+            for (FolderItem item : items) {
+                if (item.selected) {
+                    selected++;
+                }
+            }
+            count.setText(selected + "개 선택됨");
+            selectAll.setText(selected == availableCount ? "✓ 전체 선택 해제" : "✓ 전체 선택");
+            go.setText(selected + "개 가져오기");
+            go.setAlpha(selected == 0 ? 0.5f : 1.0f);
+        };
+        final List<Runnable> redraws = new ArrayList<>();
+        for (FolderItem item : items) {
+            redraws.add(addFolderRow(list, item, refresh));
+        }
+        selectAll.setOnClickListener(view -> {
+            boolean all = true;
+            for (FolderItem item : items) {
+                if (!item.present && !item.selected) {
+                    all = false;
+                }
+            }
+            for (FolderItem item : items) {
+                item.selected = !item.present && !all;
+            }
+            for (Runnable redraw : redraws) {
+                redraw.run();
+            }
+            refresh.run();
+        });
+        go.setOnClickListener(view -> {
+            List<FolderItem> chosen = new ArrayList<>();
+            for (FolderItem item : items) {
+                if (item.selected) {
+                    chosen.add(item);
+                }
+            }
+            if (chosen.isEmpty()) {
+                return;
+            }
+            dialog.dismiss();
+            importFolderItems(mode, chosen);
+        });
+        refresh.run();
+        showCardDialog(dialog, panel, (int) (getResources().getDisplayMetrics().heightPixels * 0.85f));
+    }
+
+    // One checkbox row; returns a runnable that redraws its box after "select all".
+    private Runnable addFolderRow(LinearLayout list, FolderItem item, Runnable refresh) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(4), dp(10), dp(4), dp(10));
+        final TextView box = new TextView(this);
+        box.setGravity(17);
+        box.setTextColor(-1);
+        box.setTextSize(13.0f);
+        box.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(box, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView name = new TextView(this);
+        name.setText(item.title);
+        name.setTextSize(14.0f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(Color.rgb(31, 41, 51));
+        texts.addView(name);
+        TextView detail = new TextView(this);
+        detail.setText(item.detail);
+        detail.setTextSize(11.0f);
+        detail.setTextColor(Color.rgb(138, 146, 156));
+        texts.addView(detail);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(texts, textsParams);
+        final Runnable redraw = () -> {
+            if (item.present) {
+                box.setText("");
+                box.setBackground(rounded(Color.rgb(229, 231, 235), dp(6)));
+            } else if (item.selected) {
+                box.setText("✓");
+                box.setBackground(rounded(RoundIconView.COLOR_SAVE, dp(6)));
+            } else {
+                box.setText("");
+                GradientDrawable empty = new GradientDrawable();
+                empty.setColor(-1);
+                empty.setStroke(Math.round(2 * getResources().getDisplayMetrics().density), Color.rgb(195, 200, 207));
+                empty.setCornerRadius(dp(6));
+                box.setBackground(empty);
+            }
+        };
+        redraw.run();
+        if (item.present) {
+            row.setAlpha(0.5f);
+        } else {
+            row.setClickable(true);
+            row.setOnClickListener(view -> {
+                item.selected = !item.selected;
+                redraw.run();
+                refresh.run();
+            });
+        }
+        list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        View divider = new View(this);
+        divider.setBackgroundColor(Color.rgb(240, 241, 243));
+        list.addView(divider, new LinearLayout.LayoutParams(-1, Math.max(1, dp(1) / 2)));
+        return redraw;
+    }
+
+    private String folderLabel(Uri treeUri) {
+        String id = DocumentsContract.getTreeDocumentId(treeUri);
+        int colon = id.indexOf(':');
+        String path = colon >= 0 ? id.substring(colon + 1) : id;
+        return path.isEmpty() ? "선택한 폴더" : path;
+    }
+
+    // Copies the chosen files in the background and sums up what happened.
+    private void importFolderItems(String mode, List<FolderItem> items) {
+        runImport("폴더에서 가져오기", reporter -> {
+            boolean arcade = !MODE_GBA.equals(mode) && !MODE_SNES.equals(mode);
+            int added = 0;
+            int duplicates = 0;
+            List<String> bios = new ArrayList<>();
+            List<String> failed = new ArrayList<>();
+            int index = 0;
+            for (FolderItem item : items) {
+                index++;
+                PickedFile picked = item.file;
+                String lower = picked.name.toLowerCase(Locale.US);
+                reporter.report("가져오는 중 (" + index + "/" + items.size() + ")\n" + item.title);
+                try {
+                    if (arcade && isArcadeBiosName(lower)) {
+                        importArcadeBiosQuietly(picked);
+                        bios.add(picked.name);
+                        continue;
+                    }
+                    List<File> imported;
+                    if (arcade) {
+                        File file = copyArcadeRomToAppStorage(picked.uri, picked.name, mode);
+                        imported = singletonOrEmpty(file);
+                        if (file != null && RomsetIndex.isAvailable(this)) {
+                            RomsetResult romset = resolveRomset(file);
+                            if (romset.match == null) {
+                                failed.add(picked.name + " · 맞는 롬셋을 찾지 못함 (목록에는 추가됨)");
+                            } else if (romset.renameConflict != null) {
+                                failed.add(picked.name + " · 같은 게임(" + romset.renameConflict + ")이 이미 있음");
+                            }
+                        }
+                    } else if (lower.endsWith(".zip")) {
+                        imported = copyZippedRomsToAppStorage(picked.uri, picked.name, mode);
+                    } else {
+                        imported = singletonOrEmpty(copyRomToAppStorage(picked.uri, picked.name, mode));
+                    }
+                    if (imported.isEmpty()) {
+                        duplicates++;
+                    } else {
+                        added += imported.size();
+                    }
+                } catch (IOException | RuntimeException e) {
+                    failed.add(picked.name + " · " + e.getMessage());
+                }
+            }
+            StringBuilder sb = new StringBuilder("새로 추가: " + added + "개  ·  이미 있음: " + duplicates + "개  ·  못 가져옴: " + failed.size() + "개");
+            appendList(sb, "BIOS로 등록", bios);
+            appendList(sb, "확인이 필요한 파일", failed);
+            return sb.toString();
+        });
+    }
+
+    // Folder imports put BIOS archives where the cores look for them, without dialogs.
+    private void importArcadeBiosQuietly(PickedFile picked) throws IOException {
+        String lower = sanitizeFileName(picked.name).toLowerCase(Locale.US);
+        if (lower.equals("neogeo.zip")) {
+            File bios = neoGeoBiosFile();
+            copyUriToFile(picked.uri, bios);
+            prepareNeoGeoBiosForArcade(bios, new File(arcadeRomDir(), "neogeo.zip"));
+        } else {
+            copyUriToFile(picked.uri, new File(mameBiosDir(), lower));
         }
     }
 
@@ -2325,7 +2794,11 @@ public final class MainActivity extends Activity {
     }
 
     private File copyArcadeRomToAppStorage(Uri uri, String str) throws IOException {
-        File romDir = currentRomDir();
+        return copyArcadeRomToAppStorage(uri, str, this.currentMode);
+    }
+
+    private File copyArcadeRomToAppStorage(Uri uri, String str, String mode) throws IOException {
+        File romDir = romDirFor(mode);
         if (!romDir.exists() && !romDir.mkdirs()) {
             throw new IOException("ROM 폴더를 만들 수 없습니다");
         }
