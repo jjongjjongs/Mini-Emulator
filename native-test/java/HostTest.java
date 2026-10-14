@@ -74,15 +74,21 @@ public class HostTest {
         check(NativeGba.loadStateNow(h), "loadStateNow");
         check(NativeGba.saveNow(h), "saveNow");
 
-        NativeGba.setSpeedMultiplier(h, 5);
+        NativeGba.setSpeedPercent(h, 500);
         check(sink.configureCalls == 2 && sink.configuredRate == baseRate * 2, "fast-forward clamps to 2x and reconfigures audio");
-        NativeGba.setSpeedMultiplier(h, 2);
+        NativeGba.setSpeedPercent(h, 200);
         check(sink.configureCalls == 2, "same speed does not reconfigure audio");
         int before = frames();
         Thread.sleep(1000);
         int fast = frames() - before;
         check(fast > 100, "2x speed frames/s: " + fast);
-        NativeGba.setSpeedMultiplier(h, 1);
+        NativeGba.setSpeedPercent(h, 50);
+        check(sink.configuredRate == baseRate / 2, "0.5x audio rate");
+        before = frames();
+        Thread.sleep(1000);
+        int slow = frames() - before;
+        check(slow > 20 && slow < 40, "0.5x speed frames/s: " + slow);
+        NativeGba.setSpeedPercent(h, 100);
         check(sink.configuredRate == baseRate, "back to 1x audio rate");
 
         NativeGba.pause(h, true);

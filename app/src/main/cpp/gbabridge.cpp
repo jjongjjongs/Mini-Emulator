@@ -218,7 +218,8 @@ struct Core {
     bool threadStarted = false;
     std::atomic<bool> running{false};
     std::atomic<bool> paused{false};
-    std::atomic<int> speedMultiplier{1};
+    // Emulation speed in percent of real time: 50, 100 or 200.
+    std::atomic<int> speedPercent{100};
     std::atomic<int> inputMask{0};
     // Guards window, which the UI thread can swap while the core draws.
     std::mutex videoMutex;
@@ -1545,10 +1546,7 @@ void runLoop(Core* core) {
             bindHwWindow(core);
             runPendingJob(core);
         }
-        int speed = core->speedMultiplier.load();
-        if (speed < 1) {
-            speed = 1;
-        }
+        double speed = core->speedPercent.load() / 100.0;
         double fps = core->fps;
         if (!core->paused.load()) {
             while (core->coreWaiters.load() > 0 && core->running.load()) {
@@ -1883,19 +1881,19 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_pause(
     }
 }
 
-// Fast-forward is either 1x or 2x. Audio is re-opened at the scaled rate so
-// the extra samples play out at the faster speed.
-JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedMultiplier(
-        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint multiplier) {
+// Speed is 0.5x, 1x or 2x (50, 100 or 200 percent). Audio is re-opened at the scaled rate,
+// so the samples play out at that speed (and pitch).
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedPercent(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint percent) {
     Core* core = fromHandle(handle);
     if (core == nullptr) {
         return;
     }
-    int speed = multiplier > 1 ? 2 : 1;
-    if (core->speedMultiplier.exchange(speed) == speed) {
+    int speed = percent >= 200 ? 200 : percent <= 50 ? 50 : 100;
+    if (core->speedPercent.exchange(speed) == speed) {
         return;
     }
-    configureAudio(core, core->sampleRate * speed);
+    configureAudio(core, core->sampleRate * speed / 100);
 }
 
 JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveNow(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {

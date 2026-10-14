@@ -27,7 +27,8 @@ final class NativeGba {
 
     static native void setAnalogRight(long j, int x, int y);
 
-    static native void setSpeedMultiplier(long j, int i);
+    // 50, 100 or 200 (0.5x, 1x, 2x).
+    static native void setSpeedPercent(long j, int percent);
 
     // PSP system language ("Korean", "English", "Japanese"). With handle 0 it applies to the
     // next game created; with a running game it applies and restarts the game.

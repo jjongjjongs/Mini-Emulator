@@ -66,7 +66,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private String romPath;
     private String saveBaseName;
     private String gameTitle = "";
-    private int speedMultiplier = 1;
+    private int speedPercent = 100;
     private boolean surfaceReady;
     private SurfaceView surfaceView;
 
@@ -621,7 +621,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.nativeHandle = handle;
         NativeGba.setInput(handle, this.buttonMask);
-        NativeGba.setSpeedMultiplier(handle, this.speedMultiplier);
+        NativeGba.setSpeedPercent(handle, this.speedPercent);
         // The surface or the activity state may have changed while the game was loading.
         if (!this.surfaceReady || this.activeSurfaceHolder == null) {
             NativeGba.clearSurface(handle);
@@ -704,7 +704,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
         SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
         this.fastForwardButton = speedButtonView;
-        speedButtonView.setMultiplier(this.speedMultiplier);
+        speedButtonView.setPercent(this.speedPercent);
         speedButtonView.setContentDescription("배속");
         FrameLayout.LayoutParams speedParams = new FrameLayout.LayoutParams(dp(80), dp(36));
         if (isPadLayout()) {
@@ -770,11 +770,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }, "게임을 재시작했습니다.", null);
     }
 
-    private void onSpeedChanged(int i) {
-        this.speedMultiplier = i;
+    private void onSpeedChanged(int percent) {
+        this.speedPercent = percent;
         long j = this.nativeHandle;
         if (j != 0) {
-            NativeGba.setSpeedMultiplier(j, i);
+            NativeGba.setSpeedPercent(j, percent);
         }
     }
 
@@ -893,7 +893,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void addFastForwardButton(FrameLayout frameLayout) {
         SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
         this.fastForwardButton = speedButtonView;
-        speedButtonView.setMultiplier(this.speedMultiplier);
+        speedButtonView.setPercent(this.speedPercent);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(42));
         layoutParams.gravity = 49;
         layoutParams.setMargins(0, dp(37), 0, 0);

@@ -13,7 +13,8 @@ final class SpeedButtonView extends View {
     private final Paint fill;
     private final Paint icon;
     private final Listener listener;
-    private int multiplier;
+    // 50, 100 or 200 percent; each tap goes 1x -> 2x -> 0.5x -> 1x.
+    private int percent;
     private boolean pressed;
     private final Paint stroke;
     private final Paint text;
@@ -31,7 +32,7 @@ final class SpeedButtonView extends View {
         this.icon = paint2;
         Paint paint3 = new Paint(1);
         this.text = paint3;
-        this.multiplier = 1;
+        this.percent = 100;
         this.listener = listener;
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(4.0f);
@@ -41,8 +42,8 @@ final class SpeedButtonView extends View {
         setFocusable(false);
     }
 
-    void setMultiplier(int i) {
-        this.multiplier = Math.max(1, Math.min(2, i));
+    void setPercent(int percent) {
+        this.percent = percent >= 200 ? 200 : percent <= 50 ? 50 : 100;
         invalidate();
     }
 
@@ -64,9 +65,14 @@ final class SpeedButtonView extends View {
         canvas.drawRoundRect(rectF, getHeight() * 0.4f, getHeight() * 0.4f, this.fill);
         RectF rectF2 = new RectF(4.0f, 4.0f, getWidth() - 4.0f, getHeight() - 7.0f);
         this.fill.setStyle(Paint.Style.FILL);
-        boolean z = this.multiplier > 1;
+        boolean z = this.percent > 100;
+        boolean slow = this.percent < 100;
         Paint paint = this.fill;
-        if (z) {
+        if (slow) {
+            i = 61;
+            i2 = 82;
+            i3 = 32;
+        } else if (z) {
             i = 37;
             i2 = 68;
             i3 = 82;
@@ -79,11 +85,19 @@ final class SpeedButtonView extends View {
         this.stroke.setColor(Color.rgb(39, 38, 40));
         canvas.drawRoundRect(rectF2, getHeight() * 0.4f, getHeight() * 0.4f, this.fill);
         canvas.drawRoundRect(rectF2, getHeight() * 0.4f, getHeight() * 0.4f, this.stroke);
-        this.icon.setColor(z ? Color.rgb(222, 76, 154) : Color.rgb(218, 215, 207));
+        this.icon.setColor(slow ? Color.rgb(94, 200, 242) : z ? Color.rgb(222, 76, 154) : Color.rgb(218, 215, 207));
         float height = (getHeight() / 2.0f) - 1.0f;
-        drawFastForward(canvas, getWidth() * 0.24f, height, getHeight() * 0.28f);
+        if (slow) {
+            drawSlow(canvas, getWidth() * 0.24f, height, getHeight() * 0.28f);
+        } else {
+            drawFastForward(canvas, getWidth() * 0.24f, height, getHeight() * 0.28f);
+        }
         Paint paint2 = this.fill;
-        if (z) {
+        if (slow) {
+            i4 = 127;
+            i5 = 184;
+            i6 = 31;
+        } else if (z) {
             i4 = 25;
             i5 = 103;
             i6 = 166;
@@ -93,10 +107,15 @@ final class SpeedButtonView extends View {
             i6 = 214;
         }
         paint2.setColor(Color.rgb(i6, i4, i5));
-        float width = getWidth() * 0.67f;
-        canvas.drawCircle(width, height, getHeight() * 0.23f, this.fill);
+        float width = getWidth() * (slow ? 0.62f : 0.67f);
+        float knob = getHeight() * (slow ? 0.19f : 0.23f);
+        canvas.drawCircle(width, height, knob, this.fill);
         Paint paint3 = this.stroke;
-        if (z) {
+        if (slow) {
+            i7 = 64;
+            i8 = 94;
+            i9 = 19;
+        } else if (z) {
             i7 = 21;
             i8 = 55;
             i9 = 78;
@@ -106,11 +125,23 @@ final class SpeedButtonView extends View {
             i9 = 112;
         }
         paint3.setColor(Color.rgb(i9, i7, i8));
-        canvas.drawCircle(width, height, getHeight() * 0.23f, this.stroke);
-        this.text.setTextSize(getHeight() * 0.27f);
-        this.text.setColor(z ? Color.rgb(255, 225, 241) : Color.rgb(218, 215, 207));
+        canvas.drawCircle(width, height, knob, this.stroke);
+        this.text.setTextSize(getHeight() * (slow ? 0.23f : 0.27f));
+        this.text.setColor(slow ? Color.rgb(217, 242, 255) : z ? Color.rgb(255, 225, 241) : Color.rgb(218, 215, 207));
         Paint.FontMetrics fontMetrics = this.text.getFontMetrics();
-        canvas.drawText(this.multiplier + "x", getWidth() * 0.83f, height - ((fontMetrics.ascent + fontMetrics.descent) / 2.0f), this.text);
+        String label = slow ? "0.5x" : z ? "2x" : "1x";
+        canvas.drawText(label, getWidth() * (slow ? 0.81f : 0.83f), height - ((fontMetrics.ascent + fontMetrics.descent) / 2.0f), this.text);
+    }
+
+    // A bar and a single play triangle: slow motion.
+    private void drawSlow(Canvas canvas, float f, float f2, float f3) {
+        canvas.drawRoundRect(new RectF(f - (0.72f * f3), f2 - f3, f - (0.40f * f3), f2 + f3), f3 * 0.12f, f3 * 0.12f, this.icon);
+        Path path = new Path();
+        path.moveTo(f - (0.15f * f3), f2 - f3);
+        path.lineTo(f - (0.15f * f3), f2 + f3);
+        path.lineTo(f + (f3 * 1.0f), f2);
+        path.close();
+        canvas.drawPath(path, this.icon);
     }
 
     private void drawFastForward(Canvas canvas, float f, float f2, float f3) {
@@ -148,10 +179,9 @@ final class SpeedButtonView extends View {
             return true;
         }
         this.pressed = false;
-        int i = this.multiplier;
-        int i2 = i >= 2 ? 1 : i + 1;
-        this.multiplier = i2;
-        this.listener.onChanged(i2);
+        int next = this.percent == 100 ? 200 : this.percent == 200 ? 50 : 100;
+        this.percent = next;
+        this.listener.onChanged(next);
         invalidate();
         return true;
     }
