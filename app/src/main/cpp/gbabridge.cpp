@@ -248,6 +248,8 @@ struct Core {
     uint64_t framesRun = 0;
     // The quick save to resume from once the first frame has run.
     bool resumePending = false;
+    // While a restored quick save is still on trial, the frame its marker comes off at.
+    uint64_t resumeTrialEnd = 0;
 
     // Left analog stick, -32767..32767 (PSP).
     std::atomic<int> analogX{0};
@@ -424,6 +426,12 @@ bool needsFrameBeforeState(const Core* core) {
     return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play";
 }
 
+// Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
+// the game when restored. States saved since then are marked by this file next to them.
+std::string playStateTag(const Core* core) {
+    return core->statePath + ".paused";
+}
+
 bool saveState(Core* core) {
     // Before the quick save has been restored (or before MAME has a machine), saving
     // would replace the player's state with the bare start of the game.
@@ -448,6 +456,12 @@ bool saveState(Core* core) {
     }
     size_t written = fwrite(buffer.data(), 1, size, file);
     fclose(file);
+    if (written == size && core->coreId == "play") {
+        FILE* tag = fopen(playStateTag(core).c_str(), "wb");
+        if (tag != nullptr) {
+            fclose(tag);
+        }
+    }
     return written == size;
 }
 
@@ -457,6 +471,11 @@ bool loadState(Core* core) {
     }
     struct stat st {};
     if (stat(core->statePath.c_str(), &st) != 0) {
+        return false;
+    }
+    if (core->coreId == "play" && stat(playStateTag(core).c_str(), &st) != 0) {
+        LOGE("PS2 quick save from before 0.0.55; moving it aside: %s", core->statePath.c_str());
+        rename(core->statePath.c_str(), (core->statePath + ".failed").c_str());
         return false;
     }
     FILE* file = fopen(core->statePath.c_str(), "rb");
@@ -479,11 +498,26 @@ bool loadState(Core* core) {
     return core->retroUnserialize(buffer.data(), read);
 }
 
+// Frames a restored quick save must run before it counts as good. Play! crashes from a bad
+// state only after its own thread picks it up, well after retro_unserialize returns.
+constexpr uint64_t kResumeTrialFrames = 600;
+
+std::string resumeMarker(const Core* core) {
+    return core->statePath + ".resuming";
+}
+
+void endResumeTrial(Core* core) {
+    if (core->resumeTrialEnd != 0) {
+        core->resumeTrialEnd = 0;
+        unlink(resumeMarker(core).c_str());
+    }
+}
+
 // Restores the quick save when a game starts. A marker file is kept while the core
-// reads the state; if it is still there next time, that state crashed the core, so it
-// is moved aside instead of crashing every launch.
+// reads the state and for the first frames after; if it is still there next time, that
+// state crashed the core, so it is moved aside instead of crashing every launch.
 void resumeState(Core* core) {
-    std::string marker = core->statePath + ".resuming";
+    std::string marker = resumeMarker(core);
     struct stat st {};
     if (stat(marker.c_str(), &st) == 0) {
         LOGE("Quick save crashed the core last time; moving it aside: %s", core->statePath.c_str());
@@ -498,8 +532,11 @@ void resumeState(Core* core) {
     if (file != nullptr) {
         fclose(file);
     }
-    loadState(core);
-    unlink(marker.c_str());
+    if (loadState(core)) {
+        core->resumeTrialEnd = core->framesRun + kResumeTrialFrames;
+    } else {
+        unlink(marker.c_str());
+    }
 }
 
 bool saveSram(Core* core) {
@@ -1479,6 +1516,8 @@ void runLoop(Core* core) {
             if (core->resumePending) {
                 core->resumePending = false;
                 resumeState(core);
+            } else if (core->resumeTrialEnd != 0 && core->framesRun >= core->resumeTrialEnd) {
+                endResumeTrial(core);
             }
         }
         double frameNs = 1.0 / (fps * speed) * 1e9;
@@ -1488,6 +1527,10 @@ void runLoop(Core* core) {
         if (remainingNs > 0) {
             std::this_thread::sleep_for(std::chrono::nanoseconds(static_cast<int64_t>(std::ceil(remainingNs))));
         }
+    }
+    {
+        std::lock_guard<std::mutex> lock(core->coreMutex);
+        endResumeTrial(core);
     }
     tearDownHw(core);
     if (attached) {

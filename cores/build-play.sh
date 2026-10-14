@@ -31,6 +31,8 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1
 # Fixes on top of the pinned commit (each says what it fixes):
 #   sif-dma-bounds: SIF DMA copies could run past the end of IOP or EE RAM and kill
 #     the process (Tekken 5 crashed in CSifManPs2::ExecuteSifDma).
+#   state-pause: retro_serialize/unserialize ran while the VM thread kept emulating, so
+#     restored states crashed the game (CIopBios::SleepThread, EE jumping to 0).
 for PATCH in "$HERE"/patches/play-*.patch; do
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
         git -C "$DIR" apply "$PATCH"
