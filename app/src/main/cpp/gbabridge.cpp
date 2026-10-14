@@ -427,9 +427,12 @@ bool needsFrameBeforeState(const Core* core) {
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
-// the game when restored. States saved since then are marked by this file next to them.
-std::string playStateTag(const Core* core) {
-    return core->statePath + ".paused";
+// the game when restored. States saved since then start with this header, so the old ones
+// can be told apart wherever the file has been (backups, renames).
+constexpr char kPlayStateHeader[8] = {'M', 'E', 'P', 'S', '2', 'S', 'T', '1'};
+
+size_t stateHeaderSize(const Core* core) {
+    return core->coreId == "play" ? sizeof(kPlayStateHeader) : 0;
 }
 
 bool saveState(Core* core) {
@@ -445,10 +448,13 @@ bool saveState(Core* core) {
     if (size == 0) {
         return false;
     }
-    std::vector<uint8_t> buffer(size);
-    if (!core->retroSerialize(buffer.data(), size)) {
+    size_t header = stateHeaderSize(core);
+    std::vector<uint8_t> buffer(header + size);
+    memcpy(buffer.data(), kPlayStateHeader, header);
+    if (!core->retroSerialize(buffer.data() + header, size)) {
         return false;
     }
+    size += header;
     FILE* file = fopen(core->statePath.c_str(), "wb");
     if (file == nullptr) {
         LOGE("Could not write state: %s", core->statePath.c_str());
@@ -456,12 +462,6 @@ bool saveState(Core* core) {
     }
     size_t written = fwrite(buffer.data(), 1, size, file);
     fclose(file);
-    if (written == size && core->coreId == "play") {
-        FILE* tag = fopen(playStateTag(core).c_str(), "wb");
-        if (tag != nullptr) {
-            fclose(tag);
-        }
-    }
     return written == size;
 }
 
@@ -471,11 +471,6 @@ bool loadState(Core* core) {
     }
     struct stat st {};
     if (stat(core->statePath.c_str(), &st) != 0) {
-        return false;
-    }
-    if (core->coreId == "play" && stat(playStateTag(core).c_str(), &st) != 0) {
-        LOGE("PS2 quick save from before 0.0.55; moving it aside: %s", core->statePath.c_str());
-        rename(core->statePath.c_str(), (core->statePath + ".failed").c_str());
         return false;
     }
     FILE* file = fopen(core->statePath.c_str(), "rb");
@@ -495,7 +490,15 @@ bool loadState(Core* core) {
     if (read != buffer.size()) {
         return false;
     }
-    return core->retroUnserialize(buffer.data(), read);
+    size_t header = stateHeaderSize(core);
+    if (header != 0) {
+        if (read <= header || memcmp(buffer.data(), kPlayStateHeader, header) != 0) {
+            LOGE("Quick save from an older version; moving it aside: %s", core->statePath.c_str());
+            rename(core->statePath.c_str(), (core->statePath + ".failed").c_str());
+            return false;
+        }
+    }
+    return core->retroUnserialize(buffer.data() + header, read - header);
 }
 
 // Frames a restored quick save must run before it counts as good. Play! crashes from a bad
