@@ -204,6 +204,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 screenWidth = widest;
             }
         }
+        if (isNds()) {
+            // The tall stacked DS screens would push the D-pad and face buttons off the
+            // bottom, so they stop where the controls need dp(272) under the bezel.
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            int statusId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            int statusBar = statusId > 0 ? getResources().getDimensionPixelSize(statusId) : dp(24);
+            int tallest = metrics.heightPixels - statusBar - dp(64) - dp(18) - dp(36) - dp(272) - padding;
+            int widest = Math.max(dp(200), Math.round(tallest * screenAspect()));
+            if (screenWidth > widest) {
+                side += (screenWidth - widest) / 2;
+                screenWidth = widest;
+            }
+        }
         return new int[]{side, Math.max(dp(176), Math.round(screenWidth / screenAspect()) + padding)};
     }
 
@@ -809,7 +822,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         layoutParams.gravity = 8388691;
         // The PSP's D-pad sits higher to leave room for the analog stick below it.
         // The PS1/PS2 pads keep both sticks along the bottom, so their D-pad sits lower still.
-        layoutParams.setMargins(dp(compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isDualShock() ? 160 : isSonyPad() ? 214 : isGba ? 154 : 144));
+        if (isNds()) {
+            // The DS packs its controls into the shorter space under the two screens.
+            i = 136;
+            layoutParams.width = dp(i);
+            layoutParams.height = dp(i);
+        }
+        layoutParams.setMargins(dp(compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isNds() ? 60 : isDualShock() ? 160 : isSonyPad() ? 214 : isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
         if (isPsp()) {
             FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
@@ -835,8 +854,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addButton(frameLayout, "R2", kR2, 8388661, dp(14), dp(34), dp(54), dp(42), shoulderStyle);
         }
         if (hasShoulders()) {
-            addButton(frameLayout, "L", 512, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
-            addButton(frameLayout, "R", 256, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+            int shoulderTop = isNds() ? 8 : 34;
+            addButton(frameLayout, "L", 512, 8388659, dp(24), dp(shoulderTop), dp(112), dp(46), 2);
+            addButton(frameLayout, "R", 256, 8388661, dp(24), dp(shoulderTop), dp(112), dp(46), 2);
         }
         addFastForwardButton(frameLayout);
         if (isSonyPad()) {
@@ -845,6 +865,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left
             // (Super Famicom colours; the DS's are plain dark).
             boolean ds = isNds();
+            if (ds) {
+                // Smaller diamond centred on the DS's lower D-pad.
+                addButton(frameLayout, "X", 1024, 8388693, dp(68), dp(154), dp(52), dp(52), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "A", 1, 8388693, dp(18), dp(102), dp(52), dp(52), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "B", 2, 8388693, dp(68), dp(50), dp(52), dp(52), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "Y", 2048, 8388693, dp(118), dp(102), dp(52), dp(52), TouchButton.STYLE_DARK);
+                addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
+                addCenterButton(frameLayout, startLabel(), 8, 66, 14);
+                return;
+            }
             addButton(frameLayout, "X", 1024, 8388693, dp(72), dp(254), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_SNES_BLUE);
             addButton(frameLayout, "A", 1, 8388693, dp(20), dp(202), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_RED);
             addButton(frameLayout, "B", 2, 8388693, dp(72), dp(150), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
@@ -912,15 +942,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         speedButtonView.setPercent(this.speedPercent);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(42));
         layoutParams.gravity = 49;
-        layoutParams.setMargins(0, dp(37), 0, 0);
+        layoutParams.setMargins(0, dp(isNds() ? 10 : 37), 0, 0);
         frameLayout.addView(this.fastForwardButton, layoutParams);
     }
 
     private void addCenterButton(FrameLayout frameLayout, String str, int i, int i2) {
+        addCenterButton(frameLayout, str, i, i2, 72);
+    }
+
+    private void addCenterButton(FrameLayout frameLayout, String str, int i, int i2, int bottomDp) {
         TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(34));
         layoutParams.gravity = 81;
-        layoutParams.setMargins(0, 0, 0, dp(72));
+        layoutParams.setMargins(0, 0, 0, dp(bottomDp));
         touchButton.setTranslationX(dp(i2));
         frameLayout.addView(touchButton, layoutParams);
     }
@@ -1726,8 +1760,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private float screenAspect() {
         if (isNds()) {
-            // Both 256x192 screens stacked with the 16-row gap the bridge asks melonDS DS for.
-            return 256.0f / 400.0f;
+            // Both 256x192 screens stacked with the 4-row gap the bridge asks melonDS DS for.
+            return 256.0f / 388.0f;
         }
         if (isPsp()) {
             return 480.0f / 272.0f;

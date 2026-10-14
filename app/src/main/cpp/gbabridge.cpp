@@ -1036,11 +1036,11 @@ const char* fixedVariable(const char* key) {
     // the frontend blocking on audio to hold the speed. Audio here does not block, so the
     // game ran up to twice as fast; present every frame and let the bridge pace them.
     if (strcmp(key, "pcsx2_skip_duplicate_frames") == 0) return "disabled";
-    // DS: both screens stacked, with the gap the app draws its hinge into (16 of the 400
+    // DS: both screens stacked, with the gap the app draws its hinge into (4 of the 388
     // rows), touched with a finger (no cursor drawn).
     if (strcmp(key, "melonds_number_of_screen_layouts") == 0) return "1";
     if (strcmp(key, "melonds_screen_layout1") == 0) return "top-bottom";
-    if (strcmp(key, "melonds_screen_gap") == 0) return "16";
+    if (strcmp(key, "melonds_screen_gap") == 0) return "4";
     if (strcmp(key, "melonds_touch_mode") == 0) return "touch";
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
