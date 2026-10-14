@@ -930,6 +930,9 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "ppsspp_language") == 0) return "Korean";
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
+    // "Fit Screen" letterboxes games whose picture is smaller than the output (GTA San
+    // Andreas showed in a box); fill the 4:3 output instead.
+    if (strcmp(key, "play_presentation_mode") == 0) return "Fill Screen";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
