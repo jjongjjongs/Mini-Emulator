@@ -1524,11 +1524,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void layoutPspLandscape(FrameLayout screen, int width, int height) {
-        // The screen leaves dp(116) of height for its bezel and the bottom row (a little more
+        // The screen leaves dp(124) of height for its bezel and the bottom row (a little more
         // than it needs, so the columns beside it are wide enough for big buttons), and at
         // least dp(136) on each side for the control columns.
         float aspect = screenAspect();
-        int screenHeight = Math.max(dp(150), height - dp(116));
+        int screenHeight = Math.max(dp(150), height - dp(124));
         int screenWidth = Math.round(screenHeight * aspect);
         int widest = width - dp(136) * 2;
         if (screenWidth > widest) {
@@ -1550,7 +1550,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         View[] v = this.pspSideViews;
         // L/R sit under the round corner buttons; PS1/PS2 split each into L2 L1 and R1 R2.
         int shoulderTop = dp(62);
-        int shoulderHeight = dp(40);
+        int shoulderHeight = dp(42);
         boolean dual = v.length > 8;
         if (dual) {
             int lh = (lw - dp(8)) / 2;
@@ -1569,13 +1569,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // D-pad and stick small on phones that are not very tall in landscape.
         int columnBottom = height - dp(14);
         int avail = Math.max(dp(120), columnBottom - columnTop);
-        int pad = Math.min(Math.min(lw, dp(142)), Math.round(avail * 0.62f));
+        int pad = Math.min(Math.min(lw, dp(150)), Math.round(avail * 0.62f));
         setBox(v[2], lc - pad / 2, columnTop, pad, pad);
-        int stick = Math.max(dp(56), Math.min(Math.min(lw - dp(20), dp(96)), avail - pad - dp(10)));
+        int stick = Math.max(dp(56), Math.min(Math.min(lw - dp(20), dp(100)), avail - pad - dp(10)));
         setBox(v[3], lc - stick / 2, columnTop + pad + dp(10), stick, stick);
         // △○×□ diamond centred a little below the D-pad's centre, fitted to the right column.
-        float gap = Math.min(dp(50), rw / 3.0f);
-        int size = Math.round(gap * 1.12f);
+        float gap = Math.min(dp(54), rw / 3.0f);
+        int size = Math.round(gap * 1.15f);
         // With a right stick below them the buttons line up with the D-pad instead.
         int cy = columnTop + pad / 2 + (dual ? 0 : dp(22));
         int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
