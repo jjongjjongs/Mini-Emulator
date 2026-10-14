@@ -60,7 +60,10 @@ final class ClearShellView extends View {
         this.screenView = screen;
         this.plateView = controls;
         OnLayoutChangeListener redraw = (v, l, t, r, b, ol, ot, or, ob) -> invalidate();
-        screen.addOnLayoutChangeListener(redraw);
+        if (screen != null) {
+            // No screen means no bezel (full-screen style).
+            screen.addOnLayoutChangeListener(redraw);
+        }
         controls.addOnLayoutChangeListener(redraw);
     }
 

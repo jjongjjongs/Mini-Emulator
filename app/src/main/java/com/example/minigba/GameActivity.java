@@ -40,7 +40,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String MENU_EXIT = "ROM 목록으로 나가기";
     private static final String PREFS_SETTINGS = "settings";
     private static final String PREF_ORIENTATION_MODE = "orientation_mode";
-    private static final String PREF_SCREEN_MODE = "screen_mode";
     private SurfaceHolder activeSurfaceHolder;
     private AudioSink audioSink;
     private int buttonMask;
@@ -107,64 +106,41 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createPortraitContent() {
-        int dp;
-        int dp2;
-        int i;
-        int i2;
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
-        int i3 = getSharedPreferences("settings", 0).getInt("screen_mode", 0);
-        if (i3 == 1) {
-            i = dp(12);
-            i2 = dp(3);
-            dp = dp(3);
-            dp2 = dp(3);
-        } else if (i3 == 2) {
-            i = dp(22);
-            i2 = dp(3);
-            dp = dp(3);
-            dp2 = dp(3);
-        } else {
-            dp = dp(4);
-            dp2 = dp(2);
-            i = 0;
-            i2 = 0;
-        }
+        boolean full = isFullScreenStyle();
+        int dp = full ? 0 : dp(4);
+        int dp2 = full ? 0 : dp(2);
         FrameLayout frameLayout = new FrameLayout(this);
         frameLayout.setBackgroundColor(Color.rgb(18, 22, 32));
-        frameLayout.setPadding(i2, dp, i2, dp2);
+        frameLayout.setPadding(0, dp, 0, dp2);
         SurfaceView surfaceView = new SurfaceView(this);
         this.surfaceView = surfaceView;
         surfaceView.getHolder().addCallback(this);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(-1, -1);
         layoutParams.gravity = 17;
         frameLayout.addView(this.surfaceView, layoutParams);
-        // Leave room around the screen for the case's bezel and its screws.
-        i += dp(34);
-        int screenWidth = Math.max(dp(200), (getResources().getDisplayMetrics().widthPixels - (i * 2)) - (i2 * 2));
-        if (isGameBoy()) {
-            // The nearly square Game Boy screen would push the controls off a short phone.
-            int widest = Math.round(dp(250) * screenAspect());
-            if (screenWidth > widest) {
-                i += (screenWidth - widest) / 2;
-                screenWidth = widest;
-            }
-        }
-        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, Math.max(dp(176), Math.round(screenWidth / screenAspect()) + dp + dp2));
-        layoutParams2.setMargins(i, dp(18), i, 0);
+        // Frame style leaves room around the screen for the case's bezel and its screws;
+        // full style runs the screen edge to edge.
+        int[] frame = portraitScreen(dp(34), dp(4) + dp(2));
+        int[] screen = full ? portraitScreen(0, 0) : frame;
+        int side = screen[0];
+        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, screen[1]);
+        layoutParams2.setMargins(side, full ? 0 : dp(18), side, 0);
         linearLayout.addView(frameLayout, layoutParams2);
         FrameLayout frameLayout2 = new FrameLayout(this);
         frameLayout2.setBackgroundColor(0);
         addControls(frameLayout2);
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
-        controlsParams.topMargin = dp(36);
+        // The controls start where the frame style puts them, whatever the style.
+        controlsParams.topMargin = full ? Math.max(dp(8), dp(18) + frame[1] + dp(36) - screen[1]) : dp(36);
         linearLayout.addView(frameLayout2, controlsParams);
         FrameLayout root = new FrameLayout(this);
         ClearShellView shell = createShell(false);
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
-        shell.track(frameLayout, frameLayout2);
+        shell.track(full ? null : frameLayout, frameLayout2);
         setContentView(root);
     }
 
@@ -172,8 +148,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         FrameLayout frameLayout = new FrameLayout(this);
-        final int i = getSharedPreferences("settings", 0).getInt("screen_mode", 0);
-        int dp = dp(i == 0 ? 2 : 3);
+        final boolean full = isFullScreenStyle();
+        final int i = full ? 1 : 0;
+        int dp = full ? 0 : dp(2);
         final FrameLayout frameLayout2 = new FrameLayout(this);
         frameLayout2.setBackgroundColor(Color.rgb(18, 22, 32));
         frameLayout2.setPadding(dp, dp, dp, dp);
@@ -190,8 +167,28 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         ClearShellView shell = createShell(true);
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
-        shell.track(frameLayout2, frameLayout);
+        shell.track(full ? null : frameLayout2, frameLayout);
         setContentView(root);
+    }
+
+    // "프레임" (the default) draws the case's bezel around the screen; "전체 화면" drops it
+    // and makes the screen as large as fits beside the controls.
+    private boolean isFullScreenStyle() {
+        return "full".equals(getSharedPreferences("settings", 0).getString("screen_style", "frame"));
+    }
+
+    // Side margin and height of the portrait screen for a side margin and vertical padding.
+    private int[] portraitScreen(int side, int padding) {
+        int screenWidth = Math.max(dp(200), getResources().getDisplayMetrics().widthPixels - side * 2);
+        if (isGameBoy()) {
+            // The nearly square Game Boy screen would push the controls off a short phone.
+            int widest = Math.round(dp(250) * screenAspect());
+            if (screenWidth > widest) {
+                side += (screenWidth - widest) / 2;
+                screenWidth = widest;
+            }
+        }
+        return new int[]{side, Math.max(dp(176), Math.round(screenWidth / screenAspect()) + padding)};
     }
 
     // Clear case behind the controls, tinted per game kind.
@@ -220,20 +217,25 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (width <= 0 || height <= 0) {
             return;
         }
-        int inset = i == 1 ? dp(10) : i == 2 ? dp(20) : 0;
+        boolean full = i == 1;
         // Pad layouts (GBA, Super Famicom) keep the speed button below the screen.
         boolean isGba = isPadLayout();
-        int maxWidth = Math.max(dp(240), width - ((dp(isGba ? 174 : 188) + inset) * 2));
+        int maxWidth = Math.max(dp(240), width - dp(isGba ? 174 : 188) * 2);
         // GBA keeps the speed button below the screen, so its screen sits at the top.
-        // The bezel takes dp(10) above the screen and dp(26) below it.
-        int maxHeight = Math.max(dp(150), (height - (isGba ? dp(18) + dp(26) + dp(46) : dp(12) + dp(36))) - (inset * 2));
+        // The bezel takes dp(10) above the screen and dp(26) below it; full style has none.
+        int maxHeight;
+        if (full) {
+            maxHeight = Math.max(dp(150), height - (isGba ? dp(8) + dp(46) : dp(12)));
+        } else {
+            maxHeight = Math.max(dp(150), height - (isGba ? dp(18) + dp(26) + dp(46) : dp(12) + dp(36)));
+        }
         float aspect = screenAspect();
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        int topMargin = isGba ? dp(18) + inset : 0;
+        int topMargin = isGba ? dp(full ? 8 : 18) : 0;
         // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
-        int bottomMargin = isGba ? 0 : dp(16);
+        int bottomMargin = isGba || full ? 0 : dp(16);
         if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
             layoutParams.width = screenWidth;
             layoutParams.height = screenHeight;

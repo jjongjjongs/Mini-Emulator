@@ -61,7 +61,6 @@ public final class MainActivity extends Activity {
     private static final String PREF_FAVORITE_PREFIX = "favorite:";
     private static final String PREF_RECENT_PREFIX = "recent:";
     private static final String PREF_SAVE_PREFIX = "save:";
-    private static final String PREF_SCREEN_MODE = "screen_mode";
     private static final String PREF_MODE = "mode";
     private static final String PREF_REMEMBER_MODE = "remember_mode";
     private static final String PREF_ARCADE_CORE = "arcade_default_core";
@@ -110,7 +109,9 @@ public final class MainActivity extends Activity {
     private File pendingSaveRom;
     private LinearLayout romList;
     private TextView screenModeStatusView;
-    private static final String[] SCREEN_MODE_LABELS = {"전체 화면", "프레임", "컴팩트"};
+    // Values of the "screen_style" setting, in the order the tile cycles through them.
+    private static final String[] SCREEN_STYLES = {"frame", "full"};
+    private static final String[] SCREEN_MODE_LABELS = {"프레임", "전체 화면"};
     private static final int STATUS_TEXT_COLOR = Color.rgb(101, 112, 124);
     private static final byte[] GBA_LOGO = {36, -1, -82, 81, 105, -102, -94, 33, 61, -124, -126, 10, -124, -28, 9, -83, 17, 36, -117, -104, -64, -127, Byte.MAX_VALUE, 33, -93, 82, -66, 25, -109, 9, -50, 32, 16, 70, 74, 74, -8, 39, 49, -20, 88, -57, -24, 51, -126, -29, -50, -65, -123, -12, -33, -108, -50, 75, 9, -63, -108, 86, -118, -64, 19, 114, -89, -4, -97, -124, 77, 115, -93, -54, -102, 97, 88, -105, -93, 39, -4, 3, -104, 118, 35, 29, -57, 97, 3, 4, -82, 86, -65, 56, -124, 0, 64, -89, 14, -3, -1, 82, -2, 3, 111, -107, 48, -15, -105, -5, -64, -123, 96, -42, Byte.MIN_VALUE, 37, -87, 99, -66, 3, 1, 78, 56, -30, -7, -94, 52, -1, -69, 62, 3, 68, 120, 0, -112, -53, -120, 17, 58, -108, 101, -64, 124, 99, -121, -16, 60, -81, -42, 37, -28, -117, 56, 10, -84, 114, 33, -44, -8, 7};
 
@@ -545,10 +546,9 @@ public final class MainActivity extends Activity {
     }
 
     private void cycleScreenMode(View view) {
-        int screenMode = screenMode() + 1;
+        int length = (screenMode() + 1) % SCREEN_STYLES.length;
         String[] strArr = SCREEN_MODE_LABELS;
-        int length = screenMode % strArr.length;
-        settingsPrefs().edit().putInt("screen_mode", length).commit();
+        settingsPrefs().edit().putString("screen_style", SCREEN_STYLES[length]).commit();
         Object tag = view.getTag();
         if (tag instanceof TextView) {
             ((TextView) tag).setText(strArr[length]);
@@ -3627,7 +3627,7 @@ public final class MainActivity extends Activity {
     }
 
     private int screenMode() {
-        int i = settingsPrefs().getInt("screen_mode", 0);
+        int i = Arrays.asList(SCREEN_STYLES).indexOf(settingsPrefs().getString("screen_style", SCREEN_STYLES[0]));
         if (i < 0 || i >= SCREEN_MODE_LABELS.length) {
             return 0;
         }
