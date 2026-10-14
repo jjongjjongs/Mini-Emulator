@@ -34,12 +34,15 @@ sed -i 's/static char res\[8\];/static char res[16];/' \
 grep -q 'static char res\[16\];' "$DIR/src/emu/cpu/h83002/h8_16.c"
 grep -q 'static char res\[16\];' "$DIR/src/emu/cpu/h83002/h8_8.c"
 
-# libretro's CPS tilemap renderer dereferences the destination bitmap even on the
-# priority-only pass CPS1 draws with no destination (sf2 and others crash).
-PATCH="$HERE/patches/mame2010-cps1-priority-pass.patch"
-if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
-    git -C "$DIR" apply "$PATCH"
-fi
+# Fixes on top of the pinned commit (each says what it fixes):
+#   cps1-priority-pass: the CPS tilemap renderer dereferenced the missing destination
+#     bitmap on CPS1's priority-only pass (sf2 and others crashed).
+#   reload: a game loaded again in the same process exited at once (pauseg stayed -1).
+for PATCH in "$HERE"/patches/mame2010-*.patch; do
+    if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+        git -C "$DIR" apply "$PATCH"
+    fi
+done
 
 echo "== building mame2010"
 # The core's Android.mk sets neither 16 KB page alignment nor the flags its
