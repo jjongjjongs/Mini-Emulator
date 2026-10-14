@@ -57,6 +57,11 @@ enum : int {
     kButtonD = 2048,
     kButtonE = 4096,
     kButtonF = 8192,
+    // PlayStation pads' second shoulder buttons and stick clicks.
+    kButtonL2 = 16384,
+    kButtonR2 = 32768,
+    kButtonL3 = 65536,
+    kButtonR3 = 131072,
 };
 
 // ---- Hardware rendering (OpenGL ES 3 through EGL) ---------------------------
@@ -199,6 +204,8 @@ struct Core {
     void (*retroUnloadGame)() = nullptr;
     void (*retroRun)() = nullptr;
     void (*retroReset)() = nullptr;
+    // Optional: only PCSX ReARMed needs a controller type (DualShock).
+    void (*retroSetControllerPortDevice)(unsigned, unsigned) = nullptr;
     void (*retroGetSystemAvInfo)(retro_system_av_info*) = nullptr;
     void* (*retroGetMemoryData)(unsigned) = nullptr;
     size_t (*retroGetMemorySize)(unsigned) = nullptr;
@@ -241,6 +248,9 @@ struct Core {
     // Left analog stick, -32767..32767 (PSP).
     std::atomic<int> analogX{0};
     std::atomic<int> analogY{0};
+    // Right analog stick (PS1 DualShock, PS2).
+    std::atomic<int> analogRX{0};
+    std::atomic<int> analogRY{0};
 
     // Hardware rendering: the core draws with OpenGL ES into fbo on the emulation
     // thread, which then stretches it onto the window.
@@ -363,6 +373,8 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "genesis_plus_gx") return "libgenesis_plus_gx_libretro_android.so";
     if (coreId == "pce_fast") return "libmednafen_pce_fast_libretro_android.so";
     if (coreId == "ppsspp") return "libppsspp_libretro_android.so";
+    if (coreId == "pcsx_rearmed") return "libpcsx_rearmed_libretro_android.so";
+    if (coreId == "play") return "libplay_libretro_android.so";
     return nullptr;
 }
 
@@ -402,9 +414,10 @@ bool loadCoreSymbols(Core* core) {
 // ---- Save data -------------------------------------------------------------
 
 // MAME 2010/2015 only build their machine inside the first retro_run, so a state
-// restored before that dereferences a machine that does not exist yet.
+// restored before that dereferences a machine that does not exist yet; PPSSPP and
+// Play! restore through their GL context, which is made on the emulation thread.
 bool needsFrameBeforeState(const Core* core) {
-    return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp";
+    return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play";
 }
 
 bool saveState(Core* core) {
@@ -752,6 +765,8 @@ const char* fixedVariable(const char* key) {
     // PSP: the bridge offers OpenGL ES only; render at twice the PSP's resolution.
     if (strcmp(key, "ppsspp_backend") == 0) return "opengl";
     if (strcmp(key, "ppsspp_internal_resolution") == 0) return "960x544";
+    // PS2: native resolution; Play! is heavy enough on phones as it is.
+    if (strcmp(key, "play_res_multi") == 0) return "1x";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -1012,6 +1027,10 @@ int buttonBitFor(unsigned id, bool arcade) {
         case RETRO_DEVICE_ID_JOYPAD_X: return arcade ? kButtonD : kButtonC;
         case RETRO_DEVICE_ID_JOYPAD_L: return arcade ? kButtonE : kButtonL;
         case RETRO_DEVICE_ID_JOYPAD_R: return arcade ? kButtonF : kButtonR;
+        case RETRO_DEVICE_ID_JOYPAD_L2: return kButtonL2;
+        case RETRO_DEVICE_ID_JOYPAD_R2: return kButtonR2;
+        case RETRO_DEVICE_ID_JOYPAD_L3: return kButtonL3;
+        case RETRO_DEVICE_ID_JOYPAD_R3: return kButtonR3;
         default: return 0;
     }
 }
@@ -1031,6 +1050,9 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     Core* core = gCore;
     if (port == 0 && device == RETRO_DEVICE_ANALOG && core != nullptr && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
         return static_cast<int16_t>(id == RETRO_DEVICE_ID_ANALOG_X ? core->analogX.load() : core->analogY.load());
+    }
+    if (port == 0 && device == RETRO_DEVICE_ANALOG && core != nullptr && index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) {
+        return static_cast<int16_t>(id == RETRO_DEVICE_ID_ANALOG_X ? core->analogRX.load() : core->analogRY.load());
     }
     if (port != 0 || device != RETRO_DEVICE_JOYPAD || core == nullptr) {
         return 0;
@@ -1057,7 +1079,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     } else {
         // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
-                       core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp";
+                       core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
+                       core->coreId == "pcsx_rearmed" || core->coreId == "play";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -1092,8 +1115,10 @@ bool setUpHwContext(Core* core) {
     }
     int width = static_cast<int>(core->maxWidth > 0 ? core->maxWidth : 1024);
     int height = static_cast<int>(core->maxHeight > 0 ? core->maxHeight : 1024);
-    width = width > 4096 ? 4096 : width;
-    height = height > 4096 ? 4096 : height;
+    // Play! reports room for 8x its 640x448 output, far more than the 1x it renders.
+    int cap = core->coreId == "play" ? 2048 : 4096;
+    width = width > cap ? cap : width;
+    height = height > cap ? cap : height;
     gGl.GenTextures(1, &core->fboTexture);
     gGl.BindTexture(gl::GL_TEXTURE_2D, core->fboTexture);
     gGl.TexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR);
@@ -1450,6 +1475,12 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         return 0;
     }
     core->gameLoaded = true;
+    // PCSX ReARMed starts with a digital pad; the app shows a DualShock.
+    core->retroSetControllerPortDevice =
+            reinterpret_cast<void (*)(unsigned, unsigned)>(dlsym(core->library, "retro_set_controller_port_device"));
+    if (core->coreId == "pcsx_rearmed" && core->retroSetControllerPortDevice != nullptr) {
+        core->retroSetControllerPortDevice(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1));
+    }
 
     retro_system_av_info info{};
     core->retroGetSystemAvInfo(&info);
@@ -1612,6 +1643,16 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalog(
     if (core != nullptr) {
         core->analogX.store(x);
         core->analogY.store(y);
+    }
+}
+
+// Right stick (PS1 DualShock, PS2), each axis -32767..32767.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalogRight(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint x, jint y) {
+    Core* core = fromHandle(handle);
+    if (core != nullptr) {
+        core->analogRX.store(x);
+        core->analogRY.store(y);
     }
 }
 

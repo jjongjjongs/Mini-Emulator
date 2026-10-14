@@ -25,6 +25,8 @@ final class NativeGba {
 
     static native void setAnalog(long j, int x, int y);
 
+    static native void setAnalogRight(long j, int x, int y);
+
     static native void setSpeedMultiplier(long j, int i);
 
     static native void setSurface(long j, Surface surface);

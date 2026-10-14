@@ -31,3 +31,5 @@ app/src/main/jniLibs/arm64-v8a/libmame2015_libretro_android.so
 __pycache__/
 app/src/main/jniLibs/arm64-v8a/libppsspp_libretro_android.so
 app/src/main/assets/ppsspp_system.zip
+app/src/main/jniLibs/arm64-v8a/libpcsx_rearmed_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so

@@ -23,6 +23,8 @@ final class DPadView extends View {
     private final Paint shadowPaint;
     private final Paint shellPaint;
     private final Paint strokePaint;
+    // Light grey plastic (PS1) instead of the smoky dark cross.
+    private boolean light;
 
     interface Listener {
         void onDirectionMaskChanged(int i);
@@ -68,6 +70,11 @@ final class DPadView extends View {
         setFocusable(false);
     }
 
+    void setLight(boolean light) {
+        this.light = light;
+        invalidate();
+    }
+
     // Smoky see-through cross: a soft shadow, tinted plastic with a shine along each arm
     // and a thin bright rim. A pressed arm darkens.
     @Override
@@ -96,7 +103,8 @@ final class DPadView extends View {
         canvas.restore();
 
         this.paint.setShader(new LinearGradient(cx - reach, 0, cx + reach, 0,
-                new int[]{Color.argb(217, 60, 60, 70), Color.argb(230, 20, 20, 26), Color.argb(217, 60, 60, 70)}, null, Shader.TileMode.CLAMP));
+                this.light ? new int[]{Color.argb(240, 232, 234, 238), Color.argb(245, 186, 190, 196), Color.argb(240, 232, 234, 238)}
+                        : new int[]{Color.argb(217, 60, 60, 70), Color.argb(230, 20, 20, 26), Color.argb(217, 60, 60, 70)}, null, Shader.TileMode.CLAMP));
         canvas.drawPath(cross, this.paint);
         this.paint.setShader(new LinearGradient(0, cy - reach, 0, cy + reach,
                 new int[]{Color.argb(60, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(40, 120, 120, 140)}, null, Shader.TileMode.CLAMP));
@@ -120,12 +128,13 @@ final class DPadView extends View {
 
         // Centre dimple.
         this.centerPaint.setShader(new RadialGradient(cx, cy - depth / 2.0f, arm * 0.36f,
-                new int[]{Color.argb(220, 10, 10, 12), Color.argb(200, 60, 60, 68)}, null, Shader.TileMode.CLAMP));
+                this.light ? new int[]{Color.argb(230, 150, 154, 160), Color.argb(220, 205, 208, 212)}
+                        : new int[]{Color.argb(220, 10, 10, 12), Color.argb(200, 60, 60, 68)}, null, Shader.TileMode.CLAMP));
         canvas.drawCircle(cx, cy - depth / 2.0f, arm * 0.34f, this.centerPaint);
         this.centerPaint.setShader(null);
 
         float tip = reach - arm * 0.42f;
-        this.arrowPaint.setColor(Color.argb(95, 255, 255, 255));
+        this.arrowPaint.setColor(this.light ? Color.argb(120, 60, 64, 72) : Color.argb(95, 255, 255, 255));
         drawArrow(canvas, cx, cy - tip, 64);
         drawArrow(canvas, cx, cy + tip, 128);
         drawArrow(canvas, cx - tip, cy, 32);
