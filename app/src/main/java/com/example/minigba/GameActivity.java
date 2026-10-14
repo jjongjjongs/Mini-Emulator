@@ -47,6 +47,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private String gameMode;
     private String[] menuItems = new String[0];
     private SpeedButtonView fastForwardButton;
+    // PSP landscape controls, placed beside the screen once its size is known.
+    private View[] pspSideViews;
     private boolean landscapeMode;
     private boolean menuExiting;
     private long nativeHandle;
@@ -236,6 +238,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         boolean full = i == 1;
+        if (isPsp() && this.pspSideViews != null) {
+            layoutPspLandscape(frameLayout, width, height);
+            return;
+        }
         // Pad layouts (GBA, Super Famicom) keep the speed button below the screen.
         boolean isGba = isPadLayout();
         int maxWidth = Math.max(dp(240), width - dp(isGbaWideFull() ? 156 : isGba ? 174 : 188) * 2);
@@ -271,30 +277,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // GBA in full-screen style moves its D-pad and A/B a little outward so the wide
         // screen can grow until it meets the speed button.
         boolean wideGba = isGbaWideFull();
-        int padSize = isPsp() ? 130 : 150;
+        if (isPsp()) {
+            addPspLandscapeControls(frameLayout, createDirectionControl);
+            return;
+        }
+        int padSize = 150;
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(padSize), dp(padSize));
         layoutParams.gravity = 8388627;
         layoutParams.setMargins(wideGba ? 0 : dp(12), 0, 0, 0);
         // Everything sits a little lower to leave the top corners to the round buttons;
         // the PSP's D-pad goes up instead, with the analog stick under it.
-        createDirectionControl.setTranslationY(dp(isPsp() ? -36 : LANDSCAPE_SHIFT_DP));
+        createDirectionControl.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
         frameLayout.addView(createDirectionControl, layoutParams);
-        if (isPsp()) {
-            FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(84), dp(84));
-            stickParams.gravity = 8388627;
-            stickParams.setMargins(dp(35), 0, 0, 0);
-            AnalogStickView stick = new AnalogStickView(this, this::onAnalogChanged);
-            stick.setTranslationY(dp(92));
-            frameLayout.addView(stick, stickParams);
-        }
         if (isGba) {
             if (hasShoulders()) {
                 addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
                 addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
             }
-            if (isPsp()) {
-                addPspFace(frameLayout, true);
-            } else if (hasTurboPair()) {
+            if (hasTurboPair()) {
                 String[] labels = turboLabels();
                 int style = isPcEngine() ? TouchButton.STYLE_ACTION : TouchButton.STYLE_ARCADE_RED;
                 addLandscapeArcadeButton(frameLayout, labels[0], 1, 20, 0, 60, style);
@@ -327,18 +327,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addLandscapeArcadeButton(frameLayout, "D", 2048, 120, -27, 46, TouchButton.STYLE_ARCADE_RED);
             addLandscapeArcadeButton(frameLayout, "E", 4096, 66, -27, 46, TouchButton.STYLE_ARCADE_RED);
             addLandscapeArcadeButton(frameLayout, "F", 8192, 12, -27, 46, TouchButton.STYLE_ARCADE_RED);
-        }
-        if (isPsp()) {
-            // The analog stick takes the lower left corner, so SELECT/START flank the speed button.
-            for (int k = 0; k < 2; k++) {
-                TouchButton key = new TouchButton(this, k == 0 ? "SELECT" : "START", k == 0 ? 4 : 8, this::setButtonPressed);
-                FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(78), dp(30));
-                keyParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-                keyParams.setMargins(0, 0, 0, dp(9));
-                key.setTranslationX(dp(k == 0 ? -100 : 100));
-                frameLayout.addView(key, keyParams);
-            }
-            return;
         }
         addButton(frameLayout, selectLabel(), 4, 8388691, dp(42), dp(18), dp(94), dp(34));
         addButton(frameLayout, startLabel(), 8, 8388693, dp(42), dp(18), dp(94), dp(34));
@@ -800,7 +788,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         addFastForwardButton(frameLayout);
         if (isPsp()) {
-            addPspFace(frameLayout, false);
+            addPspFace(frameLayout);
         } else if (isSnes()) {
             // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left.
             addButton(frameLayout, "X", 1024, 8388693, dp(72), dp(254), dp(54), dp(54), TouchButton.STYLE_SNES_BLUE);
@@ -1205,25 +1193,103 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final int[] PSP_BITS = {1024, 1, 2, 2048};
     private static final int[] PSP_COLORS = {Color.rgb(47, 182, 122), Color.rgb(226, 71, 90), Color.rgb(77, 142, 240), Color.rgb(212, 107, 196)};
 
-    private void addPspFace(FrameLayout frameLayout, boolean landscape) {
-        // Diamond: △ top, ○ right, × bottom, □ left.
-        int[][] portrait = {{72, 314}, {20, 262}, {72, 210}, {124, 262}};
-        int[][] side = {{62, -46}, {14, 0}, {62, 46}, {110, 0}};
+    // PSP landscape: L/R, D-pad and analog stick on the left, △○×□ and R on the right, each in
+    // the column between the case edge and the screen bezel; SELECT, speed and START along the
+    // bottom. layoutPspLandscape sizes them once the screen size is known.
+    private void addPspLandscapeControls(FrameLayout frameLayout, View dpad) {
+        View[] views = new View[8];
+        views[0] = new TouchButton(this, "L", 512, this::setButtonPressed, 2);
+        views[1] = new TouchButton(this, "R", 256, this::setButtonPressed, 2);
+        views[2] = dpad;
+        views[3] = new AnalogStickView(this, this::onAnalogChanged);
         for (int k = 0; k < 4; k++) {
             TouchButton button = new TouchButton(this, PSP_LABELS[k], PSP_BITS[k], this::setButtonPressed, TouchButton.STYLE_ACTION);
             button.setLabelColor(PSP_COLORS[k]);
-            if (landscape) {
-                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(48), dp(48));
-                params.gravity = 8388629;
-                params.setMargins(0, 0, dp(side[k][0]), 0);
-                button.setTranslationY(dp(side[k][1] + LANDSCAPE_SHIFT_DP));
-                frameLayout.addView(button, params);
-            } else {
-                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(54), dp(54));
-                params.gravity = 8388693;
-                params.setMargins(0, 0, dp(portrait[k][0]), dp(portrait[k][1]));
-                frameLayout.addView(button, params);
-            }
+            views[4 + k] = button;
+        }
+        for (View view : views) {
+            frameLayout.addView(view, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.START));
+        }
+        this.pspSideViews = views;
+        for (int k = 0; k < 2; k++) {
+            TouchButton key = new TouchButton(this, k == 0 ? "SELECT" : "START", k == 0 ? 4 : 8, this::setButtonPressed);
+            FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(78), dp(30));
+            keyParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            keyParams.setMargins(0, 0, 0, dp(9));
+            key.setTranslationX(dp(k == 0 ? -120 : 120));
+            frameLayout.addView(key, keyParams);
+        }
+    }
+
+    private void layoutPspLandscape(FrameLayout screen, int width, int height) {
+        // The screen leaves dp(104) of height for its bezel and the bottom row, and at least
+        // dp(136) on each side for the control columns.
+        int screenHeight = Math.max(dp(150), height - dp(104));
+        int screenWidth = Math.round(screenHeight * 16 / 9f);
+        int widest = width - dp(136) * 2;
+        if (screenWidth > widest) {
+            screenWidth = Math.max(dp(240), widest);
+            screenHeight = Math.round(screenWidth * 9 / 16f);
+        }
+        int top = dp(12);
+        setBox(screen, (width - screenWidth) / 2, top, screenWidth, screenHeight);
+        // Columns between the case edge and the bezel (dp(10) wide), with a little air.
+        int screenLeft = (width - screenWidth) / 2;
+        int l0 = dp(14);
+        int l1 = screenLeft - dp(10) - dp(10);
+        int r0 = screenLeft + screenWidth + dp(10) + dp(10);
+        int r1 = width - dp(14);
+        int lw = Math.max(dp(60), l1 - l0);
+        int rw = Math.max(dp(60), r1 - r0);
+        int lc = l0 + lw / 2;
+        int rc = r0 + rw / 2;
+        View[] v = this.pspSideViews;
+        // L/R sit under the round corner buttons.
+        int shoulderTop = dp(62);
+        setBox(v[0], l0, shoulderTop, lw, dp(36));
+        setBox(v[1], r1 - rw, shoulderTop, rw, dp(36));
+        int columnTop = shoulderTop + dp(44);
+        int columnBottom = height - dp(46);
+        int avail = Math.max(dp(120), columnBottom - columnTop);
+        int pad = Math.min(Math.min(lw, dp(130)), Math.round(avail * 0.58f));
+        setBox(v[2], lc - pad / 2, columnTop, pad, pad);
+        int stick = Math.max(dp(56), Math.min(Math.min(lw - dp(24), dp(88)), avail - pad - dp(10)));
+        setBox(v[3], lc - stick / 2, columnTop + pad + dp(10), stick, stick);
+        // △○×□ diamond centred a little below the D-pad's centre, fitted to the right column.
+        float gap = Math.min(dp(46), rw / 3.1f);
+        int size = Math.round(gap * 1.1f);
+        int cy = columnTop + pad / 2 + dp(22);
+        int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        for (int k = 0; k < 4; k++) {
+            int x = Math.round(rc + offsets[k][0] * gap - size / 2f);
+            int y = Math.round(cy + offsets[k][1] * gap - size / 2f);
+            setBox(v[4 + k], x, y, size, size);
+        }
+    }
+
+    // Moves a view in a FrameLayout to a box, laying out again only when the box changed.
+    private static void setBox(View view, int x, int y, int w, int h) {
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) view.getLayoutParams();
+        if (lp.width == w && lp.height == h && lp.leftMargin == x && lp.topMargin == y && lp.gravity == (Gravity.TOP | Gravity.START)) {
+            return;
+        }
+        lp.width = w;
+        lp.height = h;
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.setMargins(x, y, 0, 0);
+        view.setLayoutParams(lp);
+    }
+
+    private void addPspFace(FrameLayout frameLayout) {
+        // Diamond: △ top, ○ right, × bottom, □ left.
+        int[][] margins = {{72, 314}, {20, 262}, {72, 210}, {124, 262}};
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, PSP_LABELS[k], PSP_BITS[k], this::setButtonPressed, TouchButton.STYLE_ACTION);
+            button.setLabelColor(PSP_COLORS[k]);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(54), dp(54));
+            params.gravity = 8388693;
+            params.setMargins(0, 0, dp(margins[k][0]), dp(margins[k][1]));
+            frameLayout.addView(button, params);
         }
     }
 
