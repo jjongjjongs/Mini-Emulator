@@ -1739,6 +1739,7 @@ public final class MainActivity extends Activity {
         arrayList.add("세이브 백업 가져오기");
         arrayList.add("세이브 삭제");
         arrayList.add("ROM 삭제");
+        arrayList.add("여러 개 선택해서 삭제");
         final String[] strArr = (String[]) arrayList.toArray(new String[0]);
         new AlertDialog.Builder(this).setTitle(displayGameNameFor(file)).setItems(strArr, (dialogInterface, i) -> onRomActionSelected(strArr, file, dialogInterface, i)).show();
     }
@@ -1771,6 +1772,8 @@ public final class MainActivity extends Activity {
             confirmDeleteSave(file);
         } else if (str.equals("ROM 삭제")) {
             confirmDeleteRom(file);
+        } else if (str.equals("여러 개 선택해서 삭제")) {
+            showMultiDelete(file);
         }
     }
 
@@ -2075,6 +2078,88 @@ public final class MainActivity extends Activity {
         return new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(new Date(j));
     }
 
+    // Pick several games of this mode at once, then delete their saves or the ROMs themselves.
+    private void showMultiDelete(File preselected) {
+        final File[] files = currentRomDir().listFiles(this::isRomFile);
+        if (files == null || files.length == 0) {
+            showMessage("삭제할 게임이 없습니다.");
+            return;
+        }
+        Arrays.sort(files, this::compareRomsForLibrary);
+        String[] labels = new String[files.length];
+        final boolean[] checked = new boolean[files.length];
+        for (int i = 0; i < files.length; i++) {
+            boolean hasSave = saveFileFor(files[i]).exists() || stateFileFor(files[i]).exists();
+            labels[i] = displayGameNameFor(files[i]) + (hasSave ? "  · 세이브 있음" : "");
+            checked[i] = files[i].equals(preselected);
+        }
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("삭제할 게임 선택")
+                .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> checked[which] = isChecked)
+                .setNegativeButton("취소", null)
+                .setNeutralButton("세이브 삭제", (d, which) -> confirmMultiDelete(selectedFiles(files, checked), false))
+                .setPositiveButton("ROM 삭제", (d, which) -> confirmMultiDelete(selectedFiles(files, checked), true))
+                .create();
+        dialog.show();
+    }
+
+    private static List<File> selectedFiles(File[] files, boolean[] checked) {
+        List<File> selected = new ArrayList<>();
+        for (int i = 0; i < files.length; i++) {
+            if (checked[i]) {
+                selected.add(files[i]);
+            }
+        }
+        return selected;
+    }
+
+    private void confirmMultiDelete(final List<File> files, final boolean roms) {
+        if (files.isEmpty()) {
+            showMessage("선택한 게임이 없습니다.");
+            return;
+        }
+        String message = roms
+                ? "선택한 " + files.size() + "개 게임의 ROM을 삭제합니다. 원본 파일과 세이브는 그대로 둡니다."
+                : "선택한 " + files.size() + "개 게임의 .sav 파일과 빠른 저장 파일을 삭제합니다.";
+        new AlertDialog.Builder(this).setTitle(roms ? "ROM을 삭제할까요?" : "세이브를 삭제할까요?").setMessage(message)
+                .setNegativeButton(17039360, null)
+                .setPositiveButton(17039370, (d, which) -> deleteMany(files, roms)).show();
+    }
+
+    private void deleteMany(List<File> files, boolean roms) {
+        int done = 0;
+        int failed = 0;
+        for (File file : files) {
+            boolean ok;
+            if (roms) {
+                ok = file.delete();
+                if (ok) {
+                    romPrefs().edit().remove("title:" + file.getName()).remove("save:" + file.getName()).remove("favorite:" + file.getName()).remove("recent:" + file.getName()).remove("core:" + file.getName()).apply();
+                }
+            } else {
+                migrateSaveFileIfNeeded(file);
+                File save = saveFileFor(file);
+                File state = stateFileFor(file);
+                if (!save.exists() && !state.exists()) {
+                    continue;
+                }
+                ok = (!save.exists() || save.delete()) & (!state.exists() || state.delete());
+            }
+            if (ok) {
+                done++;
+            } else {
+                failed++;
+            }
+        }
+        refreshLibrary();
+        String what = roms ? "ROM" : "세이브";
+        if (failed > 0) {
+            showError(what + " " + done + "개 삭제, " + failed + "개는 삭제하지 못했습니다.");
+        } else {
+            showMessage(done == 0 ? "삭제할 " + (roms ? "ROM이" : "세이브가") + " 없습니다." : what + " " + done + "개를 삭제했습니다.");
+        }
+    }
+
     private void confirmDeleteRom(final File file) {
         new AlertDialog.Builder(this).setTitle("ROM을 삭제할까요?").setMessage("Mini Emulator 안에 가져온 복사본만 삭제합니다. 원본 파일은 그대로 둡니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> deleteRomConfirmed(file, dialogInterface, i)).show();
     }
@@ -2134,50 +2219,118 @@ public final class MainActivity extends Activity {
         if (!romDir.exists() && !romDir.mkdirs()) {
             throw new IOException("ROM 폴더를 만들 수 없습니다");
         }
-        InputStream openInputStream = getContentResolver().openInputStream(uri);
-        if (openInputStream == null) {
-            throw new IOException("선택한 ZIP 파일을 열 수 없습니다");
-        }
-        List<File> arrayList = new ArrayList<>();
-        // ISO-8859-1 keeps the raw bytes of names without the UTF-8 flag, so they can be decoded below.
-        try (ZipInputStream zipInputStream = new ZipInputStream(openInputStream, StandardCharsets.ISO_8859_1)) {
-            while (true) {
-                ZipEntry nextEntry = zipInputStream.getNextEntry();
-                if (nextEntry == null) {
-                    break;
+        // The ZIP is copied first so its UTF-8 flags can be cleared before reading the names.
+        File temp = File.createTempFile("import", ".zip", getCacheDir());
+        try {
+            try (InputStream in = getContentResolver().openInputStream(uri);
+                 FileOutputStream out = new FileOutputStream(temp)) {
+                if (in == null) {
+                    throw new IOException("선택한 ZIP 파일을 열 수 없습니다");
                 }
-                if (nextEntry.isDirectory()) {
-                    continue;
-                }
-                String name = new File(decodeZipEntryName(nextEntry.getName())).getName();
-                if (isRomNameFor(mode, name.toLowerCase(Locale.US))) {
-                    File uniqueFile = uniqueFile(romDir, sanitizeFileName(name));
-                    try (FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile)) {
-                        copy(zipInputStream, fileOutputStream);
+                copy(in, out);
+            }
+            clearZipUtf8Flags(temp);
+            List<File> arrayList = new ArrayList<>();
+            boolean foundRom = false;
+            try (ZipInputStream zipInputStream = new ZipInputStream(new FileInputStream(temp), StandardCharsets.ISO_8859_1)) {
+                while (true) {
+                    ZipEntry entry = zipInputStream.getNextEntry();
+                    if (entry == null) {
+                        break;
                     }
-                    File finalizeImportedRom = finalizeImportedRom(uniqueFile, baseNameWithoutExtension(name));
-                    if (finalizeImportedRom != null) {
-                        arrayList.add(finalizeImportedRom);
+                    if (entry.isDirectory()) {
+                        continue;
+                    }
+                    String name = new File(decodeZipEntryName(entry.getName())).getName();
+                    if (!isRomNameFor(mode, name.toLowerCase(Locale.US))) {
+                        continue;
+                    }
+                    foundRom = true;
+                    File uniqueFile = uniqueFile(romDir, sanitizeFileName(name));
+                    try (FileOutputStream out = new FileOutputStream(uniqueFile)) {
+                        copy(zipInputStream, out);
+                    }
+                    File imported = finalizeImportedRom(uniqueFile, baseNameWithoutExtension(name));
+                    if (imported != null) {
+                        arrayList.add(imported);
                     }
                 }
             }
+            if (!foundRom) {
+                throw new IOException(str + (MODE_SNES.equals(mode) ? " 안에서 .sfc / .smc 파일을 찾지 못했습니다" : " 안에서 .gba / .gbc / .gb 파일을 찾지 못했습니다"));
+            }
+            return arrayList;
+        } finally {
+            temp.delete();
         }
-        if (arrayList.isEmpty()) {
-            throw new IOException(str + (MODE_SNES.equals(mode) ? " 안에서 새 .sfc / .smc 파일을 찾지 못했습니다" : " 안에서 새 .gba / .gbc / .gb 파일을 찾지 못했습니다"));
-        }
-        return arrayList;
     }
 
-    // Names in ZIPs made on Korean Windows are CP949 without the UTF-8 flag. Entries read as
-    // ISO-8859-1 are turned back into bytes and decoded as UTF-8 when valid, otherwise CP949.
-    static String decodeZipEntryName(String raw) {
-        for (int i = 0; i < raw.length(); i++) {
-            if (raw.charAt(i) > 0xFF) {
-                // The entry had the UTF-8 flag and is already decoded.
-                return raw;
+    // Clears the UTF-8 flag on every entry of a copied ZIP. Some tools set it on CP949 names,
+    // which java.util.zip then garbles or rejects; without it every name comes through
+    // ISO-8859-1 as its raw bytes for decodeZipEntryName. Best effort: ZIP64 or damaged
+    // archives are left as they are.
+    static void clearZipUtf8Flags(File zip) {
+        try (RandomAccessFile raf = new RandomAccessFile(zip, "rw")) {
+            long length = raf.length();
+            int tail = (int) Math.min(length, 65557);
+            byte[] end = new byte[tail];
+            raf.seek(length - tail);
+            raf.readFully(end);
+            int eocd = -1;
+            for (int i = tail - 22; i >= 0; i--) {
+                if (end[i] == 0x50 && end[i + 1] == 0x4B && end[i + 2] == 0x05 && end[i + 3] == 0x06) {
+                    eocd = i;
+                    break;
+                }
             }
+            if (eocd < 0) {
+                return;
+            }
+            int count = le16(end, eocd + 10);
+            long offset = le32(end, eocd + 16);
+            if (count == 0xFFFF || offset == 0xFFFFFFFFL || offset >= length) {
+                return;
+            }
+            byte[] header = new byte[46];
+            long position = offset;
+            for (int n = 0; n < count; n++) {
+                raf.seek(position);
+                raf.readFully(header);
+                if (le32(header, 0) != 0x02014B50L) {
+                    return;
+                }
+                long local = le32(header, 42);
+                long next = position + 46 + le16(header, 28) + le16(header, 30) + le16(header, 32);
+                if ((header[9] & 0x08) != 0) {
+                    raf.seek(position + 9);
+                    raf.write(header[9] & ~0x08);
+                }
+                if (local + 30 <= length) {
+                    raf.seek(local);
+                    if (raf.readInt() == 0x504B0304) {
+                        raf.seek(local + 7);
+                        int flag = raf.read();
+                        raf.seek(local + 7);
+                        raf.write(flag & ~0x08);
+                    }
+                }
+                position = next;
+            }
+        } catch (IOException e) {
+            // leave the archive as it is
         }
-        byte[] bytes = raw.getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    private static int le16(byte[] b, int at) {
+        return (b[at] & 255) | ((b[at + 1] & 255) << 8);
+    }
+
+    private static long le32(byte[] b, int at) {
+        return (le16(b, at) | ((long) le16(b, at + 2) << 16)) & 0xFFFFFFFFL;
+    }
+
+    // UTF-8 when the bytes are valid UTF-8, otherwise the Korean Windows code page (CP949).
+    static String decodeZipNameBytes(byte[] bytes) {
         try {
             return StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
@@ -2191,8 +2344,19 @@ public final class MainActivity extends Activity {
                     // try the next name for the Korean code page
                 }
             }
-            return raw;
+            return new String(bytes, StandardCharsets.ISO_8859_1);
         }
+    }
+
+    // Names without the UTF-8 flag come through ISO-8859-1 as their raw bytes and are decoded again.
+    static String decodeZipEntryName(String raw) {
+        for (int i = 0; i < raw.length(); i++) {
+            if (raw.charAt(i) > 0xFF) {
+                // The entry had the UTF-8 flag and is already decoded.
+                return raw;
+            }
+        }
+        return decodeZipNameBytes(raw.getBytes(StandardCharsets.ISO_8859_1));
     }
 
     private File finalizeImportedRom(File file, String str) throws IOException {
