@@ -3045,11 +3045,30 @@ public final class MainActivity extends Activity {
         return data == null ? "" : new String(data, StandardCharsets.UTF_8).trim();
     }
 
+    // PCSX2 keeps PS2 memory cards in <system>/pcsx2/memcards (Mcd001.ps2 in slot 1,
+    // Mcd002.ps2 in slot 2), shared by every PS2 game; a PS2 game's backup carries them.
+    private File pcsx2MemcardDir() {
+        return new File(new File(systemDir(), "pcsx2"), "memcards");
+    }
+
+    private List<File> pcsx2MemoryCardsFor(File rom) {
+        List<File> cards = new ArrayList<>();
+        if (!CORE_PCSX2.equals(coreFor(rom))) {
+            return cards;
+        }
+        File[] files = pcsx2MemcardDir().listFiles(f -> f.isFile() && f.getName().toLowerCase(Locale.US).endsWith(".ps2"));
+        if (files != null) {
+            Arrays.sort(files);
+            cards.addAll(Arrays.asList(files));
+        }
+        return cards;
+    }
+
     private void startSaveExport(File file) {
         migrateSaveFileIfNeeded(file);
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(file);
-        if (!saveFileFor.exists() && !stateFileFor.exists()) {
+        if (!saveFileFor.exists() && !stateFileFor.exists() && pcsx2MemoryCardsFor(file).isEmpty()) {
             showError("이 ROM의 세이브 파일이 없습니다.");
             return;
         }
@@ -3080,7 +3099,8 @@ public final class MainActivity extends Activity {
         }
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(this.pendingSaveRom);
-        if (!saveFileFor.exists() && !stateFileFor.exists()) {
+        List<File> cards = pcsx2MemoryCardsFor(file);
+        if (!saveFileFor.exists() && !stateFileFor.exists() && cards.isEmpty()) {
             showError("세이브 내보내기 실패: 세이브 파일이 없습니다");
             return;
         }
@@ -3095,7 +3115,10 @@ public final class MainActivity extends Activity {
             if (stateFileFor.exists()) {
                 writeZipEntry(zipOutputStream, stateFileFor, stateFileFor.getName());
             }
-            showMessage("세이브 백업을 내보냈습니다.");
+            for (File card : cards) {
+                writeZipEntry(zipOutputStream, card, "memcards/" + card.getName());
+            }
+            showMessage(cards.isEmpty() ? "세이브 백업을 내보냈습니다." : "세이브 백업을 내보냈습니다. PS2 메모리카드 " + cards.size() + "개(모든 PS2 게임 공용)도 들어 있어요.");
         } catch (IOException e) {
             showError("세이브 내보내기 실패: " + e.getMessage());
         }
@@ -3116,6 +3139,10 @@ public final class MainActivity extends Activity {
             importSaveBackup(uri);
             return;
         }
+        if (this.pendingSaveRom != null && CORE_PCSX2.equals(coreFor(this.pendingSaveRom)) && displayNameFor(uri).toLowerCase(Locale.US).endsWith(".ps2")) {
+            importPcsx2MemoryCard(uri);
+            return;
+        }
         try (InputStream openInputStream = getContentResolver().openInputStream(uri);
              FileOutputStream fileOutputStream = new FileOutputStream(this.pendingSaveFile)) {
             if (openInputStream == null) {
@@ -3129,6 +3156,39 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // A single .ps2 memory card goes into the slot it is named for (Mcd001.ps2 / Mcd002.ps2),
+    // otherwise into slot 1; the card it replaces is kept as .bak.
+    private void importPcsx2MemoryCard(Uri uri) {
+        String name = displayNameFor(uri);
+        File card = new File(pcsx2MemcardDir(), "Mcd002.ps2".equalsIgnoreCase(name) ? "Mcd002.ps2" : "Mcd001.ps2");
+        File incoming = new File(pcsx2MemcardDir(), ".incoming");
+        try {
+            File dir = pcsx2MemcardDir();
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("메모리카드 폴더를 만들 수 없습니다");
+            }
+            try (InputStream in = getContentResolver().openInputStream(uri);
+                 FileOutputStream out = new FileOutputStream(incoming)) {
+                if (in == null) {
+                    throw new IOException("선택한 파일을 열 수 없습니다");
+                }
+                copy(in, out);
+            }
+            if (card.isFile()) {
+                File old = new File(card.getPath() + ".bak");
+                old.delete();
+                card.renameTo(old);
+            }
+            if (!incoming.renameTo(card)) {
+                throw new IOException("메모리카드를 저장할 수 없습니다");
+            }
+            showMessage("PS2 메모리카드를 " + (card.getName().startsWith("Mcd002") ? "2번" : "1번") + " 슬롯에 넣었어요 (모든 PS2 게임 공용, 이전 카드는 .bak으로 보관).");
+        } catch (IOException e) {
+            incoming.delete();
+            showError("메모리카드 가져오기 실패: " + e.getMessage());
+        }
+    }
+
     private void importSaveBackup(Uri uri) {
         File file2 = this.pendingSaveRom;
         if (file2 == null) {
@@ -3137,6 +3197,8 @@ public final class MainActivity extends Activity {
         }
         File saveFileFor = saveFileFor(file2);
         File stateFileFor = stateFileFor(this.pendingSaveRom);
+        boolean pcsx2 = CORE_PCSX2.equals(coreFor(file2));
+        int cards = 0;
         try (InputStream openInputStream = getContentResolver().openInputStream(uri);
              ZipInputStream zipInputStream = openInputStream == null ? null : new ZipInputStream(openInputStream)) {
             if (zipInputStream == null) {
@@ -3155,6 +3217,18 @@ public final class MainActivity extends Activity {
                 File file;
                 if (lowerCase.endsWith(".sav")) {
                     file = saveFileFor;
+                } else if (pcsx2 && lowerCase.endsWith(".ps2")) {
+                    // A memory card is shared by all PS2 games: keep the one it replaces.
+                    String name = new File(nextEntry.getName()).getName().replaceAll("[^A-Za-z0-9._ -]", "_");
+                    file = new File(pcsx2MemcardDir(), name.startsWith(".") ? "_" + name : name);
+                    if (file.isFile()) {
+                        File old = new File(file.getPath() + ".bak");
+                        old.delete();
+                        if (!file.renameTo(old)) {
+                            throw new IOException(file.getName() + " 메모리카드를 바꿀 수 없습니다");
+                        }
+                    }
+                    cards++;
                 } else {
                     file = lowerCase.endsWith(".state") ? stateFileFor : null;
                 }
@@ -3170,9 +3244,9 @@ public final class MainActivity extends Activity {
                 }
             }
             if (i == 0) {
-                throw new IOException("백업 안에 .sav 또는 .state 파일이 없습니다");
+                throw new IOException("백업 안에 .sav, .state" + (pcsx2 ? ", .ps2" : "") + " 파일이 없습니다");
             }
-            showMessage("세이브 백업을 가져왔습니다.");
+            showMessage(cards == 0 ? "세이브 백업을 가져왔습니다." : "세이브 백업을 가져왔습니다. PS2 메모리카드 " + cards + "개를 바꿨어요 (모든 PS2 게임 공용, 이전 카드는 .bak으로 보관).");
             refreshLibrary();
         } catch (IOException e) {
             showError("세이브 가져오기 실패: " + e.getMessage());
