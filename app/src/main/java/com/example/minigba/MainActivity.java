@@ -3286,11 +3286,50 @@ public final class MainActivity extends Activity {
         SharedPreferences romPrefs = romPrefs();
         String string = romPrefs.getString("save:" + file.getName(), null);
         if (string != null && !string.trim().isEmpty()) {
-            return string;
+            return repairGarbledSaveName(file, string);
         }
         String sanitizeSaveBaseName = sanitizeSaveBaseName(displayGameNameFor(file) + " [" + safeCrc32Hex(file) + "]");
         romPrefs.edit().putString("save:" + file.getName(), sanitizeSaveBaseName).apply();
         return sanitizeSaveBaseName;
+    }
+
+    // Older versions named saves after a title garbled from a CP949 ZIP. Once the title has been
+    // repaired, the save files are renamed after it too; the CRC part stays the same.
+    private String repairGarbledSaveName(File file, String base) {
+        if (base.indexOf('\uFFFD') < 0) {
+            return base;
+        }
+        String title = displayGameNameFor(file);
+        if (title.indexOf('\uFFFD') >= 0) {
+            return base;
+        }
+        int bracket = base.lastIndexOf(" [");
+        String crc = bracket >= 0 && base.endsWith("]") ? base.substring(bracket + 2, base.length() - 1) : safeCrc32Hex(file);
+        String repaired = sanitizeSaveBaseName(title + " [" + crc + "]");
+        File dir = new File(saveDir(), coreFor(file));
+        String[] suffixes = {".sav", ".state", ".state.failed", ".srm"};
+        for (String suffix : suffixes) {
+            if (new File(dir, base + suffix).exists() && new File(dir, repaired + suffix).exists()) {
+                return base;
+            }
+        }
+        List<String> moved = new ArrayList<>();
+        for (String suffix : suffixes) {
+            File from = new File(dir, base + suffix);
+            if (!from.exists()) {
+                continue;
+            }
+            if (!from.renameTo(new File(dir, repaired + suffix))) {
+                // Put back what was already moved so the game keeps one complete set of saves.
+                for (String done : moved) {
+                    new File(dir, repaired + done).renameTo(new File(dir, base + done));
+                }
+                return base;
+            }
+            moved.add(suffix);
+        }
+        romPrefs().edit().putString("save:" + file.getName(), repaired).apply();
+        return repaired;
     }
 
     private String displayGameNameFor(File file) {
