@@ -89,7 +89,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -125,6 +125,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         SurfaceView surfaceView = new SurfaceView(this);
         this.surfaceView = surfaceView;
         surfaceView.getHolder().addCallback(this);
+        attachTouchScreen(surfaceView);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(-1, -1);
         layoutParams.gravity = 17;
         frameLayout.addView(this.surfaceView, layoutParams);
@@ -165,6 +166,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         SurfaceView surfaceView = new SurfaceView(this);
         this.surfaceView = surfaceView;
         surfaceView.getHolder().addCallback(this);
+        attachTouchScreen(surfaceView);
         frameLayout2.addView(this.surfaceView, new FrameLayout.LayoutParams(-1, -1, 17));
         frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(dp(320), dp(214), 17));
         addLandscapeControls(frameLayout);
@@ -176,7 +178,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
-        shell.setCompactBezel(!full && isDualShock());
+        shell.setCompactBezel(!full && (isDualShock() || isNds()));
         shell.track(frameLayout2, frameLayout);
         setContentView(root);
     }
@@ -215,6 +217,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isSnes()) {
             tint = ClearShellView.TINT_GRAY;
             name = "SUPER FAMICOM";
+        } else if (isNds()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "NINTENDO DS";
         } else if (isNes()) {
             tint = ClearShellView.TINT_CREAM;
             name = "FAMICOM";
@@ -260,7 +265,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // GBA keeps the speed button below the screen, so its screen sits at the top.
         // The bezel takes dp(10) above the screen and dp(26) below it; full style has none.
         int maxHeight;
-        if (full) {
+        if (isNds()) {
+            // Stacked DS screens take the full height: dp(14) above, a compact bezel below.
+            maxHeight = Math.max(dp(150), height - (full ? dp(14) + dp(6) : dp(14) + dp(10) + dp(8)));
+        } else if (full) {
             // Room for the thin glass bezel (dp(5) each side) included.
             maxHeight = Math.max(dp(150), height - (isGba ? dp(13) + dp(5) + dp(46) : dp(12) + dp(10)));
         } else {
@@ -270,7 +278,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        int topMargin = isGba ? dp(full ? 13 : 18) : 0;
+        int topMargin = isNds() ? dp(14) : isGba ? dp(full ? 13 : 18) : 0;
         // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
         int bottomMargin = isGba || full ? 0 : dp(16);
         if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
@@ -315,12 +323,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addLandscapeArcadeButton(frameLayout, labels[3], 2048, 101, -42, 42, style);
             } else if (isMegaDrive()) {
                 addMegaDriveButtons(frameLayout, true);
-            } else if (isSnes()) {
-                // X on top, A right, B bottom, Y left, in the Super Famicom colours.
-                addLandscapeArcadeButton(frameLayout, "X", 1024, 66, -48, 50, TouchButton.STYLE_SNES_BLUE);
-                addLandscapeArcadeButton(frameLayout, "A", 1, 18, 0, 50, TouchButton.STYLE_ARCADE_RED);
-                addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, TouchButton.STYLE_ARCADE_YELLOW);
-                addLandscapeArcadeButton(frameLayout, "Y", 2048, 114, 0, 50, TouchButton.STYLE_ARCADE_GREEN);
+            } else if (isSnes() || isNds()) {
+                // X on top, A right, B bottom, Y left, in the Super Famicom colours (DS: dark).
+                boolean ds = isNds();
+                addLandscapeArcadeButton(frameLayout, "X", 1024, 66, -48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_SNES_BLUE);
+                addLandscapeArcadeButton(frameLayout, "A", 1, 18, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_RED);
+                addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
+                addLandscapeArcadeButton(frameLayout, "Y", 2048, 114, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_GREEN);
             } else {
                 addLandscapeActionButton(frameLayout, "A", 1, dp(wideGba ? 6 : 26), -dp(42), 3);
                 addLandscapeActionButton(frameLayout, "B", 2, dp(wideGba ? 62 : 92), dp(42), 3);
@@ -708,7 +717,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         speedButtonView.setPercent(this.speedPercent);
         speedButtonView.setContentDescription("배속");
         FrameLayout.LayoutParams speedParams = new FrameLayout.LayoutParams(dp(80), dp(36));
-        if (isPadLayout()) {
+        if (isNds()) {
+            // The DS screens run the full height, so the button sits beside START instead.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(146), dp(17));
+        } else if (isPadLayout()) {
             speedParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
             speedParams.setMargins(0, 0, 0, dp(6));
         } else {
@@ -790,7 +803,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         View createDirectionControl = createDirectionControl();
         boolean isGba = isPadLayout();
         // The Super Famicom's four face buttons need more room, so its D-pad is a little smaller.
-        boolean compactPad = isSnes() || isMegaDrive();
+        boolean compactPad = isSnes() || isNds() || isMegaDrive();
         int i = isSonyPad() ? 140 : compactPad ? 150 : isGba ? 166 : 156;
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(i), dp(i));
         layoutParams.gravity = 8388691;
@@ -828,12 +841,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addFastForwardButton(frameLayout);
         if (isSonyPad()) {
             addPspFace(frameLayout);
-        } else if (isSnes()) {
-            // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left.
-            addButton(frameLayout, "X", 1024, 8388693, dp(72), dp(254), dp(54), dp(54), TouchButton.STYLE_SNES_BLUE);
-            addButton(frameLayout, "A", 1, 8388693, dp(20), dp(202), dp(54), dp(54), TouchButton.STYLE_ARCADE_RED);
-            addButton(frameLayout, "B", 2, 8388693, dp(72), dp(150), dp(54), dp(54), TouchButton.STYLE_ARCADE_YELLOW);
-            addButton(frameLayout, "Y", 2048, 8388693, dp(124), dp(202), dp(54), dp(54), TouchButton.STYLE_ARCADE_GREEN);
+        } else if (isSnes() || isNds()) {
+            // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left
+            // (Super Famicom colours; the DS's are plain dark).
+            boolean ds = isNds();
+            addButton(frameLayout, "X", 1024, 8388693, dp(72), dp(254), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_SNES_BLUE);
+            addButton(frameLayout, "A", 1, 8388693, dp(20), dp(202), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "B", 2, 8388693, dp(72), dp(150), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
+            addButton(frameLayout, "Y", 2048, 8388693, dp(124), dp(202), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_GREEN);
         } else if (hasTurboPair()) {
             // B and A like the Famicom pad (II and I on the PC Engine), with smaller turbo buttons above them.
             String[] labels = turboLabels();
@@ -1440,6 +1455,32 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "snes9x".equals(this.coreId);
     }
 
+    private boolean isNds() {
+        return "melonds".equals(this.coreId);
+    }
+
+    // DS: a finger on the game screen is the stylus. Positions go to the core in libretro
+    // pointer units across the whole screen view; melonDS DS maps them onto the lower screen.
+    private void attachTouchScreen(View screen) {
+        if (!isNds()) {
+            return;
+        }
+        screen.setOnTouchListener((view, event) -> {
+            long handle = this.nativeHandle;
+            int width = view.getWidth();
+            int height = view.getHeight();
+            if (handle == 0 || width <= 0 || height <= 0) {
+                return true;
+            }
+            int action = event.getActionMasked();
+            boolean pressed = action != android.view.MotionEvent.ACTION_UP && action != android.view.MotionEvent.ACTION_CANCEL;
+            float fx = Math.max(0.0f, Math.min(1.0f, event.getX() / width));
+            float fy = Math.max(0.0f, Math.min(1.0f, event.getY() / height));
+            NativeGba.setPointer(handle, Math.round((fx * 2.0f - 1.0f) * 32767.0f), Math.round((fy * 2.0f - 1.0f) * 32767.0f), pressed);
+            return true;
+        });
+    }
+
     private boolean isNes() {
         return "fceumm".equals(this.coreId);
     }
@@ -1643,11 +1684,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Consoles with a D-pad and SELECT/START, laid out like the GBA.
     private boolean isPadLayout() {
-        return this.coreId.equals("gba") || isSnes() || isNes() || isMegaDrive() || isPcEngine() || isSonyPad();
+        return this.coreId.equals("gba") || isSnes() || isNds() || isNes() || isMegaDrive() || isPcEngine() || isSonyPad();
     }
 
     private boolean hasShoulders() {
-        return (this.coreId.equals("gba") && !isGameBoy()) || isSnes() || isPsp();
+        return (this.coreId.equals("gba") && !isGameBoy()) || isSnes() || isNds() || isPsp();
     }
 
     private String selectLabel() {
@@ -1684,6 +1725,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private float screenAspect() {
+        if (isNds()) {
+            // Both 256x192 screens stacked with the 16-row gap the bridge asks melonDS DS for.
+            return 256.0f / 400.0f;
+        }
         if (isPsp()) {
             return 480.0f / 272.0f;
         }
@@ -1705,6 +1750,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "pcsx_rearmed":
             case "play":
             case "pcee2":
+            case "melonds":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

@@ -75,6 +75,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_PSP = "psp";
     private static final String MODE_PS1 = "ps1";
     private static final String MODE_PS2 = "ps2";
+    private static final String MODE_NDS = "nds";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
     private static final String[][] CONSOLES = {
@@ -85,6 +86,7 @@ public final class MainActivity extends Activity {
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
+            {MODE_NDS, "melonds", ".nds", ".nds / .zip", "roms_nds", "1022"},
     };
 
     private static String[] consoleFor(String mode) {
@@ -134,12 +136,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_SNES, MODE_NES, MODE_MD, MODE_PCE, MODE_PSP, MODE_PS1, MODE_PS2, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "슈퍼패미컴", "패미컴", "메가드라이브", "PC엔진", "PSP", "PS1", "PS2", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "Snes9x", "FCEUmm", "Genesis Plus GX", "Beetle PCE Fast", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", ".pce · .zip (HuCard)", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "SFC", "FC", "MD", "PCE", "PSP", "PS1", "PS2", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(52, 58, 70), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_PCE, MODE_PSP, MODE_PS1, MODE_PS2, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "PC엔진", "PSP", "PS1", "PS2", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "Beetle PCE Fast", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", ".pce · .zip (HuCard)", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "PCE", "PSP", "PS1", "PS2", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(74, 82, 98), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(52, 58, 70), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -4204,6 +4206,16 @@ public final class MainActivity extends Activity {
         if (MODE_PS1.equals(mode)) {
             return checkPs1Image(file);
         }
+        if (MODE_NDS.equals(mode)) {
+            // DS cartridges carry the Nintendo logo's CRC (0xCF56) at 0x15C of their header.
+            byte[] head = readHead(file, 0x160);
+            if (head == null) {
+                return new RomCheck(false, "DS 헤더를 읽을 수 없음");
+            }
+            int logoCrc = (head[0x15C] & 0xFF) | (head[0x15D] & 0xFF) << 8;
+            String title = new String(head, 0, 12, StandardCharsets.ISO_8859_1).trim();
+            return logoCrc == 0xCF56 ? new RomCheck(true, "DS 헤더 정상" + (title.isEmpty() ? "" : " · " + title)) : new RomCheck(false, "DS 헤더가 아님");
+        }
         if (MODE_PCE.equals(mode) && isPceCd(file)) {
             return checkPs1Image(file);
         }
@@ -5538,6 +5550,9 @@ public final class MainActivity extends Activity {
         }
         if (CORE_PCSX2.equals(str)) {
             return "PCSX2";
+        }
+        if ("melonds".equals(str)) {
+            return "melonDS DS";
         }
         return "Game Boy Advance";
     }

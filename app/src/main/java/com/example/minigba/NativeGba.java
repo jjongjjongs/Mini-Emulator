@@ -27,6 +27,9 @@ final class NativeGba {
 
     static native void setAnalogRight(long j, int x, int y);
 
+    // Touch on the game screen (DS): x and y in -32767..32767 across the screen view.
+    static native void setPointer(long handle, int x, int y, boolean pressed);
+
     // 50, 100 or 200 (0.5x, 1x, 2x).
     static native void setSpeedPercent(long j, int percent);
 

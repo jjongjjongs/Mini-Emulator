@@ -211,12 +211,23 @@ jobs:
             app/src/main/assets/pcsx2_resources.zip
           key: pcee2-${{ hashFiles('cores/build-pcee2.sh', 'cores/patches/pcee2-*.patch') }}
 
+      - name: Restore melonDS DS core
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libmelondsds_libretro_android.so
+          key: melonds-${{ hashFiles('cores/build-melonds.sh', 'cores/patches/melonds-*.patch') }}
+
       - name: Report PCEE2 core
         run: |
           if [ -f app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so ]; then
             ls -lh app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so app/src/main/assets/pcsx2_resources.zip
           else
             echo "::warning::PCEE2 core not in the cache; this APK runs PS2 games on Play! only"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libmelondsds_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libmelondsds_libretro_android.so
+          else
+            echo "::warning::melonDS DS core not in the cache; DS games cannot run in this APK"
           fi
 
       - name: Build debug APK

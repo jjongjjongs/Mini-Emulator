@@ -260,6 +260,10 @@ struct Core {
     // Right analog stick (PS1 DualShock, PS2).
     std::atomic<int> analogRX{0};
     std::atomic<int> analogRY{0};
+    // Touch on the game screen (DS), in libretro pointer units across the screen view.
+    std::atomic<int> pointerX{0};
+    std::atomic<int> pointerY{0};
+    std::atomic<bool> pointerPressed{false};
 
     // Hardware rendering: the core draws with OpenGL ES into fbo on the emulation
     // thread, which then stretches it onto the window.
@@ -385,6 +389,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "pcsx_rearmed") return "libpcsx_rearmed_libretro_android.so";
     if (coreId == "play") return "libplay_libretro_android.so";
     if (coreId == "pcee2") return "libpcee2_libretro_android.so";
+    if (coreId == "melonds") return "libmelondsds_libretro_android.so";
     return nullptr;
 }
 
@@ -1017,6 +1022,13 @@ const char* fixedVariable(const char* key) {
     // the frontend blocking on audio to hold the speed. Audio here does not block, so the
     // game ran up to twice as fast; present every frame and let the bridge pace them.
     if (strcmp(key, "pcsx2_skip_duplicate_frames") == 0) return "disabled";
+    // DS: both screens stacked, with the gap the app draws its hinge into (16 of the 400
+    // rows), touched with a finger (no cursor drawn).
+    if (strcmp(key, "melonds_number_of_screen_layouts") == 0) return "1";
+    if (strcmp(key, "melonds_screen_layout1") == 0) return "top-bottom";
+    if (strcmp(key, "melonds_screen_gap") == 0) return "16";
+    if (strcmp(key, "melonds_touch_mode") == 0) return "touch";
+    if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -1318,6 +1330,15 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     if (port == 0 && device == RETRO_DEVICE_ANALOG && core != nullptr && index == RETRO_DEVICE_INDEX_ANALOG_RIGHT) {
         return static_cast<int16_t>(id == RETRO_DEVICE_ID_ANALOG_X ? core->analogRX.load() : core->analogRY.load());
     }
+    if (port == 0 && device == RETRO_DEVICE_POINTER && core != nullptr && index == 0) {
+        switch (id) {
+            case RETRO_DEVICE_ID_POINTER_X: return static_cast<int16_t>(core->pointerX.load());
+            case RETRO_DEVICE_ID_POINTER_Y: return static_cast<int16_t>(core->pointerY.load());
+            case RETRO_DEVICE_ID_POINTER_PRESSED: return core->pointerPressed.load() ? 1 : 0;
+            case RETRO_DEVICE_ID_POINTER_COUNT: return core->pointerPressed.load() ? 1 : 0;
+            default: return 0;
+        }
+    }
     if (port != 0 || device != RETRO_DEVICE_JOYPAD || core == nullptr) {
         return 0;
     }
@@ -1344,7 +1365,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
                        core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
-                       core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2";
+                       core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
+                       core->coreId == "melonds";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -1553,7 +1575,7 @@ void runLoop(Core* core) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
-            if (core->coreId == "play" || core->coreId == "pcee2") {
+            if (core->coreId == "play" || core->coreId == "pcee2" || core->coreId == "melonds") {
                 crash::wrapForeignSegvHandler();
             }
             core->retroRun();
@@ -1993,6 +2015,17 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalogRight(
     if (core != nullptr) {
         core->analogRX.store(x);
         core->analogRY.store(y);
+    }
+}
+
+// Touch on the game screen: x and y in -32767..32767 across the screen view.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPointer(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint x, jint y, jboolean pressed) {
+    Core* core = fromHandle(handle);
+    if (core != nullptr) {
+        core->pointerX.store(x);
+        core->pointerY.store(y);
+        core->pointerPressed.store(pressed == JNI_TRUE);
     }
 }
 
