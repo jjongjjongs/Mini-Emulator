@@ -1503,6 +1503,10 @@ void runLoop(Core* core) {
         core->hwRender = false;
         LOGE("Hardware rendering unavailable");
     }
+    // Frames run against fixed deadlines, so a long frame or a late wake-up is made up by
+    // the frames after it. Sleeping "what is left of this frame" lost that time for good,
+    // and the game ran a few percent slow (the audio queue drained, the music dragged).
+    auto deadline = std::chrono::steady_clock::now();
     while (core->running.load()) {
         if (core->hwReady) {
             bindHwWindow(core);
@@ -1513,7 +1517,6 @@ void runLoop(Core* core) {
             speed = 1;
         }
         double fps = core->fps;
-        auto start = std::chrono::steady_clock::now();
         if (!core->paused.load()) {
             while (core->coreWaiters.load() > 0 && core->running.load()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1533,11 +1536,14 @@ void runLoop(Core* core) {
             }
         }
         double frameNs = 1.0 / (fps * speed) * 1e9;
-        double elapsedNs = static_cast<double>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count());
-        double remainingNs = frameNs - elapsedNs;
-        if (remainingNs > 0) {
-            std::this_thread::sleep_for(std::chrono::nanoseconds(static_cast<int64_t>(std::ceil(remainingNs))));
+        deadline += std::chrono::nanoseconds(static_cast<int64_t>(frameNs));
+        auto now = std::chrono::steady_clock::now();
+        if (deadline > now) {
+            std::this_thread::sleep_until(deadline);
+        } else if (now - deadline > std::chrono::milliseconds(100)) {
+            // Too far behind (a game slower than real time, a pause, a save): carry on from
+            // here instead of racing through frames to catch up.
+            deadline = now;
         }
     }
     {

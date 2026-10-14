@@ -35,6 +35,8 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1
 #     restored states crashed the game (CIopBios::SleepThread, EE jumping to 0).
 #   audio-queue: the libretro sound handler kept only the last block the VM wrote each
 #     frame, so most of the sound was dropped and it crackled like radio static.
+#   half-pixel: the GS samples pixels at integer coordinates, OpenGL half a pixel off, so
+#     2D pictures drawn in strips of sprites (Tekken 5's backgrounds) had vertical lines.
 for PATCH in "$HERE"/patches/play-*.patch; do
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
         git -C "$DIR" apply "$PATCH"

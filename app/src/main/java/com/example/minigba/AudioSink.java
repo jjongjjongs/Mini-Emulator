@@ -7,12 +7,15 @@ import android.media.AudioTrack;
 // Plays the core's stereo 16-bit samples, one write per emulated frame. The emulation and
 // the audio hardware run on different clocks, so the queue drifts: drained, the gaps
 // crackle; full, writes are cut short and crackle too. Each frame is resampled a little to
-// steer the (smoothed) queue back to TARGET_MS: up to 1.5x longer when the game runs slower
-// than real time, up to 5% shorter when it runs ahead.
+// steer the (smoothed) queue back to TARGET_MS: up to MAX_STRETCH longer when the game runs
+// slower than real time, up to 5% shorter when it runs ahead.
 final class AudioSink {
     // Room in the track and the amount kept queued, in milliseconds.
     private static final int BUFFER_MS = 200;
     private static final int TARGET_MS = 80;
+    // Longest a frame's audio is stretched; more than this drags the music audibly, so a
+    // game that slow gets short gaps instead.
+    private static final double MAX_STRETCH = 1.25;
 
     private AudioTrack track;
     private int sampleRate;
@@ -51,7 +54,7 @@ final class AudioSink {
                 ? queued : this.smoothedQueued * 0.8 + queued * 0.2;
         double ratio;
         if (this.smoothedQueued < target) {
-            ratio = 1.0 + 0.5 * (target - this.smoothedQueued) / target;
+            ratio = Math.min(MAX_STRETCH, 1.0 + 0.5 * (target - this.smoothedQueued) / target);
         } else {
             ratio = 1.0 - 0.05 * Math.min(1.0, (this.smoothedQueued - target) / room);
         }
