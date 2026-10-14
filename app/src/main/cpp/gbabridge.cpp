@@ -1469,6 +1469,15 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         std::string dataDir = core->saveDir + "/play";
         mkdir(dataDir.c_str(), 0700);
         setenv("EXTERNAL_STORAGE", dataDir.c_str(), 1);
+        // Its emulation thread attaches to Java through a VM pointer its own app sets in
+        // JNI_OnLoad, which a dlopen'd core never gets; hand it ours.
+        auto setJavaVm = reinterpret_cast<void (*)(JavaVM*)>(
+                dlsym(core->library, "_ZN9Framework7CJavaVM9SetJavaVMEP7_JavaVM"));
+        if (setJavaVm != nullptr) {
+            setJavaVm(gVm);
+        } else {
+            LOGE("Play! has no CJavaVM::SetJavaVM; its emulation thread cannot start");
+        }
     }
     core->retroInit();
     core->initialized = true;
