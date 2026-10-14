@@ -660,9 +660,35 @@ public final class MainActivity extends Activity {
             return;
         }
         prefs.edit().remove(GameActivity.SESSION_START).apply();
-        if (!reported && !showLastCrashReport()) {
+        if (!reported && !showLastCrashReport() && !endedByUserOrUpdate(sessionStart)) {
             showUnexpectedGameExit(sessionStart);
         }
+    }
+
+    // Whether the system's record says the game process was stopped on purpose: the task
+    // swiped away from recents, a force stop, or the app being updated or changed. Those
+    // leave the session open too, but are not worth a report.
+    private boolean endedByUserOrUpdate(long sessionStart) {
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            return false;
+        }
+        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        List<android.app.ApplicationExitInfo> exits = am == null ? null : am.getHistoricalProcessExitReasons(null, 0, 10);
+        if (exits == null) {
+            return false;
+        }
+        for (android.app.ApplicationExitInfo exit : exits) {
+            if (exit.getProcessName() == null || !exit.getProcessName().endsWith(":game") || exit.getTimestamp() < sessionStart) {
+                continue;
+            }
+            // The newest record for the game process since the session started decides.
+            int reason = exit.getReason();
+            return reason == android.app.ApplicationExitInfo.REASON_USER_REQUESTED
+                    || reason == android.app.ApplicationExitInfo.REASON_USER_STOPPED
+                    || reason == android.app.ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE
+                    || reason == 15; // REASON_PACKAGE_UPDATED (API 34)
+        }
+        return false;
     }
 
     private boolean isGameProcessRunning() {
