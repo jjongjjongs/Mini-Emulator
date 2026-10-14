@@ -32,7 +32,10 @@ final class AudioSink {
         this.sampleRate = i;
         this.framesWritten = 0;
         this.smoothedQueued = -1;
+        // AudioTrack wants whole stereo 16-bit frames (4 bytes); a rate such as the DS's
+        // 32768 Hz gives a byte count that is not.
         int bytes = Math.max(AudioTrack.getMinBufferSize(i, 12, 2), i * 4 * BUFFER_MS / 1000);
+        bytes = (bytes + 3) & ~3;
         AudioTrack build = new AudioTrack.Builder().setAudioAttributes(new AudioAttributes.Builder().setUsage(14).setContentType(2).build()).setAudioFormat(new AudioFormat.Builder().setSampleRate(i).setChannelMask(12).setEncoding(2).build()).setTransferMode(1).setBufferSizeInBytes(bytes).build();
         this.track = build;
         build.play();
