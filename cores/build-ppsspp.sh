@@ -39,7 +39,7 @@ done
 
 echo "== building ppsspp"
 "$NDK/ndk-build" -C "$DIR/libretro/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
-    "APP_CPPFLAGS=-frtti -fexceptions" "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -k -j"$JOBS" > "$WORK/ppsspp.log" 2>&1 || {
+    "APP_CPPFLAGS=-frtti -fexceptions" "APP_CFLAGS=-DPNG_ARM_NEON_OPT=0" "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -k -j"$JOBS" > "$WORK/ppsspp.log" 2>&1 || {
     grep -n "error:\|Error [0-9]" "$WORK/ppsspp.log" | head -n 60 || true
     tail -n 60 "$WORK/ppsspp.log"
     exit 1
