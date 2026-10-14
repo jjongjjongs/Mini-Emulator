@@ -27,13 +27,22 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$MAME2010_COMMIT"
     git -C "$DIR" checkout -q --force FETCH_HEAD
 fi
 
+# The H8 CPU cores write 8 flag letters plus the terminator into an 8-byte
+# buffer; Android's FORTIFY aborts on it (Namco System 12 games, e.g. tektagt).
+sed -i 's/static char res\[8\];/static char res[16];/' \
+    "$DIR/src/emu/cpu/h83002/h8_16.c" "$DIR/src/emu/cpu/h83002/h8_8.c"
+grep -q 'static char res\[16\];' "$DIR/src/emu/cpu/h83002/h8_16.c"
+grep -q 'static char res\[16\];' "$DIR/src/emu/cpu/h83002/h8_8.c"
+
 echo "== building mame2010"
 # The core's Android.mk sets neither 16 KB page alignment nor the flags its
 # desktop builds use: MAME 0.139 assumes a signed char (ARM's is unsigned),
 # breaks under strict aliasing, and tests `this` against NULL (e.g.
-# device_config::subtag), which clang drops unless told not to.
+# device_config::subtag), which clang drops unless told not to. FORTIFY is
+# turned off as on the desktop builds, where small overruns like the one above
+# go unnoticed instead of killing the app.
 "$NDK/ndk-build" -C "$DIR/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
-    "APP_CFLAGS=-fsigned-char -fno-strict-aliasing -fno-delete-null-pointer-checks" \
+    "APP_CFLAGS=-fsigned-char -fno-strict-aliasing -fno-delete-null-pointer-checks -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0" \
     "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -j"$JOBS" > "$WORK/mame2010.log" 2>&1 || {
     tail -n 80 "$WORK/mame2010.log"
     exit 1
