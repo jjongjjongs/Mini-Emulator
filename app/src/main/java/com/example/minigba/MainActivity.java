@@ -42,6 +42,11 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -2134,7 +2139,8 @@ public final class MainActivity extends Activity {
             throw new IOException("선택한 ZIP 파일을 열 수 없습니다");
         }
         List<File> arrayList = new ArrayList<>();
-        try (ZipInputStream zipInputStream = new ZipInputStream(openInputStream)) {
+        // ISO-8859-1 keeps the raw bytes of names without the UTF-8 flag, so they can be decoded below.
+        try (ZipInputStream zipInputStream = new ZipInputStream(openInputStream, StandardCharsets.ISO_8859_1)) {
             while (true) {
                 ZipEntry nextEntry = zipInputStream.getNextEntry();
                 if (nextEntry == null) {
@@ -2143,7 +2149,7 @@ public final class MainActivity extends Activity {
                 if (nextEntry.isDirectory()) {
                     continue;
                 }
-                String name = new File(nextEntry.getName()).getName();
+                String name = new File(decodeZipEntryName(nextEntry.getName())).getName();
                 if (isRomNameFor(mode, name.toLowerCase(Locale.US))) {
                     File uniqueFile = uniqueFile(romDir, sanitizeFileName(name));
                     try (FileOutputStream fileOutputStream = new FileOutputStream(uniqueFile)) {
@@ -2162,9 +2168,41 @@ public final class MainActivity extends Activity {
         return arrayList;
     }
 
+    // Names in ZIPs made on Korean Windows are CP949 without the UTF-8 flag. Entries read as
+    // ISO-8859-1 are turned back into bytes and decoded as UTF-8 when valid, otherwise CP949.
+    static String decodeZipEntryName(String raw) {
+        for (int i = 0; i < raw.length(); i++) {
+            if (raw.charAt(i) > 0xFF) {
+                // The entry had the UTF-8 flag and is already decoded.
+                return raw;
+            }
+        }
+        byte[] bytes = raw.getBytes(StandardCharsets.ISO_8859_1);
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException notUtf8) {
+            for (String name : new String[]{"MS949", "x-windows-949", "EUC-KR"}) {
+                try {
+                    return new String(bytes, Charset.forName(name));
+                } catch (RuntimeException unsupported) {
+                    // try the next name for the Korean code page
+                }
+            }
+            return raw;
+        }
+    }
+
     private File finalizeImportedRom(File file, String str) throws IOException {
         String crc32Hex = crc32Hex(file);
-        if (findRomByCrc(crc32Hex, file) != null) {
+        File existing = findRomByCrc(crc32Hex, file);
+        if (existing != null && str != null && str.indexOf('\uFFFD') < 0 && displayGameNameFor(existing).indexOf('\uFFFD') >= 0) {
+            // Importing again repairs a title that an older version garbled; saves keep their name.
+            romPrefs().edit().putString("title:" + existing.getName(), str.trim()).apply();
+        }
+        if (existing != null) {
             if (file.delete()) {
                 return null;
             }
