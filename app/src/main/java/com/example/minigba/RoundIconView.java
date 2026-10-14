@@ -20,6 +20,15 @@ final class RoundIconView extends View {
     static final int CARD = 5;
     static final int EXIT = 6;
     static final int PLAY = 7;
+    static final int STAR = 8;
+    static final int EDIT = 9;
+    static final int GEAR = 10;
+    static final int EXPORT = 11;
+    static final int IMPORT = 12;
+    static final int ERASE = 13;
+    static final int TRASH = 14;
+    static final int MULTI = 15;
+    static final int FOLDER = 16;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -28,6 +37,9 @@ final class RoundIconView extends View {
     static final int COLOR_LOAD = Color.rgb(124, 92, 255);
     static final int COLOR_CARD = Color.rgb(14, 165, 164);
     static final int COLOR_EXIT = Color.rgb(229, 72, 77);
+    static final int COLOR_STAR = Color.rgb(245, 166, 35);
+    static final int COLOR_EDIT = Color.rgb(91, 108, 240);
+    static final int COLOR_GEAR = Color.rgb(245, 158, 11);
 
     private final int icon;
     private final int color;
@@ -146,6 +158,114 @@ final class RoundIconView extends View {
                 path.moveTo(9, 8);
                 path.lineTo(5, 12);
                 path.lineTo(9, 16);
+                canvas.drawPath(path, line);
+                break;
+            case STAR:
+                path.moveTo(12, 3.5f);
+                path.lineTo(14.6f, 8.8f);
+                path.lineTo(20.5f, 9.7f);
+                path.lineTo(16.2f, 13.8f);
+                path.lineTo(17.2f, 19.6f);
+                path.lineTo(12, 16.9f);
+                path.lineTo(6.8f, 19.6f);
+                path.lineTo(7.8f, 13.8f);
+                path.lineTo(3.5f, 9.7f);
+                path.lineTo(9.4f, 8.8f);
+                path.close();
+                canvas.drawPath(path, line);
+                break;
+            case EDIT:
+                path.moveTo(4, 20);
+                path.lineTo(8, 20);
+                path.lineTo(19, 9);
+                path.lineTo(15, 5);
+                path.lineTo(4, 16);
+                path.close();
+                path.moveTo(13.5f, 6.5f);
+                path.lineTo(17.5f, 10.5f);
+                canvas.drawPath(path, line);
+                break;
+            case GEAR:
+                path.addCircle(12, 12, 3.2f, Path.Direction.CW);
+                for (int i = 0; i < 8; i++) {
+                    double angle = Math.PI / 4 * i;
+                    float cos = (float) Math.cos(angle);
+                    float sin = (float) Math.sin(angle);
+                    path.moveTo(12 + cos * 6.6f, 12 + sin * 6.6f);
+                    path.lineTo(12 + cos * 9.2f, 12 + sin * 9.2f);
+                }
+                canvas.drawPath(path, line);
+                break;
+            case EXPORT:
+            case IMPORT:
+                if (icon == EXPORT) {
+                    path.moveTo(12, 15);
+                    path.lineTo(12, 4);
+                    path.moveTo(7.5f, 8.5f);
+                    path.lineTo(12, 4);
+                    path.lineTo(16.5f, 8.5f);
+                } else {
+                    path.moveTo(12, 4);
+                    path.lineTo(12, 15);
+                    path.moveTo(7.5f, 10.5f);
+                    path.lineTo(12, 15);
+                    path.lineTo(16.5f, 10.5f);
+                }
+                path.moveTo(4, 15);
+                path.lineTo(4, 18);
+                path.quadTo(4, 20, 6, 20);
+                path.lineTo(18, 20);
+                path.quadTo(20, 20, 20, 18);
+                path.lineTo(20, 15);
+                canvas.drawPath(path, line);
+                break;
+            case ERASE:
+                floppy();
+                path.moveTo(9, 12);
+                path.lineTo(15, 18);
+                path.moveTo(15, 12);
+                path.lineTo(9, 18);
+                canvas.drawPath(path, line);
+                break;
+            case TRASH:
+                path.moveTo(4, 7);
+                path.lineTo(20, 7);
+                path.moveTo(9, 7);
+                path.lineTo(9, 4);
+                path.lineTo(15, 4);
+                path.lineTo(15, 7);
+                path.moveTo(6, 7);
+                path.lineTo(7, 20);
+                path.lineTo(17, 20);
+                path.lineTo(18, 7);
+                path.moveTo(10, 11);
+                path.lineTo(10, 17);
+                path.moveTo(14, 11);
+                path.lineTo(14, 17);
+                canvas.drawPath(path, line);
+                break;
+            case MULTI:
+                for (float y : new float[]{6, 12, 18}) {
+                    path.moveTo(4, y);
+                    path.lineTo(5.5f, y + 1.5f);
+                    path.lineTo(8, y - 1);
+                    path.moveTo(11, y + 0.5f);
+                    path.lineTo(20, y + 0.5f);
+                }
+                canvas.drawPath(path, line);
+                break;
+            case FOLDER:
+                path.moveTo(3.5f, 7);
+                path.quadTo(3.5f, 5, 5.5f, 5);
+                path.lineTo(9.5f, 5);
+                path.lineTo(11.5f, 7.5f);
+                path.lineTo(18.5f, 7.5f);
+                path.quadTo(20.5f, 7.5f, 20.5f, 9.5f);
+                path.lineTo(20.5f, 17.5f);
+                path.quadTo(20.5f, 19.5f, 18.5f, 19.5f);
+                path.lineTo(5.5f, 19.5f);
+                path.quadTo(3.5f, 19.5f, 3.5f, 17.5f);
+                path.close();
                 canvas.drawPath(path, line);
                 break;
             case PLAY:

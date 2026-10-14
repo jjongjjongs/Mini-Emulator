@@ -15,6 +15,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.widget.Button;
@@ -1727,54 +1728,187 @@ public final class MainActivity extends Activity {
         return true;
     }
 
+    // Long-press menu: the game's details, a big launch button, a 3x2 grid of tiles and the
+    // two delete actions, in the same style as the in-game pause menu.
     private void showRomActions(final File file) {
-        ArrayList arrayList = new ArrayList();
-        arrayList.add("실행");
-        arrayList.add(isFavorite(file) ? "즐겨찾기 해제" : "즐겨찾기 추가");
-        arrayList.add("게임/세이브 이름 변경");
-        if ("arcade".equals(modeForFile(file)) || "neogeo".equals(modeForFile(file))) {
-            arrayList.add("실행 엔진 변경");
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+
+        String mode = modeForFile(file);
+        int modeIndex = modeIndex(mode);
+        boolean arcade = "arcade".equals(mode) || "neogeo".equals(mode);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView badge = new TextView(this);
+        badge.setText(MODE_ICONS[modeIndex]);
+        badge.setTextColor(-1);
+        badge.setTextSize(12.0f);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setGravity(17);
+        badge.setBackground(rounded(MODE_COLORS[modeIndex], dp(13)));
+        header.addView(badge, new LinearLayout.LayoutParams(dp(46), dp(46)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView name = new TextView(this);
+        name.setText((isFavorite(file) ? "★ " : "") + displayGameNameFor(file));
+        name.setTextColor(Color.rgb(31, 41, 51));
+        name.setTextSize(17.0f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        texts.addView(name);
+        TextView detail = new TextView(this);
+        StringBuilder sb = new StringBuilder(coreDisplayName(coreFor(file)));
+        sb.append(saveFileFor(file).exists() || stateFileFor(file).exists() ? " · 세이브 있음" : " · 세이브 없음");
+        long lastPlayed = lastPlayedAt(file);
+        if (lastPlayed > 0) {
+            sb.append(" · ").append(formatTimestamp(lastPlayed));
         }
-        arrayList.add("세이브 백업 내보내기");
-        arrayList.add("세이브 백업 가져오기");
-        arrayList.add("세이브 삭제");
-        arrayList.add("ROM 삭제");
-        arrayList.add("여러 개 선택해서 삭제");
-        final String[] strArr = (String[]) arrayList.toArray(new String[0]);
-        new AlertDialog.Builder(this).setTitle(displayGameNameFor(file)).setItems(strArr, (dialogInterface, i) -> onRomActionSelected(strArr, file, dialogInterface, i)).show();
+        detail.setText(sb.toString());
+        detail.setTextColor(Color.rgb(122, 130, 140));
+        detail.setTextSize(11.5f);
+        texts.addView(detail);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(texts, textsParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView launch = new TextView(this);
+        launch.setText("▶  실행");
+        launch.setTextSize(16.0f);
+        launch.setTypeface(Typeface.DEFAULT_BOLD);
+        launch.setTextColor(-1);
+        launch.setGravity(17);
+        launch.setBackground(rounded(Color.rgb(22, 185, 207), dp(14)));
+        launch.setOnClickListener(view -> {
+            dialog.dismiss();
+            launchGame(file);
+        });
+        LinearLayout.LayoutParams launchParams = new LinearLayout.LayoutParams(-1, dp(50));
+        launchParams.setMargins(0, dp(14), 0, dp(12));
+        panel.addView(launch, launchParams);
+
+        LinearLayout row1 = new LinearLayout(this);
+        row1.addView(createActionTile(dialog, RoundIconView.STAR, RoundIconView.COLOR_STAR, isFavorite(file) ? "즐겨찾기\n해제" : "즐겨찾기", null, false, () -> toggleFavorite(file)), actionGridParams(0));
+        row1.addView(createActionTile(dialog, RoundIconView.EDIT, RoundIconView.COLOR_EDIT, "이름 변경", null, false, () -> renameGameAndSave(file)), actionGridParams(1));
+        if (arcade) {
+            row1.addView(createActionTile(dialog, RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "엔진 변경", shortCoreName(coreFor(file)), false, () -> showCorePicker(file)), actionGridParams(2));
+        } else {
+            row1.addView(createActionTile(dialog, RoundIconView.ERASE, RoundIconView.COLOR_EXIT, "세이브 삭제", null, true, () -> confirmDeleteSave(file)), actionGridParams(2));
+        }
+        panel.addView(row1, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout row2 = new LinearLayout(this);
+        row2.addView(createActionTile(dialog, RoundIconView.EXPORT, RoundIconView.COLOR_SAVE, "세이브\n내보내기", null, false, () -> startSaveExport(file)), actionGridParams(0));
+        row2.addView(createActionTile(dialog, RoundIconView.IMPORT, RoundIconView.COLOR_LOAD, "세이브\n가져오기", null, false, () -> startSaveImport(file)), actionGridParams(1));
+        if (arcade) {
+            row2.addView(createActionTile(dialog, RoundIconView.ERASE, RoundIconView.COLOR_EXIT, "세이브 삭제", null, true, () -> confirmDeleteSave(file)), actionGridParams(2));
+        } else {
+            row2.addView(createActionTile(dialog, RoundIconView.MULTI, RoundIconView.COLOR_EXIT, "여러 개\n삭제", null, true, () -> showMultiDelete(file)), actionGridParams(2));
+        }
+        LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
+        row2Params.setMargins(0, dp(9), 0, 0);
+        panel.addView(row2, row2Params);
+
+        LinearLayout deletes = new LinearLayout(this);
+        deletes.addView(createOutlineButton(dialog, RoundIconView.TRASH, "ROM 삭제", () -> confirmDeleteRom(file)), actionGridParams(0));
+        if (arcade) {
+            deletes.addView(createOutlineButton(dialog, RoundIconView.MULTI, "여러 개 삭제", () -> showMultiDelete(file)), actionGridParams(2));
+        }
+        LinearLayout.LayoutParams deletesParams = new LinearLayout.LayoutParams(-1, dp(44));
+        deletesParams.setMargins(0, dp(9), 0, 0);
+        panel.addView(deletes, deletesParams);
+
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        dialog.show();
     }
 
-    private void onRomActionSelected(String[] strArr, File file, DialogInterface dialogInterface, int i) {
-        String str = strArr[i];
-        if (str.equals("실행")) {
-            launchGame(file);
-            return;
+    private LinearLayout.LayoutParams actionGridParams(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+        params.setMargins(column == 0 ? 0 : dp(4), 0, column == 2 ? 0 : dp(4), 0);
+        return params;
+    }
+
+    private LinearLayout createActionTile(Dialog dialog, int icon, int color, String label, String sub, boolean danger, Runnable action) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(1);
+        tile.setGravity(1);
+        tile.setPadding(dp(6), dp(13), dp(6), dp(11));
+        final int normal = danger ? Color.rgb(255, 241, 241) : Color.rgb(246, 247, 249);
+        final int pressed = danger ? Color.rgb(252, 222, 222) : Color.rgb(228, 231, 236);
+        tile.setBackground(rounded(normal, dp(16)));
+        tile.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(42), dp(42)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(12.5f);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        text.setTextColor(danger ? Color.rgb(217, 61, 66) : Color.rgb(31, 41, 51));
+        text.setGravity(1);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(0, dp(7), 0, 0);
+        tile.addView(text, textParams);
+        if (sub != null) {
+            TextView subText = new TextView(this);
+            subText.setText(sub);
+            subText.setTextSize(10.5f);
+            subText.setTextColor(Color.rgb(138, 146, 156));
+            subText.setGravity(1);
+            tile.addView(subText, new LinearLayout.LayoutParams(-2, -2));
         }
-        if (str.startsWith("즐겨찾기")) {
-            toggleFavorite(file);
-            return;
-        }
-        if (str.equals("게임/세이브 이름 변경")) {
-            renameGameAndSave(file);
-            return;
-        }
-        if (str.equals("실행 엔진 변경")) {
-            showCorePicker(file);
-            return;
-        }
-        if (str.equals("세이브 백업 내보내기")) {
-            startSaveExport(file);
-            return;
-        }
-        if (str.equals("세이브 백업 가져오기")) {
-            startSaveImport(file);
-        } else if (str.equals("세이브 삭제")) {
-            confirmDeleteSave(file);
-        } else if (str.equals("ROM 삭제")) {
-            confirmDeleteRom(file);
-        } else if (str.equals("여러 개 선택해서 삭제")) {
-            showMultiDelete(file);
-        }
+        pressable(tile, normal, pressed, dp(16));
+        tile.setOnClickListener(view -> {
+            dialog.dismiss();
+            action.run();
+        });
+        return tile;
+    }
+
+    private LinearLayout createOutlineButton(Dialog dialog, int icon, String label, Runnable action) {
+        LinearLayout button = new LinearLayout(this);
+        button.setOrientation(0);
+        button.setGravity(17);
+        GradientDrawable outline = new GradientDrawable();
+        outline.setColor(-1);
+        outline.setStroke(Math.round(1.5f * getResources().getDisplayMetrics().density), Color.rgb(243, 199, 200));
+        outline.setCornerRadius(dp(13));
+        button.setBackground(outline);
+        RoundIconView iconView = new RoundIconView(this, icon, Color.rgb(229, 72, 77));
+        button.addView(iconView, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(13.5f);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        text.setTextColor(Color.rgb(229, 72, 77));
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(dp(6), 0, 0, 0);
+        button.addView(text, textParams);
+        button.setClickable(true);
+        button.setOnClickListener(view -> {
+            dialog.dismiss();
+            action.run();
+        });
+        return button;
+    }
+
+    // Darkens a rounded tile while it is held down.
+    private void pressable(View view, int normal, int pressed, int radius) {
+        view.setClickable(true);
+        view.setOnTouchListener((v, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                v.setBackground(rounded(pressed, radius));
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                v.setBackground(rounded(normal, radius));
+            }
+            return false;
+        });
     }
 
     private void showCorePicker(final File file) {
@@ -3339,9 +3473,15 @@ public final class MainActivity extends Activity {
         String mode = modeForFile(file);
         if ("arcade".equals(mode) || "neogeo".equals(mode)) {
             // Arcade ZIPs are named after their romset; show the game's title unless the
-            // player gave it a name of their own.
-            if (string == null || string.trim().isEmpty() || string.trim().equalsIgnoreCase(baseNameWithoutExtension)) {
+            // player gave it a name of their own. A stored name that is itself a romset name
+            // is automatic too: it is left over when an import renamed the ZIP to the set
+            // its contents matched (kof98 -> kof98h).
+            String stored = string == null ? "" : string.trim();
+            if (stored.isEmpty() || stored.equalsIgnoreCase(baseNameWithoutExtension) || GameTitles.lookup(this, stored) != null) {
                 String title = GameTitles.lookup(this, baseNameWithoutExtension);
+                if (title == null && !stored.isEmpty()) {
+                    title = GameTitles.lookup(this, stored);
+                }
                 return title != null ? title : baseNameWithoutExtension;
             }
             return string;
