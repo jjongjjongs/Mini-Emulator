@@ -1,0 +1,405 @@
+diff --git a/Core/Font/PGF.cpp b/Core/Font/PGF.cpp
+index b3503a7..666ed18 100644
+--- a/Core/Font/PGF.cpp
++++ b/Core/Font/PGF.cpp
+@@ -549,6 +549,51 @@ bool PGF::GetCharGlyph(int charCode, int glyphType, Glyph &glyph) const {
+ 	return true;
+ }
+ 
++bool PGF::GetGlyphBitmap(int charCode, std::vector<u8> &pixels, int &w, int &h, int &left, int &top, int &advance64) const {
++	Glyph glyph;
++	if (!GetCharGlyph(charCode, FONT_PGF_CHARGLYPH, glyph) || glyph.w < 0 || glyph.h < 0)
++		return false;
++	int dir = glyph.flags & FONT_PGF_BMP_OVERLAY;
++	if (dir != FONT_PGF_BMP_H_ROWS && dir != FONT_PGF_BMP_V_ROWS)
++		return false;
++
++	w = glyph.w;
++	h = glyph.h;
++	left = glyph.left;
++	top = glyph.top;
++	advance64 = glyph.advanceH;
++	int numberPixels = w * h;
++	std::vector<u8> decoded(numberPixels);
++	size_t bitPtr = glyph.ptr * 8;
++	int pixelIndex = 0;
++	// Same nibble RLE as DrawCharacter.
++	while (pixelIndex < numberPixels && bitPtr + 8 < fontDataSize * 8) {
++		int nibble = consumeBits(4, fontData, bitPtr);
++		int count;
++		int value = 0;
++		if (nibble < 8) {
++			value = consumeBits(4, fontData, bitPtr);
++			count = nibble + 1;
++		} else {
++			count = 16 - nibble;
++		}
++		for (int i = 0; i < count && pixelIndex < numberPixels; i++) {
++			if (nibble >= 8) {
++				value = consumeBits(4, fontData, bitPtr);
++			}
++			decoded[pixelIndex++] = value | (value << 4);
++		}
++	}
++
++	pixels.assign(numberPixels, 0);
++	for (int yy = 0; yy < h; ++yy) {
++		for (int xx = 0; xx < w; ++xx) {
++			pixels[yy * w + xx] = dir == FONT_PGF_BMP_H_ROWS ? decoded[yy * w + xx] : decoded[xx * h + yy];
++		}
++	}
++	return true;
++}
++
+ void PGF::DrawCharacter(const GlyphImage *image, int clipX, int clipY, int clipWidth, int clipHeight, int charCode, int altCharCode, int glyphType) const {
+ 	Glyph glyph;
+ 	if (!GetCharGlyph(charCode, glyphType, glyph)) {
+diff --git a/Core/Font/PGF.h b/Core/Font/PGF.h
+index a4e3f42..42a41fb 100644
+--- a/Core/Font/PGF.h
++++ b/Core/Font/PGF.h
+@@ -267,6 +267,9 @@ class PGF {
+ 	bool GetCharInfo(int charCode, PGFCharInfo *ci, int altCharCode, int glyphType = FONT_PGF_CHARGLYPH) const;
+ 	void GetFontInfo(PGFFontInfo *fi) const;
+ 	void DrawCharacter(const GlyphImage *image, int clipX, int clipY, int clipWidth, int clipHeight, int charCode, int altCharCode, int glyphType) const;
++	// Decodes one character to 8-bit coverage (w*h, rows top to bottom). left/top place it
++	// against the pen and baseline, advance64 is in 1/64 pixels. False if the font lacks it.
++	bool GetGlyphBitmap(int charCode, std::vector<u8> &pixels, int &w, int &h, int &left, int &top, int &advance64) const;
+ 
+ 	void DoState(PointerWrap &p);
+ 
+diff --git a/Core/Util/PPGeDraw.cpp b/Core/Util/PPGeDraw.cpp
+index 8effbb1..a00c477 100644
+--- a/Core/Util/PPGeDraw.cpp
++++ b/Core/Util/PPGeDraw.cpp
+@@ -37,6 +37,7 @@
+ #include "GPU/GPUState.h"
+ #include "GPU/GPUCommon.h"
+ #include "Core/FileSystems/MetaFileSystem.h"
++#include "Core/Font/PGF.h"
+ #include "Core/Util/PPGeDraw.h"
+ #include "Core/HLE/HLE.h"
+ #include "Core/HLE/sceKernel.h"
+@@ -115,6 +116,8 @@ static AtlasTextMetrics char_lines_metrics;
+ 
+ static bool textDrawerInited = false;
+ static TextDrawer *textDrawer = nullptr;
++static bool pgfDrawerInited = false;
++static TextDrawer *pgfDrawer = nullptr;
+ struct PPGeTextDrawerCacheKey {
+ 	bool operator < (const PPGeTextDrawerCacheKey &other) const {
+ 		if (align != other.align)
+@@ -308,6 +311,8 @@ void __PPGeInit() {
+ 	// Avoid creating ever on headless just to be safe.
+ 	textDrawerInited = PSP_CoreParameter().headLess;
+ 	textDrawer = nullptr;
++	pgfDrawerInited = PSP_CoreParameter().headLess;
++	pgfDrawer = nullptr;
+ 	textDrawerImages.clear();
+ 
+ 	atlasRequiresReset = false;
+@@ -412,6 +417,8 @@ void __PPGeShutdown()
+ 
+ 	delete textDrawer;
+ 	textDrawer = nullptr;
++	delete pgfDrawer;
++	pgfDrawer = nullptr;
+ 
+ 	for (auto im : textDrawerImages)
+ 		kernelMemory.Free(im.second.ptr);
+@@ -758,6 +765,160 @@ static AtlasTextMetrics BreakLines(std::string_view text, const AtlasFont &atlas
+ 	return metrics;
+ }
+ 
++// Draws text with the PSP's own fonts from flash0 (kr0, jpn0, ltn0), for platforms with no
++// system text drawer (libretro). The PPGe atlas only has the Hangul syllables PPSSPP's own UI
++// uses and no jamo, so without this the Korean OSK keys all showed as U+FFFD.
++class PGFTextDrawer : public TextDrawer {
++public:
++	PGFTextDrawer() : TextDrawer(nullptr) {
++		for (const char *name : { "kr0.pgf", "jpn0.pgf", "ltn0.pgf" }) {
++			std::vector<u8> data;
++			if (pspFileSystem.ReadEntireFile(std::string("flash0:/font/") + name, data) < 0)
++				continue;
++			PGF *font = new PGF();
++			if (font->ReadPtr(data.data(), data.size())) {
++				fonts_.push_back(font);
++			} else {
++				delete font;
++			}
++		}
++		if (!fonts_.empty()) {
++			const PGFHeader &h = fonts_[0]->header;
++			ascent_ = (int)ceilf(std::abs((int)h.maxAscender) / 64.0f * SCALE);
++			descent_ = (int)ceilf(std::abs((int)h.maxDescender) / 64.0f * SCALE);
++		}
++	}
++	~PGFTextDrawer() override {
++		for (PGF *font : fonts_)
++			delete font;
++	}
++
++	bool IsReady() const override { return !fonts_.empty(); }
++	void SetOrCreateFont(const FontStyle &style) override { fontStyle_ = style; }
++
++	bool DrawStringBitmap(std::vector<uint8_t> &bitmapData, TextStringEntry &entry, Draw::DataFormat texFormat, std::string_view str, int align, bool fullColor) override {
++		if (str.empty() || texFormat != Draw::DataFormat::R8_UNORM) {
++			bitmapData.clear();
++			return false;
++		}
++		float fw, fh;
++		MeasureStringInternal(str, &fw, &fh);
++		int width = std::max(1, (int)fw);
++		int height = std::max(1, (int)fh);
++		bitmapData.assign(width * height, 0);
++
++		int baseline = 1 + ascent_;
++		float penX = 1.0f;
++		UTF8 utf(str);
++		while (!utf.end()) {
++			uint32_t c = utf.next();
++			if (c == '\n') {
++				baseline += LineHeight();
++				penX = 1.0f;
++				continue;
++			}
++			const GlyphBitmap &g = GetGlyph(c);
++			if (g.w > 0 && g.h > 0)
++				Blit(bitmapData, width, height, g, penX + g.left * SCALE, baseline - g.top * SCALE);
++			penX += g.advance;
++		}
++
++		entry.texture = nullptr;
++		entry.bmWidth = entry.width = width;
++		entry.bmHeight = entry.height = height;
++		entry.lastUsedFrame = frameCount_;
++		return true;
++	}
++
++protected:
++	void MeasureStringInternal(std::string_view str, float *w, float *h) override {
++		float lineW = 0.0f, maxW = 0.0f;
++		int lines = 1;
++		UTF8 utf(str);
++		while (!utf.end()) {
++			uint32_t c = utf.next();
++			if (c == '\n') {
++				maxW = std::max(maxW, lineW);
++				lineW = 0.0f;
++				lines++;
++				continue;
++			}
++			lineW += GetGlyph(c).advance;
++		}
++		maxW = std::max(maxW, lineW);
++		// Even width and a pixel of room each side, like the Android drawer.
++		*w = (float)((((int)ceilf(maxW) + 1) & ~1) + 2);
++		*h = (float)(lines * LineHeight() + 2);
++	}
++
++	bool SupportsColorEmoji() const override { return false; }
++	void ClearFonts() override {}
++
++private:
++	// PSP fonts are 18px; the other drawers render PPGe text at 22.5px (1.25 * 18pt).
++	static constexpr float SCALE = 1.25f;
++
++	struct GlyphBitmap {
++		std::vector<u8> pixels;
++		int w = 0, h = 0, left = 0, top = 0;
++		float advance = 0.0f;
++	};
++
++	int LineHeight() const { return ascent_ + descent_; }
++
++	const GlyphBitmap &GetGlyph(uint32_t c) {
++		auto it = glyphs_.find(c);
++		if (it != glyphs_.end())
++			return it->second;
++		GlyphBitmap &g = glyphs_[c];
++		// Characters no font has fall back to '?'.
++		for (uint32_t code : { c, (uint32_t)'?' }) {
++			for (PGF *font : fonts_) {
++				int advance64 = 0;
++				if (code <= 0xFFFF && font->GetGlyphBitmap((int)code, g.pixels, g.w, g.h, g.left, g.top, advance64)) {
++					g.advance = advance64 / 64.0f * SCALE;
++					return g;
++				}
++			}
++		}
++		g.advance = 0.0f;
++		return g;
++	}
++
++	// Draws a glyph scaled by SCALE with its top left at (x, y), bilinear filtered.
++	static void Blit(std::vector<uint8_t> &dst, int dstW, int dstH, const GlyphBitmap &g, float x, float y) {
++		auto sample = [&](int sx, int sy) -> float {
++			if (sx < 0 || sy < 0 || sx >= g.w || sy >= g.h)
++				return 0.0f;
++			return g.pixels[sy * g.w + sx];
++		};
++		int x1 = std::max(0, (int)floorf(x));
++		int y1 = std::max(0, (int)floorf(y));
++		int x2 = std::min(dstW, (int)ceilf(x + g.w * SCALE) + 1);
++		int y2 = std::min(dstH, (int)ceilf(y + g.h * SCALE) + 1);
++		for (int dy = y1; dy < y2; ++dy) {
++			float fy = (dy + 0.5f - y) / SCALE - 0.5f;
++			int sy = (int)floorf(fy);
++			float ty = fy - sy;
++			for (int dx = x1; dx < x2; ++dx) {
++				float fx = (dx + 0.5f - x) / SCALE - 0.5f;
++				int sx = (int)floorf(fx);
++				float tx = fx - sx;
++				float top = sample(sx, sy) * (1.0f - tx) + sample(sx + 1, sy) * tx;
++				float bottom = sample(sx, sy + 1) * (1.0f - tx) + sample(sx + 1, sy + 1) * tx;
++				int v = (int)(top * (1.0f - ty) + bottom * ty + 0.5f);
++				uint8_t &d = dst[dy * dstW + dx];
++				d = (uint8_t)std::max((int)d, std::min(v, 255));
++			}
++		}
++	}
++
++	std::vector<PGF *> fonts_;
++	std::map<uint32_t, GlyphBitmap> glyphs_;
++	int ascent_ = 18;
++	int descent_ = 5;
++};
++
+ static bool HasTextDrawer() {
+ 	// We create this on first use so it's on the correct thread.
+ 	if (textDrawerInited) {
+@@ -775,6 +936,39 @@ static bool HasTextDrawer() {
+ 	return textDrawer != nullptr;
+ }
+ 
++static bool AtlasHasAllChars(std::string_view text) {
++	const AtlasFont &atlasfont = g_ppge_atlas.fonts[0];
++	UTF8 utf(text);
++	while (!utf.end()) {
++		uint32_t c = utf.next();
++		if (c >= 0x80 && !atlasfont.getChar(c))
++			return false;
++	}
++	return true;
++}
++
++// The drawer for this text: the platform's if it has one, else the PSP-font one when the
++// atlas is missing a character, else none (draw from the atlas).
++static TextDrawer *DrawerFor(std::string_view text) {
++	if (HasTextDrawer())
++		return textDrawer;
++	if (!g_ppge_atlas.IsMetadataLoaded() || g_ppge_atlas.num_fonts < 1 || AtlasHasAllChars(text))
++		return nullptr;
++	if (!pgfDrawerInited) {
++		pgfDrawerInited = true;
++		pgfDrawer = new PGFTextDrawer();
++		if (pgfDrawer->IsReady()) {
++			pgfDrawer->SetFontScale(1.0f, 1.0f);
++			pgfDrawer->SetForcedDPIScale(1.0f);
++			pgfDrawer->SetOrCreateFont(FontStyle(FontFamily::SansSerif, 18, FontStyleFlags::Default));
++		} else {
++			delete pgfDrawer;
++			pgfDrawer = nullptr;
++		}
++	}
++	return pgfDrawer;
++}
++
+ static std::string PPGeSanitizeText(std::string_view text) {
+ 	return SanitizeUTF8(text);
+ }
+@@ -782,13 +976,13 @@ static std::string PPGeSanitizeText(std::string_view text) {
+ void PPGeMeasureText(float *w, float *h, std::string_view text, float scale, int WrapType, int wrapWidth) {
+ 	std::string s = PPGeSanitizeText(text);
+ 
+-	if (HasTextDrawer()) {
++	if (TextDrawer *drawer = DrawerFor(s)) {
+ 		float mw, mh;
+-		textDrawer->SetFontScale(scale, scale);
++		drawer->SetFontScale(scale, scale);
+ 		int dtalign = (WrapType & PPGE_LINE_WRAP_WORD) ? FLAG_WRAP_TEXT : 0;
+ 		if (WrapType & PPGE_LINE_USE_ELLIPSIS)
+ 			dtalign |= FLAG_ELLIPSIZE_TEXT;
+-		textDrawer->MeasureStringRect(s, wrapWidth <= 0 ? 480.0f : wrapWidth, &mw, &mh, dtalign);
++		drawer->MeasureStringRect(s, wrapWidth <= 0 ? 480.0f : wrapWidth, &mw, &mh, dtalign);
+ 
+ 		if (w)
+ 			*w = mw;
+@@ -898,7 +1092,7 @@ inline int GetPow2(int x) {
+ 	return ret;
+ }
+ 
+-static PPGeTextDrawerImage PPGeGetTextImage(std::string_view text, const PPGeStyle &style, float maxWidth, bool wrap) {
++static PPGeTextDrawerImage PPGeGetTextImage(TextDrawer *drawer, std::string_view text, const PPGeStyle &style, float maxWidth, bool wrap) {
+ 	int tdalign = 0;
+ 	tdalign |= FLAG_ELLIPSIZE_TEXT;
+ 	if (wrap) {
+@@ -914,10 +1108,10 @@ static PPGeTextDrawerImage PPGeGetTextImage(std::string_view text, const PPGeSty
+ 		cacheItem->second.entry.lastUsedFrame = gpuStats.numFlips;
+ 	} else {
+ 		std::vector<uint8_t> bitmapData;
+-		textDrawer->SetFontScale(style.scale, style.scale);
++		drawer->SetFontScale(style.scale, style.scale);
+ 		Bounds b(0, 0, maxWidth, 272.0f);
+ 		std::string cleaned = ReplaceAll(text, "\r", "");
+-		textDrawer->DrawStringBitmapRect(bitmapData, im.entry, Draw::DataFormat::R8_UNORM, cleaned.c_str(), b, tdalign, false);
++		drawer->DrawStringBitmapRect(bitmapData, im.entry, Draw::DataFormat::R8_UNORM, cleaned.c_str(), b, tdalign, false);
+ 
+ 		int bufwBytes = ((im.entry.bmWidth + 31) / 32) * 16;
+ 		u32 sz = bufwBytes * (im.entry.bmHeight + 1);
+@@ -1064,8 +1258,8 @@ void PPGeDrawText(std::string_view text, float x, float y, const PPGeStyle &styl
+ 		return;
+ 	}
+ 
+-	if (HasTextDrawer()) {
+-		PPGeTextDrawerImage im = PPGeGetTextImage(str, style, 480.0f - x, false);
++	if (TextDrawer *drawer = DrawerFor(str)) {
++		PPGeTextDrawerImage im = PPGeGetTextImage(drawer, str, style, 480.0f - x, false);
+ 		if (im.ptr) {
+ 			PPGeDrawTextImage(im, x, y, style);
+ 			return;
+@@ -1115,20 +1309,20 @@ void PPGeDrawTextWrapped(std::string_view text, float x, float y, float wrapWidt
+ 	zoom = std::min(zoom, PSP_CoreParameter().renderScaleFactor);
+ 	float maxScaleDown = zoom == 1 ? 1.3f : 2.0f;
+ 
+-	if (HasTextDrawer()) {
++	if (TextDrawer *drawer = DrawerFor(s)) {
+ 		float actualWidth, actualHeight;
+ 		Bounds b(0, 0, wrapWidth <= 0 ? 480.0f - x : wrapWidth, wrapHeight);
+ 		int tdalign = 0;
+-		textDrawer->SetFontScale(style.scale, style.scale);
+-		textDrawer->MeasureStringRect(s, b.w, &actualWidth, &actualHeight, tdalign | FLAG_WRAP_TEXT);
++		drawer->SetFontScale(style.scale, style.scale);
++		drawer->MeasureStringRect(s, b.w, &actualWidth, &actualHeight, tdalign | FLAG_WRAP_TEXT);
+ 
+ 		// Check if we need to scale the text down to fit better.
+ 		PPGeStyle adjustedStyle = style;
+ 		if (wrapHeight != 0.0f && actualHeight > wrapHeight) {
+ 			// Cheap way to get the line height.
+ 			float oneLine, twoLines;
+-			textDrawer->MeasureString("|", &actualWidth, &oneLine);
+-			textDrawer->MeasureStringRect("|\n|", 480, &actualWidth, &twoLines);
++			drawer->MeasureString("|", &actualWidth, &oneLine);
++			drawer->MeasureStringRect("|\n|", 480, &actualWidth, &twoLines);
+ 
+ 			float lineHeight = twoLines - oneLine;
+ 			if (actualHeight > wrapHeight * maxScaleDown) {
+@@ -1143,7 +1337,7 @@ void PPGeDrawTextWrapped(std::string_view text, float x, float y, float wrapWidt
+ 			adjustedStyle.scale *= wrapHeight / actualHeight;
+ 		}
+ 
+-		PPGeTextDrawerImage im = PPGeGetTextImage(s, adjustedStyle, wrapWidth <= 0 ? 480.0f - x : wrapWidth, true);
++		PPGeTextDrawerImage im = PPGeGetTextImage(drawer, s, adjustedStyle, wrapWidth <= 0 ? 480.0f - x : wrapWidth, true);
+ 		if (im.ptr) {
+ 			PPGeDrawTextImage(im, x, y, adjustedStyle);
+ 			return;
+@@ -1495,6 +1689,9 @@ void PPGeNotifyFrame() {
+ 	if (textDrawer) {
+ 		textDrawer->OncePerFrame();
+ 	}
++	if (pgfDrawer) {
++		pgfDrawer->OncePerFrame();
++	}
+ 
+ 	PPGeDecimateTextImages();
+ 	PPGeImage::Decimate();

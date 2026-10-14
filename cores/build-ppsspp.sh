@@ -37,6 +37,16 @@ for path in $(git -C "$DIR" config --file .gitmodules --get-regexp '\.path$' | a
     git -C "$DIR" submodule update -q --init --recursive --depth 1 -- "$path"
 done
 
+# Fixes on top of the pinned commit (each says what it fixes):
+#   pgf-text: the libretro build has no system text drawer, so system dialog text the PPGe
+#     atlas lacks (the Korean OSK's jamo keys) showed as U+FFFD; it is drawn with the
+#     PSP's own flash0 fonts instead.
+for PATCH in "$HERE"/patches/ppsspp-*.patch; do
+    if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+        git -C "$DIR" apply "$PATCH"
+    fi
+done
+
 echo "== building ppsspp"
 "$NDK/ndk-build" -C "$DIR/libretro/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
     "APP_CPPFLAGS=-frtti -fexceptions" "APP_CFLAGS=-DPNG_ARM_NEON_OPT=0" "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -k -j"$JOBS" > "$WORK/ppsspp.log" 2>&1 || {
