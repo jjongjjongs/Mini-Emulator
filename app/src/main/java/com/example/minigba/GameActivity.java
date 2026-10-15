@@ -7,6 +7,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -113,9 +114,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createPortraitContent() {
-        if (isNds()) {
-            NativeGba.setNdsGapless(this.nativeHandle, this.landscapeMode);
+        if (isPadScreen()) {
+            createPadContent();
+            return;
         }
+        setNdsLayout(0);
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
@@ -165,9 +168,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createLandscapeContent() {
-        if (isNds()) {
-            NativeGba.setNdsGapless(this.nativeHandle, this.landscapeMode);
+        if (isPadScreen()) {
+            createPadContent();
+            return;
         }
+        setNdsLayout(1);
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         FrameLayout frameLayout = new FrameLayout(this);
@@ -206,6 +211,86 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean isFullScreenStyle() {
         return "full".equals(getSharedPreferences("settings", 0).getString("screen_style", "frame"));
+    }
+
+    // "게임패드": for a physical controller. No touch controls or case, only the game screen;
+    // the menu button shows for a moment after a tap, or SELECT + START opens the menu.
+    private boolean isPadScreen() {
+        return "pad".equals(getSharedPreferences("settings", 0).getString("screen_style", "frame"));
+    }
+
+    private int ndsLayout;
+
+    private void setNdsLayout(int layout) {
+        if (isNds()) {
+            this.ndsLayout = layout;
+            NativeGba.setNdsLayout(this.nativeHandle, layout);
+        }
+    }
+
+    private View padMenuButton;
+    private final Runnable hidePadMenuButton = () -> {
+        if (this.padMenuButton != null) {
+            this.padMenuButton.setVisibility(View.GONE);
+        }
+    };
+
+    private void createPadContent() {
+        // DS screens side by side in landscape: with no buttons beside them they get twice the size.
+        setNdsLayout(this.landscapeMode ? 2 : 0);
+        this.fastForwardButton = null;
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+        SurfaceView surfaceView = new SurfaceView(this);
+        this.surfaceView = surfaceView;
+        surfaceView.getHolder().addCallback(this);
+        attachTouchScreen(surfaceView);
+        root.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        root.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitPadScreen(surfaceView, r - l, b - t));
+        RoundIconView menu = new RoundIconView(this, RoundIconView.MENU, RoundIconView.COLOR_MENU);
+        menu.setAlpha(0.8f);
+        menu.setContentDescription("메뉴");
+        menu.setOnClickListener(view -> showGameMenu());
+        menu.setVisibility(View.GONE);
+        FrameLayout.LayoutParams menuParams = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.END);
+        menuParams.setMargins(0, dp(12), dp(12), 0);
+        root.addView(menu, menuParams);
+        this.padMenuButton = menu;
+        setContentView(root);
+    }
+
+    // The game picture as large as fits, centred on black.
+    private void fitPadScreen(View screen, int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        float aspect = screenAspect();
+        int screenWidth = Math.min(width, Math.round(height * aspect));
+        int screenHeight = Math.min(height, Math.round(screenWidth / aspect));
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) screen.getLayoutParams();
+        if (params.width != screenWidth || params.height != screenHeight) {
+            params.width = screenWidth;
+            params.height = screenHeight;
+            screen.post(() -> screen.setLayoutParams(params));
+        }
+    }
+
+    private void showPadMenuButton() {
+        View menu = this.padMenuButton;
+        if (menu == null || !isPadScreen()) {
+            return;
+        }
+        menu.setVisibility(View.VISIBLE);
+        menu.removeCallbacks(this.hidePadMenuButton);
+        menu.postDelayed(this.hidePadMenuButton, 3000);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+            showPadMenuButton();
+        }
+        return super.dispatchTouchEvent(event);
     }
 
     // Sizes the stacked DS screens to the height the window really has: the controls keep
@@ -411,8 +496,179 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void onDirectionChanged(int i) {
-        this.buttonMask = i | (this.buttonMask & (-241));
+        this.touchDirection = i;
+        applyDirections();
+    }
+
+    // The D-pad bits are the touch pad's and the controller's together.
+    private int touchDirection;
+    private int padKeyDirection;
+    private int padHatDirection;
+    private int padStickDirection;
+
+    private void applyDirections() {
+        int directions = this.touchDirection | this.padKeyDirection | this.padHatDirection | this.padStickDirection;
+        this.buttonMask = directions | (this.buttonMask & (-241));
         updateInput();
+    }
+
+    // ---- Physical controllers (Bluetooth / USB) ----
+    // Face buttons go by position, as on the touch pads: bottom/right/left/top are the
+    // libretro B/A/Y/X (arcade sets: A/B/C/D, with E/F on the shoulders).
+    private int padButtons;
+
+    private static boolean isControllerEvent(android.view.InputEvent event) {
+        int source = event.getSource();
+        return (source & android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD
+                || (source & android.view.InputDevice.SOURCE_JOYSTICK) == android.view.InputDevice.SOURCE_JOYSTICK;
+    }
+
+    private int padButtonBit(int keyCode) {
+        boolean arcade = !isPadLayout();
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BUTTON_A: return arcade ? 1 : 2;
+            case KeyEvent.KEYCODE_BUTTON_B: return arcade ? 2 : 1;
+            case KeyEvent.KEYCODE_BUTTON_X: return arcade ? 1024 : 2048;
+            case KeyEvent.KEYCODE_BUTTON_Y: return arcade ? 2048 : 1024;
+            case KeyEvent.KEYCODE_BUTTON_L1: return arcade ? 4096 : 512;
+            case KeyEvent.KEYCODE_BUTTON_R1: return arcade ? 8192 : 256;
+            case KeyEvent.KEYCODE_BUTTON_L2: return kL2;
+            case KeyEvent.KEYCODE_BUTTON_R2: return kR2;
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return 65536;
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return 131072;
+            case KeyEvent.KEYCODE_BUTTON_SELECT: return 4;
+            case KeyEvent.KEYCODE_BUTTON_START: return 8;
+            default: return 0;
+        }
+    }
+
+    private static int padDirectionBit(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return 16;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return 32;
+            case KeyEvent.KEYCODE_DPAD_UP: return 64;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return 128;
+            default: return 0;
+        }
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (!isControllerEvent(event)) {
+            return super.dispatchKeyEvent(event);
+        }
+        int keyCode = event.getKeyCode();
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_MODE) {
+            if (!down) {
+                openMenuFromController();
+            }
+            return true;
+        }
+        int direction = padDirectionBit(keyCode);
+        if (direction != 0) {
+            this.padKeyDirection = down ? this.padKeyDirection | direction : this.padKeyDirection & ~direction;
+            applyDirections();
+            return true;
+        }
+        int bit = padButtonBit(keyCode);
+        if (bit == 0) {
+            return super.dispatchKeyEvent(event);
+        }
+        if (event.getRepeatCount() > 0) {
+            return true;
+        }
+        this.padButtons = down ? this.padButtons | bit : this.padButtons & ~bit;
+        if ((this.padButtons & 12) == 12) {
+            // SELECT + START together open the menu instead of reaching the game.
+            openMenuFromController();
+            return true;
+        }
+        setButtonPressed(bit, down);
+        return true;
+    }
+
+    // The menu dialog takes the key events from here on, so let go of everything first.
+    private void openMenuFromController() {
+        releaseController();
+        showGameMenu();
+    }
+
+    private void releaseController() {
+        this.padButtons = 0;
+        this.padKeyDirection = 0;
+        this.padHatDirection = 0;
+        this.padStickDirection = 0;
+        this.buttonMask = 0;
+        this.touchDirection = 0;
+        updateInput();
+        if (isSonyPad()) {
+            onAnalogChanged(0, 0);
+            onAnalogRightChanged(0, 0);
+        }
+    }
+
+    private static float padAxis(android.view.MotionEvent event, int axis) {
+        android.view.InputDevice device = event.getDevice();
+        float value = event.getAxisValue(axis);
+        if (device != null) {
+            android.view.InputDevice.MotionRange range = device.getMotionRange(axis, event.getSource());
+            if (range != null && Math.abs(value) <= Math.max(range.getFlat(), 0.12f)) {
+                return 0;
+            }
+        }
+        return Math.abs(value) <= 0.12f ? 0 : value;
+    }
+
+    private static int directionsFor(float x, float y, float threshold) {
+        int bits = 0;
+        if (x > threshold) bits |= 16;
+        if (x < -threshold) bits |= 32;
+        if (y < -threshold) bits |= 64;
+        if (y > threshold) bits |= 128;
+        return bits;
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+        if (!isControllerEvent(event) || event.getActionMasked() != android.view.MotionEvent.ACTION_MOVE) {
+            return super.dispatchGenericMotionEvent(event);
+        }
+        float x = padAxis(event, android.view.MotionEvent.AXIS_X);
+        float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
+        int hat = directionsFor(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X), event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y), 0.5f);
+        int stick = 0;
+        if (isSonyPad()) {
+            // PSP / PS1 / PS2 read the sticks as sticks.
+            onAnalogChanged(x, y);
+            onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+        } else {
+            stick = directionsFor(x, y, 0.5f);
+        }
+        if (hat != this.padHatDirection || stick != this.padStickDirection) {
+            this.padHatDirection = hat;
+            this.padStickDirection = stick;
+            applyDirections();
+        }
+        // Analog triggers (pads that report L2/R2 only as axes).
+        float l2 = Math.max(event.getAxisValue(android.view.MotionEvent.AXIS_LTRIGGER), event.getAxisValue(android.view.MotionEvent.AXIS_BRAKE));
+        float r2 = Math.max(event.getAxisValue(android.view.MotionEvent.AXIS_RTRIGGER), event.getAxisValue(android.view.MotionEvent.AXIS_GAS));
+        setTrigger(kL2, l2 > 0.5f);
+        setTrigger(kR2, r2 > 0.5f);
+        return true;
+    }
+
+    private int padTriggers;
+
+    private void setTrigger(int bit, boolean pressed) {
+        if (((this.padTriggers & bit) != 0) == pressed) {
+            return;
+        }
+        this.padTriggers = pressed ? this.padTriggers | bit : this.padTriggers & ~bit;
+        if (!pressed && (this.padButtons & bit) != 0) {
+            return;
+        }
+        setButtonPressed(bit, pressed);
     }
 
     private void addLandscapeActionButton(FrameLayout frameLayout, String str, int i, int i2, int i3) {
@@ -1074,6 +1330,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(10), 0, 0);
         panel.addView(row2, row2Params);
+        if (isPadScreen()) {
+            LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(-1, dp(52));
+            speedParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(createSpeedRow(), speedParams);
+        }
         if (isPsp()) {
             LinearLayout.LayoutParams languageParams = new LinearLayout.LayoutParams(-1, dp(52));
             languageParams.setMargins(0, dp(12), 0, 0);
@@ -1125,6 +1386,29 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private int pspLanguageIndex() {
         return java.util.Arrays.asList(PSP_LANGUAGES).indexOf(pspLanguage());
+    }
+
+    // Game pad screen mode has no speed button beside the screen; it sits in the menu.
+    private LinearLayout createSpeedRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(10), 0);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(246, 247, 249));
+        background.setCornerRadius(dp(14));
+        row.setBackground(background);
+        TextView label = new TextView(this);
+        label.setText("배속");
+        label.setTextSize(15.0f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        SpeedButtonView speed = new SpeedButtonView(this, this::onSpeedChanged);
+        speed.setPercent(this.speedPercent);
+        speed.setContentDescription("배속");
+        row.addView(speed, new LinearLayout.LayoutParams(dp(80), dp(36)));
+        return row;
     }
 
     private LinearLayout createLanguageRow(android.app.Dialog menu) {
@@ -1795,9 +2079,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private float screenAspect() {
         if (isNds()) {
-            // Both 256x192 screens stacked: touching in landscape, with a 4-row gap in portrait
-            // (the bridge asks melonDS DS for it).
-            return this.landscapeMode ? 256.0f / 384.0f : 256.0f / 388.0f;
+            // Both 256x192 screens as the bridge asks melonDS DS to lay them out: stacked
+            // with a 4-row gap, stacked and touching, or side by side.
+            return this.ndsLayout == 2 ? 512.0f / 192.0f : this.ndsLayout == 1 ? 256.0f / 384.0f : 256.0f / 388.0f;
         }
         if (isPsp()) {
             return 480.0f / 272.0f;
