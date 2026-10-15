@@ -168,6 +168,8 @@ public final class MainActivity extends Activity {
     private TextView pceBiosStatusView;
     private TextView pceBiosBanner;
     private static final int REQUEST_IMPORT_PCE_BIOS = 1021;
+    private static final int REQUEST_IMPORT_DC_BIOS = 1026;
+    private TextView dcBiosStatusView;
     private TextView ps2BiosBanner;
     private static final int REQUEST_IMPORT_PS2_BIOS = 1020;
     private String pendingBiosSource;
@@ -360,6 +362,7 @@ public final class MainActivity extends Activity {
         this.emptyView = null;
         this.romList = null;
         this.noteView = null;
+        this.dcBiosStatusView = null;
     }
 
     private void showModePicker() {
@@ -527,6 +530,11 @@ public final class MainActivity extends Activity {
                 LinearLayout pceBiosTile = createActionCard("CD BIOS", pceBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPceBiosSheet());
                 this.pceBiosStatusView = (TextView) pceBiosTile.getTag();
                 actionRow.addView(pceBiosTile, actionTileParams());
+            }
+            if (MODE_DC.equals(this.currentMode)) {
+                LinearLayout dcBiosTile = createActionCard("DC BIOS", dcBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showDcBiosSheet());
+                this.dcBiosStatusView = (TextView) dcBiosTile.getTag();
+                actionRow.addView(dcBiosTile, actionTileParams());
             }
             if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
                 LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
@@ -944,6 +952,10 @@ public final class MainActivity extends Activity {
                 this.pceBiosBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
             }
         }
+        if (this.dcBiosStatusView != null) {
+            this.dcBiosStatusView.setText(dcBiosStatusText());
+            this.dcBiosStatusView.setTextColor(dcBiosFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        }
         if (this.ps2BiosStatusView != null) {
             this.ps2BiosStatusView.setText(ps2BiosStatusText());
             this.ps2BiosStatusView.setTextColor(ps2BiosFile() != null ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
@@ -1291,6 +1303,10 @@ public final class MainActivity extends Activity {
         } else if (i == REQUEST_IMPORT_PCE_BIOS) {
             if (data != null) {
                 importPceBios(data);
+            }
+        } else if (i == REQUEST_IMPORT_DC_BIOS) {
+            if (data != null) {
+                importDcBios(data);
             }
         } else if (i == REQUEST_IMPORT_PS2_BIOS) {
             if (data != null) {
@@ -5464,6 +5480,202 @@ public final class MainActivity extends Activity {
         } catch (IOException e) {
             showError("PC엔진 CD BIOS 가져오기 실패: " + e.getMessage());
         }
+    }
+
+    // Dreamcast BIOS for Flycast: <system>/dc/dc_boot.bin (2 MB) and, optionally, the flash
+    // with the console's settings, dc_flash.bin (128 KB). Without them Flycast boots games
+    // with its own high-level BIOS.
+    private static final int DC_BOOT_SIZE = 2 * 1024 * 1024;
+    private static final int DC_FLASH_SIZE = 128 * 1024;
+
+    private File dcBiosDir() {
+        return new File(systemDir(), "dc");
+    }
+
+    private File dcBiosFile() {
+        return new File(dcBiosDir(), "dc_boot.bin");
+    }
+
+    private File dcFlashFile() {
+        return new File(dcBiosDir(), "dc_flash.bin");
+    }
+
+    private String dcBiosStatusText() {
+        if (!dcBiosFile().isFile()) {
+            return "없음 · 내장 BIOS";
+        }
+        return dcFlashFile().isFile() ? "등록됨 · 플래시 포함" : "등록됨";
+    }
+
+    private void showDcBiosSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        boolean present = dcBiosFile().isFile();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView icon = new TextView(this);
+        icon.setText("BIOS");
+        icon.setTextColor(-1);
+        icon.setTextSize(13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(239, 84, 103), dp(13)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("드림캐스트 BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView state = new TextView(this);
+        state.setText(present ? (dcFlashFile().isFile() ? "dc_boot.bin · dc_flash.bin" : "dc_boot.bin") : "등록된 BIOS 없음 · 내장 BIOS로 실행 중");
+        state.setTextSize(12.0f);
+        state.setTextColor(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        titles.addView(state);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout kinds = new LinearLayout(this);
+        kinds.setOrientation(0);
+        kinds.addView(engineCard("BIOS 없이", "내장 BIOS", "대부분 게임 실행", !present), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        secondParams.setMargins(dp(8), 0, 0, 0);
+        kinds.addView(engineCard("실제 BIOS", "dc_boot.bin", "호환성 ↑ · 부팅 화면", present), secondParams);
+        LinearLayout.LayoutParams kindsParams = new LinearLayout.LayoutParams(-1, -2);
+        kindsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(kinds, kindsParams);
+
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("직접 가진 드림캐스트에서 추출한 BIOS를 골라 주세요.<br><b>dc_boot.bin</b> (2MB)이 BIOS, <b>dc_flash.bin</b> (128KB)은 본체 설정이에요.<br>하나씩 고르거나 둘을 담은 .zip을 고르면 돼요.", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        TextView choose = sheetButton(present ? "다른 BIOS로 바꾸기" : "BIOS 파일 선택", MODE_COLORS[modeIndex(MODE_DC)], -1);
+        choose.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_IMPORT_DC_BIOS);
+        });
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+        chooseParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(choose, chooseParams);
+        if (present) {
+            TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
+            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("드림캐스트 BIOS 삭제").setMessage("BIOS를 지우면 내장 BIOS로 실행돼요. 대부분 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+                dialog.dismiss();
+                dcBiosFile().delete();
+                dcFlashFile().delete();
+                showMessage("드림캐스트 BIOS를 삭제했습니다.");
+                updateHomeStatusCards();
+            }).show());
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+            deleteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(delete, deleteParams);
+        }
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    // Takes dc_boot.bin / dc_flash.bin by size, picked one at a time or together in a zip.
+    private void importDcBios(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("선택한 파일을 열 수 없습니다");
+            }
+            byte[] data = readLimited(in, 16 * 1024 * 1024);
+            java.util.List<byte[]> parts = new java.util.ArrayList<>();
+            if (data.length > 4 && data[0] == 'P' && data[1] == 'K') {
+                try (ZipInputStream zip = new ZipInputStream(new java.io.ByteArrayInputStream(data))) {
+                    ZipEntry entry;
+                    while ((entry = zip.getNextEntry()) != null) {
+                        if (!entry.isDirectory()) {
+                            parts.add(readLimited(zip, 4 * 1024 * 1024));
+                        }
+                    }
+                }
+            } else {
+                parts.add(data);
+            }
+            boolean boot = false;
+            boolean flash = false;
+            File dir = dcBiosDir();
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("BIOS 폴더를 만들 수 없습니다");
+            }
+            for (byte[] part : parts) {
+                File target = part.length == DC_BOOT_SIZE ? dcBiosFile() : part.length == DC_FLASH_SIZE ? dcFlashFile() : null;
+                if (target == null) {
+                    continue;
+                }
+                try (FileOutputStream out = new FileOutputStream(target)) {
+                    out.write(part);
+                }
+                boot |= target.equals(dcBiosFile());
+                flash |= target.equals(dcFlashFile());
+            }
+            if (!boot && !flash) {
+                throw new IOException("드림캐스트 BIOS가 아니에요. dc_boot.bin (2MB) 또는 dc_flash.bin (128KB)을 골라 주세요.");
+            }
+            String message = boot && flash ? "드림캐스트 BIOS와 플래시를 가져왔습니다." : boot ? "드림캐스트 BIOS(dc_boot.bin)를 가져왔습니다." : "드림캐스트 플래시(dc_flash.bin)를 가져왔습니다.";
+            if (!dcBiosFile().isFile()) {
+                message += "\nBIOS(dc_boot.bin)도 넣으면 실제 BIOS로 실행돼요.";
+            }
+            showMessage(message);
+            updateHomeStatusCards();
+        } catch (IOException e) {
+            showError("드림캐스트 BIOS 가져오기 실패: " + e.getMessage());
+        }
+    }
+
+    private static byte[] readLimited(InputStream in, int limit) throws IOException {
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[65536];
+        int n;
+        while ((n = in.read(chunk)) > 0) {
+            buffer.write(chunk, 0, n);
+            if (buffer.size() > limit) {
+                throw new IOException("파일이 너무 커요.");
+            }
+        }
+        return buffer.toByteArray();
     }
 
     private boolean pcsx2Shipped() {
