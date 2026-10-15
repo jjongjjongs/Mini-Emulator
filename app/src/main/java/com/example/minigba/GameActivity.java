@@ -91,7 +91,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -319,7 +319,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Side margin and height of the portrait screen for a side margin and vertical padding.
     private int[] portraitScreen(int side, int padding) {
         int screenWidth = Math.max(dp(200), getResources().getDisplayMetrics().widthPixels - side * 2);
-        if (isGameBoy()) {
+        if (isGameBoy() || isGameGear()) {
             // The nearly square Game Boy screen would push the controls off a short phone.
             int widest = Math.round(dp(250) * screenAspect());
             if (screenWidth > widest) {
@@ -359,6 +359,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isNes()) {
             tint = ClearShellView.TINT_CREAM;
             name = "FAMICOM";
+        } else if (isMasterSystem()) {
+            tint = ClearShellView.TINT_SMOKE;
+            name = isGameGear() ? "GAME GEAR" : "MASTER SYSTEM";
         } else if (isMegaDrive()) {
             tint = ClearShellView.TINT_SMOKE;
             name = "MEGA DRIVE";
@@ -467,8 +470,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
                 addLandscapeArcadeButton(frameLayout, "Y", 2048, 114, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_GREEN);
             } else {
-                addLandscapeActionButton(frameLayout, "A", 1, dp(wideGba ? 6 : 26), -dp(42), 3);
-                addLandscapeActionButton(frameLayout, "B", 2, dp(wideGba ? 62 : 92), dp(42), 3);
+                // Master System: 2 is libretro A, 1 is B (Genesis Plus GX's two-button pad).
+                boolean sms = isMasterSystem();
+                addLandscapeActionButton(frameLayout, sms ? "2" : "A", 1, dp(wideGba ? 6 : 26), -dp(42), sms ? TouchButton.STYLE_DARK : 3);
+                addLandscapeActionButton(frameLayout, sms ? "1" : "B", 2, dp(wideGba ? 62 : 92), dp(42), sms ? TouchButton.STYLE_DARK : 3);
             }
         } else if (isNeoGeoMode()) {
             // Diamond with equal spacing; the right edge matches the joystick's left margin.
@@ -484,6 +489,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addLandscapeArcadeButton(frameLayout, "D", 2048, 120, -27, 46, TouchButton.STYLE_ARCADE_RED);
             addLandscapeArcadeButton(frameLayout, "E", 4096, 66, -27, 46, TouchButton.STYLE_ARCADE_RED);
             addLandscapeArcadeButton(frameLayout, "F", 8192, 12, -27, 46, TouchButton.STYLE_ARCADE_RED);
+        }
+        if (isMasterSystem()) {
+            // No SELECT: START sits under the D-pad, the speed button under 1 and 2.
+            addButton(frameLayout, startLabel(), 8, 8388691, dp(42), dp(18), dp(94), dp(34));
+            return;
         }
         addButton(frameLayout, selectLabel(), 4, 8388691, dp(42), dp(18), dp(94), dp(34));
         addButton(frameLayout, startLabel(), 8, 8388693, dp(42), dp(18), dp(94), dp(34));
@@ -1148,6 +1158,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // The DS screens run the full height, so the button sits beside START instead.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(146), dp(17));
+        } else if (isMasterSystem()) {
+            // Centred under the 1 and 2 buttons.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(52), dp(17));
         } else if (isPadLayout()) {
             speedParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
             speedParams.setMargins(0, 0, 0, dp(6));
@@ -1668,8 +1682,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Six-button pad: X Y Z above A B C, each row rising to the right.
             addMegaDriveButtons(frameLayout, false);
         } else if (isGba) {
-            addButton(frameLayout, "A", 1, 8388693, dp(44), dp(243), dp(72), dp(72), 3);
-            addButton(frameLayout, "B", 2, 8388693, dp(78), dp(159), dp(72), dp(72), 3);
+            boolean sms = isMasterSystem();
+            addButton(frameLayout, sms ? "2" : "A", 1, 8388693, dp(44), dp(243), dp(72), dp(72), sms ? TouchButton.STYLE_DARK : 3);
+            addButton(frameLayout, sms ? "1" : "B", 2, 8388693, dp(78), dp(159), dp(72), dp(72), sms ? TouchButton.STYLE_DARK : 3);
         } else if (isNeoGeoMode()) {
             // Diamond centred on the joystick's height; the right margin mirrors its left margin.
             addButton(frameLayout, "C", 1024, 8388693, dp(70), dp(250), dp(52), dp(52), TouchButton.STYLE_ARCADE_GREEN);
@@ -1694,6 +1709,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 key.setTranslationX(dp(k == 0 ? -34 : 34));
                 frameLayout.addView(key, keyParams);
             }
+            return;
+        }
+        if (isMasterSystem()) {
+            addCenterButton(frameLayout, startLabel(), 8, 0);
             return;
         }
         addCenterButton(frameLayout, selectLabel(), 4, -66);
@@ -2404,7 +2423,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean isMegaDrive() {
-        return "genesis_plus_gx".equals(this.coreId);
+        return "genesis_plus_gx".equals(this.coreId) && !isMasterSystem();
+    }
+
+    // Master System, Game Gear and SG-1000 run on Genesis Plus GX too, with a two-button pad.
+    private boolean isMasterSystem() {
+        if (!"genesis_plus_gx".equals(this.coreId) || this.romPath == null) {
+            return false;
+        }
+        String lower = this.romPath.toLowerCase(Locale.US);
+        return lower.endsWith(".sms") || lower.endsWith(".gg") || lower.endsWith(".sg");
+    }
+
+    private boolean isGameGear() {
+        return isMasterSystem() && this.romPath.toLowerCase(Locale.US).endsWith(".gg");
     }
 
     private boolean isPcEngine() {
@@ -2602,7 +2634,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Consoles with a D-pad and SELECT/START, laid out like the GBA.
     private boolean isPadLayout() {
-        return this.coreId.equals("gba") || isSnes() || isNds() || isNes() || isMegaDrive() || isPcEngine() || isSonyPad();
+        return this.coreId.equals("gba") || isSnes() || isNds() || isNes() || isMegaDrive() || isMasterSystem() || isPcEngine() || isSonyPad();
     }
 
     private boolean hasShoulders() {
@@ -2651,7 +2683,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isPsp()) {
             return 480.0f / 272.0f;
         }
-        if (isGameBoy()) {
+        if (isGameBoy() || isGameGear()) {
             return 160.0f / 144.0f;
         }
         return this.coreId.equals("gba") ? 1.5f : 1.3333334f;

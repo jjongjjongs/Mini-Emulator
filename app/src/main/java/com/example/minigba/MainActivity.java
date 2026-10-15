@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_SNES = "snes";
     private static final String MODE_NES = "nes";
     private static final String MODE_MD = "md";
+    private static final String MODE_SMS = "sms";
     private static final String MODE_PCE = "pce";
     private static final String MODE_PSP = "psp";
     private static final String MODE_PS1 = "ps1";
@@ -82,7 +83,9 @@ public final class MainActivity extends Activity {
     private static final String[][] CONSOLES = {
             {MODE_SNES, "snes9x", ".sfc,.smc", ".sfc / .smc / .zip", "roms_snes", "1008"},
             {MODE_NES, "fceumm", ".nes,.unf,.unif", ".nes / .zip", "roms_nes", "1014"},
-            {MODE_MD, "genesis_plus_gx", ".md,.gen,.smd,.bin,.sms,.gg", ".md / .gen / .bin / .zip", "roms_md", "1015"},
+            {MODE_MD, "genesis_plus_gx", ".md,.gen,.smd,.bin", ".md / .gen / .bin / .zip", "roms_md", "1015"},
+            // Master System, Game Gear and SG-1000 on the same engine as the Mega Drive.
+            {MODE_SMS, "genesis_plus_gx", ".sms,.gg,.sg", ".sms / .gg / .sg / .zip", "roms_sms", "1023"},
             {MODE_PCE, "pce_fast", ".pce,.cue,.bin,.img,.chd", ".pce / .cue+.bin / .chd", "roms_pce", "1016"},
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
@@ -121,9 +124,10 @@ public final class MainActivity extends Activity {
         if (CORE_PCSX2.equals(core)) {
             core = "play";
         }
+        // One engine can serve several modes (Genesis Plus GX: Mega Drive and Master System).
         for (String[] console : CONSOLES) {
-            if (console[1].equals(core)) {
-                return hasExtension(lowerCaseName, console[2]);
+            if (console[1].equals(core) && hasExtension(lowerCaseName, console[2])) {
+                return true;
             }
         }
         return false;
@@ -137,12 +141,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_PCE, MODE_PSP, MODE_PS1, MODE_PS2, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "PC엔진", "PSP", "PS1", "PS2", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "Beetle PCE Fast", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", ".pce · .zip (HuCard)", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "PCE", "PSP", "PS1", "PS2", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_PSP, MODE_PS1, MODE_PS2, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "마스터시스템 · 게임기어", "PC엔진", "PSP", "PS1", "PS2", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "Genesis Plus GX", "Beetle PCE Fast", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "SMS", "PCE", "PSP", "PS1", "PS2", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -233,6 +237,7 @@ public final class MainActivity extends Activity {
         super.onCreate(bundle);
         relaunchGameIfAsked(getIntent());
         ensureDownloadFolder();
+        moveMasterSystemRoms();
         // Keep the open mode across rotation and other activity recreation.
         String restoredMode = bundle == null ? null : bundle.getString(STATE_MODE);
         this.pendingBiosSource = bundle == null ? null : bundle.getString(STATE_BIOS_SOURCE);
@@ -662,7 +667,11 @@ public final class MainActivity extends Activity {
             });
             sheet.addView(row, new LinearLayout.LayoutParams(-1, -2));
         }
-        dialog.setContentView(sheet);
+        // Twelve modes outgrow a landscape screen; the list scrolls then.
+        ScrollView sheetScroll = new ScrollView(this);
+        sheetScroll.setVerticalScrollBarEnabled(false);
+        sheetScroll.addView(sheet);
+        dialog.setContentView(sheetScroll);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(0));
@@ -3155,6 +3164,28 @@ public final class MainActivity extends Activity {
         startActivityForResult(intent, 1003);
     }
 
+    // Master System and Game Gear games used to sit in the Mega Drive mode; they have a mode
+    // of their own now. Same engine, so their saves stay where they are.
+    private void moveMasterSystemRoms() {
+        File[] files = romDirFor(MODE_MD).listFiles((dir, name) -> {
+            String lower = name.toLowerCase(Locale.US);
+            return lower.endsWith(".sms") || lower.endsWith(".gg") || lower.endsWith(".sg");
+        });
+        if (files == null || files.length == 0) {
+            return;
+        }
+        File target = romDirFor(MODE_SMS);
+        if (!target.isDirectory() && !target.mkdirs()) {
+            return;
+        }
+        for (File file : files) {
+            File moved = new File(target, file.getName());
+            if (!moved.exists()) {
+                file.renameTo(moved);
+            }
+        }
+    }
+
     // Save backups go to Download/Mini Emulator, which the app makes on first start.
     static final String DOWNLOAD_FOLDER = "Mini Emulator";
 
@@ -4227,7 +4258,7 @@ public final class MainActivity extends Activity {
         if (file.length() < 0x200) {
             return new RomCheck(false, "파일이 너무 작음");
         }
-        if (lower.endsWith(".sms") || lower.endsWith(".gg") || lower.endsWith(".smd")) {
+        if (lower.endsWith(".sms") || lower.endsWith(".gg") || lower.endsWith(".sg") || lower.endsWith(".smd")) {
             return new RomCheck(true, "크기 정상");
         }
         byte[] head = readHead(file, 0x110);
@@ -4370,7 +4401,7 @@ public final class MainActivity extends Activity {
         if (MODE_NES.equals(mode)) {
             return checkNesHeader(file);
         }
-        if (MODE_MD.equals(mode)) {
+        if (MODE_MD.equals(mode) || MODE_SMS.equals(mode)) {
             return checkMegaDriveHeader(file);
         }
         if (MODE_PSP.equals(mode) || MODE_PS2.equals(mode)) {
