@@ -23,6 +23,11 @@ final class AudioSink {
     private short[] stretched = new short[0];
     // Queued audio in frames, smoothed so one late frame does not swing the pitch.
     private double smoothedQueued = -1;
+    // After a pause (rotation, the menu, a quick save) the queue has run dry; stretching
+    // the music to refill it would drag it for a moment, so silence refills it instead.
+    private static final long RESTART_GAP_NS = 100_000_000L;
+    private long lastWriteNs;
+    private short[] silence = new short[0];
 
     AudioSink() {
     }
@@ -32,6 +37,7 @@ final class AudioSink {
         this.sampleRate = i;
         this.framesWritten = 0;
         this.smoothedQueued = -1;
+        this.lastWriteNs = 0;
         // AudioTrack wants whole stereo 16-bit frames (4 bytes); a rate such as the DS's
         // 32768 Hz gives a byte count that is not.
         int bytes = Math.max(AudioTrack.getMinBufferSize(i, 12, 2), i * 4 * BUFFER_MS / 1000);
@@ -51,6 +57,21 @@ final class AudioSink {
         long queued = Math.max(0, this.framesWritten - played);
         double target = (double) this.sampleRate * TARGET_MS / 1000;
         double room = (double) this.sampleRate * BUFFER_MS / 1000 - target;
+        long now = System.nanoTime();
+        boolean restarted = this.lastWriteNs != 0 && now - this.lastWriteNs > RESTART_GAP_NS;
+        this.lastWriteNs = now;
+        if (restarted && queued < target) {
+            int fill = (int) Math.round(target - queued);
+            if (this.silence.length < fill * 2) {
+                this.silence = new short[fill * 2];
+            }
+            int filled = audioTrack.write(this.silence, 0, fill * 2, AudioTrack.WRITE_NON_BLOCKING);
+            if (filled > 0) {
+                this.framesWritten += filled / 2;
+                queued += filled / 2;
+            }
+            this.smoothedQueued = queued;
+        }
         // The playback position moves in bursts, so the queue is smoothed; a nearly empty
         // queue is taken at once, as a gap is about to be heard.
         this.smoothedQueued = this.smoothedQueued < 0 || queued < target / 4
