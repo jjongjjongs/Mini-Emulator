@@ -73,6 +73,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_NES = "nes";
     private static final String MODE_MD = "md";
     private static final String MODE_SMS = "sms";
+    private static final String MODE_N64 = "n64";
     private static final String MODE_PCE = "pce";
     private static final String MODE_PSP = "psp";
     private static final String MODE_PS1 = "ps1";
@@ -86,6 +87,7 @@ public final class MainActivity extends Activity {
             {MODE_MD, "genesis_plus_gx", ".md,.gen,.smd,.bin", ".md / .gen / .bin / .zip", "roms_md", "1015"},
             // Master System, Game Gear and SG-1000 on the same engine as the Mega Drive.
             {MODE_SMS, "genesis_plus_gx", ".sms,.gg,.sg", ".sms / .gg / .sg / .zip", "roms_sms", "1023"},
+            {MODE_N64, "mupen64plus_next", ".z64,.n64,.v64", ".z64 / .n64 / .v64 / .zip", "roms_n64", "1024"},
             {MODE_PCE, "pce_fast", ".pce,.cue,.bin,.img,.chd", ".pce / .cue+.bin / .chd", "roms_pce", "1016"},
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
@@ -141,12 +143,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_PSP, MODE_PS1, MODE_PS2, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "마스터시스템 · 게임기어", "PC엔진", "PSP", "PS1", "PS2", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "Genesis Plus GX", "Beetle PCE Fast", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "SMS", "PCE", "PSP", "PS1", "PS2", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -4404,6 +4406,16 @@ public final class MainActivity extends Activity {
         if (MODE_MD.equals(mode) || MODE_SMS.equals(mode)) {
             return checkMegaDriveHeader(file);
         }
+        if (MODE_N64.equals(mode)) {
+            // N64 ROMs start with 80 37 12 40 in one of three byte orders (.z64 / .v64 / .n64).
+            byte[] head = readHead(file, 4);
+            if (head == null) {
+                return new RomCheck(false, "읽기 실패");
+            }
+            int magic = ((head[0] & 0xFF) << 24) | ((head[1] & 0xFF) << 16) | ((head[2] & 0xFF) << 8) | (head[3] & 0xFF);
+            return magic == 0x80371240 || magic == 0x37804012 || magic == 0x40123780
+                    ? new RomCheck(true, "닌텐도 64 헤더 정상") : new RomCheck(false, "닌텐도 64 헤더 없음");
+        }
         if (MODE_PSP.equals(mode) || MODE_PS2.equals(mode)) {
             return checkPspImage(file);
         }
@@ -5769,6 +5781,9 @@ public final class MainActivity extends Activity {
         }
         if ("genesis_plus_gx".equals(str)) {
             return "Genesis Plus GX";
+        }
+        if ("mupen64plus_next".equals(str)) {
+            return "Mupen64Plus-Next";
         }
         if ("pce_fast".equals(str)) {
             return "Beetle PCE Fast";

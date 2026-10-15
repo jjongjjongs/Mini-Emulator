@@ -430,6 +430,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "play") return "libplay_libretro_android.so";
     if (coreId == "pcee2") return "libpcee2_libretro_android.so";
     if (coreId == "melonds") return "libmelondsds_libretro_android.so";
+    if (coreId == "mupen64plus_next") return "libmupen64plus_next_libretro_android.so";
     return nullptr;
 }
 
@@ -473,7 +474,7 @@ bool loadCoreSymbols(Core* core) {
 // Play! restore through their GL context, which is made on the emulation thread.
 bool needsFrameBeforeState(const Core* core) {
     return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play" ||
-           core->coreId == "pcee2";
+           core->coreId == "pcee2" || core->coreId == "mupen64plus_next";
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
@@ -1103,6 +1104,14 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "melonds_screen_layout1") == 0) return gNdsLayout.load() == 2 ? "left-right" : "top-bottom";
     if (strcmp(key, "melonds_screen_gap") == 0) return gNdsLayout.load() == 0 ? "4" : "0";
     if (strcmp(key, "melonds_touch_mode") == 0) return "touch";
+    // Nintendo 64: GLideN64 on OpenGL ES at 640x480 with the HLE RSP and the dynarec, and
+    // the C buttons as buttons of their own (A=B, B=Y, C-up/down/left/right = X/A/L/R,
+    // Z=L2, R=R2, L=SELECT), which the touch pad and controllers press directly.
+    if (strcmp(key, "mupen64plus-rdp-plugin") == 0) return "gliden64";
+    if (strcmp(key, "mupen64plus-rsp-plugin") == 0) return "hle";
+    if (strcmp(key, "mupen64plus-cpucore") == 0) return "dynamic_recompiler";
+    if (strcmp(key, "mupen64plus-43screensize") == 0) return "640x480";
+    if (strcmp(key, "mupen64plus-alt-map") == 0) return "True";
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
@@ -1504,7 +1513,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
                        core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
-                       core->coreId == "melonds";
+                       core->coreId == "melonds" || core->coreId == "mupen64plus_next";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -2017,9 +2026,10 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
 
     retro_game_info game{};
     game.path = core->romPath.c_str();
-    if (core->coreId == "melonds") {
-        // melonDS DS reports need_fullpath = false and reads the game only from data/size
-        // (the other cores here open the path themselves), so hand it the file's bytes.
+    if (core->coreId == "melonds" || core->coreId == "mupen64plus_next") {
+        // melonDS DS and Mupen64Plus-Next report need_fullpath = false and read the game
+        // only from data/size (the other cores here open the path themselves), so hand
+        // them the file's bytes.
         FILE* rom = fopen(core->romPath.c_str(), "rb");
         if (rom != nullptr) {
             fseek(rom, 0, SEEK_END);

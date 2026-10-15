@@ -91,7 +91,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -359,6 +359,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isNes()) {
             tint = ClearShellView.TINT_CREAM;
             name = "FAMICOM";
+        } else if (isN64()) {
+            tint = ClearShellView.TINT_GRAY;
+            name = "NINTENDO 64";
         } else if (isMasterSystem()) {
             tint = ClearShellView.TINT_SMOKE;
             name = isGameGear() ? "GAME GEAR" : "MASTER SYSTEM";
@@ -431,6 +434,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
+        if (isN64()) {
+            addN64LandscapeControls(frameLayout);
+            return;
+        }
         View createDirectionControl = createDirectionControl();
         boolean isGba = isPadLayout();
         // GBA in full-screen style moves its D-pad and A/B a little outward so the wide
@@ -617,7 +624,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.touchDirection = 0;
         java.util.Arrays.fill(this.buttonHolds, 0);
         updateInput();
-        if (isSonyPad()) {
+        if (isSonyPad() || isN64()) {
             onAnalogChanged(0, 0);
             onAnalogRightChanged(0, 0);
         }
@@ -653,8 +660,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
         int hat = directionsFor(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X), event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y), 0.5f);
         int stick = 0;
-        if (isSonyPad()) {
-            // PSP / PS1 / PS2 read the sticks as sticks.
+        if (isSonyPad() || isN64()) {
+            // PSP / PS1 / PS2 / N64 read the sticks as sticks.
             onAnalogChanged(x, y);
             onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
         } else {
@@ -1158,6 +1165,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // The DS screens run the full height, so the button sits beside START instead.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(146), dp(17));
+        } else if (isN64()) {
+            // Under the A button.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(18), dp(12));
         } else if (isMasterSystem()) {
             // Centred under the 1 and 2 buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
@@ -1604,6 +1615,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
+        if (isN64()) {
+            addN64Controls(frameLayout);
+            return;
+        }
         View createDirectionControl = createDirectionControl();
         boolean isGba = isPadLayout();
         // The Super Famicom's four face buttons need more room, so its D-pad is a little smaller.
@@ -2426,6 +2441,87 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "genesis_plus_gx".equals(this.coreId) && !isMasterSystem();
     }
 
+    private boolean isN64() {
+        return "mupen64plus_next".equals(this.coreId);
+    }
+
+    // Nintendo 64 pad, as Mupen64Plus-Next reads it with independent C buttons: A and B are
+    // libretro B and Y, the C buttons X/A/L/R (up/down/left/right), Z is L2, R is R2 and
+    // L is SELECT.
+    private static final int N64_A = 2;
+    private static final int N64_B = 2048;
+    private static final int N64_C_UP = 1024;
+    private static final int N64_C_DOWN = 1;
+    private static final int N64_C_LEFT = 512;
+    private static final int N64_C_RIGHT = 256;
+    private static final int N64_Z = 16384;
+    private static final int N64_R = 32768;
+    private static final int N64_L = 4;
+
+    private void addN64CButtons(FrameLayout frameLayout, int gravity, int rightCenter, int verticalCenter, int gap, int size) {
+        String[] labels = {"▲", "▶", "▼", "◀"};
+        int[] bits = {N64_C_UP, N64_C_RIGHT, N64_C_DOWN, N64_C_LEFT};
+        int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        boolean fromTop = (gravity & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP;
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, labels[k], bits[k], this::setButtonPressed, TouchButton.STYLE_ARCADE_YELLOW);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(size), dp(size), gravity);
+            params.rightMargin = dp(rightCenter - offsets[k][0] * gap - size / 2);
+            int centre = verticalCenter + (fromTop ? offsets[k][1] : -offsets[k][1]) * gap;
+            if (fromTop) {
+                params.topMargin = dp(centre - size / 2);
+            } else {
+                params.bottomMargin = dp(centre - size / 2);
+            }
+            frameLayout.addView(button, params);
+        }
+    }
+
+    // Portrait: L/Z and R on top, the stick with a small D-pad under it on the left, the C
+    // buttons level with the stick and B/A level with the D-pad on the right, START below.
+    private void addN64Controls(FrameLayout frameLayout) {
+        addButton(frameLayout, "L", N64_L, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+        addButton(frameLayout, "R", N64_R, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+        FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(112), dp(40), Gravity.TOP | Gravity.START);
+        zParams.setMargins(dp(24), dp(88), 0, 0);
+        frameLayout.addView(new TouchButton(this, "Z", N64_Z, this::setButtonPressed, 2), zParams);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(116), dp(116), Gravity.BOTTOM | Gravity.START);
+        stickParams.setMargins(dp(22), 0, 0, dp(170));
+        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(84), dp(84), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(38), 0, 0, dp(70));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addN64CButtons(frameLayout, Gravity.BOTTOM | Gravity.END, 92, 230, 42, 42);
+        addButton(frameLayout, "B", N64_B, 8388693, dp(150 - 27), dp(118 - 27), dp(54), dp(54), TouchButton.STYLE_ARCADE_GREEN);
+        addButton(frameLayout, "A", N64_A, 8388693, dp(80 - 33), dp(92 - 33), dp(66), dp(66), TouchButton.STYLE_SNES_BLUE);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, startLabel(), 8, 0, 18);
+    }
+
+    // Landscape: the same groups in the columns beside the screen; START under the D-pad,
+    // the speed button under A.
+    private void addN64LandscapeControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(66), dp(34), Gravity.TOP | Gravity.START);
+        lParams.setMargins(dp(12), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "L", N64_L, this::setButtonPressed, 2), lParams);
+        FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(66), dp(34), Gravity.TOP | Gravity.START);
+        zParams.setMargins(dp(84), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "Z", N64_Z, this::setButtonPressed, 2), zParams);
+        FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(132), dp(34), Gravity.TOP | Gravity.END);
+        rParams.setMargins(0, dp(58), dp(14), 0);
+        frameLayout.addView(new TouchButton(this, "R", N64_R, this::setButtonPressed, 2), rParams);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(110), dp(110), Gravity.TOP | Gravity.START);
+        stickParams.setMargins(dp(26), dp(104), 0, 0);
+        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(45), 0, 0, dp(56));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addButton(frameLayout, startLabel(), 8, 8388691, dp(34), dp(14), dp(94), dp(32));
+        addN64CButtons(frameLayout, Gravity.TOP | Gravity.END, 82, 150, 34, 36);
+        addButton(frameLayout, "B", N64_B, 8388693, dp(112 - 24), dp(98), dp(48), dp(48), TouchButton.STYLE_ARCADE_GREEN);
+        addButton(frameLayout, "A", N64_A, 8388693, dp(56 - 29), dp(62), dp(58), dp(58), TouchButton.STYLE_SNES_BLUE);
+    }
+
     // Master System, Game Gear and SG-1000 run on Genesis Plus GX too, with a two-button pad.
     private boolean isMasterSystem() {
         if (!"genesis_plus_gx".equals(this.coreId) || this.romPath == null) {
@@ -2702,6 +2798,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "play":
             case "pcee2":
             case "melonds":
+            case "mupen64plus_next":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":
