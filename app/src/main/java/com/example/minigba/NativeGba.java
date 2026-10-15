@@ -37,6 +37,9 @@ final class NativeGba {
     // next game created; with a running game it applies and restarts the game.
     static native void setPspLanguage(long handle, String language);
 
+    // PSP rendering scale (1x, 2x or 3x the PSP's 480x272) for the next game created.
+    static native void setPspScale(int scale);
+
     // DS screen layout: 0 stacked with a 4-row gap, 1 stacked and touching, 2 side by side.
     // With handle 0 it applies to the next game created; a running game changes layout.
     static native void setNdsLayout(long handle, int layout);

@@ -1046,6 +1046,8 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 // PSP system language, chosen per game ("Korean" unless the player picked another). Only
 // changed before the game starts or on the emulation thread, which reads it.
 std::string gPspLanguage = "Korean";
+// PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
+std::atomic<int> gPspScale{2};
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
 // DS screen layout: 0 stacked 4 rows apart (portrait), 1 stacked and touching
@@ -1060,9 +1062,12 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_frameskip") == 0) return "0";
     // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
     if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
-    // PSP: the bridge offers OpenGL ES only; render at twice the PSP's resolution.
+    // PSP: the bridge offers OpenGL ES only; render at the scale picked per game (2x by default).
     if (strcmp(key, "ppsspp_backend") == 0) return "opengl";
-    if (strcmp(key, "ppsspp_internal_resolution") == 0) return "960x544";
+    if (strcmp(key, "ppsspp_internal_resolution") == 0) {
+        int scale = gPspScale.load();
+        return scale == 1 ? "480x272" : scale == 3 ? "1440x816" : "960x544";
+    }
     // PSP system language, Korean by default: Korean games (and Korean patches) pick their
     // text and the kr0.pgf system font from it. Games without Korean that still follow it
     // (Call of Duty: Roads to Victory's name keyboard) are set to English per game.
@@ -2238,6 +2243,12 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNdsLayout(
         // melonDS DS lays its screens out again when it sees the option change.
         gVariablesUpdated.store(true);
     }
+}
+
+// PSP rendering scale (1-3) for the next game created; the window's buffers are sized
+// when the game starts, so a change takes a restart.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
+    gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
 }
 
 // PSP left stick, each axis -32767..32767.

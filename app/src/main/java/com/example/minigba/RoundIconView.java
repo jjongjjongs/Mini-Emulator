@@ -30,6 +30,7 @@ final class RoundIconView extends View {
     static final int MULTI = 15;
     static final int FOLDER = 16;
     static final int GLOBE = 17;
+    static final int HD = 18;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -42,6 +43,7 @@ final class RoundIconView extends View {
     static final int COLOR_EDIT = Color.rgb(91, 108, 240);
     static final int COLOR_GEAR = Color.rgb(245, 158, 11);
     static final int COLOR_GLOBE = Color.rgb(99, 102, 241);
+    static final int COLOR_HD = Color.rgb(14, 165, 233);
 
     private final int icon;
     private final int color;
@@ -279,6 +281,16 @@ final class RoundIconView extends View {
                 path.moveTo(12, 3.5f);
                 path.cubicTo(8.8f, 6.5f, 8.8f, 17.5f, 12, 20.5f);
                 canvas.drawPath(path, line);
+                break;
+            case HD:
+                path.addRoundRect(new RectF(2.5f, 5, 21.5f, 19), 3, 3, Path.Direction.CW);
+                canvas.drawPath(path, line);
+                Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+                text.setColor(line.getColor());
+                text.setTextSize(8.5f);
+                text.setFakeBoldText(true);
+                text.setTextAlign(Paint.Align.CENTER);
+                canvas.drawText("HD", 12, 15.1f, text);
                 break;
             case PLAY:
             default:

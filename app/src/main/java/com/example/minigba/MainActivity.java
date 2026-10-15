@@ -178,9 +178,59 @@ public final class MainActivity extends Activity {
     private static final int STATUS_TEXT_COLOR = Color.rgb(101, 112, 124);
     private static final byte[] GBA_LOGO = {36, -1, -82, 81, 105, -102, -94, 33, 61, -124, -126, 10, -124, -28, 9, -83, 17, 36, -117, -104, -64, -127, Byte.MAX_VALUE, 33, -93, 82, -66, 25, -109, 9, -50, 32, 16, 70, 74, 74, -8, 39, 49, -20, 88, -57, -24, 51, -126, -29, -50, -65, -123, -12, -33, -108, -50, 75, 9, -63, -108, 86, -118, -64, 19, 114, -89, -4, -97, -124, 77, 115, -93, -54, -102, 97, 88, -105, -93, 39, -4, 3, -104, 118, 35, 29, -57, 97, 3, 4, -82, 86, -65, 56, -124, 0, 64, -89, 14, -3, -1, 82, -2, 3, 111, -107, 48, -15, -105, -5, -64, -123, 96, -42, Byte.MIN_VALUE, 37, -87, 99, -66, 3, 1, 78, 56, -30, -7, -94, 52, -1, -69, 62, 3, 68, 120, 0, -112, -53, -120, 17, 58, -108, 101, -64, 124, 99, -121, -16, 60, -81, -42, 37, -28, -117, 56, 10, -84, 114, 33, -44, -8, 7};
 
+    // A game asking to be opened again (PSP resolution change): the Intent that started it.
+    static final String EXTRA_RELAUNCH_GAME = "com.example.minigba.RELAUNCH_GAME";
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        relaunchGameIfAsked(intent);
+    }
+
+    // The game closes in its own process, which must be gone before the game opens again,
+    // or the new game would start in the process that is about to end.
+    private void relaunchGameIfAsked(Intent intent) {
+        final Intent game = intent == null ? null : intent.getParcelableExtra(EXTRA_RELAUNCH_GAME);
+        if (game == null) {
+            return;
+        }
+        intent.removeExtra(EXTRA_RELAUNCH_GAME);
+        final String gameProcess = getPackageName() + ":game";
+        new Thread(() -> {
+            android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            for (int tries = 0; tries < 100; tries++) {
+                boolean alive = false;
+                java.util.List<android.app.ActivityManager.RunningAppProcessInfo> processes = manager == null ? null : manager.getRunningAppProcesses();
+                if (processes != null) {
+                    for (android.app.ActivityManager.RunningAppProcessInfo process : processes) {
+                        if (gameProcess.equals(process.processName)) {
+                            alive = true;
+                            break;
+                        }
+                    }
+                }
+                if (!alive) {
+                    break;
+                }
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+            runOnUiThread(() -> {
+                if (!isFinishing()) {
+                    game.setComponent(new android.content.ComponentName(this, GameActivity.class));
+                    startActivity(game);
+                }
+            });
+        }, "relaunch-game").start();
+    }
+
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        relaunchGameIfAsked(getIntent());
         // Keep the open mode across rotation and other activity recreation.
         String restoredMode = bundle == null ? null : bundle.getString(STATE_MODE);
         this.pendingBiosSource = bundle == null ? null : bundle.getString(STATE_BIOS_SOURCE);
