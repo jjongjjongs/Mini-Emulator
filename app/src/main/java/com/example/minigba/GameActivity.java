@@ -2382,7 +2382,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isNeoGeoPocket()) {
             // Bottom of the right column, rewind beside it.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
-            speedParams.setMargins(0, 0, dp(40), dp(17));
+            speedParams.setMargins(0, 0, dp(16), dp(17));
         } else if (isMasterSystem()) {
             // Centred under the 1 and 2 buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
@@ -2401,7 +2401,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isN64() || isDreamcast() || isMasterSystem()) {
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, true);
         } else if (isNeoGeoPocket()) {
-            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 72, false);
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, false);
         } else if (isWonderSwan()) {
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BELOW, 80, false);
         } else if (isPadLayout()) {
@@ -3806,7 +3806,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addNeoGeoPocketLandscapeControls(FrameLayout frameLayout) {
-        addDPadAt(frameLayout, 22, 110, 140);
+        // D-pad centred at the height between A and B.
+        addDPadAt(frameLayout, 22, 147, 140);
         addRoundButton(frameLayout, "A", 2, true, 150, 183, 62, TouchButton.STYLE_DARK);
         addRoundButton(frameLayout, "B", 1, true, 76, 251, 62, TouchButton.STYLE_DARK);
         addButton(frameLayout, "OPTION", 8, 8388691, dp(45), dp(18), dp(94), dp(32));
