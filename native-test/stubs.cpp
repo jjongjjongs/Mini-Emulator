@@ -9,8 +9,8 @@
 
 struct ANativeWindow {
     int refs = 1;
-    int width = 0, height = 0, stride = 0;
-    uint16_t* pixels = nullptr;
+    int width = 0, height = 0, stride = 0, format = 0;
+    uint8_t* pixels = nullptr;
 };
 
 static std::atomic<int> gFrames{0};
@@ -48,13 +48,14 @@ extern "C" void ANativeWindow_release(ANativeWindow* w) {
     delete w;
 }
 extern "C" int32_t ANativeWindow_setBuffersGeometry(ANativeWindow* w, int32_t width, int32_t height, int32_t format) {
-    if (format != WINDOW_FORMAT_RGB_565) abort();
-    if (w->width != width || w->height != height) {
+    if (format != WINDOW_FORMAT_RGB_565 && format != WINDOW_FORMAT_RGBX_8888) abort();
+    if (w->width != width || w->height != height || w->format != format) {
         free(w->pixels);
         w->width = width;
         w->height = height;
+        w->format = format;
         w->stride = (width + 7) & ~7;  // padded like real gralloc buffers
-        w->pixels = static_cast<uint16_t*>(calloc(static_cast<size_t>(w->stride) * height, 2));
+        w->pixels = static_cast<uint8_t*>(calloc(static_cast<size_t>(w->stride) * height, format == WINDOW_FORMAT_RGB_565 ? 2 : 4));
     }
     return 0;
 }
@@ -63,13 +64,20 @@ extern "C" int32_t ANativeWindow_lock(ANativeWindow* w, ANativeWindow_Buffer* b,
     b->width = w->width;
     b->height = w->height;
     b->stride = w->stride;
-    b->format = WINDOW_FORMAT_RGB_565;
+    b->format = w->format;
     b->bits = w->pixels;
     return 0;
 }
 extern "C" int32_t ANativeWindow_unlockAndPost(ANativeWindow* w) {
     std::lock_guard<std::mutex> lock(gPixelLock);
-    gLastPixel = w->pixels[(w->height / 2) * w->stride + w->width / 2];
+    size_t center = static_cast<size_t>(w->height / 2) * w->stride + w->width / 2;
+    if (w->format == WINDOW_FORMAT_RGB_565) {
+        gLastPixel = reinterpret_cast<uint16_t*>(w->pixels)[center];
+    } else {
+        // Bytes R, G, B, X, reported as RGB565 like the 16-bit windows.
+        const uint8_t* p = w->pixels + center * 4;
+        gLastPixel = static_cast<uint16_t>(((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
+    }
     gLastWidth = w->width;
     gLastHeight = w->height;
     gFrames++;

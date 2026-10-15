@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <ucontext.h>
 #include <unistd.h>
@@ -291,6 +292,25 @@ struct Core {
     std::function<bool()> job;
     bool jobDone = false;
     bool jobResult = false;
+
+    // Software frames are handed to a presenter thread, so waiting for a free window
+    // buffer never holds up the emulation. The emulation thread converts each frame into
+    // pendingFrame (RGB565, or RGBX8888 for cores that give 32-bit colour); the presenter
+    // swaps it with shownFrame and copies that into the window.
+    std::mutex frameMutex;
+    std::condition_variable frameCv;
+    std::vector<uint8_t> pendingFrame, shownFrame;
+    unsigned pendingWidth = 0, pendingHeight = 0, shownWidth = 0, shownHeight = 0;
+    int pendingFormat = WINDOW_FORMAT_RGB_565, shownFormat = WINDOW_FORMAT_RGB_565;
+    bool frameNew = false;
+    // Draw shownFrame again (a new window while paused).
+    bool frameRedraw = false;
+    bool presenterRunning = false;
+    std::thread presenter;
+
+    // Audio goes to Java through one reused array instead of a new one every frame.
+    jshortArray audioArray = nullptr;
+    jsize audioArrayLength = 0;
 };
 
 JavaVM* gVm = nullptr;
@@ -345,11 +365,25 @@ void writeAudio(const int16_t* samples, jsize count) {
     if (e == nullptr) {
         return;
     }
-    jshortArray array = e->NewShortArray(count);
-    e->SetShortArrayRegion(array, 0, count, samples);
-    jint pace = e->CallIntMethod(core->audioSink, core->audioWrite, array, count);
+    if (core->audioArray == nullptr || core->audioArrayLength < count) {
+        if (core->audioArray != nullptr) {
+            e->DeleteGlobalRef(core->audioArray);
+            core->audioArray = nullptr;
+            core->audioArrayLength = 0;
+        }
+        jsize length = count > 8192 ? count : 8192;
+        jshortArray local = e->NewShortArray(length);
+        if (local == nullptr) {
+            e->ExceptionClear();
+            return;
+        }
+        core->audioArray = static_cast<jshortArray>(e->NewGlobalRef(local));
+        core->audioArrayLength = length;
+        e->DeleteLocalRef(local);
+    }
+    e->SetShortArrayRegion(core->audioArray, 0, count, samples);
+    jint pace = e->CallIntMethod(core->audioSink, core->audioWrite, core->audioArray, count);
     core->audioPacePpm.store(pace);
-    e->DeleteLocalRef(array);
 }
 
 // Replaces characters that are not safe in a file name.
@@ -1229,7 +1263,64 @@ void presentHwFrame(Core* core) {
     if (scissor) gGl.Enable(gl::GL_SCISSOR_TEST);
 }
 
-// Copies one frame into the window, converting it to RGB565.
+// Copies the frame the presenter holds into the window and shows it.
+void presentShownFrame(Core* core) {
+    std::lock_guard<std::mutex> lock(core->videoMutex);
+    if (core->window == nullptr || core->shownWidth == 0 || core->shownHeight == 0) {
+        return;
+    }
+    ANativeWindow_setBuffersGeometry(core->window, static_cast<int32_t>(core->shownWidth),
+                                     static_cast<int32_t>(core->shownHeight), core->shownFormat);
+    ANativeWindow_Buffer buffer;
+    if (ANativeWindow_lock(core->window, &buffer, nullptr) != 0) {
+        return;
+    }
+    size_t bytesPerPixel = core->shownFormat == WINDOW_FORMAT_RGB_565 ? 2 : 4;
+    size_t rowBytes = core->shownWidth * bytesPerPixel;
+    size_t dstPitch = static_cast<size_t>(buffer.stride) * bytesPerPixel;
+    const uint8_t* src = core->shownFrame.data();
+    auto* dst = static_cast<uint8_t*>(buffer.bits);
+    for (unsigned y = 0; y < core->shownHeight; ++y, src += rowBytes, dst += dstPitch) {
+        memcpy(dst, src, rowBytes < dstPitch ? rowBytes : dstPitch);
+    }
+    ANativeWindow_unlockAndPost(core->window);
+}
+
+void presenterLoop(Core* core) {
+    std::unique_lock<std::mutex> lock(core->frameMutex);
+    while (true) {
+        core->frameCv.wait(lock, [core] { return !core->presenterRunning || core->frameNew || core->frameRedraw; });
+        if (!core->presenterRunning) {
+            return;
+        }
+        if (core->frameNew) {
+            std::swap(core->pendingFrame, core->shownFrame);
+            core->shownWidth = core->pendingWidth;
+            core->shownHeight = core->pendingHeight;
+            core->shownFormat = core->pendingFormat;
+            core->frameNew = false;
+        }
+        core->frameRedraw = false;
+        lock.unlock();
+        presentShownFrame(core);
+        lock.lock();
+    }
+}
+
+void stopPresenter(Core* core) {
+    {
+        std::lock_guard<std::mutex> lock(core->frameMutex);
+        if (!core->presenterRunning) {
+            return;
+        }
+        core->presenterRunning = false;
+    }
+    core->frameCv.notify_all();
+    core->presenter.join();
+}
+
+// Converts one frame for the presenter: 16-bit cores stay RGB565, 32-bit cores (the DS)
+// keep their full colour instead of being cut down to 16 bits.
 void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsigned height, size_t pitch) {
     Core* core = gCore;
     if (core != nullptr && core->hwRender) {
@@ -1243,41 +1334,47 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
         presentHwFrame(core);
         return;
     }
-    if (data == nullptr || core == nullptr) {
+    if (data == nullptr || core == nullptr || width == 0 || height == 0) {
         return;
     }
-    std::lock_guard<std::mutex> lock(core->videoMutex);
-    if (core->window == nullptr) {
-        return;
-    }
-    ANativeWindow_setBuffersGeometry(core->window, static_cast<int32_t>(width), static_cast<int32_t>(height),
-                                     WINDOW_FORMAT_RGB_565);
-    ANativeWindow_Buffer buffer;
-    if (ANativeWindow_lock(core->window, &buffer, nullptr) != 0) {
-        return;
-    }
-    const auto* src = static_cast<const uint8_t*>(data);
-    auto* dst = static_cast<uint8_t*>(buffer.bits);
-    size_t dstPitch = static_cast<size_t>(buffer.stride) * 2;
-    for (unsigned y = 0; y < height; ++y, src += pitch, dst += dstPitch) {
-        auto* out = reinterpret_cast<uint16_t*>(dst);
-        if (core->pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
-            memcpy(dst, src, dstPitch < pitch ? dstPitch : pitch);
-        } else if (core->pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888) {
-            const auto* in = reinterpret_cast<const uint32_t*>(src);
-            for (unsigned x = 0; x < width; ++x) {
-                uint32_t p = in[x];
-                out[x] = static_cast<uint16_t>(((p >> 8) & 0xF800) | ((p >> 5) & 0x07E0) | ((p >> 3) & 0x001F));
-            }
-        } else {  // RETRO_PIXEL_FORMAT_0RGB1555
-            const auto* in = reinterpret_cast<const uint16_t*>(src);
-            for (unsigned x = 0; x < width; ++x) {
-                uint16_t p = in[x];
-                out[x] = static_cast<uint16_t>(((p << 1) & 0xFFC0) | (p & 0x001F));
+    bool wide = core->pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888;
+    int format = wide ? WINDOW_FORMAT_RGBX_8888 : WINDOW_FORMAT_RGB_565;
+    size_t rowBytes = static_cast<size_t>(width) * (wide ? 4 : 2);
+    {
+        std::lock_guard<std::mutex> lock(core->frameMutex);
+        if (!core->presenterRunning) {
+            core->presenterRunning = true;
+            core->presenter = std::thread(presenterLoop, core);
+        }
+        core->pendingFrame.resize(rowBytes * height);
+        const auto* src = static_cast<const uint8_t*>(data);
+        uint8_t* dst = core->pendingFrame.data();
+        for (unsigned y = 0; y < height; ++y, src += pitch, dst += rowBytes) {
+            if (core->pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
+                memcpy(dst, src, rowBytes);
+            } else if (wide) {
+                // 0x00RRGGBB to the bytes R, G, B, X.
+                const auto* in = reinterpret_cast<const uint32_t*>(src);
+                auto* out = reinterpret_cast<uint32_t*>(dst);
+                for (unsigned x = 0; x < width; ++x) {
+                    uint32_t p = in[x];
+                    out[x] = 0xFF000000u | ((p & 0xFFu) << 16) | (p & 0xFF00u) | ((p >> 16) & 0xFFu);
+                }
+            } else {  // RETRO_PIXEL_FORMAT_0RGB1555
+                const auto* in = reinterpret_cast<const uint16_t*>(src);
+                auto* out = reinterpret_cast<uint16_t*>(dst);
+                for (unsigned x = 0; x < width; ++x) {
+                    uint16_t p = in[x];
+                    out[x] = static_cast<uint16_t>(((p << 1) & 0xFFC0) | (p & 0x001F));
+                }
             }
         }
+        core->pendingWidth = width;
+        core->pendingHeight = height;
+        core->pendingFormat = format;
+        core->frameNew = true;
     }
-    ANativeWindow_unlockAndPost(core->window);
+    core->frameCv.notify_one();
 }
 
 void RETRO_CALLCONV audioSampleCallback(int16_t left, int16_t right) {
@@ -1565,6 +1662,63 @@ void tearDownHw(Core* core) {
     core->hwReady = false;
 }
 
+
+// Android's performance hints (API 33+): the emulation thread reports how long each frame
+// took against the time it has, and the system raises the CPU clocks before frames run
+// late instead of after. Looked up at run time, as the app also runs on older Android.
+struct PerformanceHint {
+    using GetManager = void* (*)();
+    using CreateSession = void* (*)(void*, const int32_t*, size_t, int64_t);
+    using UpdateTarget = int (*)(void*, int64_t);
+    using ReportActual = int (*)(void*, int64_t);
+    using CloseSession = void (*)(void*);
+    CreateSession createSession = nullptr;
+    UpdateTarget updateTarget = nullptr;
+    ReportActual reportActual = nullptr;
+    CloseSession closeSession = nullptr;
+    void* session = nullptr;
+    int64_t targetNs = 0;
+
+    void open(int64_t frameNs) {
+        void* android = dlopen("libandroid.so", RTLD_NOW);
+        if (android == nullptr) {
+            return;
+        }
+        auto getManager = reinterpret_cast<GetManager>(dlsym(android, "APerformanceHint_getManager"));
+        createSession = reinterpret_cast<CreateSession>(dlsym(android, "APerformanceHint_createSession"));
+        updateTarget = reinterpret_cast<UpdateTarget>(dlsym(android, "APerformanceHint_updateTargetWorkDuration"));
+        reportActual = reinterpret_cast<ReportActual>(dlsym(android, "APerformanceHint_reportActualWorkDuration"));
+        closeSession = reinterpret_cast<CloseSession>(dlsym(android, "APerformanceHint_closeSession"));
+        void* manager = getManager != nullptr ? getManager() : nullptr;
+        if (manager == nullptr || createSession == nullptr || updateTarget == nullptr || reportActual == nullptr ||
+            closeSession == nullptr) {
+            return;
+        }
+        int32_t tid = gettid();
+        session = createSession(manager, &tid, 1, frameNs);
+        targetNs = frameNs;
+    }
+
+    void report(int64_t workNs, int64_t frameNs) {
+        if (session == nullptr || workNs <= 0) {
+            return;
+        }
+        // Retarget only on a real change (the speed button), not the audio pacing's nudges.
+        if (frameNs < targetNs * 9 / 10 || frameNs > targetNs * 11 / 10) {
+            updateTarget(session, frameNs);
+            targetNs = frameNs;
+        }
+        reportActual(session, workNs);
+    }
+
+    void close() {
+        if (session != nullptr) {
+            closeSession(session);
+            session = nullptr;
+        }
+    }
+};
+
 void runLoop(Core* core) {
     // Stay attached to Java for the whole session: audio goes to Java every frame and
     // attaching for each call is expensive.
@@ -1583,8 +1737,14 @@ void runLoop(Core* core) {
     // Frames run against fixed deadlines, so a long frame or a late wake-up is made up by
     // the frames after it. Sleeping "what is left of this frame" lost that time for good,
     // and the game ran a few percent slow (the audio queue drained, the music dragged).
+    // Above the app's other threads, as audio and video depend on this one keeping time.
+    setpriority(PRIO_PROCESS, 0, -10);
+    PerformanceHint hint;
+    hint.open(static_cast<int64_t>(1e9 / core->fps));
     auto deadline = std::chrono::steady_clock::now();
     while (core->running.load()) {
+        auto workStart = std::chrono::steady_clock::now();
+        bool ran = false;
         if (core->hwReady) {
             bindHwWindow(core);
             runPendingJob(core);
@@ -1602,6 +1762,7 @@ void runLoop(Core* core) {
             core->retroRun();
             core->framesRun++;
             flushAudio(core);
+            ran = true;
             if (core->resumePending) {
                 if (core->framesRun >= core->resumeRetryAt) {
                     if (resumeState(core) || !retryResume(core)) {
@@ -1618,6 +1779,10 @@ void runLoop(Core* core) {
         double frameNs = 1.0 / (fps * speed * pace) * 1e9;
         deadline += std::chrono::nanoseconds(static_cast<int64_t>(frameNs));
         auto now = std::chrono::steady_clock::now();
+        if (ran) {
+            hint.report(std::chrono::duration_cast<std::chrono::nanoseconds>(now - workStart).count(),
+                        static_cast<int64_t>(frameNs));
+        }
         if (deadline > now) {
             std::this_thread::sleep_until(deadline);
         } else if (now - deadline > std::chrono::milliseconds(100)) {
@@ -1630,6 +1795,7 @@ void runLoop(Core* core) {
         std::lock_guard<std::mutex> lock(core->coreMutex);
         endResumeTrial(core);
     }
+    hint.close();
     tearDownHw(core);
     if (attached) {
         core->vm->DetachCurrentThread();
@@ -1682,6 +1848,7 @@ void destroyCore(Core* core) {
         pthread_join(core->thread, nullptr);
         core->threadStarted = false;
     }
+    stopPresenter(core);
     if (core->window != nullptr) {
         ANativeWindow_release(core->window);
         core->window = nullptr;
@@ -1705,8 +1872,12 @@ void destroyCore(Core* core) {
         ScopedEnv env(core->vm);
         if (env.get() != nullptr) {
             env.get()->DeleteGlobalRef(core->audioSink);
+            if (core->audioArray != nullptr) {
+                env.get()->DeleteGlobalRef(core->audioArray);
+            }
         }
         core->audioSink = nullptr;
+        core->audioArray = nullptr;
     }
     if (core->library != nullptr && !core->keepLibraryLoaded) {
         dlclose(core->library);
@@ -1919,12 +2090,22 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSurface(
     if (window == nullptr) {
         return;
     }
-    std::lock_guard<std::mutex> lock(core->videoMutex);
-    ANativeWindow* old = core->window;
-    core->window = window;
-    if (old != nullptr) {
-        ANativeWindow_release(old);
+    {
+        std::lock_guard<std::mutex> lock(core->videoMutex);
+        ANativeWindow* old = core->window;
+        core->window = window;
+        if (old != nullptr) {
+            ANativeWindow_release(old);
+        }
     }
+    // Show the last frame in the new window straight away, e.g. while paused after a rotation.
+    {
+        std::lock_guard<std::mutex> lock(core->frameMutex);
+        if (core->presenterRunning && core->shownWidth != 0) {
+            core->frameRedraw = true;
+        }
+    }
+    core->frameCv.notify_one();
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_clearSurface(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
