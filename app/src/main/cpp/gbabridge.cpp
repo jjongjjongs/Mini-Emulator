@@ -492,7 +492,7 @@ bool autoState(const Core* core) {
     return core->coreId != "play";
 }
 
-bool saveState(Core* core) {
+bool saveStateTo(Core* core, const std::string& path) {
     // Before the quick save has been restored (or before MAME has a machine), saving
     // would replace the player's state with the bare start of the game.
     if (core->resumePending || (needsFrameBeforeState(core) && core->framesRun == 0)) {
@@ -521,25 +521,36 @@ bool saveState(Core* core) {
             size = static_cast<size_t>(zipSize + 16);
         }
     }
-    FILE* file = fopen(core->statePath.c_str(), "wb");
+    // Written beside the target and renamed over it, so a failed save keeps the old one.
+    std::string temp = path + ".tmp";
+    FILE* file = fopen(temp.c_str(), "wb");
     if (file == nullptr) {
-        LOGE("Could not write state: %s", core->statePath.c_str());
+        LOGE("Could not write state: %s", path.c_str());
         return false;
     }
     size_t written = fwrite(buffer.data(), 1, size, file);
-    fclose(file);
-    return written == size;
+    bool ok = fclose(file) == 0 && written == size;
+    if (!ok || rename(temp.c_str(), path.c_str()) != 0) {
+        remove(temp.c_str());
+        return false;
+    }
+    return true;
 }
 
-bool loadState(Core* core) {
+// The automatic quick save (on leaving the game), which the game resumes from.
+bool saveState(Core* core) {
+    return saveStateTo(core, core->statePath);
+}
+
+bool loadStateFrom(Core* core, const std::string& path) {
     if (core->retroUnserialize == nullptr) {
         return false;
     }
     struct stat st {};
-    if (stat(core->statePath.c_str(), &st) != 0) {
+    if (stat(path.c_str(), &st) != 0) {
         return false;
     }
-    FILE* file = fopen(core->statePath.c_str(), "rb");
+    FILE* file = fopen(path.c_str(), "rb");
     if (file == nullptr) {
         return false;
     }
@@ -559,12 +570,16 @@ bool loadState(Core* core) {
     size_t header = stateHeaderSize(core);
     if (header != 0) {
         if (read <= header || memcmp(buffer.data(), kPlayStateHeader, header) != 0) {
-            LOGE("Quick save from an older version; moving it aside: %s", core->statePath.c_str());
-            rename(core->statePath.c_str(), (core->statePath + ".failed").c_str());
+            LOGE("Quick save from an older version; moving it aside: %s", path.c_str());
+            rename(path.c_str(), (path + ".failed").c_str());
             return false;
         }
     }
     return core->retroUnserialize(buffer.data() + header, read - header);
+}
+
+bool loadState(Core* core) {
+    return loadStateFrom(core, core->statePath);
 }
 
 // Frames a restored quick save must run before it counts as good. Play! crashes from a bad
@@ -2189,6 +2204,33 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
         }
         core->resumePending = false;
         return loadState(core);
+    }) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Quick save slots the app keeps in files of its own (the list in the pause menu).
+JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_saveStateFile(
+        JNIEnv* env, jclass /*cls*/, jlong handle, jstring path) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->gameLoaded || path == nullptr) {
+        return JNI_FALSE;
+    }
+    std::string target = jstringToString(env, path);
+    return callCore(core, [core, target] { return saveStateTo(core, target); }) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateFile(
+        JNIEnv* env, jclass /*cls*/, jlong handle, jstring path) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->gameLoaded || path == nullptr) {
+        return JNI_FALSE;
+    }
+    std::string source = jstringToString(env, path);
+    return callCore(core, [core, source] {
+        if (needsFrameBeforeState(core) && core->framesRun == 0) {
+            return false;
+        }
+        core->resumePending = false;
+        return loadStateFrom(core, source);
     }) ? JNI_TRUE : JNI_FALSE;
 }
 

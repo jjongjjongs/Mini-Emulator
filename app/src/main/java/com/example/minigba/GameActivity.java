@@ -829,6 +829,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         long j = this.nativeHandle;
         if (j != 0) {
             NativeGba.pause(j, true);
+            if (!isPs2()) {
+                // The picture for the automatic save the game writes on the way out.
+                captureThumbnail(autoThumbnail());
+            }
             callCore(NativeGba::saveNow, null, null);
         }
     }
@@ -1188,12 +1192,374 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isMame139()) {
             Emulator.saveState();
             Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
-        } else if (isPs2()) {
-            // PS2 games save to the memory card themselves; saveNow skips Play!'s state.
-            callCore(NativeGba::saveStateNow, "빠른 저장을 완료했습니다.", "저장 실패.");
         } else {
-            callCore(NativeGba::saveNow, "빠른 저장과 게임 내 세이브를 저장했습니다.", "저장 실패.");
+            // A new quick save slot, and the in-game save as well (PS2 games write their
+            // memory card themselves).
+            createQuickSave(!isPs2());
         }
+    }
+
+    // ---- Quick save slots: the automatic save (on leaving, resumed from) plus up to
+    // QUICK_SLOTS saves of the player's own, each with a picture of the screen ----
+    private static final int QUICK_SLOTS = 5;
+
+    private File autoStateFile() {
+        return new File(new File(new File(getFilesDir(), "saves"), this.coreId), this.saveBaseName + ".state");
+    }
+
+    private File quickSaveDir() {
+        return new File(new File(new File(new File(getFilesDir(), "saves"), this.coreId), "quicksaves"), this.saveBaseName);
+    }
+
+    private static File thumbnailFor(File state) {
+        String name = state.getName();
+        return new File(state.getParentFile(), name.substring(0, name.length() - ".state".length()) + ".jpg");
+    }
+
+    private File autoThumbnail() {
+        return new File(quickSaveDir(), "auto.jpg");
+    }
+
+    // The player's slots, newest first; each is "<number>.state".
+    private java.util.List<File> quickSaves() {
+        java.util.List<File> slots = new java.util.ArrayList<>();
+        File[] files = quickSaveDir().listFiles((dir, name) -> name.matches("\\d+\\.state"));
+        if (files != null) {
+            slots.addAll(java.util.Arrays.asList(files));
+        }
+        java.util.Collections.sort(slots, (a, b) -> Integer.compare(slotNumber(b), slotNumber(a)));
+        return slots;
+    }
+
+    private static int slotNumber(File state) {
+        try {
+            return Integer.parseInt(state.getName().substring(0, state.getName().indexOf('.')));
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private void createQuickSave(boolean withSram) {
+        final long handle = this.nativeHandle;
+        if (handle == 0) {
+            return;
+        }
+        File dir = quickSaveDir();
+        dir.mkdirs();
+        java.util.List<File> slots = quickSaves();
+        int number = slots.isEmpty() ? 1 : slotNumber(slots.get(0)) + 1;
+        final File state = new File(dir, number + ".state");
+        captureThumbnail(thumbnailFor(state));
+        callCore(h -> {
+            boolean saved = NativeGba.saveStateFile(h, state.getAbsolutePath());
+            if (withSram) {
+                NativeGba.saveSramNow(h);
+            }
+            if (saved) {
+                // Keep the newest QUICK_SLOTS; the oldest give way.
+                java.util.List<File> all = quickSaves();
+                for (int k = QUICK_SLOTS; k < all.size(); k++) {
+                    deleteSlot(all.get(k));
+                }
+            } else {
+                thumbnailFor(state).delete();
+            }
+            return saved;
+        }, "빠른 저장 " + number + "에 저장했어요." + (slots.size() >= QUICK_SLOTS ? " (가장 오래된 칸을 바꿨어요)" : ""), "빠른 저장 실패.");
+    }
+
+    private static void deleteSlot(File state) {
+        state.delete();
+        thumbnailFor(state).delete();
+    }
+
+    // A small picture of the game screen, written as JPEG once Android has copied it.
+    private void captureThumbnail(File target) {
+        SurfaceView view = this.surfaceView;
+        if (view == null || view.getWidth() <= 0 || view.getHeight() <= 0 || android.os.Build.VERSION.SDK_INT < 24) {
+            return;
+        }
+        int width = 192;
+        int height = Math.max(1, Math.round(width * view.getHeight() / (float) view.getWidth()));
+        final android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+        try {
+            android.view.PixelCopy.request(view, bitmap, result -> {
+                if (result != android.view.PixelCopy.SUCCESS) {
+                    return;
+                }
+                new Thread(() -> {
+                    target.getParentFile().mkdirs();
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+                    } catch (java.io.IOException ignored) {
+                        // No picture for this save.
+                    }
+                }, "thumbnail").start();
+            }, new android.os.Handler(android.os.Looper.getMainLooper()));
+        } catch (IllegalArgumentException ignored) {
+            // The surface is not ready.
+        }
+    }
+
+    private static String saveTimeText(long modified) {
+        java.util.Calendar then = java.util.Calendar.getInstance();
+        then.setTimeInMillis(modified);
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        int days = now.get(java.util.Calendar.DAY_OF_YEAR) - then.get(java.util.Calendar.DAY_OF_YEAR);
+        boolean sameYear = then.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR);
+        String time = new java.text.SimpleDateFormat("a h:mm", Locale.KOREAN).format(new java.util.Date(modified));
+        if (sameYear && days == 0) {
+            return "오늘 " + time;
+        }
+        if (sameYear && days == 1) {
+            return "어제 " + time;
+        }
+        return new java.text.SimpleDateFormat(sameYear ? "M월 d일 a h:mm" : "yyyy년 M월 d일 a h:mm", Locale.KOREAN).format(new java.util.Date(modified));
+    }
+
+    // Keeps the game paused while a sheet opened from the pause menu is up.
+    private boolean holdPause;
+
+    private void showLoadList() {
+        this.holdPause = true;
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            resumeUnlessExiting();
+        });
+        fillLoadList(dialog, false, new java.util.HashSet<>());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    // The list itself: tap a save to load it; in delete mode, tick saves and delete them.
+    private void fillLoadList(android.app.Dialog dialog, boolean deleting, java.util.Set<File> ticked) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+
+        final java.util.List<File> saves = new java.util.ArrayList<>();
+        final File auto = autoStateFile();
+        if (auto.isFile()) {
+            saves.add(auto);
+        }
+        saves.addAll(quickSaves());
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.LOAD, RoundIconView.COLOR_LOAD), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(deleting ? "지울 세이브 선택" : "불러오기");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(deleting ? ticked.size() + "개 선택됨" : this.gameTitle + " · " + saves.size() + "개");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(sub);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, dp(8), 0);
+        header.addView(titles, titlesParams);
+        if (!saves.isEmpty()) {
+            TextView action = smallButton(deleting ? (ticked.size() == saves.size() ? "선택 해제" : "전체 선택") : "선택 삭제");
+            action.setOnClickListener(view -> {
+                if (!deleting) {
+                    fillLoadList(dialog, true, new java.util.HashSet<>());
+                } else {
+                    if (ticked.size() == saves.size()) {
+                        ticked.clear();
+                    } else {
+                        ticked.addAll(saves);
+                    }
+                    fillLoadList(dialog, true, ticked);
+                }
+            });
+            header.addView(action, new LinearLayout.LayoutParams(-2, dp(34)));
+        }
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        if (saves.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("아직 저장한 장면이 없어요.\n일시정지 메뉴의 \"빠른 저장\"으로 저장해 보세요.");
+            empty.setTextSize(13.0f);
+            empty.setLineSpacing(0, 1.2f);
+            empty.setGravity(17);
+            empty.setTextColor(Color.rgb(122, 130, 140));
+            empty.setPadding(0, dp(24), 0, dp(24));
+            panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        }
+        for (final File save : saves) {
+            final boolean isAuto = save.equals(auto);
+            boolean on = ticked.contains(save);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+            rowBackground.setColor(on ? Color.rgb(253, 236, 237) : Color.rgb(246, 247, 249));
+            rowBackground.setCornerRadius(dp(14));
+            row.setBackground(rowBackground);
+            if (deleting) {
+                TextView box = new TextView(this);
+                box.setText(on ? "✓" : "");
+                box.setTextColor(Color.WHITE);
+                box.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                box.setGravity(17);
+                android.graphics.drawable.GradientDrawable boxBackground = new android.graphics.drawable.GradientDrawable();
+                boxBackground.setCornerRadius(dp(7));
+                boxBackground.setColor(on ? Color.rgb(229, 72, 77) : Color.WHITE);
+                boxBackground.setStroke(dp(2), on ? Color.rgb(229, 72, 77) : Color.rgb(201, 206, 214));
+                box.setBackground(boxBackground);
+                LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(24), dp(24));
+                boxParams.setMargins(0, 0, dp(12), 0);
+                row.addView(box, boxParams);
+            }
+            android.widget.ImageView thumb = new android.widget.ImageView(this);
+            thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            android.graphics.drawable.GradientDrawable thumbBackground = new android.graphics.drawable.GradientDrawable();
+            thumbBackground.setColor(Color.rgb(203, 208, 215));
+            thumbBackground.setCornerRadius(dp(6));
+            thumb.setBackground(thumbBackground);
+            thumb.setClipToOutline(true);
+            File picture = isAuto ? autoThumbnail() : thumbnailFor(save);
+            if (picture.isFile()) {
+                thumb.setImageBitmap(android.graphics.BitmapFactory.decodeFile(picture.getAbsolutePath()));
+            }
+            row.addView(thumb, new LinearLayout.LayoutParams(dp(72), dp(44)));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            TextView name = new TextView(this);
+            name.setText(isAuto ? (isPs2() ? "이전 빠른 저장" : "자동 저장") : "빠른 저장 " + slotNumber(save));
+            name.setTextSize(14.0f);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            texts.addView(name);
+            TextView when = new TextView(this);
+            when.setText(saveTimeText(save.lastModified()) + (isAuto && !isPs2() ? " · 게임 나갈 때" : ""));
+            when.setTextSize(12.0f);
+            when.setTextColor(Color.rgb(122, 130, 140));
+            texts.addView(when);
+            LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            textsParams.setMargins(dp(12), 0, 0, 0);
+            row.addView(texts, textsParams);
+            row.setOnClickListener(view -> {
+                if (deleting) {
+                    if (!ticked.remove(save)) {
+                        ticked.add(save);
+                    }
+                    fillLoadList(dialog, true, ticked);
+                    return;
+                }
+                dialog.dismiss();
+                callCore(h -> NativeGba.loadStateFile(h, save.getAbsolutePath()),
+                        (isAuto ? "자동 저장" : "빠른 저장 " + slotNumber(save)) + "을 불러왔어요.", "불러오지 못했어요.");
+            });
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(row, rowParams);
+        }
+
+        if (!deleting && !saves.isEmpty()) {
+            TextView hint = new TextView(this);
+            hint.setText("항목을 누르면 그 장면으로 불러와요");
+            hint.setTextSize(11.5f);
+            hint.setGravity(17);
+            hint.setTextColor(Color.rgb(122, 130, 140));
+            LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
+            hintParams.setMargins(0, dp(10), 0, 0);
+            panel.addView(hint, hintParams);
+        }
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        if (deleting) {
+            TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+            cancel.setOnClickListener(view -> fillLoadList(dialog, false, new java.util.HashSet<>()));
+            buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+            TextView delete = dialogButton(ticked.isEmpty() ? "삭제" : ticked.size() + "개 삭제",
+                    ticked.isEmpty() ? Color.rgb(242, 170, 172) : Color.rgb(229, 72, 77), Color.WHITE);
+            delete.setOnClickListener(view -> {
+                if (!ticked.isEmpty()) {
+                    confirmDelete(dialog, saves, ticked, auto);
+                }
+            });
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+            deleteParams.setMargins(dp(10), 0, 0, 0);
+            buttons.addView(delete, deleteParams);
+        } else {
+            TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+            close.setOnClickListener(view -> dialog.dismiss());
+            buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        }
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+    }
+
+    private void confirmDelete(android.app.Dialog list, java.util.List<File> saves, java.util.Set<File> ticked, File auto) {
+        StringBuilder names = new StringBuilder();
+        for (File save : saves) {
+            if (ticked.contains(save)) {
+                if (names.length() > 0) {
+                    names.append(" · ");
+                }
+                names.append(save.equals(auto) ? (isPs2() ? "이전 빠른 저장" : "자동 저장") : "빠른 저장 " + slotNumber(save));
+            }
+        }
+        String note = names + "\n지운 세이브는 되돌릴 수 없어요.\n게임 안 세이브(메모리카드·SRAM)는 지워지지 않아요.";
+        new AlertDialog.Builder(this)
+                .setTitle("세이브 " + ticked.size() + "개를 지울까요?")
+                .setMessage(note)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("삭제", (d, w) -> {
+                    for (File save : ticked) {
+                        if (save.equals(auto)) {
+                            save.delete();
+                            autoThumbnail().delete();
+                        } else {
+                            deleteSlot(save);
+                        }
+                    }
+                    Toast.makeText(this, "세이브 " + ticked.size() + "개를 지웠어요.", 0).show();
+                    fillLoadList(list, false, new java.util.HashSet<>());
+                })
+                .show();
+    }
+
+    private TextView smallButton(String text) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(13.0f);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setTextColor(Color.rgb(55, 65, 81));
+        button.setGravity(17);
+        button.setPadding(dp(12), 0, dp(12), 0);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(241, 242, 244));
+        background.setCornerRadius(dp(10));
+        button.setBackground(background);
+        return button;
     }
 
     private void onResetClicked() {
@@ -1848,11 +2214,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // When the quick save was last written, from the state file the bridge keeps.
     private String lastQuickSaveText() {
-        File state = new File(new File(new File(getFilesDir(), "saves"), this.coreId), this.saveBaseName + ".state");
-        if (!state.isFile()) {
+        if (isMame139()) {
+            return null;
+        }
+        long modified = 0;
+        File auto = autoStateFile();
+        if (auto.isFile()) {
+            modified = auto.lastModified();
+        }
+        for (File save : quickSaves()) {
+            modified = Math.max(modified, save.lastModified());
+        }
+        if (modified == 0) {
             return "저장 없음";
         }
-        long modified = state.lastModified();
         java.util.Calendar then = java.util.Calendar.getInstance();
         then.setTimeInMillis(modified);
         java.util.Calendar now = java.util.Calendar.getInstance();
@@ -1883,7 +2258,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
                 return;
             } else {
-                callCore(NativeGba::saveStateNow, "빠른 저장을 완료했습니다.", "빠른 저장 실패.");
+                createQuickSave(false);
                 return;
             }
         }
@@ -1893,7 +2268,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Toast.makeText(this, "MAME 0.139 빠른 저장 불러오기를 요청했습니다.", 0).show();
                 return;
             } else {
-                callCore(NativeGba::loadStateNow, "빠른 저장을 불러왔습니다.", "빠른 저장 파일이 없습니다.");
+                showLoadList();
                 return;
             }
         }
@@ -1934,7 +2309,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (!this.menuExiting && isMame139()) {
             Emulator.resume();
         } else {
-            if (this.menuExiting) {
+            if (this.menuExiting || this.holdPause) {
                 return;
             }
             long j = this.nativeHandle;

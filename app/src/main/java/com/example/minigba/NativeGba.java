@@ -44,6 +44,11 @@ final class NativeGba {
     // With handle 0 it applies to the next game created; a running game changes layout.
     static native void setNdsLayout(long handle, int layout);
 
+    // Quick save slots: write the game's state to a file of the app's choosing, or load one.
+    static native boolean saveStateFile(long handle, String path);
+
+    static native boolean loadStateFile(long handle, String path);
+
     static native void setSurface(long j, Surface surface);
 
     static {
