@@ -308,9 +308,11 @@ struct Core {
     bool presenterRunning = false;
     std::thread presenter;
 
-    // Nintendo 64: Mupen64Plus-Next leaves the speed to a frontend that syncs to its audio
-    // and reports 60 fps whatever the game runs at, so its frames are timed by the audio
-    // they produce instead: samples over the last kAudioClockFrames runs.
+    // Nintendo 64 and Dreamcast: Mupen64Plus-Next and Flycast leave the speed to a frontend
+    // that syncs to their audio (Mupen64Plus-Next reports 60 fps whatever the game runs at;
+    // Flycast's threaded renderer can show more than one emulated frame a call), so their
+    // frames are timed by the audio they produce: samples over the last kAudioClockFrames
+    // runs.
     std::vector<uint32_t> audioClockSamples;
     size_t audioClockIndex = 0;
     uint64_t audioClockSum = 0;
@@ -1844,7 +1846,7 @@ void runLoop(Core* core) {
             }
             core->retroRun();
             core->framesRun++;
-            if (core->coreId == "mupen64plus_next") {
+            if (core->coreId == "mupen64plus_next" || core->coreId == "flycast") {
                 fps = audioClockFps(core, core->audioPending.size() / 2);
             }
             flushAudio(core);
