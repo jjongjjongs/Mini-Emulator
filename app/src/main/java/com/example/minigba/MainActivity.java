@@ -3152,7 +3152,8 @@ public final class MainActivity extends Activity {
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(this.pendingSaveRom);
         List<File> cards = pcsx2MemoryCardsFor(file);
-        if (!saveFileFor.exists() && !stateFileFor.exists() && cards.isEmpty()) {
+        File[] quickSaves = quickSaveFilesFor(file);
+        if (!saveFileFor.exists() && !stateFileFor.exists() && cards.isEmpty() && quickSaves.length == 0) {
             showError("세이브 내보내기 실패: 세이브 파일이 없습니다");
             return;
         }
@@ -3169,6 +3170,9 @@ public final class MainActivity extends Activity {
             }
             for (File card : cards) {
                 writeZipEntry(zipOutputStream, card, "memcards/" + card.getName());
+            }
+            for (File quick : quickSaves) {
+                writeZipEntry(zipOutputStream, quick, "quicksaves/" + quick.getName());
             }
             showMessage(cards.isEmpty() ? "세이브 백업을 내보냈습니다." : "세이브 백업을 내보냈습니다. PS2 메모리카드 " + cards.size() + "개(모든 PS2 게임 공용)도 들어 있어요.");
         } catch (IOException e) {
@@ -3251,6 +3255,8 @@ public final class MainActivity extends Activity {
         File stateFileFor = stateFileFor(this.pendingSaveRom);
         boolean pcsx2 = CORE_PCSX2.equals(coreFor(file2));
         int cards = 0;
+        File quickDir = quickSaveDirFor(file2);
+        boolean quickCleared = false;
         try (InputStream openInputStream = getContentResolver().openInputStream(uri);
              ZipInputStream zipInputStream = openInputStream == null ? null : new ZipInputStream(openInputStream)) {
             if (zipInputStream == null) {
@@ -3267,7 +3273,15 @@ public final class MainActivity extends Activity {
                 }
                 String lowerCase = new File(nextEntry.getName()).getName().toLowerCase(Locale.US);
                 File file;
-                if (lowerCase.endsWith(".sav")) {
+                String entryName = nextEntry.getName().replace('\\', '/');
+                if (entryName.startsWith("quicksaves/")) {
+                    // The backup's quick save slots replace the game's.
+                    file = isQuickSaveFileName(lowerCase) ? new File(quickDir, lowerCase) : null;
+                    if (file != null && !quickCleared) {
+                        deleteQuickSaves(quickDir);
+                        quickCleared = true;
+                    }
+                } else if (lowerCase.endsWith(".sav")) {
                     file = saveFileFor;
                 } else if (pcsx2 && lowerCase.endsWith(".ps2")) {
                     // A memory card is shared by all PS2 games: keep the one it replaces.
@@ -3313,10 +3327,12 @@ public final class MainActivity extends Activity {
         migrateSaveFileIfNeeded(file);
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(file);
-        if (!saveFileFor.exists() && !stateFileFor.exists()) {
+        File quickDir = quickSaveDirFor(file);
+        if (!saveFileFor.exists() && !stateFileFor.exists() && !quickDir.exists()) {
             showMessage("삭제할 세이브가 없습니다.");
             return;
         }
+        deleteQuickSaves(quickDir);
         boolean z = !saveFileFor.exists() || saveFileFor.delete();
         boolean z2 = !stateFileFor.exists() || stateFileFor.delete();
         if (z && z2) {
@@ -3360,12 +3376,17 @@ public final class MainActivity extends Activity {
             showError("같은 이름의 세이브가 이미 있습니다.");
             return;
         }
+        File oldQuickDir = quickSaveDirFor(file);
+        File newQuickDir = new File(new File(file2, "quicksaves"), sanitizeSaveBaseName);
         SharedPreferences.Editor edit = romPrefs().edit();
         edit.putString("title:" + file.getName(), trim);
         edit.putString("save:" + file.getName(), sanitizeSaveBaseName);
         edit.apply();
         migrateNamedSave(saveFileFor, file3);
         migrateNamedSave(stateFileFor, file4);
+        if (!oldQuickDir.equals(newQuickDir) && oldQuickDir.isDirectory() && !newQuickDir.exists()) {
+            oldQuickDir.renameTo(newQuickDir);
+        }
         showMessage("세이브 이름: " + sanitizeSaveBaseName + ".sav");
         refreshLibrary();
     }
@@ -4471,6 +4492,31 @@ public final class MainActivity extends Activity {
         return new File(getFilesDir(), "saves");
     }
 
+    // The game's own quick save slots (GameActivity keeps them): "<n>.state" with a "<n>.jpg"
+    // picture each, and "auto.jpg" for the automatic save.
+    private File quickSaveDirFor(File rom) {
+        return new File(new File(new File(saveDir(), coreFor(rom)), "quicksaves"), saveBaseNameFor(rom));
+    }
+
+    private static boolean isQuickSaveFileName(String name) {
+        return name.matches("\\d+\\.(state|jpg)") || name.equals("auto.jpg");
+    }
+
+    private File[] quickSaveFilesFor(File rom) {
+        File[] files = quickSaveDirFor(rom).listFiles((dir, name) -> isQuickSaveFileName(name));
+        return files == null ? new File[0] : files;
+    }
+
+    private static void deleteQuickSaves(File dir) {
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                file.delete();
+            }
+        }
+        dir.delete();
+    }
+
     private File saveFileFor(File file) {
         return new File(new File(saveDir(), coreFor(file)), saveBaseNameFor(file) + ".sav");
     }
@@ -4999,6 +5045,11 @@ public final class MainActivity extends Activity {
                 return base;
             }
             moved.add(suffix);
+        }
+        File quick = new File(new File(dir, "quicksaves"), base);
+        File repairedQuick = new File(new File(dir, "quicksaves"), repaired);
+        if (quick.isDirectory() && !repairedQuick.exists()) {
+            quick.renameTo(repairedQuick);
         }
         romPrefs().edit().putString("save:" + file.getName(), repaired).apply();
         return repaired;
