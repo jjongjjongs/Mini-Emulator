@@ -13,6 +13,7 @@ import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -1095,6 +1096,742 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         resumeUnlessExiting();
     }
 
+
+    // ---- 치트 코드 ----
+    private static final int REQUEST_CHEAT_FILE = 3101;
+    private static final int CHEAT_RED = Color.rgb(225, 29, 72);
+    private static final int CHEAT_GREEN = Color.rgb(5, 150, 105);
+    private java.util.List<Cheats.Cheat> cheatList;
+    private android.app.Dialog cheatDialog;
+    private TextView cheatSubtitle;
+    private TextView cheatRowValue;
+    private boolean cheatSearching;
+    private String cheatError;
+
+    private boolean cheatsSupported() {
+        return !isMame139() && this.romPath != null && Cheats.supported(this.gameMode);
+    }
+
+    private File romFile() {
+        return new File(this.romPath);
+    }
+
+    private java.util.List<Cheats.Cheat> cheats() {
+        if (this.cheatList == null) {
+            this.cheatList = cheatsSupported() ? Cheats.load(this, romFile()) : new java.util.ArrayList<>();
+        }
+        return this.cheatList;
+    }
+
+    private String cheatSummary() {
+        if (!cheatsSupported()) {
+            return "지원 안 함";
+        }
+        int on = Cheats.enabledCodes(cheats()).length;
+        return on == 0 ? "꺼짐" : on + "개 켜짐";
+    }
+
+    // Saves the list and hands the codes that are on to the engine.
+    private void cheatsChanged() {
+        Cheats.save(this, romFile(), cheats());
+        applyCheats();
+        if (this.cheatSubtitle != null) {
+            this.cheatSubtitle.setText(cheatSubtitleText());
+        }
+        if (this.cheatRowValue != null) {
+            this.cheatRowValue.setText(cheatSummary() + "  ›");
+        }
+    }
+
+    private String cheatSubtitleText() {
+        int on = Cheats.enabledCodes(cheats()).length;
+        return this.gameTitle + (on > 0 ? " · 켜진 것 " + on + "개" : "");
+    }
+
+    private void applyCheats() {
+        final long handle = this.nativeHandle;
+        if (handle == 0 || !cheatsSupported()) {
+            return;
+        }
+        final String[] codes = Cheats.enabledCodes(cheats());
+        // Nothing was ever set for this game: leave the engine alone.
+        if (codes.length == 0 && !Cheats.file(this, romFile()).exists()) {
+            return;
+        }
+        coreWorker.execute(() -> NativeGba.setCheats(handle, codes));
+    }
+
+    // How codes look on this console; shown under the code box.
+    private String cheatFormatNote() {
+        switch (this.gameMode) {
+            case "gba": return isGameBoy() ? "게임보이: 게임지니 · 게임샤크 (예: 01FF16D0)" : "GBA: 게임샤크 · 액션리플레이 · 코드브레이커 (예: 82025D7C 423F)";
+            case "snes": return "슈퍼패미컴: 게임지니 · 프로액션리플레이 (예: 7E0DBE09)";
+            case "nes": return "패미컴: 게임지니 (예: SXIOPO)";
+            case "md": return "메가드라이브: 게임지니 · 프로액션리플레이 (예: FF0FC4:0009)";
+            case "sms": return "마스터시스템·게임기어: 게임지니 · 프로액션리플레이";
+            case "pce": return "PC엔진: 주소:값 형식";
+            case "nds": return "DS: 액션리플레이 (예: 221D2B0C 000000FF)";
+            case "n64": return "N64: 게임샤크 (예: 8033B21E 0008)";
+            case "ps1": return "PS1: 게임샤크 (예: 800B1234 FFFF)";
+            case "psp": return "PSP: CWCheat (예: _L 0x20123456 0x0000270F)";
+            default: return "";
+        }
+    }
+
+    private static android.graphics.drawable.GradientDrawable roundRect(int color, int radius) {
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(radius);
+        return drawable;
+    }
+
+    private TextView sheetText(String text, float size, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        if (bold) {
+            view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        }
+        return view;
+    }
+
+    // Icon, title and a one-line subtitle (returned through the subtitle holder).
+    private LinearLayout sheetHeader(int icon, int color, String title, String subtitle, TextView[] subtitleOut) {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        titles.addView(sheetText(title, 17.0f, Color.rgb(31, 41, 51), true));
+        TextView sub = sheetText(subtitle, 12.0f, Color.rgb(122, 130, 140), false);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(sub);
+        if (subtitleOut != null) {
+            subtitleOut[0] = sub;
+        }
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        return header;
+    }
+
+    private EditText searchBox(String hint) {
+        EditText box = new EditText(this);
+        box.setHint(hint);
+        box.setSingleLine(true);
+        box.setTextSize(13.5f);
+        box.setTextColor(Color.rgb(31, 41, 51));
+        box.setHintTextColor(Color.rgb(154, 161, 170));
+        box.setPadding(dp(12), 0, dp(12), 0);
+        box.setBackground(roundRect(Color.rgb(241, 243, 245), dp(12)));
+        return box;
+    }
+
+    private void onTextChanged(EditText box, Runnable action) {
+        box.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable text) {
+                action.run();
+            }
+        });
+    }
+
+    // A white card dialog; heightShare > 0 gives it that share of the screen height.
+    private android.app.Dialog cardDialog(View content, float heightShare) {
+        android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setContentView(content);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400));
+            window.setLayout(width, heightShare > 0 ? Math.round(getResources().getDisplayMetrics().heightPixels * heightShare) : -2);
+        }
+        return dialog;
+    }
+
+    private LinearLayout.LayoutParams marginTop(int width, int height, int topDp) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
+        params.setMargins(0, dp(topDp), 0, 0);
+        return params;
+    }
+
+    // The cheat list (or the "not found" page), opened from the pause menu.
+    private void showCheatSheet() {
+        if (this.cheatDialog != null && this.cheatDialog.isShowing()) {
+            this.cheatDialog.dismiss();
+        }
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        TextView[] subtitle = new TextView[1];
+        panel.addView(sheetHeader(RoundIconView.CHEAT, CHEAT_RED, "치트 코드", cheatSubtitleText(), subtitle));
+        this.cheatSubtitle = subtitle[0];
+        String source = Cheats.source(this, romFile());
+        if (source == null && !this.cheatSearching && this.cheatError == null) {
+            startCheatSearch();
+        }
+        final android.app.Dialog dialog;
+        if ("-".equals(source) && cheats().isEmpty() && !this.cheatSearching) {
+            fillCheatNotFound(panel);
+            dialog = cardDialog(panel, 0);
+        } else {
+            panel.addView(cheatBanner(source), marginTop(-1, -2, 10));
+            EditText search = searchBox("🔍  치트 검색 (이름이 영어예요)");
+            panel.addView(search, marginTop(-1, dp(38), 10));
+            LinearLayout rows = new LinearLayout(this);
+            rows.setOrientation(1);
+            android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+            scroll.addView(rows);
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
+            scrollParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(scroll, scrollParams);
+            Runnable fill = () -> fillCheatRows(rows, search.getText().toString());
+            onTextChanged(search, fill);
+            fill.run();
+            LinearLayout buttons = new LinearLayout(this);
+            buttons.setOrientation(0);
+            TextView add = dialogButton("＋ 직접 입력", Color.rgb(255, 228, 230), Color.rgb(190, 18, 60));
+            add.setTextSize(13.5f);
+            add.setOnClickListener(view -> showCheatEditor(null));
+            buttons.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1.0f));
+            TextView file = dialogButton("파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+            file.setTextSize(13.5f);
+            file.setOnClickListener(view -> openCheatFile());
+            LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(0, dp(44), 1.0f);
+            fileParams.setMargins(dp(8), 0, 0, 0);
+            buttons.addView(file, fileParams);
+            panel.addView(buttons, marginTop(-1, -2, 10));
+            dialog = cardDialog(panel, 0.86f);
+        }
+        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        panel.addView(close, marginTop(-1, dp(46), 10));
+        dialog.setOnDismissListener(d -> {
+            if (this.cheatDialog == dialog) {
+                this.cheatDialog = null;
+                this.cheatSubtitle = null;
+            }
+        });
+        this.cheatDialog = dialog;
+        dialog.show();
+    }
+
+    private View cheatBanner(String source) {
+        LinearLayout banner = new LinearLayout(this);
+        banner.setOrientation(0);
+        banner.setGravity(16);
+        banner.setPadding(dp(11), dp(9), dp(9), dp(9));
+        String title;
+        String detail;
+        int background;
+        int color;
+        if (this.cheatSearching) {
+            title = "치트 모음에서 찾는 중…";
+            detail = "게임 이름으로 찾고 있어요";
+            background = Color.rgb(239, 246, 255);
+            color = Color.rgb(30, 64, 175);
+        } else if (this.cheatError != null && source == null) {
+            title = "치트 모음을 받지 못했어요";
+            detail = this.cheatError;
+            background = Color.rgb(255, 247, 237);
+            color = Color.rgb(154, 52, 18);
+        } else if (source == null || "-".equals(source)) {
+            title = "치트 모음에 없는 게임이에요";
+            detail = "다른 판을 고르거나 직접 입력해 주세요";
+            background = Color.rgb(246, 247, 249);
+            color = Color.rgb(75, 85, 99);
+        } else {
+            int count = 0;
+            for (Cheats.Cheat cheat : cheats()) {
+                if (!cheat.custom) {
+                    count++;
+                }
+            }
+            title = "치트 모음에서 찾음 · " + count + "개";
+            detail = source.substring(source.indexOf('/') + 1);
+            background = Color.rgb(236, 253, 245);
+            color = Color.rgb(6, 95, 70);
+        }
+        banner.setBackground(roundRect(background, dp(12)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        texts.addView(sheetText(title, 12.5f, color, true));
+        TextView sub = sheetText(detail, 11.5f, color, false);
+        sub.setMaxLines(2);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(sub);
+        banner.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        if (!this.cheatSearching) {
+            final boolean retry = this.cheatError != null && source == null;
+            TextView action = sheetText(retry ? "다시 시도" : "다른 판 ›", 12.0f, retry ? color : CHEAT_GREEN, true);
+            action.setPadding(dp(10), dp(6), dp(10), dp(6));
+            action.setBackground(roundRect(Color.WHITE, dp(10)));
+            action.setOnClickListener(view -> {
+                if (retry) {
+                    this.cheatError = null;
+                    showCheatSheet();
+                } else {
+                    showCheatVersionPicker();
+                }
+            });
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(-2, -2);
+            actionParams.setMargins(dp(8), 0, 0, 0);
+            banner.addView(action, actionParams);
+        }
+        return banner;
+    }
+
+    private void fillCheatNotFound(LinearLayout panel) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setGravity(1);
+        box.setPadding(dp(14), dp(20), dp(14), dp(20));
+        box.setBackground(roundRect(Color.rgb(246, 247, 249), dp(16)));
+        box.addView(sheetText("✱", 28.0f, Color.rgb(203, 210, 217), true));
+        TextView title = sheetText("치트 모음에서 이 게임을 못 찾았어요", 15.0f, Color.rgb(55, 65, 81), true);
+        title.setGravity(1);
+        box.addView(title);
+        TextView detail = sheetText("한글판·일본판처럼 모음에 없는 판일 수 있어요.\n비슷한 판을 직접 고르거나 코드를 입력해 주세요.", 12.0f, Color.rgb(122, 130, 140), false);
+        detail.setGravity(1);
+        detail.setPadding(0, dp(6), 0, 0);
+        box.addView(detail);
+        panel.addView(box, marginTop(-1, -2, 14));
+        panel.addView(createSettingRow(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "", view -> showCheatVersionPicker()), marginTop(-1, dp(52), 12));
+        panel.addView(createSettingRow(RoundIconView.CHEAT, CHEAT_RED, "직접 입력", "", view -> showCheatEditor(null)), marginTop(-1, dp(52), 8));
+        panel.addView(createSettingRow(RoundIconView.IMPORT, Color.rgb(75, 85, 99), "파일에서 가져오기 (.cht)", "", view -> openCheatFile()), marginTop(-1, dp(52), 8));
+        TextView note = sheetText("다른 판의 코드는 주소가 달라서 안 먹히거나 엉뚱하게 동작할 수 있어요. 켜보고 이상하면 끄면 돼요.", 11.5f, Color.rgb(154, 52, 18), false);
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(roundRect(Color.rgb(255, 247, 237), dp(12)));
+        panel.addView(note, marginTop(-1, -2, 10));
+    }
+
+    private void fillCheatRows(LinearLayout rows, String query) {
+        rows.removeAllViews();
+        String q = query.trim().toLowerCase(Locale.ROOT);
+        java.util.List<Cheats.Cheat> list = cheats();
+        int shown = 0;
+        for (final Cheats.Cheat cheat : list) {
+            if (!q.isEmpty() && !cheat.desc.toLowerCase(Locale.ROOT).contains(q)) {
+                continue;
+            }
+            shown++;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(8), dp(12), dp(8));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            LinearLayout nameLine = new LinearLayout(this);
+            nameLine.setGravity(16);
+            nameLine.addView(sheetText(cheat.desc, 13.5f, Color.rgb(31, 41, 51), true), new LinearLayout.LayoutParams(0, -2, 1.0f));
+            boolean master = Cheats.isMaster(cheat);
+            if (master || cheat.custom) {
+                TextView badge = sheetText(master ? "먼저 켜기" : "직접 입력", 10.5f, master ? Color.rgb(146, 64, 14) : Color.rgb(190, 18, 60), true);
+                badge.setPadding(dp(6), dp(1), dp(6), dp(1));
+                badge.setBackground(roundRect(master ? Color.rgb(253, 230, 138) : Color.rgb(255, 228, 230), dp(8)));
+                LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, -2);
+                badgeParams.setMargins(dp(6), 0, 0, 0);
+                nameLine.addView(badge, badgeParams);
+            }
+            texts.addView(nameLine);
+            TextView code = sheetText(cheat.code.replace("+", " · "), 11.0f, Color.rgb(156, 163, 175), false);
+            code.setTypeface(android.graphics.Typeface.MONOSPACE);
+            code.setSingleLine(true);
+            code.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            texts.addView(code);
+            row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            ToggleView toggle = new ToggleView(this, CHEAT_RED);
+            toggle.setOn(cheat.on);
+            LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(dp(44), dp(26));
+            toggleParams.setMargins(dp(10), 0, 0, 0);
+            row.addView(toggle, toggleParams);
+            Runnable paint = () -> {
+                toggle.setOn(cheat.on);
+                row.setBackground(roundRect(cheat.on ? Color.rgb(255, 241, 242) : Color.rgb(246, 247, 249), dp(13)));
+            };
+            paint.run();
+            row.setOnClickListener(view -> setCheatOn(cheat, !cheat.on, paint));
+            row.setOnLongClickListener(view -> {
+                showCheatActions(cheat);
+                return true;
+            });
+            rows.addView(row, marginTop(-1, -2, shown == 1 ? 0 : 6));
+        }
+        if (shown == 0) {
+            String text = !list.isEmpty() ? "‘" + query.trim() + "’ 이름의 치트가 없어요."
+                    : this.cheatSearching ? "찾는 중…" : "아직 치트가 없어요. 직접 입력하거나 파일에서 가져오세요.";
+            TextView empty = sheetText(text, 12.5f, Color.rgb(122, 130, 140), false);
+            empty.setGravity(17);
+            empty.setPadding(0, dp(24), 0, dp(24));
+            rows.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        }
+    }
+
+    // Turning the first cheat of a game on offers a quick save first (asked once per game).
+    private void setCheatOn(Cheats.Cheat cheat, boolean on, Runnable done) {
+        if (on && !Cheats.warned(this, romFile())) {
+            LinearLayout panel = new LinearLayout(this);
+            panel.setOrientation(1);
+            panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+            panel.setBackground(roundRect(Color.WHITE, dp(22)));
+            panel.addView(sheetText("치트를 켜기 전에 저장할까요?", 16.0f, Color.rgb(31, 41, 51), true));
+            TextView body = sheetText("치트는 게임 데이터를 직접 바꿔서 세이브가 망가질 수 있어요. 지금 상태를 빠른 저장 칸에 남겨두면 언제든 돌아올 수 있어요.", 12.5f, Color.rgb(75, 85, 99), false);
+            body.setLineSpacing(0, 1.2f);
+            panel.addView(body, marginTop(-1, -2, 8));
+            panel.addView(sheetText("게임마다 처음 한 번만 물어봐요.", 11.5f, Color.rgb(156, 163, 175), false), marginTop(-1, -2, 6));
+            LinearLayout buttons = new LinearLayout(this);
+            TextView plain = dialogButton("그냥 켜기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+            buttons.addView(plain, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+            TextView save = dialogButton("저장하고 켜기", CHEAT_RED, Color.WHITE);
+            LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+            saveParams.setMargins(dp(10), 0, 0, 0);
+            buttons.addView(save, saveParams);
+            panel.addView(buttons, marginTop(-1, -2, 14));
+            final android.app.Dialog dialog = cardDialog(panel, 0);
+            plain.setOnClickListener(view -> {
+                dialog.dismiss();
+                Cheats.setWarned(this, romFile());
+                setCheatOn(cheat, true, done);
+            });
+            save.setOnClickListener(view -> {
+                dialog.dismiss();
+                Cheats.setWarned(this, romFile());
+                // Queued on the core worker ahead of the cheat change.
+                createQuickSave(false);
+                setCheatOn(cheat, true, done);
+            });
+            dialog.show();
+            return;
+        }
+        cheat.on = on;
+        cheatsChanged();
+        done.run();
+    }
+
+    private void showCheatActions(Cheats.Cheat cheat) {
+        new AlertDialog.Builder(this).setTitle(cheat.desc).setItems(new String[]{"고치기", "지우기"}, (d, which) -> {
+            if (which == 0) {
+                showCheatEditor(cheat);
+            } else {
+                cheats().remove(cheat);
+                cheatsChanged();
+                showCheatSheet();
+            }
+        }).show();
+    }
+
+    private int firstCollectionCheat() {
+        int at = 0;
+        while (at < cheats().size() && cheats().get(at).custom) {
+            at++;
+        }
+        return at;
+    }
+
+    // 직접 입력 / 고치기: a name and one code per line.
+    private void showCheatEditor(final Cheats.Cheat editing) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        panel.addView(sheetHeader(RoundIconView.CHEAT, CHEAT_RED, editing == null ? "치트 코드 추가" : "치트 코드 고치기", this.gameTitle, null));
+        panel.addView(sheetText("이름", 12.5f, Color.rgb(55, 65, 81), true), marginTop(-2, -2, 12));
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setTextSize(14.0f);
+        name.setHint("예: 돈 999999");
+        name.setPadding(dp(12), dp(10), dp(12), dp(10));
+        name.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
+        panel.addView(name, marginTop(-1, -2, 6));
+        panel.addView(sheetText("코드 (한 줄에 하나, 여러 줄 가능)", 12.5f, Color.rgb(55, 65, 81), true), marginTop(-2, -2, 12));
+        EditText code = new EditText(this);
+        code.setTextSize(14.0f);
+        code.setTypeface(android.graphics.Typeface.MONOSPACE);
+        code.setMinLines(3);
+        code.setGravity(Gravity.TOP | Gravity.START);
+        code.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        code.setPadding(dp(12), dp(10), dp(12), dp(10));
+        code.setBackground(roundRect(Color.rgb(255, 241, 242), dp(12)));
+        panel.addView(code, marginTop(-1, -2, 6));
+        if (editing != null) {
+            name.setText(editing.desc);
+            code.setText(Cheats.codeForInput(editing.code));
+        }
+        TextView note = sheetText(cheatFormatNote() + "\n형식은 엔진이 알아서 구분해요.", 11.5f, Color.rgb(75, 85, 99), false);
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
+        panel.addView(note, marginTop(-1, -2, 10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView ok = dialogButton(editing == null ? "추가" : "저장", CHEAT_RED, Color.WHITE);
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+        okParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(ok, okParams);
+        panel.addView(buttons, marginTop(-1, -2, 14));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        final android.app.Dialog dialog = cardDialog(scroll, 0);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        ok.setOnClickListener(view -> {
+            String codeText = Cheats.codeFromInput(code.getText().toString());
+            if (codeText.isEmpty()) {
+                Toast.makeText(this, "코드를 입력해 주세요.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String nameText = name.getText().toString().trim();
+            dialog.dismiss();
+            if (editing != null) {
+                if (!nameText.isEmpty()) {
+                    editing.desc = nameText;
+                }
+                editing.code = codeText;
+                cheatsChanged();
+                showCheatSheet();
+                return;
+            }
+            // The player's own codes go first, and a new one starts on.
+            Cheats.Cheat cheat = new Cheats.Cheat(nameText.isEmpty() ? "내 치트 " + (firstCollectionCheat() + 1) : nameText, codeText, false, true);
+            cheats().add(firstCollectionCheat(), cheat);
+            Cheats.save(this, romFile(), cheats());
+            setCheatOn(cheat, true, this::showCheatSheet);
+        });
+        dialog.show();
+    }
+
+    private void openCheatFile() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_CHEAT_FILE);
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "파일을 고를 앱이 없어요.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // A .cht file the player picked: its cheats join the player's own (off).
+    private void importCheatFile(android.net.Uri uri) {
+        java.util.List<Cheats.Cheat> found;
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("no stream");
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[16384];
+            int read;
+            while ((read = in.read(buffer)) > 0 && out.size() < 4 * 1024 * 1024) {
+                out.write(buffer, 0, read);
+            }
+            found = Cheats.parse(new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException | RuntimeException e) {
+            found = new java.util.ArrayList<>();
+        }
+        if (found.isEmpty()) {
+            Toast.makeText(this, "이 파일에서 치트를 찾지 못했어요. (.cht 파일인지 확인해 주세요)", Toast.LENGTH_LONG).show();
+            return;
+        }
+        for (Cheats.Cheat cheat : found) {
+            cheat.on = false;
+            cheat.custom = true;
+        }
+        cheats().addAll(firstCollectionCheat(), found);
+        cheatsChanged();
+        Toast.makeText(this, "치트 " + found.size() + "개를 가져왔어요.", Toast.LENGTH_SHORT).show();
+        showCheatSheet();
+    }
+
+    // Looks the game up in the collection and downloads its cheats (once per game).
+    private void startCheatSearch() {
+        if (this.cheatSearching) {
+            return;
+        }
+        this.cheatSearching = true;
+        final File rom = romFile();
+        final String mode = this.gameMode;
+        final String title = this.gameTitle;
+        new Thread(() -> {
+            String error = null;
+            String source = null;
+            java.util.List<Cheats.Cheat> fresh = null;
+            try {
+                Cheats.Source match = Cheats.match(this, rom, mode, title);
+                if (match == null) {
+                    source = "-";
+                } else {
+                    fresh = Cheats.download(match);
+                    source = match.folder + "/" + match.name;
+                }
+            } catch (IOException e) {
+                error = "인터넷 연결을 확인해 주세요.";
+            }
+            final String doneSource = source;
+            final String doneError = error;
+            final java.util.List<Cheats.Cheat> doneCheats = fresh;
+            runOnUiThread(() -> {
+                this.cheatSearching = false;
+                this.cheatError = doneError;
+                if (doneSource != null) {
+                    if (doneCheats != null) {
+                        this.cheatList = Cheats.merge(cheats(), doneCheats);
+                        Cheats.save(this, rom, this.cheatList);
+                    }
+                    Cheats.setSource(this, rom, doneSource);
+                }
+                if (this.cheatDialog != null && this.cheatDialog.isShowing()) {
+                    showCheatSheet();
+                }
+            });
+        }, "cheat-search").start();
+    }
+
+    // 다른 판 고르기: every collection file of this console, searchable.
+    private void showCheatVersionPicker() {
+        final java.util.List<Cheats.Source> all = new java.util.ArrayList<>();
+        for (String folder : Cheats.folders(this.gameMode, romFile().getName().toLowerCase(Locale.US))) {
+            all.addAll(Cheats.sources(this, folder));
+        }
+        String current = Cheats.source(this, romFile());
+        final Cheats.Source[] selected = {null};
+        for (Cheats.Source source : all) {
+            if ((source.folder + "/" + source.name).equals(current)) {
+                selected[0] = source;
+            }
+        }
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        panel.addView(sheetHeader(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "치트 모음 " + all.size() + "개 중에서", null));
+        EditText search = searchBox("🔍  게임 이름 (영어)");
+        // Starts from the first word of the game's (or the chosen file's) English title.
+        String guess = CoverMatcher.title(selected[0] != null ? selected[0].name : romFile().getName().replaceFirst("\\.[^.]+$", ""));
+        if (guess.matches("[a-z0-9 ]+")) {
+            search.setText(guess.split(" ")[0]);
+        }
+        panel.addView(search, marginTop(-1, dp(38), 10));
+        LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(1);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(rows);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
+        scrollParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(scroll, scrollParams);
+        final Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            rows.removeAllViews();
+            String q = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            int shown = 0;
+            for (final Cheats.Source source : all) {
+                if (!q.isEmpty() && !source.name.toLowerCase(Locale.ROOT).contains(q)) {
+                    continue;
+                }
+                if (++shown > 150) {
+                    rows.addView(sheetText("… 더 있어요. 이름을 더 입력해 주세요.", 11.5f, Color.rgb(156, 163, 175), false), marginTop(-1, -2, 8));
+                    break;
+                }
+                boolean on = source == selected[0];
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(0);
+                row.setGravity(16);
+                row.setPadding(dp(12), dp(9), dp(12), dp(9));
+                row.setBackground(roundRect(on ? Color.rgb(236, 253, 245) : Color.rgb(246, 247, 249), dp(13)));
+                View dot = new View(this);
+                android.graphics.drawable.GradientDrawable ring = new android.graphics.drawable.GradientDrawable();
+                ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                ring.setStroke(dp(2), on ? CHEAT_GREEN : Color.rgb(201, 206, 214));
+                ring.setColor(Color.WHITE);
+                dot.setBackground(on ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{ring, innerDot(CHEAT_GREEN)}) : ring);
+                row.addView(dot, new LinearLayout.LayoutParams(dp(20), dp(20)));
+                LinearLayout texts = new LinearLayout(this);
+                texts.setOrientation(1);
+                texts.addView(sheetText(source.name, 12.5f, Color.rgb(31, 41, 51), true));
+                texts.addView(sheetText("치트 " + source.count + "개", 11.0f, Color.rgb(156, 163, 175), false));
+                LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+                textsParams.setMargins(dp(10), 0, 0, 0);
+                row.addView(texts, textsParams);
+                row.setOnClickListener(view -> {
+                    selected[0] = source;
+                    fill[0].run();
+                });
+                rows.addView(row, marginTop(-1, -2, shown == 1 ? 0 : 6));
+            }
+            if (shown == 0) {
+                TextView empty = sheetText("찾는 이름이 없어요.", 12.5f, Color.rgb(122, 130, 140), false);
+                empty.setGravity(17);
+                empty.setPadding(0, dp(24), 0, dp(24));
+                rows.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+            }
+        };
+        onTextChanged(search, fill[0]);
+        fill[0].run();
+        TextView warn = sheetText("판이 다르면 코드가 안 맞을 수 있어요. 직접 입력한 치트는 그대로 남아요.", 11.5f, Color.rgb(154, 52, 18), false);
+        warn.setPadding(dp(12), dp(8), dp(12), dp(8));
+        warn.setBackground(roundRect(Color.rgb(255, 247, 237), dp(12)));
+        panel.addView(warn, marginTop(-1, -2, 10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView ok = dialogButton("이 판으로", CHEAT_GREEN, Color.WHITE);
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+        okParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(ok, okParams);
+        panel.addView(buttons, marginTop(-1, -2, 10));
+        final android.app.Dialog dialog = cardDialog(panel, 0.86f);
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        ok.setOnClickListener(view -> {
+            final Cheats.Source source = selected[0];
+            if (source == null) {
+                Toast.makeText(this, "판을 하나 골라 주세요.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            dialog.dismiss();
+            Toast.makeText(this, "치트를 받는 중…", Toast.LENGTH_SHORT).show();
+            final File rom = romFile();
+            new Thread(() -> {
+                java.util.List<Cheats.Cheat> fresh;
+                try {
+                    fresh = Cheats.download(source);
+                } catch (IOException e) {
+                    fresh = null;
+                }
+                final java.util.List<Cheats.Cheat> done = fresh;
+                runOnUiThread(() -> {
+                    if (done == null) {
+                        Toast.makeText(this, "치트를 받지 못했어요. 인터넷 연결을 확인해 주세요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    this.cheatList = Cheats.merge(cheats(), done);
+                    Cheats.setSource(this, rom, source.folder + "/" + source.name);
+                    this.cheatError = null;
+                    cheatsChanged();
+                    showCheatSheet();
+                });
+            }, "cheat-download").start();
+        });
+        dialog.show();
+    }
+
     // ---- 설정: screen filter, button vibration, combo zones (all games) ----
     private static final String[] FILTER_NAMES = {"기본", "선명하게", "스캔라인", "LCD 격자"};
     private static final String[] FILTER_NOTES = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자"};
@@ -1298,7 +2035,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         long j = this.nativeHandle;
         if (j != 0) {
-            NativeGba.pause(j, false);
+            // Back from a file picker opened over the pause menu: stay paused under it.
+            boolean menuOpen = this.holdPause || (this.pauseDialog != null && this.pauseDialog.isShowing());
+            NativeGba.pause(j, menuOpen);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CHEAT_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            importCheatFile(data.getData());
         }
     }
 
@@ -1523,6 +2270,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         NativeGba.setInput(handle, this.buttonMask);
         NativeGba.setSpeedPercent(handle, this.speedPercent);
         NativeGba.setRewindEnabled(handle, rewindOn());
+        applyCheats();
         // The surface or the activity state may have changed while the game was loading.
         if (!this.surfaceReady || this.activeSurfaceHolder == null) {
             NativeGba.clearSurface(handle);
@@ -2322,6 +3070,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(-1, dp(52));
         settingsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "설정", "", view -> showSettingsSheet()), settingsParams);
+        LinearLayout.LayoutParams cheatParams = new LinearLayout.LayoutParams(-1, dp(52));
+        cheatParams.setMargins(0, dp(8), 0, 0);
+        LinearLayout cheatRow = createSettingRow(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, "치트 코드", cheatSummary(), view -> {
+            if (!cheatsSupported()) {
+                Toast.makeText(this, "이 기종은 엔진이 치트를 지원하지 않아요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            showCheatSheet();
+        });
+        // Its value ("2개 켜짐") follows changes made in the cheat sheet over it.
+        this.cheatRowValue = (TextView) cheatRow.getChildAt(cheatRow.getChildCount() - 1);
+        panel.addView(cheatRow, cheatParams);
         if (isPadScreen()) {
             LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(-1, dp(52));
             speedParams.setMargins(0, dp(12), 0, 0);
@@ -2808,7 +3568,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (!this.menuExiting && isMame139()) {
             Emulator.resume();
         } else {
-            if (this.menuExiting || this.holdPause) {
+            // A menu dismissed while another took its place (or a sheet still holds the game).
+            if (this.menuExiting || this.holdPause || (this.pauseDialog != null && this.pauseDialog.isShowing())) {
                 return;
             }
             long j = this.nativeHandle;

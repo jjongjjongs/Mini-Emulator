@@ -69,4 +69,6 @@ final class NativeGba {
     static native void setRewinding(long handle, boolean held);
 
     static native float rewoundSeconds(long handle);
+
+    static native boolean setCheats(long handle, String[] codes);
 }

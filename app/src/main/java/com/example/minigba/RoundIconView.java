@@ -36,6 +36,8 @@ final class RoundIconView extends View {
     static final int VIBRATE = 21;
     static final int REWIND = 22;
     static final int MOVE = 23;
+    static final int CHEAT = 24;
+    static final int SWAP = 25;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -54,6 +56,7 @@ final class RoundIconView extends View {
     static final int COLOR_VIBRATE = Color.rgb(139, 92, 246);
     static final int COLOR_REWIND = Color.rgb(109, 40, 217);
     static final int COLOR_MOVE = Color.rgb(16, 185, 129);
+    static final int COLOR_CHEAT = Color.rgb(225, 29, 72);
 
     private final int icon;
     private final int color;
@@ -315,6 +318,31 @@ final class RoundIconView extends View {
                 path.lineTo(19.5f, 6.5f);
                 path.lineTo(19.5f, 17.5f);
                 path.close();
+                canvas.drawPath(path, line);
+                break;
+            case CHEAT:
+                // A six-point asterisk.
+                for (int k = 0; k < 3; k++) {
+                    double a = Math.PI / 2 + k * Math.PI / 3;
+                    float dx = (float) (Math.cos(a) * 8);
+                    float dy = (float) (Math.sin(a) * 8);
+                    path.moveTo(12 - dx, 12 - dy);
+                    path.lineTo(12 + dx, 12 + dy);
+                }
+                canvas.drawPath(path, line);
+                break;
+            case SWAP:
+                // Two arrows passing each other.
+                path.moveTo(5, 9);
+                path.lineTo(19, 9);
+                path.moveTo(15.5f, 5.5f);
+                path.lineTo(19, 9);
+                path.lineTo(15.5f, 12.5f);
+                path.moveTo(19, 15);
+                path.lineTo(5, 15);
+                path.moveTo(8.5f, 11.5f);
+                path.lineTo(5, 15);
+                path.lineTo(8.5f, 18.5f);
                 canvas.drawPath(path, line);
                 break;
             case MOVE:

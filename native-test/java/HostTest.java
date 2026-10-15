@@ -131,6 +131,16 @@ public class HostTest {
         before = frames();
         Thread.sleep(300);
         check(frames() > before, "plays on after rewinding");
+        check(NativeGba.setCheats(h, new String[]{"D8BAE4D9+4864DCE5", "320375D4+0000", "82025D7C 423F\n82025D7E 000F"}), "cheats accepted");
+        before = frames();
+        Thread.sleep(300);
+        check(frames() > before, "runs with cheats on");
+        // CodeBreaker 16-bit write of green into the centre pixel of the mode 3 screen.
+        check(NativeGba.setCheats(h, new String[]{"860096F0+03E0"}), "pixel cheat accepted");
+        Thread.sleep(300);
+        int[] cf = lastFrame();
+        check(cf[0] == 0x07C0, String.format("cheat changes the game: centre pixel 0x%04X", cf[0]));
+        check(NativeGba.setCheats(h, new String[0]), "cheats cleared");
         NativeGba.setRewindEnabled(h, false);
         NativeGba.setRewinding(h, true);
         Thread.sleep(200);

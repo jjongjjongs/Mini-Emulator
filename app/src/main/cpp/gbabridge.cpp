@@ -298,6 +298,9 @@ struct Core {
     void (*retroReset)() = nullptr;
     // Optional: only PCSX ReARMed needs a controller type (DualShock).
     void (*retroSetControllerPortDevice)(unsigned, unsigned) = nullptr;
+    // Optional: cheats (the app offers them only for engines that implement these).
+    void (*retroCheatReset)() = nullptr;
+    void (*retroCheatSet)(unsigned, bool, const char*) = nullptr;
     void (*retroGetSystemAvInfo)(retro_system_av_info*) = nullptr;
     void* (*retroGetMemoryData)(unsigned) = nullptr;
     size_t (*retroGetMemorySize)(unsigned) = nullptr;
@@ -2330,6 +2333,8 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         return 0;
     }
     core->gameLoaded = true;
+    core->retroCheatReset = reinterpret_cast<void (*)()>(dlsym(core->library, "retro_cheat_reset"));
+    core->retroCheatSet = reinterpret_cast<void (*)(unsigned, bool, const char*)>(dlsym(core->library, "retro_cheat_set"));
     // PCSX ReARMed starts with a digital pad; the app shows a DualShock.
     core->retroSetControllerPortDevice =
             reinterpret_cast<void (*)(unsigned, unsigned)>(dlsym(core->library, "retro_set_controller_port_device"));
@@ -2618,6 +2623,33 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNdsLayout(
 
 // PSP rendering scale (1-3) for the next game created; the window's buffers are sized
 // when the game starts, so a change takes a restart.
+// The cheats that are on, replacing the ones set before (an empty array turns them all off).
+// Some engines (mGBA) ignore the enabled flag and keep every code they are given, so only
+// the codes that are on are passed, after a reset.
+JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setCheats(
+        JNIEnv* env, jclass /*cls*/, jlong handle, jobjectArray codes) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->gameLoaded || core->retroCheatReset == nullptr || core->retroCheatSet == nullptr) {
+        return JNI_FALSE;
+    }
+    std::vector<std::string> list;
+    jsize count = codes == nullptr ? 0 : env->GetArrayLength(codes);
+    for (jsize k = 0; k < count; ++k) {
+        auto code = static_cast<jstring>(env->GetObjectArrayElement(codes, k));
+        if (code != nullptr) {
+            list.push_back(jstringToString(env, code));
+            env->DeleteLocalRef(code);
+        }
+    }
+    return callCore(core, [core, list] {
+        core->retroCheatReset();
+        for (size_t k = 0; k < list.size(); ++k) {
+            core->retroCheatSet(static_cast<unsigned>(k), true, list[k].c_str());
+        }
+        return true;
+    }) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
 }
