@@ -223,6 +223,12 @@ jobs:
           path: app/src/main/jniLibs/arm64-v8a/libmupen64plus_next_libretro_android.so
           key: mupen64-${{ hashFiles('cores/build-mupen64.sh', 'cores/patches/mupen64-*.patch') }}
 
+      - name: Restore Dreamcast core
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so
+          key: flycast-${{ hashFiles('cores/build-flycast.sh', 'cores/patches/flycast-*.patch') }}
+
       - name: Report PCEE2 core
         run: |
           if [ -f app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so ]; then
@@ -239,6 +245,11 @@ jobs:
             ls -lh app/src/main/jniLibs/arm64-v8a/libmupen64plus_next_libretro_android.so
           else
             echo "::warning::Nintendo 64 core not in the cache; N64 games cannot run in this APK"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so
+          else
+            echo "::warning::Dreamcast core not in the cache; Dreamcast games cannot run in this APK"
           fi
 
       - name: Build debug APK
