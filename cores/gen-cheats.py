@@ -22,7 +22,7 @@ FOLDERS = [
     "Nintendo - Nintendo Entertainment System", "Sega - Mega Drive - Genesis",
     "Sega - Master System - Mark III", "Sega - Game Gear", "NEC - PC Engine - TurboGrafx 16",
     "NEC - PC Engine CD - TurboGrafx-CD", "Nintendo - Nintendo 64", "Sony - PlayStation Portable",
-    "Sony - PlayStation",
+    "Sony - PlayStation", "Sega - Mega-CD - Sega CD", "Sega - 32X",
 ]
 DESC = re.compile(r'^\s*cheat(\d+)_desc\s*=', re.M)
 CODE = re.compile(r'^\s*cheat(\d+)_code\s*=\s*"([^"]*)"', re.M)

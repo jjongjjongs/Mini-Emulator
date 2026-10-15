@@ -25,6 +25,7 @@ REPOS = [
     "NEC_-_PC_Engine_CD_-_TurboGrafx-CD", "Nintendo_-_Nintendo_64", "Sony_-_PlayStation_Portable",
     "Sony_-_PlayStation", "Sony_-_PlayStation_2", "Sega_-_Dreamcast",
     "Bandai_-_WonderSwan", "Bandai_-_WonderSwan_Color", "SNK_-_Neo_Geo_Pocket", "SNK_-_Neo_Geo_Pocket_Color",
+    "Sega_-_Mega-CD_-_Sega_CD", "Sega_-_32X",
 ]
 
 

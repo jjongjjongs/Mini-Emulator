@@ -76,6 +76,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_N64 = "n64";
     private static final String MODE_DC = "dc";
     private static final String MODE_WS = "ws";
+    private static final String MODE_MCD = "mcd";
     private static final String MODE_NGP = "ngp";
     private static final String MODE_PCE = "pce";
     private static final String MODE_PSP = "psp";
@@ -98,6 +99,8 @@ public final class MainActivity extends Activity {
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
             {MODE_DC, "flycast", ".chd,.cdi", ".chd / .cdi", "roms_dc", "1025"},
             {MODE_NDS, "melonds", ".nds", ".nds / .zip", "roms_nds", "1022"},
+            // Mega CD discs and 32X cartridges on PicoDrive.
+            {MODE_MCD, "picodrive", ".cue,.chd,.iso,.bin,.32x", ".cue+.bin / .chd / .32x", "roms_mcd", "1030"},
             {MODE_WS, "wswan", ".ws,.wsc,.pc2", ".ws / .wsc / .zip", "roms_ws", "1028"},
             {MODE_NGP, "ngp", ".ngp,.ngc,.ngpc,.npc", ".ngp / .ngc / .zip", "roms_ngp", "1029"},
     };
@@ -150,12 +153,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "DC", "WS", "NGP", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "MCD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "DC", "WS", "NGP", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -175,6 +178,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_IMPORT_DC_BIOS = 1026;
     private static final int REQUEST_PICK_COVER = 1027;
     private TextView dcBiosStatusView;
+    private TextView mcdBiosStatusView;
+    private static final int REQUEST_IMPORT_MCD_BIOS = 1031;
     private TextView ps2BiosBanner;
     private static final int REQUEST_IMPORT_PS2_BIOS = 1020;
     private String pendingBiosSource;
@@ -542,6 +547,11 @@ public final class MainActivity extends Activity {
                 LinearLayout pceBiosTile = createActionCard("CD BIOS", pceBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPceBiosSheet());
                 this.pceBiosStatusView = (TextView) pceBiosTile.getTag();
                 actionRow.addView(pceBiosTile, actionTileParams());
+            }
+            if (MODE_MCD.equals(this.currentMode)) {
+                LinearLayout mcdBiosTile = createActionCard("CD BIOS", mcdBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showMcdBiosSheet());
+                this.mcdBiosStatusView = (TextView) mcdBiosTile.getTag();
+                actionRow.addView(mcdBiosTile, actionTileParams());
             }
             if (MODE_DC.equals(this.currentMode)) {
                 LinearLayout dcBiosTile = createActionCard("DC BIOS", dcBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showDcBiosSheet());
@@ -944,6 +954,10 @@ public final class MainActivity extends Activity {
     }
 
     private void updateHomeStatusCards() {
+        if (this.mcdBiosStatusView != null) {
+            this.mcdBiosStatusView.setText(mcdBiosStatusText());
+            this.mcdBiosStatusView.setTextColor(mcdBiosRegions().isEmpty() ? Color.rgb(239, 84, 103) : Color.rgb(22, 163, 74));
+        }
         TextView textView = this.biosStatusView;
         if (textView != null) {
             textView.setText(biosStatusText());
@@ -1325,6 +1339,8 @@ public final class MainActivity extends Activity {
             if (data != null) {
                 importPceBios(data);
             }
+        } else if (i == REQUEST_IMPORT_MCD_BIOS) {
+            importMcdBios(intent);
         } else if (i == REQUEST_IMPORT_DC_BIOS) {
             if (data != null) {
                 importDcBios(data);
@@ -2688,7 +2704,7 @@ public final class MainActivity extends Activity {
 
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
-        return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir)) && isCueTrack(file));
+        return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_MCD).equals(dir)) && isCueTrack(file));
     }
 
     private LinearLayout createRomRow(final File file) {
@@ -3332,6 +3348,11 @@ public final class MainActivity extends Activity {
 
     private void startGameActivity(File file) {
         String mode = modeForFile(file);
+        if (MODE_MCD.equals(mode) && !file.getName().toLowerCase(Locale.US).endsWith(".32x") && mcdBiosRegions().isEmpty()) {
+            showError("메가CD 게임은 CD BIOS가 필요해요. 메가CD 화면의 CD BIOS 칸에서 가져와 주세요.");
+            showMcdBiosSheet();
+            return;
+        }
         if (MODE_PCE.equals(mode) && isPceCd(file) && !pceBiosFile().isFile()) {
             showError("CD-ROM² 게임은 System Card BIOS가 필요해요. PC엔진 화면의 CD BIOS 칸에서 가져와 주세요.");
             showPceBiosSheet();
@@ -4732,6 +4753,16 @@ public final class MainActivity extends Activity {
             }
             return file.length() > 1024 * 1024 ? new RomCheck(true, "크기 정상") : new RomCheck(false, "파일이 너무 작음");
         }
+        if (MODE_MCD.equals(mode)) {
+            String lower = file.getName().toLowerCase(Locale.US);
+            if (lower.endsWith(".32x")) {
+                // 32X cartridges carry "SEGA 32X" at 0x100 like a Mega Drive header.
+                byte[] head = readHead(file, 0x110);
+                String text = head == null ? "" : new String(head, 0x100, 0x10, StandardCharsets.ISO_8859_1);
+                return text.contains("32X") || text.startsWith("SEGA") ? new RomCheck(true, "32X 헤더 정상") : new RomCheck(false, "32X 헤더 없음");
+            }
+            return checkPs1Image(file);
+        }
         if (MODE_WS.equals(mode)) {
             // WonderSwan ROMs end in a 16-byte footer whose first byte is a far jump (EA).
             long size = file.length();
@@ -5793,6 +5824,233 @@ public final class MainActivity extends Activity {
         }
     }
 
+
+    // ---- Mega CD BIOS (PicoDrive): <system>/bios_CD_U.bin, bios_CD_E.bin, bios_CD_J.bin ----
+    // A disc boots with the BIOS of its own region, so each region has a file of its own.
+    private static final String[] MCD_REGIONS = {"U", "E", "J"};
+    private static final String[] MCD_REGION_NAMES = {"미국", "유럽", "일본"};
+
+    private File mcdBiosFile(String region) {
+        return new File(systemDir(), "bios_CD_" + region + ".bin");
+    }
+
+    private List<String> mcdBiosRegions() {
+        List<String> regions = new ArrayList<>();
+        for (int k = 0; k < MCD_REGIONS.length; k++) {
+            if (mcdBiosFile(MCD_REGIONS[k]).isFile()) {
+                regions.add(MCD_REGION_NAMES[k]);
+            }
+        }
+        return regions;
+    }
+
+    private String mcdBiosStatusText() {
+        List<String> regions = mcdBiosRegions();
+        return regions.isEmpty() ? "필요 (CD만)" : android.text.TextUtils.join("·", regions);
+    }
+
+    private void showMcdBiosSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        List<String> regions = mcdBiosRegions();
+        boolean present = !regions.isEmpty();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView icon = new TextView(this);
+        icon.setText("BIOS");
+        icon.setTextColor(-1);
+        icon.setTextSize(13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(239, 84, 103), dp(13)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("메가CD BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        StringBuilder state = new StringBuilder();
+        for (int k = 0; k < MCD_REGIONS.length; k++) {
+            if (k > 0) {
+                state.append("   ");
+            }
+            state.append(MCD_REGION_NAMES[k]).append(mcdBiosFile(MCD_REGIONS[k]).isFile() ? " ✓" : " —");
+        }
+        TextView stateView = new TextView(this);
+        stateView.setText(state.toString());
+        stateView.setTextSize(12.0f);
+        stateView.setTextColor(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        titles.addView(stateView);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout kinds = new LinearLayout(this);
+        kinds.setOrientation(0);
+        kinds.addView(engineCard("32X 게임", ".32x", "BIOS 없이 실행", false), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        secondParams.setMargins(dp(8), 0, 0, 0);
+        kinds.addView(engineCard("메가CD 게임", ".cue+.bin / .chd", "게임 지역의 BIOS 필요", true), secondParams);
+        LinearLayout.LayoutParams kindsParams = new LinearLayout.LayoutParams(-1, -2);
+        kindsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(kinds, kindsParams);
+
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("직접 가진 메가CD에서 추출한 BIOS를 골라 주세요 (128KB .bin, 여러 개 한 번에 가능).<br>"
+                + "미국판 게임은 <b>미국</b>, 일본판은 <b>일본</b> BIOS로 켜져요. 지역은 파일 안을 보고 알아서 정해요.", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        TextView choose = sheetButton(present ? "BIOS 더 추가 · 바꾸기" : "BIOS 파일 선택", MODE_COLORS[modeIndex(MODE_MCD)], -1);
+        choose.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            startActivityForResult(intent, REQUEST_IMPORT_MCD_BIOS);
+        });
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+        chooseParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(choose, chooseParams);
+        if (present) {
+            TextView delete = sheetButton("BIOS 모두 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
+            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("메가CD BIOS 삭제").setMessage("BIOS를 지우면 메가CD 게임을 실행할 수 없어요. 32X 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+                dialog.dismiss();
+                for (String region : MCD_REGIONS) {
+                    mcdBiosFile(region).delete();
+                }
+                showMessage("메가CD BIOS를 삭제했습니다.");
+                updateHomeStatusCards();
+            }).show());
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+            deleteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(delete, deleteParams);
+        }
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    // The region a Mega CD BIOS is for: its Mega Drive style header says "SEGA" at 0x100 and
+    // carries the region at 0x1F0 (letters, or the newer hex digit); the file name decides
+    // when the header does not.
+    private static String mcdBiosRegion(byte[] data, String name) {
+        if (data.length > 0x1F3 && new String(data, 0x100, 4, StandardCharsets.ISO_8859_1).equals("SEGA")) {
+            String code = new String(data, 0x1F0, 3, StandardCharsets.ISO_8859_1).trim().toUpperCase(Locale.US);
+            if (code.startsWith("J") || code.equals("1")) {
+                return "J";
+            }
+            if (code.startsWith("E") || code.equals("8")) {
+                return "E";
+            }
+            if (code.startsWith("U") || code.equals("4")) {
+                return "U";
+            }
+        }
+        String lower = name.toLowerCase(Locale.US);
+        if (lower.contains("jp") || lower.contains("japan") || lower.contains("_j") || lower.contains("(j")) {
+            return "J";
+        }
+        if (lower.contains("eu") || lower.contains("europe") || lower.contains("_e.") || lower.contains("(e")) {
+            return "E";
+        }
+        if (lower.contains("us") || lower.contains("usa") || lower.contains("_u.") || lower.contains("(u")) {
+            return "U";
+        }
+        return null;
+    }
+
+    private void importMcdBios(Intent intent) {
+        List<Uri> uris = new ArrayList<>();
+        ClipData clip = intent == null ? null : intent.getClipData();
+        if (clip != null) {
+            for (int k = 0; k < clip.getItemCount(); k++) {
+                uris.add(clip.getItemAt(k).getUri());
+            }
+        } else if (intent != null && intent.getData() != null) {
+            uris.add(intent.getData());
+        }
+        List<String> added = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+        for (Uri uri : uris) {
+            String name = downloadName(uri, "bios.bin");
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) {
+                    throw new IOException("열 수 없음");
+                }
+                java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[65536];
+                int n;
+                while ((n = in.read(chunk)) > 0) {
+                    buffer.write(chunk, 0, n);
+                    if (buffer.size() > 1024 * 1024) {
+                        throw new IOException("파일이 너무 큼");
+                    }
+                }
+                byte[] data = buffer.toByteArray();
+                if (data.length < 131072) {
+                    throw new IOException("128KB BIOS가 아님");
+                }
+                String region = mcdBiosRegion(data, name);
+                if (region == null) {
+                    throw new IOException("지역을 알 수 없음");
+                }
+                File dir = systemDir();
+                if (!dir.isDirectory() && !dir.mkdirs()) {
+                    throw new IOException("BIOS 폴더를 만들 수 없음");
+                }
+                try (FileOutputStream out = new FileOutputStream(mcdBiosFile(region))) {
+                    out.write(data);
+                }
+                added.add(MCD_REGION_NAMES[java.util.Arrays.asList(MCD_REGIONS).indexOf(region)]);
+            } catch (IOException e) {
+                failed.add(name + " (" + e.getMessage() + ")");
+            }
+        }
+        updateHomeStatusCards();
+        if (!added.isEmpty()) {
+            showMessage("메가CD BIOS를 가져왔습니다: " + android.text.TextUtils.join(", ", added) + (failed.isEmpty() ? "" : "\n못 가져온 파일: " + android.text.TextUtils.join(", ", failed)));
+        } else if (!failed.isEmpty()) {
+            showError("메가CD BIOS 가져오기 실패: " + android.text.TextUtils.join(", ", failed));
+        }
+    }
+
     // Dreamcast BIOS for Flycast: <system>/dc/dc_boot.bin (2 MB) and, optionally, the flash
     // with the console's settings, dc_flash.bin (128 KB). Without them Flycast boots games
     // with its own high-level BIOS.
@@ -6325,6 +6583,9 @@ public final class MainActivity extends Activity {
         }
         if ("wswan".equals(str)) {
             return "Beetle Cygne";
+        }
+        if ("picodrive".equals(str)) {
+            return "PicoDrive";
         }
         if ("ngp".equals(str)) {
             return "Beetle NeoPop";

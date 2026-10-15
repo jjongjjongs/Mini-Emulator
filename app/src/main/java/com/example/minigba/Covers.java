@@ -149,6 +149,14 @@ final class Covers {
                     list.add("Bandai_-_WonderSwan");
                 }
                 break;
+            case "mcd":
+                if (lowerName.endsWith(".32x")) {
+                    list.add("Sega_-_32X");
+                } else {
+                    list.add("Sega_-_Mega-CD_-_Sega_CD");
+                    list.add("Sega_-_32X");
+                }
+                break;
             case "ngp":
                 if (lowerName.endsWith(".ngp")) {
                     list.add("SNK_-_Neo_Geo_Pocket");

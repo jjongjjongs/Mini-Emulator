@@ -94,7 +94,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -1177,6 +1177,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "nes": return "패미컴: 게임지니 (예: SXIOPO)";
             case "md": return "메가드라이브: 게임지니 · 프로액션리플레이 (예: FF0FC4:0009)";
             case "sms": return "마스터시스템·게임기어: 게임지니 · 프로액션리플레이";
+            case "mcd": return "메가CD·32X: 게임지니 · 프로액션리플레이 (예: FF0FC4:0009)";
             case "pce": return "PC엔진: 주소:값 형식";
             case "nds": return "DS: 액션리플레이 (예: 221D2B0C 000000FF)";
             case "n64": return "N64: 게임샤크 (예: 8033B21E 0008)";
@@ -3695,8 +3696,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "fceumm".equals(this.coreId);
     }
 
+    // Mega CD and 32X (PicoDrive) use the Mega Drive's six-button pad and layout.
     private boolean isMegaDrive() {
-        return "genesis_plus_gx".equals(this.coreId) && !isMasterSystem();
+        return ("genesis_plus_gx".equals(this.coreId) && !isMasterSystem()) || isMegaCd();
+    }
+
+    private boolean isMegaCd() {
+        return "picodrive".equals(this.coreId);
     }
 
     private boolean isN64() {
@@ -4238,6 +4244,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "flycast":
             case "wswan":
             case "ngp":
+            case "picodrive":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":
