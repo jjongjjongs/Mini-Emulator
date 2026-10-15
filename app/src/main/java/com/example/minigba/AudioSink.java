@@ -6,16 +6,20 @@ import android.media.AudioTrack;
 
 // Plays the core's stereo 16-bit samples, one write per emulated frame. The emulation and
 // the audio hardware run on different clocks, so the queue drifts: drained, the gaps
-// crackle; full, writes are cut short and crackle too. Each frame is resampled a little to
-// steer the (smoothed) queue back to TARGET_MS: up to MAX_STRETCH longer when the game runs
-// slower than real time, up to 5% shorter when it runs ahead.
+// crackle; full, writes are cut short and crackle too. The emulation follows the speaker's
+// clock instead: each write answers how much faster or slower (at most PACE_PPM) the game
+// should run to steer the (smoothed) queue back to TARGET_MS, so the music keeps its own
+// speed and pitch. Only when the game cannot keep up (a heavy scene) is a frame's audio
+// stretched, by at most MAX_STRETCH, which is hard to hear.
 final class AudioSink {
     // Room in the track and the amount kept queued, in milliseconds.
     private static final int BUFFER_MS = 200;
     private static final int TARGET_MS = 80;
     // Longest a frame's audio is stretched; more than this drags the music audibly, so a
     // game that slow gets short gaps instead.
-    private static final double MAX_STRETCH = 1.25;
+    private static final double MAX_STRETCH = 1.05;
+    // Largest speed nudge for following the speaker's clock, in parts per million (0.5%).
+    private static final double PACE_PPM = 5000;
 
     private AudioTrack track;
     private int sampleRate;
@@ -48,11 +52,12 @@ final class AudioSink {
         build.play();
     }
 
-    synchronized void write(short[] sArr, int i) {
+    // Returns the speed nudge for the emulation, in parts per million.
+    synchronized int write(short[] sArr, int i) {
         AudioTrack audioTrack = this.track;
         int frames = Math.min(sArr.length, i) / 2;
         if (audioTrack == null || frames <= 0) {
-            return;
+            return 0;
         }
         long played = audioTrack.getPlaybackHeadPosition() & 0xffffffffL;
         long queued = Math.max(0, this.framesWritten - played);
@@ -77,11 +82,18 @@ final class AudioSink {
         // queue is taken at once, as a gap is about to be heard.
         this.smoothedQueued = this.smoothedQueued < 0 || queued < target / 4
                 ? queued : this.smoothedQueued * 0.8 + queued * 0.2;
-        double ratio;
-        if (this.smoothedQueued < target) {
-            ratio = Math.min(MAX_STRETCH, 1.0 + 0.5 * (target - this.smoothedQueued) / target);
-        } else {
-            ratio = 1.0 - 0.05 * Math.min(1.0, (this.smoothedQueued - target) / room);
+        // Queue below target: run a little faster; above: a little slower.
+        double error = Math.max(-1.0, Math.min(1.0, (target - this.smoothedQueued) / target));
+        int pace = (int) Math.round(PACE_PPM * error);
+        // Stretching is only for a queue the nudge could not hold: below half the target
+        // the game is falling behind, above target + most of the room it races ahead.
+        double low = target / 2;
+        double high = target + room * 0.75;
+        double ratio = 1.0;
+        if (this.smoothedQueued < low) {
+            ratio = Math.min(MAX_STRETCH, 1.0 + (MAX_STRETCH - 1.0) * (low - this.smoothedQueued) / low);
+        } else if (this.smoothedQueued > high) {
+            ratio = 1.0 - 0.05 * Math.min(1.0, (this.smoothedQueued - high) / (target + room - high));
         }
         int outFrames = Math.max(1, (int) Math.round(frames * ratio));
         short[] out = outFrames == frames ? sArr : stretch(sArr, frames, outFrames);
@@ -89,6 +101,7 @@ final class AudioSink {
         if (written > 0) {
             this.framesWritten += written / 2;
         }
+        return pace;
     }
 
     // Linear interpolation of stereo frames from `frames` to `outFrames` (longer or shorter).

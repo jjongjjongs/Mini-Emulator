@@ -12,9 +12,13 @@ public final class AudioSink {
         configureCalls++;
     }
 
-    public synchronized void write(short[] s, int n) {
+    // Answers the speed nudge (parts per million) the real sink steers the queue with.
+    public volatile int pacePpm;
+
+    public synchronized int write(short[] s, int n) {
         if (n > s.length) throw new IllegalStateException("count larger than array");
         samples += n;
         writeThread = Thread.currentThread().getName();
+        return pacePpm;
     }
 }

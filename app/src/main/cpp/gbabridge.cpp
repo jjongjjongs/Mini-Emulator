@@ -220,6 +220,9 @@ struct Core {
     std::atomic<bool> paused{false};
     // Emulation speed in percent of real time: 50, 100 or 200.
     std::atomic<int> speedPercent{100};
+    // How much faster (+) or slower (-) than the game's own rate to run, in parts per
+    // million, so the game follows the speaker's clock; the audio sink asks for it.
+    std::atomic<int> audioPacePpm{0};
     std::atomic<int> inputMask{0};
     // Guards window, which the UI thread can swap while the core draws.
     std::mutex videoMutex;
@@ -344,7 +347,8 @@ void writeAudio(const int16_t* samples, jsize count) {
     }
     jshortArray array = e->NewShortArray(count);
     e->SetShortArrayRegion(array, 0, count, samples);
-    e->CallVoidMethod(core->audioSink, core->audioWrite, array, count);
+    jint pace = e->CallIntMethod(core->audioSink, core->audioWrite, array, count);
+    core->audioPacePpm.store(pace);
     e->DeleteLocalRef(array);
 }
 
@@ -1610,7 +1614,8 @@ void runLoop(Core* core) {
                 endResumeTrial(core);
             }
         }
-        double frameNs = 1.0 / (fps * speed) * 1e9;
+        double pace = 1.0 + core->audioPacePpm.load() / 1e6;
+        double frameNs = 1.0 / (fps * speed * pace) * 1e9;
         deadline += std::chrono::nanoseconds(static_cast<int64_t>(frameNs));
         auto now = std::chrono::steady_clock::now();
         if (deadline > now) {
@@ -1765,7 +1770,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     jclass sinkClass = env->GetObjectClass(audioSink);
     core->audioSink = env->NewGlobalRef(audioSink);
     core->audioConfigure = env->GetMethodID(sinkClass, "configure", "(I)V");
-    core->audioWrite = env->GetMethodID(sinkClass, "write", "([SI)V");
+    core->audioWrite = env->GetMethodID(sinkClass, "write", "([SI)I");
     if (core->audioConfigure == nullptr || core->audioWrite == nullptr) {
         env->ExceptionClear();
         destroyCore(core);
