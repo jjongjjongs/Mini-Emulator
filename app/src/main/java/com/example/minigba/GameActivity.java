@@ -1097,7 +1097,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void toggleOrientation() {
-        callCore(NativeGba::saveNow, null, null);
+        // No save here: the activity handles the rotation itself and the game keeps running,
+        // and saving stalled the game long enough (a DS state is megabytes) to drag the music.
         int i = !this.landscapeMode ? 1 : 0;
         getSharedPreferences("settings", 0).edit().putInt("orientation_mode", i).commit();
         setRequestedOrientation(i == 1 ? 6 : 1);

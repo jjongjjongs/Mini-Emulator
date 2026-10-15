@@ -23,9 +23,10 @@ final class AudioSink {
     private short[] stretched = new short[0];
     // Queued audio in frames, smoothed so one late frame does not swing the pitch.
     private double smoothedQueued = -1;
-    // After a pause (rotation, the menu, a quick save) the queue has run dry; stretching
-    // the music to refill it would drag it for a moment, so silence refills it instead.
-    private static final long RESTART_GAP_NS = 100_000_000L;
+    // After a stall (rotation, the menu, a quick save) the queue has run (nearly) dry;
+    // stretching the music to refill it would drag it for a moment, so silence refills it
+    // instead. Stretching stays for the slow drift of a game a little behind real time.
+    private static final long RESTART_GAP_NS = 50_000_000L;
     private long lastWriteNs;
     private short[] silence = new short[0];
 
@@ -58,7 +59,7 @@ final class AudioSink {
         double target = (double) this.sampleRate * TARGET_MS / 1000;
         double room = (double) this.sampleRate * BUFFER_MS / 1000 - target;
         long now = System.nanoTime();
-        boolean restarted = this.lastWriteNs != 0 && now - this.lastWriteNs > RESTART_GAP_NS;
+        boolean restarted = queued < target / 4 || (this.lastWriteNs != 0 && now - this.lastWriteNs > RESTART_GAP_NS);
         this.lastWriteNs = now;
         if (restarted && queued < target) {
             int fill = (int) Math.round(target - queued);
