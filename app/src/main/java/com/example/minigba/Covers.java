@@ -149,6 +149,7 @@ final class Covers {
                     list.add("Bandai_-_WonderSwan");
                 }
                 break;
+            case "ss": list.add("Sega_-_Saturn"); break;
             case "mcd":
                 if (lowerName.endsWith(".32x")) {
                     list.add("Sega_-_32X");

@@ -94,7 +94,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -445,6 +445,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
+        if (isSaturn()) {
+            addSaturnLandscapeControls(frameLayout);
+            return;
+        }
         if (isWonderSwan()) {
             addWonderSwanLandscapeControls(frameLayout);
             return;
@@ -865,7 +869,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
     private boolean rewindSupported() {
-        return !isPs2() && !isDreamcast() && !isMame139();
+        return !isPs2() && !isDreamcast() && !isSaturn() && !isMame139();
     }
 
     private boolean rewindOn() {
@@ -1178,6 +1182,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "md": return "메가드라이브: 게임지니 · 프로액션리플레이 (예: FF0FC4:0009)";
             case "sms": return "마스터시스템·게임기어: 게임지니 · 프로액션리플레이";
             case "mcd": return "메가CD·32X: 게임지니 · 프로액션리플레이 (예: FF0FC4:0009)";
+            case "ss": return "새턴: 액션리플레이 (예: 1606BB4C 0063)";
             case "pce": return "PC엔진: 주소:값 형식";
             case "nds": return "DS: 액션리플레이 (예: 221D2B0C 000000FF)";
             case "n64": return "N64: 게임샤크 (예: 8033B21E 0008)";
@@ -1963,7 +1968,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     !supported ? "이 기종은 안 돼요" : rewindOn() ? "켜짐" : "꺼짐",
                     view -> {
                         if (!supported) {
-                            Toast.makeText(this, "PS2·드림캐스트는 상태 저장이 너무 커서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
+                            Toast.makeText(this, "PS2·새턴·드림캐스트는 상태 저장이 크고 무거워서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
                             return;
                         }
                         showChoiceDialog(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기", REWIND_NAMES, REWIND_NOTES,
@@ -2376,7 +2381,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Under the A button.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(18), dp(12));
-        } else if (isDreamcast()) {
+        } else if (isDreamcast() || isSaturn()) {
             // Under the face buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(54), dp(12));
@@ -2844,6 +2849,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
+        if (isSaturn()) {
+            addSaturnControls(frameLayout);
+            return;
+        }
         if (isWonderSwan()) {
             addWonderSwanControls(frameLayout);
             return;
@@ -3705,6 +3714,50 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "picodrive".equals(this.coreId);
     }
 
+    private boolean isSaturn() {
+        return "yabasanshiro".equals(this.coreId);
+    }
+
+    // Saturn pad as YabaSanshiro reads it: A/B/C are libretro B/A/L, X/Y/Z are Y/X/R, and
+    // the shoulder L/R are L2/R2.
+    private static final String[] SATURN_LABELS = {"A", "B", "C", "X", "Y", "Z"};
+    private static final int[] SATURN_BITS = {2, 1, 512, 2048, 1024, 256};
+
+    // Six buttons: A B C along the bottom, X Y Z above, each row stepping up a little to the
+    // right like the pad's curve. Centres are measured from the bottom-right corner.
+    private void addSaturnFace(FrameLayout frameLayout, int rightDp, int bottomDp, int gapDp, int bigDp, int smallDp, int rowDp) {
+        for (int k = 0; k < 6; k++) {
+            int column = k % 3;
+            boolean top = k >= 3;
+            int cx = rightDp + (2 - column) * gapDp;
+            int cy = bottomDp + (top ? rowDp : 0) + column * 6;
+            addRoundButton(frameLayout, SATURN_LABELS[k], SATURN_BITS[k], true, cx, cy, top ? smallDp : bigDp, TouchButton.STYLE_DARK);
+        }
+    }
+
+    private void addSaturnControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "L", kL2, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+        addButton(frameLayout, "R", kR2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+        addDPadAt(frameLayout, 20, 120, 146);
+        addSaturnFace(frameLayout, 40, 170, 56, 54, 46, 60);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, startLabel(), 8, 0, 36);
+    }
+
+    // Landscape: L and R on top of the columns, D-pad left, the six buttons right; START under
+    // the D-pad and the speed button under the buttons.
+    private void addSaturnLandscapeControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
+        lParams.setMargins(dp(14), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "L", kL2, this::setButtonPressed, 2), lParams);
+        FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.END);
+        rParams.setMargins(0, dp(58), dp(14), 0);
+        frameLayout.addView(new TouchButton(this, "R", kR2, this::setButtonPressed, 2), rParams);
+        addDPadAt(frameLayout, 30, 82, 124);
+        addSaturnFace(frameLayout, 38, 112, 52, 48, 42, 56);
+        addButton(frameLayout, startLabel(), 8, 8388691, dp(43), dp(14), dp(94), dp(32));
+    }
+
     private boolean isN64() {
         return "mupen64plus_next".equals(this.coreId);
     }
@@ -4245,6 +4298,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "wswan":
             case "ngp":
             case "picodrive":
+            case "yabasanshiro":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

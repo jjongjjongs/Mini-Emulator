@@ -65,7 +65,7 @@ final class Cheats {
     static boolean supported(String mode) {
         switch (mode) {
             case "gba": case "snes": case "nes": case "md": case "sms": case "pce":
-            case "nds": case "n64": case "psp": case "ps1": case "mcd":
+            case "nds": case "n64": case "psp": case "ps1": case "mcd": case "ss":
                 return true;
             default:
                 return false;

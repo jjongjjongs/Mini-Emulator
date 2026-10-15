@@ -543,6 +543,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "wswan") return "libmednafen_wswan_libretro_android.so";
     if (coreId == "ngp") return "libmednafen_ngp_libretro_android.so";
     if (coreId == "picodrive") return "libpicodrive_libretro_android.so";
+    if (coreId == "yabasanshiro") return "libyabasanshiro_libretro_android.so";
     return nullptr;
 }
 
@@ -586,7 +587,8 @@ bool loadCoreSymbols(Core* core) {
 // Play! restore through their GL context, which is made on the emulation thread.
 bool needsFrameBeforeState(const Core* core) {
     return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play" ||
-           core->coreId == "pcee2" || core->coreId == "mupen64plus_next" || core->coreId == "flycast";
+           core->coreId == "pcee2" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
+           core->coreId == "yabasanshiro";
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
@@ -1241,6 +1243,10 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "wswan_rotate_keymap") == 0) return "auto";
     // Mega CD / 32X: the six-button pad the touch layout shows (A B C / X Y Z, MODE).
     if (strcmp(key, "picodrive_input1") == 0) return "6 button pad";
+    // Saturn: the real BIOS (the app asks for one), native resolution and the dynarec.
+    if (strcmp(key, "yabasanshiro_force_hle_bios") == 0) return "disabled";
+    if (strcmp(key, "yabasanshiro_resolution_mode") == 0) return "original";
+    if (strcmp(key, "yabasanshiro_sh2coretype") == 0) return "dynarec";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -1695,7 +1701,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
                        core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
-                       core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive";
+                       core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
+                       core->coreId == "yabasanshiro";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;

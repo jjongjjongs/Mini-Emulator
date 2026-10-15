@@ -77,6 +77,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_DC = "dc";
     private static final String MODE_WS = "ws";
     private static final String MODE_MCD = "mcd";
+    private static final String MODE_SS = "ss";
     private static final String MODE_NGP = "ngp";
     private static final String MODE_PCE = "pce";
     private static final String MODE_PSP = "psp";
@@ -96,6 +97,8 @@ public final class MainActivity extends Activity {
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
+            // Saturn discs on YabaSanshiro (it needs the real BIOS).
+            {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
             {MODE_DC, "flycast", ".chd,.cdi", ".chd / .cdi", "roms_dc", "1025"},
             {MODE_NDS, "melonds", ".nds", ".nds / .zip", "roms_nds", "1022"},
@@ -153,12 +156,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "MCD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "DC", "WS", "NGP", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_SS, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "MCD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "SS", "DC", "WS", "NGP", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -179,6 +182,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_PICK_COVER = 1027;
     private TextView dcBiosStatusView;
     private TextView mcdBiosStatusView;
+    private TextView saturnBiosStatusView;
+    private static final int REQUEST_IMPORT_SATURN_BIOS = 1033;
     private static final int REQUEST_IMPORT_MCD_BIOS = 1031;
     private TextView ps2BiosBanner;
     private static final int REQUEST_IMPORT_PS2_BIOS = 1020;
@@ -547,6 +552,11 @@ public final class MainActivity extends Activity {
                 LinearLayout pceBiosTile = createActionCard("CD BIOS", pceBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPceBiosSheet());
                 this.pceBiosStatusView = (TextView) pceBiosTile.getTag();
                 actionRow.addView(pceBiosTile, actionTileParams());
+            }
+            if (MODE_SS.equals(this.currentMode)) {
+                LinearLayout ssBiosTile = createActionCard("새턴 BIOS", saturnBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showSaturnBiosSheet());
+                this.saturnBiosStatusView = (TextView) ssBiosTile.getTag();
+                actionRow.addView(ssBiosTile, actionTileParams());
             }
             if (MODE_MCD.equals(this.currentMode)) {
                 LinearLayout mcdBiosTile = createActionCard("CD BIOS", mcdBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showMcdBiosSheet());
@@ -954,6 +964,10 @@ public final class MainActivity extends Activity {
     }
 
     private void updateHomeStatusCards() {
+        if (this.saturnBiosStatusView != null) {
+            this.saturnBiosStatusView.setText(saturnBiosStatusText());
+            this.saturnBiosStatusView.setTextColor(saturnBiosFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        }
         if (this.mcdBiosStatusView != null) {
             this.mcdBiosStatusView.setText(mcdBiosStatusText());
             this.mcdBiosStatusView.setTextColor(mcdBiosRegions().isEmpty() ? Color.rgb(239, 84, 103) : Color.rgb(22, 163, 74));
@@ -1338,6 +1352,10 @@ public final class MainActivity extends Activity {
         } else if (i == REQUEST_IMPORT_PCE_BIOS) {
             if (data != null) {
                 importPceBios(data);
+            }
+        } else if (i == REQUEST_IMPORT_SATURN_BIOS) {
+            if (data != null) {
+                importSaturnBios(data);
             }
         } else if (i == REQUEST_IMPORT_MCD_BIOS) {
             importMcdBios(intent);
@@ -2704,7 +2722,7 @@ public final class MainActivity extends Activity {
 
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
-        return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_MCD).equals(dir)) && isCueTrack(file));
+        return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_SS).equals(dir)) && isCueTrack(file));
     }
 
     private LinearLayout createRomRow(final File file) {
@@ -3348,6 +3366,11 @@ public final class MainActivity extends Activity {
 
     private void startGameActivity(File file) {
         String mode = modeForFile(file);
+        if (MODE_SS.equals(mode) && !saturnBiosFile().isFile()) {
+            showError("세가 새턴 게임은 새턴 BIOS가 필요해요. 새턴 화면의 BIOS 칸에서 가져와 주세요.");
+            showSaturnBiosSheet();
+            return;
+        }
         if (MODE_MCD.equals(mode) && !file.getName().toLowerCase(Locale.US).endsWith(".32x") && mcdBiosRegions().isEmpty()) {
             showError("메가CD 게임은 CD BIOS가 필요해요. 메가CD 화면의 CD BIOS 칸에서 가져와 주세요.");
             showMcdBiosSheet();
@@ -4753,6 +4776,9 @@ public final class MainActivity extends Activity {
             }
             return file.length() > 1024 * 1024 ? new RomCheck(true, "크기 정상") : new RomCheck(false, "파일이 너무 작음");
         }
+        if (MODE_SS.equals(mode)) {
+            return checkPs1Image(file);
+        }
         if (MODE_MCD.equals(mode)) {
             String lower = file.getName().toLowerCase(Locale.US);
             if (lower.endsWith(".32x")) {
@@ -5825,6 +5851,142 @@ public final class MainActivity extends Activity {
     }
 
 
+
+    // ---- Saturn BIOS (YabaSanshiro): <system>/saturn_bios.bin, 512 KB ----
+    private File saturnBiosFile() {
+        return new File(systemDir(), "saturn_bios.bin");
+    }
+
+    private String saturnBiosStatusText() {
+        return saturnBiosFile().isFile() ? "등록됨" : "필요";
+    }
+
+    private void showSaturnBiosSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        boolean present = saturnBiosFile().isFile();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView icon = new TextView(this);
+        icon.setText("BIOS");
+        icon.setTextColor(-1);
+        icon.setTextSize(13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(239, 84, 103), dp(13)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("세가 새턴 BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView state = new TextView(this);
+        state.setText(present ? "등록됨 · saturn_bios.bin" : "등록된 BIOS 없음");
+        state.setTextSize(12.0f);
+        state.setTextColor(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        titles.addView(state);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("새턴 게임은 진짜 BIOS가 꼭 있어야 켜져요 (이 엔진은 대체 BIOS를 쓰지 않아요).<br>"
+                + "직접 가진 새턴에서 추출한 <b>512KB .bin</b> 파일을 골라 주세요 (예: sega_101.bin, mpr-17933.bin).<br>"
+                + "무거운 기종이라 휴대폰에 따라 느릴 수 있어요.", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+        TextView choose = sheetButton(present ? "다른 BIOS로 바꾸기" : "BIOS 파일 선택", MODE_COLORS[modeIndex(MODE_SS)], -1);
+        choose.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_IMPORT_SATURN_BIOS);
+        });
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+        chooseParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(choose, chooseParams);
+        if (present) {
+            TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
+            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("새턴 BIOS 삭제").setMessage("BIOS를 지우면 새턴 게임을 실행할 수 없어요.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+                dialog.dismiss();
+                saturnBiosFile().delete();
+                showMessage("새턴 BIOS를 삭제했습니다.");
+                updateHomeStatusCards();
+            }).show());
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+            deleteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(delete, deleteParams);
+        }
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    private void importSaturnBios(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("선택한 파일을 열 수 없습니다");
+            }
+            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[65536];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                buffer.write(chunk, 0, n);
+                if (buffer.size() > 1024 * 1024) {
+                    throw new IOException("새턴 BIOS가 아니에요 (파일이 너무 큼).");
+                }
+            }
+            byte[] data = buffer.toByteArray();
+            if (data.length != 524288) {
+                throw new IOException("새턴 BIOS는 512KB예요 (고른 파일: " + (data.length / 1024) + "KB).");
+            }
+            File dir = systemDir();
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("BIOS 폴더를 만들 수 없습니다");
+            }
+            try (FileOutputStream out = new FileOutputStream(saturnBiosFile())) {
+                out.write(data);
+            }
+            showMessage("새턴 BIOS를 가져왔습니다. 새턴 게임을 실행할 수 있어요.");
+            updateHomeStatusCards();
+        } catch (IOException e) {
+            showError("새턴 BIOS 가져오기 실패: " + e.getMessage());
+        }
+    }
+
     // ---- Mega CD BIOS (PicoDrive): <system>/bios_CD_U.bin, bios_CD_E.bin, bios_CD_J.bin ----
     // A disc boots with the BIOS of its own region, so each region has a file of its own.
     private static final String[] MCD_REGIONS = {"U", "E", "J"};
@@ -6586,6 +6748,9 @@ public final class MainActivity extends Activity {
         }
         if ("picodrive".equals(str)) {
             return "PicoDrive";
+        }
+        if ("yabasanshiro".equals(str)) {
+            return "YabaSanshiro";
         }
         if ("ngp".equals(str)) {
             return "Beetle NeoPop";
