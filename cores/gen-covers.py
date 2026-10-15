@@ -24,6 +24,7 @@ REPOS = [
     "Sega_-_Master_System_-_Mark_III", "Sega_-_Game_Gear", "NEC_-_PC_Engine_-_TurboGrafx_16",
     "NEC_-_PC_Engine_CD_-_TurboGrafx-CD", "Nintendo_-_Nintendo_64", "Sony_-_PlayStation_Portable",
     "Sony_-_PlayStation", "Sony_-_PlayStation_2", "Sega_-_Dreamcast",
+    "Bandai_-_WonderSwan", "Bandai_-_WonderSwan_Color", "SNK_-_Neo_Geo_Pocket", "SNK_-_Neo_Geo_Pocket_Color",
 ]
 
 

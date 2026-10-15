@@ -140,6 +140,24 @@ final class Covers {
             case "ps1": list.add("Sony_-_PlayStation"); break;
             case "ps2": list.add("Sony_-_PlayStation_2"); break;
             case "dc": list.add("Sega_-_Dreamcast"); break;
+            case "ws":
+                if (lowerName.endsWith(".ws")) {
+                    list.add("Bandai_-_WonderSwan");
+                    list.add("Bandai_-_WonderSwan_Color");
+                } else {
+                    list.add("Bandai_-_WonderSwan_Color");
+                    list.add("Bandai_-_WonderSwan");
+                }
+                break;
+            case "ngp":
+                if (lowerName.endsWith(".ngp")) {
+                    list.add("SNK_-_Neo_Geo_Pocket");
+                    list.add("SNK_-_Neo_Geo_Pocket_Color");
+                } else {
+                    list.add("SNK_-_Neo_Geo_Pocket_Color");
+                    list.add("SNK_-_Neo_Geo_Pocket");
+                }
+                break;
             default: break;
         }
         return list;

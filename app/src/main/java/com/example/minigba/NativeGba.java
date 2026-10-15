@@ -71,4 +71,6 @@ final class NativeGba {
     static native float rewoundSeconds(long handle);
 
     static native boolean setCheats(long handle, String[] codes);
+
+    static native void setWonderSwanTall(boolean tall);
 }

@@ -94,7 +94,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -327,9 +327,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Side margin and height of the portrait screen for a side margin and vertical padding.
     private int[] portraitScreen(int side, int padding) {
         int screenWidth = Math.max(dp(200), getResources().getDisplayMetrics().widthPixels - side * 2);
-        if (isGameBoy() || isGameGear()) {
-            // The nearly square Game Boy screen would push the controls off a short phone.
-            int widest = Math.round(dp(250) * screenAspect());
+        if (isGameBoy() || isGameGear() || isNeoGeoPocket() || (isWonderSwan() && wonderSwanTall())) {
+            // A nearly square (or upright) screen would push the controls off a short phone.
+            int widest = Math.round(dp(isWonderSwan() ? 330 : 250) * screenAspect());
             if (screenWidth > widest) {
                 side += (screenWidth - widest) / 2;
                 screenWidth = widest;
@@ -445,6 +445,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
+        if (isWonderSwan()) {
+            addWonderSwanLandscapeControls(frameLayout);
+            return;
+        }
+        if (isNeoGeoPocket()) {
+            addNeoGeoPocketLandscapeControls(frameLayout);
+            return;
+        }
         if (isN64()) {
             addN64LandscapeControls(frameLayout);
             return;
@@ -2235,6 +2243,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setPspLanguage(0, pspLanguage());
                         NativeGba.setPspScale(pspScale());
                     }
+                    if (isWonderSwan()) {
+                        NativeGba.setWonderSwanTall(wonderSwanTall());
+                    }
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
                 } catch (RuntimeException e3) {
                     error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
@@ -2368,6 +2379,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Under the face buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(54), dp(12));
+        } else if (isNeoGeoPocket()) {
+            // Bottom of the right column, rewind beside it.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(40), dp(17));
         } else if (isMasterSystem()) {
             // Centred under the 1 and 2 buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
@@ -2385,6 +2400,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_MIRROR, 72, false);
         } else if (isN64() || isDreamcast() || isMasterSystem()) {
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, true);
+        } else if (isNeoGeoPocket()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 72, false);
+        } else if (isWonderSwan()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BELOW, 80, false);
         } else if (isPadLayout()) {
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BESIDE, 66, false);
         } else {
@@ -2824,6 +2843,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
+        if (isWonderSwan()) {
+            addWonderSwanControls(frameLayout);
+            return;
+        }
+        if (isNeoGeoPocket()) {
+            addNeoGeoPocketControls(frameLayout);
+            return;
+        }
         if (isN64()) {
             addN64Controls(frameLayout);
             return;
@@ -3094,6 +3121,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
             scaleParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createScaleRow(dialog), scaleParams);
+        }
+        if (isWonderSwan()) {
+            LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
+            tallParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createWonderSwanTallRow(dialog), tallParams);
         }
 
         TextView resume = new TextView(this);
@@ -3671,6 +3703,115 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "mupen64plus_next".equals(this.coreId);
     }
 
+    private boolean isWonderSwan() {
+        return "wswan".equals(this.coreId);
+    }
+
+    private boolean isNeoGeoPocket() {
+        return "ngp".equals(this.coreId);
+    }
+
+    // ---- WonderSwan / Neo Geo Pocket ----
+    // WonderSwan Y pad: Y1-Y4 are the core's R2 / R / L2 / L inputs (up, right, down, left).
+    private static final int[] WS_Y_BITS = {32768, 256, 16384, 512};
+    // Held upright, the core turns the picture and its pad: the D-pad works the Y pad, the
+    // small buttons are X1-X4 (Y / X / A / B inputs, left / top / right / bottom on screen)
+    // and A/B come from L/R.
+    private static final String[] WS_TALL_LABELS = {"X2", "X3", "X4", "X1"};
+    private static final int[] WS_TALL_BITS = {1024, 1, 2, 2048};
+    private static final String[] WS_TALL_NAMES = {"가로 게임", "세로 게임"};
+    private static final String[] WS_TALL_NOTES = {"보통 게임 (기본)", "세로로 들고 하는 게임 · 화면을 세워요"};
+
+    private boolean wonderSwanTall() {
+        return getSharedPreferences("settings", 0).getBoolean("ws_tall:" + this.saveBaseName, false);
+    }
+
+    private LinearLayout createWonderSwanTallRow(android.app.Dialog menu) {
+        boolean tall = wonderSwanTall();
+        return createSettingRow(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "게임 방향", WS_TALL_NAMES[tall ? 1 : 0],
+                view -> showChoiceDialog(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "게임 방향", WS_TALL_NAMES, WS_TALL_NOTES,
+                        tall ? 1 : 0, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.",
+                        Color.rgb(236, 253, 243), Color.rgb(21, 128, 61), "적용하고 이어하기", choice -> {
+                    if ((choice == 1) == wonderSwanTall()) {
+                        return;
+                    }
+                    getSharedPreferences("settings", 0).edit().putBoolean("ws_tall:" + this.saveBaseName, choice == 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // A round button centred on (cx, cy), measured from the bottom-left or bottom-right corner.
+    private void addRoundButton(FrameLayout frameLayout, String label, int bit, boolean fromRight, int cxDp, int cyDp, int sizeDp, int style) {
+        TouchButton button = new TouchButton(this, label, bit, this::setButtonPressed, style);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | (fromRight ? Gravity.END : Gravity.START));
+        int side = dp(cxDp) - dp(sizeDp) / 2;
+        int bottom = dp(cyDp) - dp(sizeDp) / 2;
+        params.setMargins(fromRight ? 0 : side, 0, fromRight ? side : 0, bottom);
+        frameLayout.addView(button, params);
+    }
+
+    private void addDPadAt(FrameLayout frameLayout, int leftDp, int bottomDp, int sizeDp) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | Gravity.START);
+        params.setMargins(dp(leftDp), 0, 0, dp(bottomDp));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), params);
+    }
+
+    // The small purple Y pad (or X pad when upright), a diamond centred on (cx, cy).
+    private void addWonderSwanSmallPad(FrameLayout frameLayout, int cxDp, int cyDp, int gapDp, int sizeDp) {
+        boolean tall = wonderSwanTall();
+        // up, right, down, left
+        int[][] at = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+        for (int k = 0; k < 4; k++) {
+            String label = tall ? WS_TALL_LABELS[k] : "Y" + (k + 1);
+            int bit = tall ? WS_TALL_BITS[k] : WS_Y_BITS[k];
+            addRoundButton(frameLayout, label, bit, false, cxDp + at[k][0] * gapDp, cyDp + at[k][1] * gapDp, sizeDp, TouchButton.STYLE_PURPLE);
+        }
+    }
+
+    private int wonderSwanA() {
+        return wonderSwanTall() ? 512 : 1;
+    }
+
+    private int wonderSwanB() {
+        return wonderSwanTall() ? 256 : 2;
+    }
+
+    // Portrait: D-pad with the Y pad just above it, B and A on the right, START at the bottom.
+    private void addWonderSwanControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 22, 120, 150);
+        addWonderSwanSmallPad(frameLayout, 97, 327, 34, 38);
+        addRoundButton(frameLayout, "B", wonderSwanB(), true, 130, 180, 62, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "A", wonderSwanA(), true, 62, 220, 62, TouchButton.STYLE_DARK);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, "START", 8, 0, 40);
+    }
+
+    // Landscape: Y pad over the D-pad on the left, A/B and START on the right.
+    private void addWonderSwanLandscapeControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 34, 40, 120);
+        addWonderSwanSmallPad(frameLayout, 94, 220, 30, 34);
+        addRoundButton(frameLayout, "B", wonderSwanB(), true, 118, 176, 54, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "A", wonderSwanA(), true, 70, 221, 54, TouchButton.STYLE_DARK);
+        addButton(frameLayout, "START", 8, 8388693, dp(49), dp(18), dp(90), dp(32));
+    }
+
+    // Neo Geo Pocket: the core reads its A from the B input and its B from the A input.
+    private void addNeoGeoPocketControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 22, 140, 150);
+        addRoundButton(frameLayout, "A", 2, true, 130, 190, 66, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "B", 1, true, 62, 230, 66, TouchButton.STYLE_DARK);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, "OPTION", 8, 0, 40);
+    }
+
+    private void addNeoGeoPocketLandscapeControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 22, 110, 140);
+        addRoundButton(frameLayout, "A", 2, true, 150, 183, 62, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "B", 1, true, 76, 251, 62, TouchButton.STYLE_DARK);
+        addButton(frameLayout, "OPTION", 8, 8388691, dp(45), dp(18), dp(94), dp(32));
+    }
+
     private boolean isDreamcast() {
         return "flycast".equals(this.coreId);
     }
@@ -4070,6 +4211,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isGameBoy() || isGameGear()) {
             return 160.0f / 144.0f;
         }
+        if (isWonderSwan()) {
+            return wonderSwanTall() ? 144.0f / 224.0f : 224.0f / 144.0f;
+        }
+        if (isNeoGeoPocket()) {
+            return 160.0f / 152.0f;
+        }
         return this.coreId.equals("gba") ? 1.5f : 1.3333334f;
     }
 
@@ -4088,6 +4235,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "melonds":
             case "mupen64plus_next":
             case "flycast":
+            case "wswan":
+            case "ngp":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

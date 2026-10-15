@@ -142,6 +142,28 @@ jobs:
             app/src/main/jniLibs/arm64-v8a/libmednafen_pce_fast_libretro_android.so
           key: consoles-${{ hashFiles('cores/build-consoles.sh') }}
 
+      - name: Restore WonderSwan and Neo Geo Pocket cores
+        id: handhelds-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libmednafen_wswan_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmednafen_ngp_libretro_android.so
+          key: handhelds-${{ hashFiles('cores/build-handhelds.sh') }}
+
+      - name: Build WonderSwan and Neo Geo Pocket cores
+        if: steps.handhelds-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-handhelds.sh
+
+      - name: Save WonderSwan and Neo Geo Pocket cores
+        if: steps.handhelds-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libmednafen_wswan_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmednafen_ngp_libretro_android.so
+          key: handhelds-${{ hashFiles('cores/build-handhelds.sh') }}
+
       - name: Restore PPSSPP core
         id: ppsspp-cache
         uses: actions/cache/restore@v4
@@ -294,7 +316,7 @@ jobs:
       - name: Check APK contents
         run: |
           for apk in app/build/outputs/apk/*/*.apk; do
-            for entry in assets/romsets.bin assets/titles.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so lib/arm64-v8a/libmame2015_libretro_android.so lib/arm64-v8a/libsnes9x_libretro_android.so lib/arm64-v8a/libfceumm_libretro_android.so lib/arm64-v8a/libgenesis_plus_gx_libretro_android.so lib/arm64-v8a/libmednafen_pce_fast_libretro_android.so lib/arm64-v8a/libppsspp_libretro_android.so assets/ppsspp_system.zip lib/arm64-v8a/libpcsx_rearmed_libretro_android.so lib/arm64-v8a/libplay_libretro_android.so; do
+            for entry in assets/romsets.bin assets/titles.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so lib/arm64-v8a/libmame2015_libretro_android.so lib/arm64-v8a/libsnes9x_libretro_android.so lib/arm64-v8a/libfceumm_libretro_android.so lib/arm64-v8a/libgenesis_plus_gx_libretro_android.so lib/arm64-v8a/libmednafen_pce_fast_libretro_android.so lib/arm64-v8a/libmednafen_wswan_libretro_android.so lib/arm64-v8a/libmednafen_ngp_libretro_android.so lib/arm64-v8a/libppsspp_libretro_android.so assets/ppsspp_system.zip lib/arm64-v8a/libpcsx_rearmed_libretro_android.so lib/arm64-v8a/libplay_libretro_android.so; do
               unzip -l "$apk" | grep -q " $entry\$" || { echo "::error::$apk is missing $entry"; exit 1; }
             done
           done

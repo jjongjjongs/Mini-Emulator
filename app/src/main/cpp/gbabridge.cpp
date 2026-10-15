@@ -540,6 +540,8 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "melonds") return "libmelondsds_libretro_android.so";
     if (coreId == "mupen64plus_next") return "libmupen64plus_next_libretro_android.so";
     if (coreId == "flycast") return "libflycast_libretro_android.so";
+    if (coreId == "wswan") return "libmednafen_wswan_libretro_android.so";
+    if (coreId == "ngp") return "libmednafen_ngp_libretro_android.so";
     return nullptr;
 }
 
@@ -1178,6 +1180,9 @@ std::atomic<bool> gVariablesUpdated{false};
 // DS screen layout: 0 stacked 4 rows apart (portrait), 1 stacked and touching
 // (landscape), 2 side by side (landscape with a physical controller, no touch buttons).
 std::atomic<int> gNdsLayout{0};
+// WonderSwan games made to be held upright: the core turns the picture (and the pad) for
+// them. Set per game before it starts.
+std::atomic<bool> gWsTall{false};
 
 // Core options the app pins regardless of what the core reports as default.
 const char* fixedVariable(const char* key) {
@@ -1230,6 +1235,9 @@ const char* fixedVariable(const char* key) {
         return bios ? "disabled" : "enabled";
     }
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
+    // WonderSwan: upright or sideways as the player chose for the game; the pad follows.
+    if (strcmp(key, "wswan_rotate_display") == 0) return gWsTall.load() ? "portrait" : "landscape";
+    if (strcmp(key, "wswan_rotate_keymap") == 0) return "auto";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -1683,7 +1691,8 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
                        core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
-                       core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast";
+                       core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
+                       core->coreId == "wswan" || core->coreId == "ngp";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -2295,10 +2304,10 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
 
     retro_game_info game{};
     game.path = core->romPath.c_str();
-    if (core->coreId == "melonds" || core->coreId == "mupen64plus_next") {
-        // melonDS DS and Mupen64Plus-Next report need_fullpath = false and read the game
-        // only from data/size (the other cores here open the path themselves), so hand
-        // them the file's bytes.
+    if (core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "wswan" || core->coreId == "ngp") {
+        // melonDS DS, Mupen64Plus-Next and the Beetle WonderSwan/NeoPop builds report
+        // need_fullpath = false and read the game only from data/size (the other cores here
+        // open the path themselves), so hand them the file's bytes.
         FILE* rom = fopen(core->romPath.c_str(), "rb");
         if (rom != nullptr) {
             fseek(rom, 0, SEEK_END);
@@ -2648,6 +2657,10 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setCheats(
         }
         return true;
     }) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIEnv* /*env*/, jclass /*cls*/, jboolean tall) {
+    gWsTall.store(tall == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
