@@ -13,6 +13,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Environment;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.view.MotionEvent;
@@ -231,6 +232,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         relaunchGameIfAsked(getIntent());
+        ensureDownloadFolder();
         // Keep the open mode across rotation and other activity recreation.
         String restoredMode = bundle == null ? null : bundle.getString(STATE_MODE);
         this.pendingBiosSource = bundle == null ? null : bundle.getString(STATE_BIOS_SOURCE);
@@ -3120,12 +3122,17 @@ public final class MainActivity extends Activity {
         migrateSaveFileIfNeeded(file);
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(file);
-        if (!saveFileFor.exists() && !stateFileFor.exists() && pcsx2MemoryCardsFor(file).isEmpty()) {
+        if (!saveFileFor.exists() && !stateFileFor.exists() && pcsx2MemoryCardsFor(file).isEmpty() && quickSaveFilesFor(file).length == 0) {
             showError("이 ROM의 세이브 파일이 없습니다.");
             return;
         }
         this.pendingSaveRom = file;
         this.pendingSaveFile = saveFileFor;
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            // Straight into Download/Mini Emulator, no picker.
+            exportSaveToDownloads(displayGameNameFor(file) + " 세이브 백업.zip");
+            return;
+        }
         Intent intent = new Intent("android.intent.action.CREATE_DOCUMENT");
         intent.addCategory("android.intent.category.OPENABLE");
         intent.setType("application/zip");
@@ -3140,14 +3147,104 @@ public final class MainActivity extends Activity {
         Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
         intent.addCategory("android.intent.category.OPENABLE");
         intent.setType("*/*");
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            // Open the picker in Download/Mini Emulator, where exports go.
+            intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                    android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:" + Environment.DIRECTORY_DOWNLOADS + "/" + DOWNLOAD_FOLDER));
+        }
         startActivityForResult(intent, 1003);
     }
 
-    private void exportSave(Uri uri) {
+    // Save backups go to Download/Mini Emulator, which the app makes on first start.
+    static final String DOWNLOAD_FOLDER = "Mini Emulator";
+
+    @android.annotation.TargetApi(29)
+    private Uri createDownload(String name, String mimeType) {
+        android.content.ContentValues values = new android.content.ContentValues();
+        values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+        values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType);
+        values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + DOWNLOAD_FOLDER + "/");
+        values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1);
+        return getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+    }
+
+    @android.annotation.TargetApi(29)
+    private void finishDownload(Uri uri) {
+        android.content.ContentValues values = new android.content.ContentValues();
+        values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0);
+        getContentResolver().update(uri, values, null, null);
+    }
+
+    // The name the file really got (Android adds " (1)" when the name is taken).
+    private String downloadName(Uri uri, String fallback) {
+        try (android.database.Cursor cursor = getContentResolver().query(uri, new String[]{android.provider.MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && cursor.getString(0) != null) {
+                return cursor.getString(0);
+            }
+        } catch (RuntimeException ignored) {
+            // Use the requested name.
+        }
+        return fallback;
+    }
+
+    @android.annotation.TargetApi(29)
+    private void exportSaveToDownloads(String name) {
+        Uri uri;
+        try {
+            uri = createDownload(name, "application/zip");
+        } catch (RuntimeException e) {
+            uri = null;
+        }
+        if (uri == null) {
+            showError("세이브 내보내기 실패: 다운로드 폴더에 파일을 만들 수 없습니다");
+            return;
+        }
+        if (exportSave(uri)) {
+            finishDownload(uri);
+            String saved = downloadName(uri, name);
+            String cards = this.lastExportCards == 0 ? "" : "\nPS2 메모리카드 " + this.lastExportCards + "개(모든 PS2 게임 공용)도 들어 있어요.";
+            showMessage("다운로드/" + DOWNLOAD_FOLDER + "/" + saved + "에 저장했어요." + cards);
+        } else {
+            getContentResolver().delete(uri, null, null);
+        }
+    }
+
+    // Makes Download/Mini Emulator on first start: a folder only stays with a file in it,
+    // so it gets a short note about what goes there.
+    private void ensureDownloadFolder() {
+        if (android.os.Build.VERSION.SDK_INT < 29 || settingsPrefs().getBoolean("download_folder_made", false)) {
+            return;
+        }
+        new Thread(() -> {
+            try {
+                Uri uri = createDownload("안내.txt", "text/plain");
+                if (uri == null) {
+                    return;
+                }
+                try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                    if (out != null) {
+                        out.write(("Mini Emulator 세이브 백업 폴더\n\n"
+                                + "ROM을 길게 눌러 \"세이브 내보내기\"를 하면 백업(.zip)이 이 폴더에 저장돼요.\n"
+                                + "\"세이브 가져오기\"를 누르면 이 폴더가 먼저 열려요.\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                }
+                finishDownload(uri);
+                settingsPrefs().edit().putBoolean("download_folder_made", true).apply();
+            } catch (IOException | RuntimeException ignored) {
+                // Tried again next start.
+            }
+        }, "download-folder").start();
+    }
+
+    private int lastExportCards;
+
+    // Writes the backup zip; true when it was written. Shows its own message unless the
+    // file goes to the Download folder (the caller then says where).
+    private boolean exportSave(Uri uri) {
         File file = this.pendingSaveRom;
         if (file == null) {
             showError("세이브 내보내기 실패: 선택된 세이브가 없습니다");
-            return;
+            return false;
         }
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(this.pendingSaveRom);
@@ -3155,7 +3252,7 @@ public final class MainActivity extends Activity {
         File[] quickSaves = quickSaveFilesFor(file);
         if (!saveFileFor.exists() && !stateFileFor.exists() && cards.isEmpty() && quickSaves.length == 0) {
             showError("세이브 내보내기 실패: 세이브 파일이 없습니다");
-            return;
+            return false;
         }
         try (OutputStream openOutputStream = getContentResolver().openOutputStream(uri);
              ZipOutputStream zipOutputStream = openOutputStream == null ? null : new ZipOutputStream(openOutputStream)) {
@@ -3174,9 +3271,14 @@ public final class MainActivity extends Activity {
             for (File quick : quickSaves) {
                 writeZipEntry(zipOutputStream, quick, "quicksaves/" + quick.getName());
             }
-            showMessage(cards.isEmpty() ? "세이브 백업을 내보냈습니다." : "세이브 백업을 내보냈습니다. PS2 메모리카드 " + cards.size() + "개(모든 PS2 게임 공용)도 들어 있어요.");
+            this.lastExportCards = cards.size();
+            if (android.os.Build.VERSION.SDK_INT < 29) {
+                showMessage(cards.isEmpty() ? "세이브 백업을 내보냈습니다." : "세이브 백업을 내보냈습니다. PS2 메모리카드 " + cards.size() + "개(모든 PS2 게임 공용)도 들어 있어요.");
+            }
+            return true;
         } catch (IOException e) {
             showError("세이브 내보내기 실패: " + e.getMessage());
+            return false;
         }
     }
 
