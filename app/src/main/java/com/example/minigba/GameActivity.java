@@ -91,7 +91,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -362,6 +362,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isN64()) {
             tint = ClearShellView.TINT_GRAY;
             name = "NINTENDO 64";
+        } else if (isDreamcast()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "DREAMCAST";
         } else if (isMasterSystem()) {
             tint = ClearShellView.TINT_SMOKE;
             name = isGameGear() ? "GAME GEAR" : "MASTER SYSTEM";
@@ -436,6 +439,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void addLandscapeControls(FrameLayout frameLayout) {
         if (isN64()) {
             addN64LandscapeControls(frameLayout);
+            return;
+        }
+        if (isDreamcast()) {
+            addDreamcastLandscapeControls(frameLayout);
             return;
         }
         View createDirectionControl = createDirectionControl();
@@ -624,7 +631,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.touchDirection = 0;
         java.util.Arrays.fill(this.buttonHolds, 0);
         updateInput();
-        if (isSonyPad() || isN64()) {
+        if (isSonyPad() || isN64() || isDreamcast()) {
             onAnalogChanged(0, 0);
             onAnalogRightChanged(0, 0);
         }
@@ -660,8 +667,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
         int hat = directionsFor(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X), event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y), 0.5f);
         int stick = 0;
-        if (isSonyPad() || isN64()) {
-            // PSP / PS1 / PS2 / N64 read the sticks as sticks.
+        if (isSonyPad() || isN64() || isDreamcast()) {
+            // PSP / PS1 / PS2 / N64 / Dreamcast read the sticks as sticks.
             onAnalogChanged(x, y);
             onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
         } else {
@@ -1169,6 +1176,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Under the A button.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(18), dp(12));
+        } else if (isDreamcast()) {
+            // Under the face buttons.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(54), dp(12));
         } else if (isMasterSystem()) {
             // Centred under the 1 and 2 buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
@@ -1617,6 +1628,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void addControls(FrameLayout frameLayout) {
         if (isN64()) {
             addN64Controls(frameLayout);
+            return;
+        }
+        if (isDreamcast()) {
+            addDreamcastControls(frameLayout);
             return;
         }
         View createDirectionControl = createDirectionControl();
@@ -2445,6 +2460,67 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "mupen64plus_next".equals(this.coreId);
     }
 
+    private boolean isDreamcast() {
+        return "flycast".equals(this.coreId);
+    }
+
+    // Dreamcast pad in its own colours: Y on top, B right, A bottom, X left. Flycast reads the
+    // libretro pad by position, so A/B/X/Y are libretro B/A/Y/X; the triggers are L2/R2.
+    private void addDreamcastFace(FrameLayout frameLayout, int gravity, int rightCenter, int verticalCenter, int gap, int size) {
+        String[] labels = {"Y", "B", "A", "X"};
+        int[] bits = {1024, 1, 2, 2048};
+        int[] styles = {TouchButton.STYLE_ARCADE_YELLOW, TouchButton.STYLE_ARCADE_RED, TouchButton.STYLE_SNES_BLUE, TouchButton.STYLE_ARCADE_GREEN};
+        int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        boolean fromTop = (gravity & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP;
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, labels[k], bits[k], this::setButtonPressed, styles[k]);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(size), dp(size), gravity);
+            params.rightMargin = dp(rightCenter - offsets[k][0] * gap - size / 2);
+            int centre = verticalCenter + (fromTop ? offsets[k][1] : -offsets[k][1]) * gap;
+            if (fromTop) {
+                params.topMargin = dp(centre - size / 2);
+            } else {
+                params.bottomMargin = dp(centre - size / 2);
+            }
+            frameLayout.addView(button, params);
+        }
+    }
+
+    // Portrait: L and R triggers on top, the stick over the D-pad on the left, the face
+    // buttons on the right, START below.
+    private void addDreamcastControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "L", kL2, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+        addButton(frameLayout, "R", kR2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(112), dp(112), Gravity.BOTTOM | Gravity.START);
+        stickParams.setMargins(dp(24), 0, 0, dp(186));
+        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(104), dp(104), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(28), 0, 0, dp(66));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addDreamcastFace(frameLayout, Gravity.BOTTOM | Gravity.END, 100, 176, 50, 56);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, startLabel(), 8, 0, 18);
+    }
+
+    // Landscape: the same groups in the columns beside the screen; START under the D-pad,
+    // the speed button under the face buttons.
+    private void addDreamcastLandscapeControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
+        lParams.setMargins(dp(14), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "L", kL2, this::setButtonPressed, 2), lParams);
+        FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.END);
+        rParams.setMargins(0, dp(58), dp(14), 0);
+        frameLayout.addView(new TouchButton(this, "R", kR2, this::setButtonPressed, 2), rParams);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.TOP | Gravity.START);
+        stickParams.setMargins(dp(40), dp(102), 0, 0);
+        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(42), 0, 0, dp(54));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addButton(frameLayout, startLabel(), 8, 8388691, dp(43), dp(14), dp(94), dp(32));
+        addDreamcastFace(frameLayout, Gravity.TOP | Gravity.END, 94, 196, 42, 50);
+    }
+
     // Nintendo 64 pad, as Mupen64Plus-Next reads it with independent C buttons: A and B are
     // libretro B and Y, the C buttons X/A/L/R (up/down/left/right), Z is L2, R is R2 and
     // L is SELECT.
@@ -2799,6 +2875,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "pcee2":
             case "melonds":
             case "mupen64plus_next":
+            case "flycast":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

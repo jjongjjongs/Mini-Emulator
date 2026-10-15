@@ -438,6 +438,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "pcee2") return "libpcee2_libretro_android.so";
     if (coreId == "melonds") return "libmelondsds_libretro_android.so";
     if (coreId == "mupen64plus_next") return "libmupen64plus_next_libretro_android.so";
+    if (coreId == "flycast") return "libflycast_libretro_android.so";
     return nullptr;
 }
 
@@ -481,7 +482,7 @@ bool loadCoreSymbols(Core* core) {
 // Play! restore through their GL context, which is made on the emulation thread.
 bool needsFrameBeforeState(const Core* core) {
     return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play" ||
-           core->coreId == "pcee2" || core->coreId == "mupen64plus_next";
+           core->coreId == "pcee2" || core->coreId == "mupen64plus_next" || core->coreId == "flycast";
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
@@ -1119,6 +1120,14 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mupen64plus-cpucore") == 0) return "dynamic_recompiler";
     if (strcmp(key, "mupen64plus-43screensize") == 0) return "640x480";
     if (strcmp(key, "mupen64plus-alt-map") == 0) return "True";
+    // Dreamcast: the real BIOS (system/dc/dc_boot.bin) when the player added one, otherwise
+    // Flycast's own high-level BIOS, which runs most games.
+    if (strcmp(key, "reicast_hle_bios") == 0) {
+        struct stat st {};
+        Core* core = gCore;
+        bool bios = core != nullptr && stat((core->systemDir + "/dc/dc_boot.bin").c_str(), &st) == 0;
+        return bios ? "disabled" : "enabled";
+    }
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
@@ -1496,6 +1505,17 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     if (port != 0 || device != RETRO_DEVICE_JOYPAD || core == nullptr) {
         return 0;
     }
+    if (id == RETRO_DEVICE_ID_JOYPAD_MASK) {
+        // Cores told the frontend takes bitmasks (Flycast, Mupen64Plus-Next) ask for all
+        // buttons at once.
+        int16_t buttons = 0;
+        for (unsigned button = 0; button < 16; ++button) {
+            if (inputStateCallback(port, device, index, button) != 0) {
+                buttons = static_cast<int16_t>(buttons | (1 << button));
+            }
+        }
+        return buttons;
+    }
     int mask = core->inputMask.load();
     int bit;
     if (core->coreId == "mame2010" || core->coreId == "mame2015") {
@@ -1520,7 +1540,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
                        core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
-                       core->coreId == "melonds" || core->coreId == "mupen64plus_next";
+                       core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -1819,7 +1839,7 @@ void runLoop(Core* core) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
-            if (core->coreId == "play" || core->coreId == "pcee2" || core->coreId == "melonds") {
+            if (core->coreId == "play" || core->coreId == "pcee2" || core->coreId == "melonds" || core->coreId == "flycast") {
                 crash::wrapForeignSegvHandler();
             }
             core->retroRun();
