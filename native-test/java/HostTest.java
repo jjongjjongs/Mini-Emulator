@@ -116,6 +116,27 @@ public class HostTest {
         Thread.sleep(200);
         check(frames() > before, "still running after reset");
 
+        NativeGba.setRewindEnabled(h, true);
+        Thread.sleep(1500);
+        NativeGba.setRewinding(h, true);
+        before = frames();
+        Thread.sleep(500);
+        float back = NativeGba.rewoundSeconds(h);
+        check(back > 0.2f && back < 1.0f, "rewinding goes back in time: " + back + "s");
+        check(frames() > before, "frames keep coming while rewinding");
+        Thread.sleep(1500);
+        float most = NativeGba.rewoundSeconds(h);
+        check(most >= 1.2f && most <= 1.8f, "rewind stops at the oldest state: " + most + "s");
+        NativeGba.setRewinding(h, false);
+        before = frames();
+        Thread.sleep(300);
+        check(frames() > before, "plays on after rewinding");
+        NativeGba.setRewindEnabled(h, false);
+        NativeGba.setRewinding(h, true);
+        Thread.sleep(200);
+        check(NativeGba.rewoundSeconds(h) == 0.0f, "no rewinding with the setting off");
+        NativeGba.setRewinding(h, false);
+
         state.delete();
         new File(saves, "test.sav").delete();
         NativeGba.destroy(h);

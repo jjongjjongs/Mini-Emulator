@@ -30,6 +30,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -180,6 +182,94 @@ bool load(Api& a) {
 
 gl::Api gGl;
 
+// ---- 되감기 (rewind) ----
+// States are taken every few frames. Only the newest is kept whole ("head"); each older one
+// is kept as the XOR from the next newer state, with the long zero runs packed, which
+// makes most steps a few KB. Rewinding undoes the newest step into head and loads it.
+struct Rewind {
+    std::vector<uint8_t> head;
+    std::vector<uint8_t> scratch;
+    std::vector<uint8_t> work;
+    std::deque<std::vector<uint8_t>> deltas;
+    size_t bytes = 0;
+    unsigned interval = 1;
+    unsigned counter = 0;
+    size_t maxDeltas = 600;
+};
+
+constexpr size_t kRewindBudget = 48u << 20;
+constexpr double kRewindSeconds = 10.0;
+
+void put32(std::vector<uint8_t>& out, uint32_t value) {
+    uint8_t bytes[4];
+    memcpy(bytes, &value, 4);
+    out.insert(out.end(), bytes, bytes + 4);
+}
+
+// out = records of [u32 equal bytes][u32 differing bytes][a ^ b for those bytes].
+void rewindEncode(const uint8_t* a, const uint8_t* b, size_t size, std::vector<uint8_t>& out) {
+    out.clear();
+    size_t i = 0;
+    while (i < size) {
+        size_t start = i;
+        while (i < size && a[i] == b[i]) {
+            ++i;
+        }
+        size_t equal = i - start;
+        size_t literalStart = i;
+        size_t run = 0;
+        while (i < size) {
+            if (a[i] == b[i]) {
+                if (++run == 8) {
+                    // Eight equal bytes end the literals; they start the next record.
+                    i -= 7;
+                    break;
+                }
+            } else {
+                run = 0;
+            }
+            ++i;
+        }
+        size_t literals = i - literalStart;
+        if (literals == 0 && i >= size) {
+            break;
+        }
+        put32(out, static_cast<uint32_t>(equal));
+        put32(out, static_cast<uint32_t>(literals));
+        for (size_t k = literalStart; k < literalStart + literals; ++k) {
+            out.push_back(a[k] ^ b[k]);
+        }
+    }
+}
+
+// XORs a delta from rewindEncode into data (turning one of its two states into the other).
+bool rewindApply(std::vector<uint8_t>& data, const std::vector<uint8_t>& delta) {
+    size_t pos = 0;
+    size_t at = 0;
+    while (at + 8 <= delta.size()) {
+        uint32_t equal;
+        uint32_t literals;
+        memcpy(&equal, delta.data() + at, 4);
+        memcpy(&literals, delta.data() + at + 4, 4);
+        at += 8;
+        pos += equal;
+        if (pos + literals > data.size() || at + literals > delta.size()) {
+            return false;
+        }
+        for (uint32_t k = 0; k < literals; ++k) {
+            data[pos++] ^= delta[at++];
+        }
+    }
+    return true;
+}
+
+void rewindReset(Rewind& r) {
+    r.head.clear();
+    r.deltas.clear();
+    r.bytes = 0;
+    r.counter = 0;
+}
+
 constexpr int kDefaultSampleRate = 32768;
 constexpr double kDefaultFps = 59.64;
 
@@ -225,6 +315,12 @@ struct Core {
     // million, so the game follows the speaker's clock; the audio sink asks for it.
     std::atomic<int> audioPacePpm{0};
     std::atomic<int> inputMask{0};
+    // Rewind: the buffer exists while the setting is on (guarded by coreMutex); held while
+    // the button is down; cleared after a load or reset so it doesn't jump across them.
+    std::unique_ptr<Rewind> rewind;
+    std::atomic<bool> rewindHeld{false};
+    std::atomic<bool> rewindClear{false};
+    std::atomic<int> rewoundFrames{0};
     // Guards window, which the UI thread can swap while the core draws.
     std::mutex videoMutex;
     // Guards every call into the core.
@@ -1846,6 +1942,61 @@ double audioClockFps(Core* core, size_t samples) {
     return measured;
 }
 
+// Takes this frame's state into the rewind buffer (every interval frames).
+void rewindCapture(Core* core) {
+    Rewind& r = *core->rewind;
+    if (core->retroSerializeSize == nullptr || core->retroSerialize == nullptr) {
+        return;
+    }
+    if (!r.head.empty() && ++r.counter < r.interval) {
+        return;
+    }
+    r.counter = 0;
+    size_t size = core->retroSerializeSize();
+    if (size == 0) {
+        return;
+    }
+    r.scratch.resize(size);
+    if (!core->retroSerialize(r.scratch.data(), size)) {
+        return;
+    }
+    if (r.head.size() != size) {
+        rewindReset(r);
+        // Big states are taken less often so the copying stays cheap.
+        r.interval = size <= (1u << 20) ? 1 : size <= (4u << 20) ? 2 : size <= (12u << 20) ? 4 : size <= (24u << 20) ? 8 : 15;
+        r.maxDeltas = static_cast<size_t>(core->fps * kRewindSeconds / r.interval) + 1;
+        r.head.swap(r.scratch);
+        return;
+    }
+    rewindEncode(r.scratch.data(), r.head.data(), size, r.work);
+    r.deltas.emplace_back(r.work.begin(), r.work.end());
+    r.bytes += r.deltas.back().size();
+    r.head.swap(r.scratch);
+    while (!r.deltas.empty() && (r.bytes > kRewindBudget || r.deltas.size() > r.maxDeltas)) {
+        r.bytes -= r.deltas.front().size();
+        r.deltas.pop_front();
+    }
+}
+
+// Goes one step back (or stays at the oldest state) and loads it.
+bool rewindStep(Core* core) {
+    Rewind& r = *core->rewind;
+    if (r.head.empty() || core->retroUnserialize == nullptr) {
+        return false;
+    }
+    if (!r.deltas.empty()) {
+        if (!rewindApply(r.head, r.deltas.back())) {
+            rewindReset(r);
+            return false;
+        }
+        r.bytes -= r.deltas.back().size();
+        r.deltas.pop_back();
+        core->rewoundFrames.fetch_add(static_cast<int>(r.interval));
+    }
+    r.counter = 0;
+    return core->retroUnserialize(r.head.data(), r.head.size());
+}
+
 void runLoop(Core* core) {
     // Stay attached to Java for the whole session: audio goes to Java every frame and
     // attaching for each call is expensive.
@@ -1886,12 +2037,26 @@ void runLoop(Core* core) {
             if (core->coreId == "play" || core->coreId == "pcee2" || core->coreId == "melonds" || core->coreId == "flycast") {
                 crash::wrapForeignSegvHandler();
             }
+            bool canRewind = core->rewind && !core->resumePending && core->framesRun > 0;
+            if (core->rewind && core->rewindClear.exchange(false)) {
+                rewindReset(*core->rewind);
+            }
+            bool held = canRewind && core->rewindHeld.load();
+            bool rewound = held && rewindStep(core);
             core->retroRun();
             core->framesRun++;
-            if (core->coreId == "mupen64plus_next" || core->coreId == "flycast") {
-                fps = audioClockFps(core, core->audioPending.size() / 2);
+            if (rewound) {
+                // Backwards sound is noise; and the frame shouldn't count toward the audio clock.
+                core->audioPending.clear();
+            } else {
+                if (core->coreId == "mupen64plus_next" || core->coreId == "flycast") {
+                    fps = audioClockFps(core, core->audioPending.size() / 2);
+                }
+                flushAudio(core);
             }
-            flushAudio(core);
+            if (canRewind && !held) {
+                rewindCapture(core);
+            }
             ran = true;
             if (core->resumePending) {
                 if (core->framesRun >= core->resumeRetryAt) {
@@ -2323,6 +2488,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
             return false;
         }
         core->resumePending = false;
+        core->rewindClear.store(true);
         return loadState(core);
     }) ? JNI_TRUE : JNI_FALSE;
 }
@@ -2350,6 +2516,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateFile(
             return false;
         }
         core->resumePending = false;
+        core->rewindClear.store(true);
         return loadStateFrom(core, source);
     }) ? JNI_TRUE : JNI_FALSE;
 }
@@ -2370,8 +2537,50 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_reset(JNIEnv* /*env*/,
     }
     callCore(core, [core] {
         core->retroReset();
+        core->rewindClear.store(true);
         return true;
     });
+}
+
+// The 되감기 setting: keeps (or drops) the rewind buffer.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setRewindEnabled(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jboolean enabled) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr) {
+        return;
+    }
+    CoreLock lock(core);
+    if (enabled == JNI_TRUE) {
+        if (!core->rewind) {
+            core->rewind.reset(new Rewind());
+        }
+    } else {
+        core->rewind.reset();
+        core->rewindHeld.store(false);
+    }
+}
+
+// While held the game runs backwards, one stored step per frame.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setRewinding(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jboolean held) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr) {
+        return;
+    }
+    if (held == JNI_TRUE && !core->rewindHeld.load()) {
+        core->rewoundFrames.store(0);
+    }
+    core->rewindHeld.store(held == JNI_TRUE);
+}
+
+// Seconds gone back since the button went down.
+JNIEXPORT jfloat JNICALL Java_com_example_minigba_NativeGba_rewoundSeconds(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || core->fps <= 0) {
+        return 0.0f;
+    }
+    return static_cast<jfloat>(core->rewoundFrames.load() / core->fps);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspLanguage(

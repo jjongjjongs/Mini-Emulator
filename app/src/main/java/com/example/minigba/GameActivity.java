@@ -170,6 +170,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shell.track(frameLayout, frameLayout2);
         setContentView(root);
         installComboZones(root);
+        applyLayoutEdits(root);
     }
 
     private void createLandscapeContent() {
@@ -208,6 +209,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shell.track(isNds() ? null : frameLayout2, frameLayout);
         setContentView(root);
         installComboZones(root);
+        applyLayoutEdits(root);
     }
 
     // "프레임" (the default) draws the case's bezel around the screen; "전체 화면" drops it
@@ -835,6 +837,259 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }));
     }
 
+
+    // ---- 되감기 (rewind) ----
+    private static final int REWIND_BESIDE = 0;
+    private static final int REWIND_LEFT = 1;
+    private static final int REWIND_BELOW = 2;
+    private static final String[] REWIND_NAMES = {"꺼짐", "켜짐"};
+    private static final String[] REWIND_NOTES = {"되감기 버튼 없음 (기본)", "버튼을 누르고 있는 동안 거꾸로"};
+    private TextView rewindBadge;
+    private final Runnable rewindBadgeUpdate = new Runnable() {
+        @Override
+        public void run() {
+            updateRewindBadge();
+        }
+    };
+    private boolean rewindHeld;
+
+    // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
+    private boolean rewindSupported() {
+        return !isPs2() && !isDreamcast() && !isMame139();
+    }
+
+    private boolean rewindOn() {
+        return rewindSupported() && getSharedPreferences("settings", 0).getBoolean("rewind_enabled", false);
+    }
+
+    // Puts the rewind button beside the speed button: centred as a pair (BESIDE), to its left
+    // in a bottom-right row (LEFT, optionally narrowing the speed button), or under it (BELOW).
+    private void addRewindButton(FrameLayout parent, View speed, FrameLayout.LayoutParams speedParams, int placement, int widthDp, boolean narrowSpeed) {
+        if (!rewindOn()) {
+            return;
+        }
+        RewindButtonView rewind = new RewindButtonView(this, this::onRewindHeld);
+        int width = dp(widthDp);
+        int gap = dp(6);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, speedParams.height, speedParams.gravity);
+        if (placement == REWIND_BESIDE) {
+            params.setMargins(speedParams.leftMargin, speedParams.topMargin, speedParams.rightMargin, speedParams.bottomMargin);
+            speed.setTranslationX(speed.getTranslationX() - (width + gap) / 2.0f);
+            rewind.setTranslationX((speedParams.width + gap) / 2.0f);
+        } else if (placement == REWIND_LEFT) {
+            if (narrowSpeed) {
+                speedParams.width = width;
+                speed.setLayoutParams(speedParams);
+            }
+            params.setMargins(0, 0, speedParams.rightMargin + speedParams.width + gap, speedParams.bottomMargin);
+        } else {
+            params.setMargins(0, speedParams.topMargin + speedParams.height + gap, speedParams.rightMargin + (speedParams.width - width) / 2, 0);
+        }
+        parent.addView(rewind, params);
+    }
+
+    private void onRewindHeld(boolean held) {
+        if (this.rewindHeld == held) {
+            return;
+        }
+        this.rewindHeld = held;
+        long handle = this.nativeHandle;
+        if (handle != 0) {
+            NativeGba.setRewinding(handle, held);
+        }
+        updateRewindBadge();
+    }
+
+    // "◀◀ 되감는 중 · 3초 전" over the top of the screen while the button is held.
+    private void updateRewindBadge() {
+        TextView badge = this.rewindBadge;
+        if (!this.rewindHeld) {
+            if (badge != null) {
+                badge.removeCallbacks(this.rewindBadgeUpdate);
+                badge.setVisibility(View.GONE);
+            }
+            return;
+        }
+        if (badge == null || !badge.isAttachedToWindow()) {
+            badge = new TextView(this);
+            badge.setTextColor(Color.WHITE);
+            badge.setTextSize(13.0f);
+            badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            badge.setPadding(dp(14), dp(7), dp(14), dp(7));
+            android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+            background.setColor(Color.argb(220, 76, 29, 149));
+            background.setCornerRadius(dp(16));
+            badge.setBackground(background);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            params.setMargins(0, dp(this.landscapeMode ? 12 : 72), 0, 0);
+            addContentView(badge, params);
+            this.rewindBadge = badge;
+        }
+        long handle = this.nativeHandle;
+        int seconds = handle == 0 ? 0 : Math.round(NativeGba.rewoundSeconds(handle));
+        badge.setText(seconds > 0 ? "◀◀  되감는 중 · " + seconds + "초 전" : "◀◀  되감는 중");
+        badge.setVisibility(View.VISIBLE);
+        badge.removeCallbacks(this.rewindBadgeUpdate);
+        badge.postDelayed(this.rewindBadgeUpdate, 250);
+    }
+
+    // Builds the screen again (a setting that adds or removes buttons changed).
+    private void rebuildContent() {
+        releaseController();
+        onRewindHeld(false);
+        if (this.landscapeMode) {
+            createLandscapeContent();
+        } else {
+            createPortraitContent();
+        }
+    }
+
+    // ---- 버튼 배치 편집 (layout editor) ----
+    private final java.util.List<View> layoutControls = new java.util.ArrayList<>();
+    private final java.util.List<String> layoutIds = new java.util.ArrayList<>();
+    private final java.util.List<float[]> layoutBase = new java.util.ArrayList<>();
+    private LayoutEditorView layoutEditor;
+
+    private static boolean isLayoutControl(View view) {
+        return view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView
+                || view instanceof ArcadeJoystickView || view instanceof SpeedButtonView || view instanceof RewindButtonView;
+    }
+
+    // Saved per console, screen direction and screen style.
+    private String layoutKey() {
+        String console = isGameGear() ? "gg" : isMasterSystem() ? "sms" : isGameBoy() ? "gb" : this.coreId;
+        return "layout:" + console + ":" + (this.landscapeMode ? "L" : "P") + ":" + (isFullScreenStyle() ? "full" : "frame");
+    }
+
+    private java.util.Map<String, float[]> loadLayoutEdits() {
+        java.util.Map<String, float[]> map = new java.util.HashMap<>();
+        String saved = getSharedPreferences("settings", 0).getString(layoutKey(), "");
+        for (String entry : saved.split(";")) {
+            int eq = entry.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String[] values = entry.substring(eq + 1).split(",");
+            if (values.length != 3) {
+                continue;
+            }
+            try {
+                map.put(entry.substring(0, eq), new float[]{Float.parseFloat(values[0]), Float.parseFloat(values[1]), Float.parseFloat(values[2])});
+            } catch (NumberFormatException ignored) {
+                // A damaged entry leaves that control where it was.
+            }
+        }
+        return map;
+    }
+
+    private boolean hasLayoutEdits() {
+        return !loadLayoutEdits().isEmpty();
+    }
+
+    // Finds the controls just built, names them (kind, button bit, n-th of the same) so a saved
+    // layout still fits when another button comes or goes, and applies the saved moves.
+    private void applyLayoutEdits(View root) {
+        this.layoutControls.clear();
+        this.layoutIds.clear();
+        this.layoutBase.clear();
+        java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (isLayoutControl(view)) {
+                String kind = view.getClass().getSimpleName() + (view instanceof TouchButton ? "." + ((TouchButton) view).bit() : "");
+                int count = seen.containsKey(kind) ? seen.get(kind) : 0;
+                seen.put(kind, count + 1);
+                this.layoutControls.add(view);
+                this.layoutIds.add(kind + "#" + count);
+                this.layoutBase.add(new float[]{view.getTranslationX(), view.getTranslationY()});
+            } else if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup group = (android.view.ViewGroup) view;
+                for (int k = 0; k < group.getChildCount(); k++) {
+                    queue.add(group.getChildAt(k));
+                }
+            }
+        }
+        java.util.Map<String, float[]> edits = loadLayoutEdits();
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            float[] edit = edits.get(this.layoutIds.get(k));
+            if (edit != null) {
+                applyLayoutEdit(k, edit[0], edit[1], edit[2]);
+            }
+        }
+    }
+
+    private void applyLayoutEdit(int index, float dxDp, float dyDp, float scale) {
+        View view = this.layoutControls.get(index);
+        float[] base = this.layoutBase.get(index);
+        float density = getResources().getDisplayMetrics().density;
+        view.setTranslationX(base[0] + dxDp * density);
+        view.setTranslationY(base[1] + dyDp * density);
+        view.setScaleX(scale);
+        view.setScaleY(scale);
+    }
+
+    private void startLayoutEditor() {
+        if (this.layoutControls.isEmpty() || this.layoutEditor != null) {
+            return;
+        }
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        java.util.Map<String, float[]> saved = loadLayoutEdits();
+        float[][] edits = new float[this.layoutControls.size()][];
+        for (int k = 0; k < edits.length; k++) {
+            float[] edit = saved.get(this.layoutIds.get(k));
+            edits[k] = edit != null ? edit.clone() : new float[]{0, 0, 1};
+        }
+        LayoutEditorView editor = new LayoutEditorView(this, new java.util.ArrayList<>(this.layoutControls), edits, new LayoutEditorView.Listener() {
+            @Override
+            public void apply(int index, float dxDp, float dyDp, float scale) {
+                applyLayoutEdit(index, dxDp, dyDp, scale);
+            }
+
+            @Override
+            public void onSave(float[][] result) {
+                StringBuilder sb = new StringBuilder();
+                for (int k = 0; k < result.length; k++) {
+                    float[] edit = result[k];
+                    if (Math.abs(edit[0]) < 0.5f && Math.abs(edit[1]) < 0.5f && Math.abs(edit[2] - 1) < 0.01f) {
+                        continue;
+                    }
+                    sb.append(layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',')
+                            .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f).append(';');
+                }
+                getSharedPreferences("settings", 0).edit().putString(layoutKey(), sb.toString()).apply();
+                finishLayoutEditor("버튼 배치를 저장했어요.");
+            }
+
+            @Override
+            public void onCancel() {
+                finishLayoutEditor(null);
+            }
+        });
+        addContentView(editor, new FrameLayout.LayoutParams(-1, -1));
+        this.layoutEditor = editor;
+    }
+
+    private void finishLayoutEditor(String message) {
+        LayoutEditorView editor = this.layoutEditor;
+        this.layoutEditor = null;
+        if (editor != null && editor.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) editor.getParent()).removeView(editor);
+        }
+        for (android.view.ViewGroup parent : this.comboParents) {
+            layoutComboZones(parent, true);
+        }
+        if (message != null) {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        }
+        this.holdPause = false;
+        resumeUnlessExiting();
+    }
+
     // ---- 설정: screen filter, button vibration, combo zones (all games) ----
     private static final String[] FILTER_NAMES = {"기본", "선명하게", "스캔라인", "LCD 격자"};
     private static final String[] FILTER_NOTES = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자"};
@@ -950,6 +1205,35 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
             comboParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createComboRow(reopen), comboParams);
+            LinearLayout.LayoutParams rewindParams = new LinearLayout.LayoutParams(-1, dp(52));
+            rewindParams.setMargins(0, dp(8), 0, 0);
+            boolean supported = rewindSupported();
+            panel.addView(createSettingRow(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기",
+                    !supported ? "이 기종은 안 돼요" : rewindOn() ? "켜짐" : "꺼짐",
+                    view -> {
+                        if (!supported) {
+                            Toast.makeText(this, "PS2·드림캐스트는 상태 저장이 너무 커서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        showChoiceDialog(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기", REWIND_NAMES, REWIND_NOTES,
+                                rewindOn() ? 1 : 0, "켜면 배속 버튼 옆에 되감기 버튼이 생겨요.\n누르고 있는 동안 최대 약 10초 전까지 거꾸로 가요. 휴대폰 메모리를 조금 더 써요.",
+                                Color.rgb(243, 240, 255), Color.rgb(91, 33, 182), "적용", choice -> {
+                            getSharedPreferences("settings", 0).edit().putBoolean("rewind_enabled", choice == 1).apply();
+                            long handle = this.nativeHandle;
+                            if (handle != 0) {
+                                NativeGba.setRewindEnabled(handle, rewindOn());
+                            }
+                            rebuildContent();
+                            reopen.run();
+                        });
+                    }), rewindParams);
+            LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(52));
+            editParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.MOVE, RoundIconView.COLOR_MOVE, "버튼 배치 편집",
+                    hasLayoutEdits() ? "바꾼 배치" : "기본 배치", view -> {
+                        dialog.dismiss();
+                        startLayoutEditor();
+                    }), editParams);
         }
 
         TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
@@ -987,6 +1271,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         this.activityResumed = false;
+        onRewindHeld(false);
         long j = this.nativeHandle;
         if (j != 0) {
             NativeGba.pause(j, true);
@@ -1078,6 +1363,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     public void onBackPressed() {
+        if (this.layoutEditor != null) {
+            // Back leaves the editor without saving: the screen is built again as saved.
+            finishLayoutEditor(null);
+            rebuildContent();
+            return;
+        }
         showBackExitDialog();
     }
 
@@ -1095,7 +1386,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             startCore(surfaceHolder.getSurface());
         } else {
             NativeGba.setSurface(j, surfaceHolder.getSurface());
-            NativeGba.pause(this.nativeHandle, false);
+            // Rebuilt under the pause menu (a setting changed): stay paused until it closes.
+            boolean menuOpen = this.holdPause || (this.pauseDialog != null && this.pauseDialog.isShowing());
+            NativeGba.pause(this.nativeHandle, menuOpen);
         }
     }
 
@@ -1129,6 +1422,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.landscapeMode = configuration.orientation == 2;
         // The controls are rebuilt; whatever the old ones held is let go.
         releaseController();
+        onRewindHeld(false);
+        if (this.layoutEditor != null) {
+            finishLayoutEditor(null);
+        }
         if (isMame139()) {
             Emulator.pause();
         } else {
@@ -1220,6 +1517,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.nativeHandle = handle;
         NativeGba.setInput(handle, this.buttonMask);
         NativeGba.setSpeedPercent(handle, this.speedPercent);
+        NativeGba.setRewindEnabled(handle, rewindOn());
         // The surface or the activity state may have changed while the game was loading.
         if (!this.surfaceReady || this.activeSurfaceHolder == null) {
             NativeGba.clearSurface(handle);
@@ -1329,6 +1627,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             speedParams.setMargins(0, dp(62), dp(14), 0);
         }
         frameLayout.addView(speedButtonView, speedParams);
+        if (isNds()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 72, false);
+        } else if (isN64() || isDreamcast() || isMasterSystem()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, true);
+        } else if (isPadLayout()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BESIDE, 66, false);
+        } else {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BELOW, 66, false);
+        }
     }
 
     // A round coloured icon with its name underneath; the circle darkens while pressed.
@@ -1907,6 +2214,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         layoutParams.gravity = 49;
         layoutParams.setMargins(0, dp(isNds() ? 10 : 37), 0, 0);
         frameLayout.addView(this.fastForwardButton, layoutParams);
+        addRewindButton(frameLayout, speedButtonView, layoutParams, REWIND_BESIDE, 72, false);
     }
 
     private void addCenterButton(FrameLayout frameLayout, String str, int i, int i2) {

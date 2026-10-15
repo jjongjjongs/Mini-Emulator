@@ -34,6 +34,8 @@ final class RoundIconView extends View {
     static final int COMBO = 19;
     static final int FILTER = 20;
     static final int VIBRATE = 21;
+    static final int REWIND = 22;
+    static final int MOVE = 23;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -50,6 +52,8 @@ final class RoundIconView extends View {
     static final int COLOR_COMBO = Color.rgb(245, 158, 11);
     static final int COLOR_FILTER = Color.rgb(14, 165, 233);
     static final int COLOR_VIBRATE = Color.rgb(139, 92, 246);
+    static final int COLOR_REWIND = Color.rgb(109, 40, 217);
+    static final int COLOR_MOVE = Color.rgb(16, 185, 129);
 
     private final int icon;
     private final int color;
@@ -299,6 +303,38 @@ final class RoundIconView extends View {
                 path.lineTo(17.5f, 9.5f);
                 path.moveTo(6.5f, 14.5f);
                 path.lineTo(17.5f, 14.5f);
+                canvas.drawPath(path, line);
+                break;
+            case REWIND:
+                // Two triangles pointing left.
+                path.moveTo(3.5f, 12);
+                path.lineTo(11.5f, 6.5f);
+                path.lineTo(11.5f, 17.5f);
+                path.close();
+                path.moveTo(11.5f, 12);
+                path.lineTo(19.5f, 6.5f);
+                path.lineTo(19.5f, 17.5f);
+                path.close();
+                canvas.drawPath(path, line);
+                break;
+            case MOVE:
+                // A four-way move arrow.
+                path.moveTo(12, 3);
+                path.lineTo(12, 21);
+                path.moveTo(3, 12);
+                path.lineTo(21, 12);
+                path.moveTo(9.5f, 5.5f);
+                path.lineTo(12, 3);
+                path.lineTo(14.5f, 5.5f);
+                path.moveTo(9.5f, 18.5f);
+                path.lineTo(12, 21);
+                path.lineTo(14.5f, 18.5f);
+                path.moveTo(5.5f, 9.5f);
+                path.lineTo(3, 12);
+                path.lineTo(5.5f, 14.5f);
+                path.moveTo(18.5f, 9.5f);
+                path.lineTo(21, 12);
+                path.lineTo(18.5f, 14.5f);
                 canvas.drawPath(path, line);
                 break;
             case VIBRATE:

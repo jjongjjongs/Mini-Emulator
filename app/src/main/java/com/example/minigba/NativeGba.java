@@ -63,4 +63,10 @@ final class NativeGba {
 
     private NativeGba() {
     }
+
+    static native void setRewindEnabled(long handle, boolean enabled);
+
+    static native void setRewinding(long handle, boolean held);
+
+    static native float rewoundSeconds(long handle);
 }
