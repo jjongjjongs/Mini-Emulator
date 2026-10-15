@@ -2511,11 +2511,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.END);
         rParams.setMargins(0, dp(58), dp(14), 0);
         frameLayout.addView(new TouchButton(this, "R", kR2, this::setButtonPressed, 2), rParams);
+        // The stick a little lower and the D-pad a little higher, closer together.
         FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.TOP | Gravity.START);
-        stickParams.setMargins(dp(40), dp(102), 0, 0);
+        stickParams.setMargins(dp(40), dp(118), 0, 0);
         frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
         FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.BOTTOM | Gravity.START);
-        padParams.setMargins(dp(42), 0, 0, dp(54));
+        padParams.setMargins(dp(42), 0, 0, dp(74));
         frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
         addButton(frameLayout, startLabel(), 8, 8388691, dp(43), dp(14), dp(94), dp(32));
         addDreamcastFace(frameLayout, Gravity.TOP | Gravity.END, 94, 196, 42, 50);

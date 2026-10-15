@@ -2127,6 +2127,15 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     if (core->coreId == "pcsx_rearmed" && core->retroSetControllerPortDevice != nullptr) {
         core->retroSetControllerPortDevice(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1));
     }
+    // Flycast connects nothing until the frontend names each port: a pad (with its VMU) in
+    // the first, the others empty. Without it games say the controller was removed and
+    // find no VMU to save to.
+    if (core->coreId == "flycast" && core->retroSetControllerPortDevice != nullptr) {
+        core->retroSetControllerPortDevice(0, RETRO_DEVICE_JOYPAD);
+        for (unsigned port = 1; port < 4; ++port) {
+            core->retroSetControllerPortDevice(port, RETRO_DEVICE_NONE);
+        }
+    }
 
     retro_system_av_info info{};
     core->retroGetSystemAvInfo(&info);
