@@ -166,6 +166,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shell.setThinBezel(full);
         shell.track(frameLayout, frameLayout2);
         setContentView(root);
+        installComboZones(root);
     }
 
     private void createLandscapeContent() {
@@ -202,6 +203,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shell.setCompactBezel(!full && (isDualShock() || isNds()));
         shell.track(isNds() ? null : frameLayout2, frameLayout);
         setContentView(root);
+        installComboZones(root);
     }
 
     // "프레임" (the default) draws the case's bezel around the screen; "전체 화면" drops it
@@ -597,11 +599,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void releaseController() {
         this.padButtons = 0;
+        this.padTriggers = 0;
         this.padKeyDirection = 0;
         this.padHatDirection = 0;
         this.padStickDirection = 0;
         this.buttonMask = 0;
         this.touchDirection = 0;
+        java.util.Arrays.fill(this.buttonHolds, 0);
         updateInput();
         if (isSonyPad()) {
             onAnalogChanged(0, 0);
@@ -685,13 +689,124 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(touchButton, layoutParams);
     }
 
+    // How many touches (a button, a combo zone, a controller key) hold each button bit, so
+    // letting go of one does not release a button another still holds.
+    private final int[] buttonHolds = new int[32];
+
     private void setButtonPressed(int i, boolean z) {
-        if (z) {
-            this.buttonMask = i | this.buttonMask;
-        } else {
-            this.buttonMask = (~i) & this.buttonMask;
+        int held = 0;
+        for (int b = 0; b < 32; b++) {
+            if ((i & (1 << b)) != 0) {
+                this.buttonHolds[b] = Math.max(0, this.buttonHolds[b] + (z ? 1 : -1));
+            }
+            if (this.buttonHolds[b] > 0) {
+                held |= 1 << b;
+            }
         }
+        // The D-pad bits come from applyDirections.
+        this.buttonMask = (this.buttonMask & 0xF0) | (held & ~0xF0);
         updateInput();
+    }
+
+    // ---- 버튼 사이 동시 입력: zones between neighbouring face buttons press both ----
+    private static final String[] COMBO_NAMES = {"꺼짐", "좁게", "넓게"};
+    private static final String[] COMBO_NOTES = {"손가락 하나 = 버튼 하나 (기본)", "버튼 사이 빈틈을 누르면 두 버튼 같이", "버튼 가장자리만 눌러도 같이 · 격투 게임용"};
+    // Face buttons: A, B, X/C, Y/D, E, F.
+    private static final int FACE_BITS = 1 | 2 | 1024 | 2048 | 4096 | 8192;
+    private final java.util.List<android.view.ViewGroup> comboParents = new java.util.ArrayList<>();
+    // The face-button positions each parent's zones were laid out for.
+    private final java.util.Map<android.view.ViewGroup, String> comboSignatures = new java.util.HashMap<>();
+
+    private int comboLevel() {
+        int level = getSharedPreferences("settings", 0).getInt("combo_level", 0);
+        return level >= 0 && level <= 2 ? level : 0;
+    }
+
+    // Finds the face buttons of the content just built and keeps zones between them in place.
+    private void installComboZones(View root) {
+        this.comboParents.clear();
+        this.comboSignatures.clear();
+        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (view instanceof TouchButton && (((TouchButton) view).bit() & FACE_BITS) != 0
+                    && view.getParent() instanceof FrameLayout && !this.comboParents.contains((android.view.ViewGroup) view.getParent())) {
+                this.comboParents.add((android.view.ViewGroup) view.getParent());
+            }
+            if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup group = (android.view.ViewGroup) view;
+                for (int k = 0; k < group.getChildCount(); k++) {
+                    queue.add(group.getChildAt(k));
+                }
+            }
+        }
+        for (android.view.ViewGroup parent : this.comboParents) {
+            parent.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> parent.post(() -> layoutComboZones(parent, false)));
+        }
+    }
+
+    private void layoutComboZones(android.view.ViewGroup parent, boolean force) {
+        java.util.List<TouchButton> buttons = new java.util.ArrayList<>();
+        java.util.List<View> zones = new java.util.ArrayList<>();
+        StringBuilder signature = new StringBuilder().append(comboLevel());
+        for (int k = 0; k < parent.getChildCount(); k++) {
+            View child = parent.getChildAt(k);
+            if (child instanceof ComboZoneView) {
+                zones.add(child);
+            } else if (child instanceof TouchButton && (((TouchButton) child).bit() & FACE_BITS) != 0 && child.getWidth() > 0) {
+                buttons.add((TouchButton) child);
+                signature.append(',').append(child.getLeft() + (int) child.getTranslationX()).append(':').append(child.getTop() + (int) child.getTranslationY());
+            }
+        }
+        // Adding the zones lays the parent out again; leave them be when nothing moved.
+        if (!force && signature.toString().equals(this.comboSignatures.get(parent))) {
+            return;
+        }
+        this.comboSignatures.put(parent, signature.toString());
+        for (View zone : zones) {
+            parent.removeView(zone);
+        }
+        int level = comboLevel();
+        if (level == 0) {
+            return;
+        }
+        for (int i = 0; i < buttons.size(); i++) {
+            for (int j = i + 1; j < buttons.size(); j++) {
+                TouchButton a = buttons.get(i);
+                TouchButton b = buttons.get(j);
+                float ax = a.getLeft() + a.getTranslationX() + a.getWidth() / 2.0f;
+                float ay = a.getTop() + a.getTranslationY() + a.getHeight() / 2.0f;
+                float bx = b.getLeft() + b.getTranslationX() + b.getWidth() / 2.0f;
+                float by = b.getTop() + b.getTranslationY() + b.getHeight() / 2.0f;
+                float size = Math.max(Math.max(a.getWidth(), a.getHeight()), Math.max(b.getWidth(), b.getHeight()));
+                // Neighbours only: a diamond's sides, not its opposite corners.
+                if (Math.hypot(ax - bx, ay - by) > size * 1.6f) {
+                    continue;
+                }
+                int zoneSize = Math.round(size * (level == 1 ? 0.5f : 0.95f));
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(zoneSize, zoneSize, Gravity.TOP | Gravity.START);
+                params.leftMargin = Math.round((ax + bx) / 2 - zoneSize / 2.0f);
+                params.topMargin = Math.round((ay + by) / 2 - zoneSize / 2.0f);
+                parent.addView(new ComboZoneView(this, a, b, this::setButtonPressed), params);
+            }
+        }
+    }
+
+    private LinearLayout createComboRow() {
+        return createSettingRow(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "버튼 사이 동시 입력", COMBO_NAMES[comboLevel()],
+                view -> showChoiceDialog(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "버튼 사이 동시 입력", COMBO_NAMES, COMBO_NOTES,
+                        comboLevel(), "모든 게임에 바로 적용돼요.\n손가락 두 개로 각각 누르는 건 설정과 상관없이 항상 돼요.",
+                        Color.rgb(255, 247, 232), Color.rgb(138, 90, 0), "적용", choice -> {
+                    getSharedPreferences("settings", 0).edit().putInt("combo_level", choice).apply();
+                    for (android.view.ViewGroup parent : this.comboParents) {
+                        layoutComboZones(parent, true);
+                    }
+                    if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+                        this.pauseDialog.dismiss();
+                        showGameMenu();
+                    }
+                }));
     }
 
     private void addLandscapeArcadeButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int size, int i4) {
@@ -847,6 +962,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
         this.landscapeMode = configuration.orientation == 2;
+        // The controls are rebuilt; whatever the old ones held is let go.
+        releaseController();
         if (isMame139()) {
             Emulator.pause();
         } else {
@@ -1287,6 +1404,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // Pause menu: six round tiles and a big continue button.
+    private android.app.Dialog pauseDialog;
+
     private void showPauseDialog() {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
@@ -1333,6 +1452,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(10), 0, 0);
         panel.addView(row2, row2Params);
+        if (!isPadScreen()) {
+            LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
+            comboParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(createComboRow(), comboParams);
+        }
         if (isPadScreen()) {
             LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(-1, dp(52));
             speedParams.setMargins(0, dp(12), 0, 0);
@@ -1362,7 +1486,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         resumeParams.setMargins(0, dp(14), 0, 0);
         panel.addView(resume, resumeParams);
 
-        dialog.setContentView(panel);
+        // Scrolls when the rows outgrow a landscape screen.
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        this.pauseDialog = dialog;
         dialog.setOnDismissListener(d -> resumeUnlessExiting());
         android.view.Window window = dialog.getWindow();
         if (window != null) {

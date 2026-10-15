@@ -105,13 +105,13 @@ final class TouchButton extends View {
     private void drawRound(Canvas canvas, float width, float height, int[] palette) {
         float cx = width / 2.0f;
         float radius = Math.min(width, height) * 0.42f;
-        float press = this.pressed ? radius * 0.05f : 0.0f;
+        float press = looksPressed() ? radius * 0.05f : 0.0f;
         float cy = height / 2.0f - radius * 0.04f + press;
 
         // Coloured glow the plastic throws on the case, plus a tight contact shadow.
-        float glowY = cy + radius * (this.pressed ? 0.06f : 0.14f);
+        float glowY = cy + radius * (looksPressed() ? 0.06f : 0.14f);
         this.shadow.setShader(new RadialGradient(cx, glowY, radius * 1.22f,
-                withAlpha(palette[2], this.pressed ? 70 : 110), withAlpha(palette[2], 0), Shader.TileMode.CLAMP));
+                withAlpha(palette[2], looksPressed() ? 70 : 110), withAlpha(palette[2], 0), Shader.TileMode.CLAMP));
         canvas.drawCircle(cx, glowY, radius * 1.22f, this.shadow);
         this.shadow.setShader(null);
         this.shadow.setColor(Color.argb(60, 0, 0, 0));
@@ -138,7 +138,7 @@ final class TouchButton extends View {
 
         // Small tilted reflection in the upper left.
         this.highlight.setStyle(Paint.Style.FILL);
-        this.highlight.setColor(Color.argb(this.pressed ? 140 : 190, 255, 255, 255));
+        this.highlight.setColor(Color.argb(looksPressed() ? 140 : 190, 255, 255, 255));
         canvas.save();
         canvas.rotate(-25.0f, cx - radius * 0.28f, cy - radius * 0.58f);
         canvas.drawOval(new RectF(cx - radius * 0.64f, cy - radius * 0.78f, cx + radius * 0.08f, cy - radius * 0.38f), this.highlight);
@@ -148,7 +148,7 @@ final class TouchButton extends View {
 
     // Wide keys (L/R, SELECT/START, coin and the like): smoky see-through plastic.
     private void drawKeycap(Canvas canvas, float width, float height) {
-        float press = this.pressed ? 2.0f : 0.0f;
+        float press = looksPressed() ? 2.0f : 0.0f;
         float left = 3.0f;
         float right = width - 3.0f;
         float top = 2.0f + press;
@@ -158,15 +158,15 @@ final class TouchButton extends View {
         RectF face = new RectF(left, top, right, bottom);
 
         // Soft shadow underneath.
-        float drop = this.pressed ? 2.0f : 4.0f;
+        float drop = looksPressed() ? 2.0f : 4.0f;
         this.shadow.setShader(null);
-        this.shadow.setColor(Color.argb(this.pressed ? 26 : 38, 0, 0, 0));
+        this.shadow.setColor(Color.argb(looksPressed() ? 26 : 38, 0, 0, 0));
         canvas.drawRoundRect(new RectF(left - 1.0f, top + drop, right + 1.0f, bottom + drop + 1.0f), radius, radius, this.shadow);
-        this.shadow.setColor(Color.argb(this.pressed ? 34 : 50, 0, 0, 0));
+        this.shadow.setColor(Color.argb(looksPressed() ? 34 : 50, 0, 0, 0));
         canvas.drawRoundRect(new RectF(left, top + drop * 0.5f, right, bottom + drop * 0.5f), radius, radius, this.shadow);
 
         this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom,
-                Color.argb(this.pressed ? 205 : 190, 70, 70, 80), Color.argb(this.pressed ? 230 : 217, 30, 30, 38), Shader.TileMode.CLAMP));
+                Color.argb(looksPressed() ? 205 : 190, 70, 70, 80), Color.argb(looksPressed() ? 230 : 217, 30, 30, 38), Shader.TileMode.CLAMP));
         canvas.drawRoundRect(face, radius, radius, this.fill);
         // Faint sheen on the upper half.
         this.fill.setShader(new LinearGradient(0, face.top, 0, face.centerY(),
@@ -219,6 +219,22 @@ final class TouchButton extends View {
         }
         setPressedState(false);
         return true;
+    }
+
+    int bit() {
+        return this.button;
+    }
+
+    // Held by a combo zone between two buttons (the finger is not on this view itself).
+    private int comboHolds;
+
+    void setComboHeld(boolean held) {
+        this.comboHolds = Math.max(0, this.comboHolds + (held ? 1 : -1));
+        invalidate();
+    }
+
+    private boolean looksPressed() {
+        return this.pressed || this.comboHolds > 0;
     }
 
     private void setPressedState(boolean z) {
