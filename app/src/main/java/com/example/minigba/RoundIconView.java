@@ -32,6 +32,8 @@ final class RoundIconView extends View {
     static final int GLOBE = 17;
     static final int HD = 18;
     static final int COMBO = 19;
+    static final int FILTER = 20;
+    static final int VIBRATE = 21;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -46,6 +48,8 @@ final class RoundIconView extends View {
     static final int COLOR_GLOBE = Color.rgb(99, 102, 241);
     static final int COLOR_HD = Color.rgb(14, 165, 233);
     static final int COLOR_COMBO = Color.rgb(245, 158, 11);
+    static final int COLOR_FILTER = Color.rgb(14, 165, 233);
+    static final int COLOR_VIBRATE = Color.rgb(139, 92, 246);
 
     private final int icon;
     private final int color;
@@ -287,6 +291,24 @@ final class RoundIconView extends View {
             case COMBO:
                 canvas.drawCircle(8.5f, 12, 5.5f, line);
                 canvas.drawCircle(15.5f, 12, 5.5f, line);
+                break;
+            case FILTER:
+                // A screen with scanlines across it.
+                path.addRoundRect(new RectF(3, 4.5f, 21, 19.5f), 3, 3, Path.Direction.CW);
+                path.moveTo(6.5f, 9.5f);
+                path.lineTo(17.5f, 9.5f);
+                path.moveTo(6.5f, 14.5f);
+                path.lineTo(17.5f, 14.5f);
+                canvas.drawPath(path, line);
+                break;
+            case VIBRATE:
+                // A phone with buzz marks on both sides.
+                path.addRoundRect(new RectF(8, 3.5f, 16, 20.5f), 2, 2, Path.Direction.CW);
+                path.moveTo(4.5f, 8.5f);
+                path.lineTo(4.5f, 15.5f);
+                path.moveTo(19.5f, 8.5f);
+                path.lineTo(19.5f, 15.5f);
+                canvas.drawPath(path, line);
                 break;
             case HD:
                 path.addRoundRect(new RectF(2.5f, 5, 21.5f, 19), 3, 3, Path.Direction.CW);

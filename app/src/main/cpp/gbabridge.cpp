@@ -1310,14 +1310,30 @@ void presentHwFrame(Core* core) {
     if (scissor) gGl.Enable(gl::GL_SCISSOR_TEST);
 }
 
+// "선명하게" screen filter: software frames are blown up by a whole number with nearest
+// neighbour before Android scales them the rest of the way, so the pixels stay crisp
+// instead of being smoothed over.
+std::atomic<bool> gSharpScaling{false};
+
 // Copies the frame the presenter holds into the window and shows it.
 void presentShownFrame(Core* core) {
     std::lock_guard<std::mutex> lock(core->videoMutex);
     if (core->window == nullptr || core->shownWidth == 0 || core->shownHeight == 0) {
         return;
     }
-    ANativeWindow_setBuffersGeometry(core->window, static_cast<int32_t>(core->shownWidth),
-                                     static_cast<int32_t>(core->shownHeight), core->shownFormat);
+    unsigned scale = 1;
+    if (gSharpScaling.load()) {
+        scale = 1280 / core->shownWidth;
+        scale = scale < 1 ? 1 : scale > 4 ? 4 : scale;
+        // Keep the copy cheap: about a million pixels at most (DS's two screens get 3x).
+        while (scale > 1 && core->shownWidth * core->shownHeight * scale * scale > 1100000u) {
+            --scale;
+        }
+    }
+    unsigned width = core->shownWidth * scale;
+    unsigned height = core->shownHeight * scale;
+    ANativeWindow_setBuffersGeometry(core->window, static_cast<int32_t>(width), static_cast<int32_t>(height),
+                                     core->shownFormat);
     ANativeWindow_Buffer buffer;
     if (ANativeWindow_lock(core->window, &buffer, nullptr) != 0) {
         return;
@@ -1327,8 +1343,34 @@ void presentShownFrame(Core* core) {
     size_t dstPitch = static_cast<size_t>(buffer.stride) * bytesPerPixel;
     const uint8_t* src = core->shownFrame.data();
     auto* dst = static_cast<uint8_t*>(buffer.bits);
-    for (unsigned y = 0; y < core->shownHeight; ++y, src += rowBytes, dst += dstPitch) {
-        memcpy(dst, src, rowBytes < dstPitch ? rowBytes : dstPitch);
+    if (scale == 1) {
+        for (unsigned y = 0; y < core->shownHeight; ++y, src += rowBytes, dst += dstPitch) {
+            memcpy(dst, src, rowBytes < dstPitch ? rowBytes : dstPitch);
+        }
+    } else {
+        size_t outRow = static_cast<size_t>(width) * bytesPerPixel;
+        size_t copy = outRow < dstPitch ? outRow : dstPitch;
+        for (unsigned y = 0; y < core->shownHeight; ++y, src += rowBytes) {
+            uint8_t* line = dst;
+            // Widen the row in place in the first output line, then repeat that line.
+            if (bytesPerPixel == 2) {
+                const auto* in = reinterpret_cast<const uint16_t*>(src);
+                auto* out = reinterpret_cast<uint16_t*>(line);
+                for (unsigned x = 0; x < core->shownWidth; ++x) {
+                    for (unsigned k = 0; k < scale; ++k) *out++ = in[x];
+                }
+            } else {
+                const auto* in = reinterpret_cast<const uint32_t*>(src);
+                auto* out = reinterpret_cast<uint32_t*>(line);
+                for (unsigned x = 0; x < core->shownWidth; ++x) {
+                    for (unsigned k = 0; k < scale; ++k) *out++ = in[x];
+                }
+            }
+            dst += dstPitch;
+            for (unsigned k = 1; k < scale; ++k, dst += dstPitch) {
+                memcpy(dst, line, copy);
+            }
+        }
     }
     ANativeWindow_unlockAndPost(core->window);
 }
@@ -2369,6 +2411,43 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNdsLayout(
 // when the game starts, so a change takes a restart.
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSharpScaling(JNIEnv* /*env*/, jclass /*cls*/, jboolean sharp) {
+    gSharpScaling.store(sharp == JNI_TRUE);
+    Core* core = gCore;
+    if (core != nullptr) {
+        // Show the current frame the new way at once (also while paused).
+        {
+            std::lock_guard<std::mutex> lock(core->frameMutex);
+            if (core->presenterRunning && core->shownWidth != 0) {
+                core->frameRedraw = true;
+            }
+        }
+        core->frameCv.notify_one();
+    }
+}
+
+// Width and height of the game's picture (0 before the first frame), for the screen filters
+// that draw one line per game line.
+JNIEXPORT jintArray JNICALL Java_com_example_minigba_NativeGba_frameSize(JNIEnv* env, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    jint size[2] = {0, 0};
+    if (core != nullptr) {
+        if (core->hwRender) {
+            size[0] = static_cast<jint>(core->lastWidth);
+            size[1] = static_cast<jint>(core->lastHeight);
+        } else {
+            std::lock_guard<std::mutex> lock(core->frameMutex);
+            size[0] = static_cast<jint>(core->shownWidth);
+            size[1] = static_cast<jint>(core->shownHeight);
+        }
+    }
+    jintArray result = env->NewIntArray(2);
+    if (result != nullptr) {
+        env->SetIntArrayRegion(result, 0, 2, size);
+    }
+    return result;
 }
 
 // PSP left stick, each axis -32767..32767.

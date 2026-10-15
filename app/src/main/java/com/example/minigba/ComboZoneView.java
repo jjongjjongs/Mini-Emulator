@@ -42,6 +42,9 @@ final class ComboZoneView extends View {
             return;
         }
         this.held = held;
+        if (held) {
+            Haptics.tap();
+        }
         this.first.setComboHeld(held);
         this.second.setComboHeld(held);
         this.listener.onButtonChanged(this.first.bit() | this.second.bit(), held);

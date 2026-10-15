@@ -208,6 +208,9 @@ final class DPadView extends View {
         if (this.directionMask == i) {
             return;
         }
+        if ((i & ~this.directionMask) != 0) {
+            Haptics.tap();
+        }
         this.directionMask = i;
         this.listener.onDirectionMaskChanged(i);
         invalidate();

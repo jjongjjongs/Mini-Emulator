@@ -242,6 +242,9 @@ final class TouchButton extends View {
             return;
         }
         this.pressed = z;
+        if (z) {
+            Haptics.tap();
+        }
         this.listener.onButtonChanged(this.button, z);
         invalidate();
     }

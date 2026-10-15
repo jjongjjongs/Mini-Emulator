@@ -86,6 +86,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         getSharedPreferences("settings", 0).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
         String stringExtra = getIntent().getStringExtra("com.example.minigba.CORE_ID");
         this.coreId = stringExtra;
+        Haptics.setLevel(this, hapticLevel());
+        NativeGba.setSharpScaling(screenFilter() != 0);
         if (stringExtra == null) {
             this.coreId = "gba";
         }
@@ -136,6 +138,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(-1, -1);
         layoutParams.gravity = 17;
         frameLayout.addView(this.surfaceView, layoutParams);
+        addScreenFilter(frameLayout);
         // Frame style leaves room around the screen for the case's bezel and its screws;
         // full style runs the screen edge to edge.
         int[] frame = portraitScreen(dp(34), dp(4) + dp(2));
@@ -190,6 +193,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         surfaceView.getHolder().addCallback(this);
         attachTouchScreen(surfaceView);
         frameLayout2.addView(this.surfaceView, new FrameLayout.LayoutParams(-1, -1, 17));
+        addScreenFilter(frameLayout2);
         frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(dp(320), dp(214), 17));
         addLandscapeControls(frameLayout);
         addLandscapeCornerButtons(frameLayout);
@@ -249,6 +253,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         surfaceView.getHolder().addCallback(this);
         attachTouchScreen(surfaceView);
         root.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        addScreenFilter(root);
         root.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitPadScreen(surfaceView, r - l, b - t));
         RoundIconView menu = new RoundIconView(this, RoundIconView.MENU, RoundIconView.COLOR_MENU);
         menu.setAlpha(0.8f);
@@ -817,7 +822,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    private LinearLayout createComboRow() {
+    private LinearLayout createComboRow(Runnable onChanged) {
         return createSettingRow(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "버튼 사이 동시 입력", COMBO_NAMES[comboLevel()],
                 view -> showChoiceDialog(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "버튼 사이 동시 입력", COMBO_NAMES, COMBO_NOTES,
                         comboLevel(), "모든 게임에 바로 적용돼요.\n손가락 두 개로 각각 누르는 건 설정과 상관없이 항상 돼요.",
@@ -826,11 +831,143 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     for (android.view.ViewGroup parent : this.comboParents) {
                         layoutComboZones(parent, true);
                     }
-                    if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
-                        this.pauseDialog.dismiss();
-                        showGameMenu();
-                    }
+                    onChanged.run();
                 }));
+    }
+
+    // ---- 설정: screen filter, button vibration, combo zones (all games) ----
+    private static final String[] FILTER_NAMES = {"기본", "선명하게", "스캔라인", "LCD 격자"};
+    private static final String[] FILTER_NOTES = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자"};
+    private static final String[] HAPTIC_NAMES = {"꺼짐", "약하게", "보통", "강하게"};
+    private static final String[] HAPTIC_NOTES = {"진동 없음 (기본)", "살짝 톡", "또렷하게 톡", "확실하게 툭"};
+    private final java.util.List<ScreenFilterView> screenFilters = new java.util.ArrayList<>();
+    private final Runnable screenFilterPoll = new Runnable() {
+        @Override
+        public void run() {
+            updateScreenFilters();
+        }
+    };
+
+    private int screenFilter() {
+        int value = getSharedPreferences("settings", 0).getInt("screen_filter", 0);
+        return value >= 0 && value <= 3 ? value : 0;
+    }
+
+    private int hapticLevel() {
+        int value = getSharedPreferences("settings", 0).getInt("haptic_level", 0);
+        return value >= 0 && value <= 3 ? value : 0;
+    }
+
+    private void addScreenFilter(FrameLayout parent) {
+        ScreenFilterView filter = new ScreenFilterView(this, this.surfaceView);
+        this.screenFilters.clear();
+        this.screenFilters.add(filter);
+        parent.addView(filter, new FrameLayout.LayoutParams(-1, -1));
+        updateScreenFilters();
+    }
+
+    // Lines follow the game's picture size, which can change (menus, resolution switches),
+    // so it is checked twice a second while a line filter is on.
+    private void updateScreenFilters() {
+        int filter = screenFilter();
+        long handle = this.nativeHandle;
+        int[] size = handle != 0 && filter >= 2 ? NativeGba.frameSize(handle) : null;
+        for (ScreenFilterView view : this.screenFilters) {
+            view.setFilter(filter);
+            if (size != null && size.length == 2) {
+                view.setGameSize(size[0], size[1]);
+            }
+            view.removeCallbacks(this.screenFilterPoll);
+            if (filter >= 2 && !this.destroyed) {
+                view.postDelayed(this.screenFilterPoll, 500);
+            }
+        }
+    }
+
+    private void showSettingsSheet() {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.GEAR, RoundIconView.COLOR_GEAR), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("게임 설정");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView subtitle = new TextView(this);
+        subtitle.setText("모든 게임 공통 · 바로 적용");
+        subtitle.setTextSize(12.0f);
+        subtitle.setTextColor(Color.rgb(122, 130, 140));
+        titles.addView(subtitle);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        // A choice reopens this sheet so the rows show the new values.
+        Runnable reopen = () -> {
+            if (dialog.isShowing()) {
+                dialog.dismiss();
+            }
+            showSettingsSheet();
+        };
+        LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
+        filterParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", FILTER_NAMES[screenFilter()],
+                view -> showChoiceDialog(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", FILTER_NAMES, FILTER_NOTES,
+                        screenFilter(), "모든 게임에 바로 적용돼요.\nPSP·PS2·N64·드림캐스트 같은 3D 게임은 '기본'이 가장 깔끔해요.",
+                        Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
+                    getSharedPreferences("settings", 0).edit().putInt("screen_filter", choice).apply();
+                    NativeGba.setSharpScaling(choice != 0);
+                    updateScreenFilters();
+                    reopen.run();
+                })), filterParams);
+        if (!isPadScreen()) {
+            LinearLayout.LayoutParams hapticParams = new LinearLayout.LayoutParams(-1, dp(52));
+            hapticParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES[hapticLevel()],
+                    view -> showChoiceDialog(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES, HAPTIC_NOTES,
+                            hapticLevel(), "화면 버튼을 누를 때 짧게 진동해요.\n휴대폰이 무음·진동 끔이어도 울릴 수 있어요.",
+                            Color.rgb(243, 240, 255), Color.rgb(91, 33, 182), "적용", choice -> {
+                        getSharedPreferences("settings", 0).edit().putInt("haptic_level", choice).apply();
+                        Haptics.setLevel(this, choice);
+                        Haptics.tap();
+                        reopen.run();
+                    })), hapticParams);
+            LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
+            comboParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createComboRow(reopen), comboParams);
+        }
+
+        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
+        closeParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(close, closeParams);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
     }
 
     private void addLandscapeArcadeButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int size, int i4) {
@@ -1867,11 +2004,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(10), 0, 0);
         panel.addView(row2, row2Params);
-        if (!isPadScreen()) {
-            LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
-            comboParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createComboRow(), comboParams);
-        }
+        LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(-1, dp(52));
+        settingsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "설정", "", view -> showSettingsSheet()), settingsParams);
         if (isPadScreen()) {
             LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(-1, dp(52));
             speedParams.setMargins(0, dp(12), 0, 0);

@@ -49,6 +49,12 @@ final class NativeGba {
 
     static native boolean loadStateFile(long handle, String path);
 
+    // "선명하게" screen filter: software frames scaled up with nearest neighbour first.
+    static native void setSharpScaling(boolean sharp);
+
+    // The game picture's width and height (0, 0 before the first frame).
+    static native int[] frameSize(long handle);
+
     static native void setSurface(long j, Surface surface);
 
     static {
