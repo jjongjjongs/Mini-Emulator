@@ -842,6 +842,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final int REWIND_BESIDE = 0;
     private static final int REWIND_LEFT = 1;
     private static final int REWIND_BELOW = 2;
+    private static final int REWIND_MIRROR = 3;
     private static final String[] REWIND_NAMES = {"꺼짐", "켜짐"};
     private static final String[] REWIND_NOTES = {"되감기 버튼 없음 (기본)", "버튼을 누르고 있는 동안 거꾸로"};
     private TextView rewindBadge;
@@ -862,8 +863,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return rewindSupported() && getSharedPreferences("settings", 0).getBoolean("rewind_enabled", false);
     }
 
-    // Puts the rewind button beside the speed button: centred as a pair (BESIDE), to its left
-    // in a bottom-right row (LEFT, optionally narrowing the speed button), or under it (BELOW).
+    // Puts the rewind button by the speed button: centred as a pair (BESIDE), to its left in
+    // the same row (LEFT, optionally narrowing the speed button), centred under it (BELOW), or
+    // at the mirrored spot on the other side (MIRROR, for a bottom-right speed button).
     private void addRewindButton(FrameLayout parent, View speed, FrameLayout.LayoutParams speedParams, int placement, int widthDp, boolean narrowSpeed) {
         if (!rewindOn()) {
             return;
@@ -881,9 +883,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 speedParams.width = width;
                 speed.setLayoutParams(speedParams);
             }
-            params.setMargins(0, 0, speedParams.rightMargin + speedParams.width + gap, speedParams.bottomMargin);
+            params.setMargins(0, speedParams.topMargin, speedParams.rightMargin + speedParams.width + gap, speedParams.bottomMargin);
+        } else if (placement == REWIND_MIRROR) {
+            params.gravity = Gravity.BOTTOM | Gravity.START;
+            params.setMargins(speedParams.rightMargin, 0, 0, speedParams.bottomMargin);
         } else {
-            params.setMargins(0, speedParams.topMargin + speedParams.height + gap, speedParams.rightMargin + (speedParams.width - width) / 2, 0);
+            params.setMargins(speedParams.leftMargin, speedParams.topMargin + speedParams.height + dp(8), speedParams.rightMargin, 0);
         }
         parent.addView(rewind, params);
     }
@@ -1628,13 +1633,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         frameLayout.addView(speedButtonView, speedParams);
         if (isNds()) {
-            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 72, false);
+            // The screens fill the middle: the left column, mirroring the speed button.
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_MIRROR, 72, false);
         } else if (isN64() || isDreamcast() || isMasterSystem()) {
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, true);
         } else if (isPadLayout()) {
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BESIDE, 66, false);
         } else {
-            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BELOW, 66, false);
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, false);
         }
     }
 
@@ -2214,7 +2220,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         layoutParams.gravity = 49;
         layoutParams.setMargins(0, dp(isNds() ? 10 : 37), 0, 0);
         frameLayout.addView(this.fastForwardButton, layoutParams);
-        addRewindButton(frameLayout, speedButtonView, layoutParams, REWIND_BESIDE, 72, false);
+        // The speed button keeps its place between L and R; rewind goes in the gap below it.
+        addRewindButton(frameLayout, speedButtonView, layoutParams, REWIND_BELOW, 72, false);
     }
 
     private void addCenterButton(FrameLayout frameLayout, String str, int i, int i2) {
