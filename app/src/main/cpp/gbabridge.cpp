@@ -308,6 +308,13 @@ struct Core {
     bool presenterRunning = false;
     std::thread presenter;
 
+    // Nintendo 64: Mupen64Plus-Next leaves the speed to a frontend that syncs to its audio
+    // and reports 60 fps whatever the game runs at, so its frames are timed by the audio
+    // they produce instead: samples over the last kAudioClockFrames runs.
+    std::vector<uint32_t> audioClockSamples;
+    size_t audioClockIndex = 0;
+    uint64_t audioClockSum = 0;
+
     // Audio goes to Java through one reused array instead of a new one every frame.
     jshortArray audioArray = nullptr;
     jsize audioArrayLength = 0;
@@ -1748,6 +1755,33 @@ struct PerformanceHint {
     }
 };
 
+constexpr size_t kAudioClockFrames = 120;
+
+// The frame rate the core's audio says it runs at, once a couple of seconds of it have
+// come out; until then, or while the game is silent with its audio off, the reported one.
+double audioClockFps(Core* core, size_t samples) {
+    if (core->audioClockSamples.size() != kAudioClockFrames) {
+        core->audioClockSamples.assign(kAudioClockFrames, 0);
+        core->audioClockIndex = 0;
+        core->audioClockSum = 0;
+    }
+    uint32_t& slot = core->audioClockSamples[core->audioClockIndex];
+    core->audioClockSum -= slot;
+    slot = static_cast<uint32_t>(samples);
+    core->audioClockSum += slot;
+    core->audioClockIndex = (core->audioClockIndex + 1) % kAudioClockFrames;
+    if (core->framesRun < kAudioClockFrames || core->audioClockSum == 0 || core->sampleRate <= 0) {
+        return core->fps;
+    }
+    double measured = static_cast<double>(core->sampleRate) * kAudioClockFrames / static_cast<double>(core->audioClockSum);
+    // Anything above 65 is gaps in the audio, not the game's rate; as low as 25 can be a
+    // core running more than one video frame per call.
+    if (measured < 25.0 || measured > 65.0) {
+        return core->fps;
+    }
+    return measured;
+}
+
 void runLoop(Core* core) {
     // Stay attached to Java for the whole session: audio goes to Java every frame and
     // attaching for each call is expensive.
@@ -1790,6 +1824,9 @@ void runLoop(Core* core) {
             }
             core->retroRun();
             core->framesRun++;
+            if (core->coreId == "mupen64plus_next") {
+                fps = audioClockFps(core, core->audioPending.size() / 2);
+            }
             flushAudio(core);
             ran = true;
             if (core->resumePending) {
