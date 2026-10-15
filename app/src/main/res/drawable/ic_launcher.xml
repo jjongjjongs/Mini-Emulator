@@ -1,55 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Mini Emulator: a game pad under an M in the mode colours. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:height="108dp"
     android:width="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#dad7cf"
-        android:pathData="M18,6 L90,6 Q102,6 102,18 L102,90 Q102,102 90,102 L18,102 Q6,102 6,90 L6,18 Q6,6 18,6 Z"/>
+        android:pathData="M20.00,6.00 L88.00,6.00 A14.00,14.00 0 0 1 102.00,20.00 L102.00,88.00 A14.00,14.00 0 0 1 88.00,102.00 L20.00,102.00 A14.00,14.00 0 0 1 6.00,88.00 L6.00,20.00 A14.00,14.00 0 0 1 20.00,6.00 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="108" android:endY="108">
+                    <item android:offset="0" android:color="#FF2B3445"/>
+                    <item android:offset="1" android:color="#FF11151D"/>
+            </gradient>
+        </aapt:attr>
+    </path>
     <path
-        android:fillColor="#b9b4aa"
-        android:pathData="M32,18 Q32,12 38,12 L76,12 Q82,12 82,18 L82,91 Q82,97 76,97 L38,97 Q32,97 32,91 Z"
-        android:fillAlpha="0.85"/>
+        android:pathData="M41.90,35.00 L41.90,13.00 L47.18,13.00 L54.00,24.00 L60.82,13.00 L66.10,13.00 L66.10,35.00 L60.82,35.00 L60.82,22.24 L55.85,31.92 L52.15,31.92 L47.18,22.24 L47.18,35.00 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="42" android:startY="13" android:endX="66" android:endY="35">
+                    <item android:offset="0" android:color="#FFFF8A3D"/>
+                    <item android:offset="0.5" android:color="#FFDB2777"/>
+                    <item android:offset="1" android:color="#FF7C3AED"/>
+            </gradient>
+        </aapt:attr>
+    </path>
     <path
-        android:fillColor="#e8e5dc"
-        android:pathData="M28,15 Q28,9 36,9 L74,9 Q82,9 82,17 L82,88 Q82,96 74,96 L36,96 Q28,96 28,88 Z"/>
+        android:fillColor="#EEF1F5"
+        android:pathData="M30,48 L78,48 C90,48 97,58 99,72 C101,86 96,94 88,94 C82,94 78,89 74,84 L34,84 C30,89 26,94 20,94 C12,94 7,86 9,72 C11,58 18,48 30,48 Z"/>
     <path
-        android:fillColor="#cac6bd"
-        android:pathData="M34,23 L76,23 Q79,23 79,26 L79,55 Q79,58 76,58 L34,58 Q31,58 31,55 L31,26 Q31,23 34,23 Z"/>
+        android:fillColor="#2B3445"
+        android:pathData="M28.25,57.50 L31.75,57.50 A1.75,1.75 0 0 1 33.50,59.25 L33.50,76.75 A1.75,1.75 0 0 1 31.75,78.50 L28.25,78.50 A1.75,1.75 0 0 1 26.50,76.75 L26.50,59.25 A1.75,1.75 0 0 1 28.25,57.50 Z M21.25,64.50 L38.75,64.50 A1.75,1.75 0 0 1 40.50,66.25 L40.50,69.75 A1.75,1.75 0 0 1 38.75,71.50 L21.25,71.50 A1.75,1.75 0 0 1 19.50,69.75 L19.50,66.25 A1.75,1.75 0 0 1 21.25,64.50 Z"/>
     <path
-        android:fillColor="#2b2c30"
-        android:pathData="M36,27 L74,27 L74,53 L36,53 Z"/>
+        android:fillColor="#16B9CF"
+        android:pathData="M73.00,61.00 A5,5 0 1 1 83.00,61.00 A5,5 0 1 1 73.00,61.00 Z"/>
     <path
-        android:fillColor="#91a06b"
-        android:pathData="M39,30 L71,30 L71,50 L39,50 Z"/>
+        android:fillColor="#DB2777"
+        android:pathData="M82.00,68.00 A5,5 0 1 1 92.00,68.00 A5,5 0 1 1 82.00,68.00 Z"/>
     <path
-        android:fillColor="#ffffff"
-        android:pathData="M39,30 L71,30 L71,37 L39,46 Z"
-        android:fillAlpha="0.18"/>
+        android:fillColor="#F59E0B"
+        android:pathData="M64.00,68.00 A5,5 0 1 1 74.00,68.00 A5,5 0 1 1 64.00,68.00 Z"/>
     <path
-        android:fillColor="#222326"
-        android:pathData="M33,71 L40,71 L40,64 L47,64 L47,71 L54,71 L54,78 L47,78 L47,85 L40,85 L40,78 L33,78 Z"/>
+        android:fillColor="#7C3AED"
+        android:pathData="M73.00,75.00 A5,5 0 1 1 83.00,75.00 A5,5 0 1 1 73.00,75.00 Z"/>
     <path
-        android:fillColor="#0a0b0e"
-        android:pathData="M40,71 L47,71 L47,78 L40,78 Z"
-        android:fillAlpha="0.45"/>
-    <path
-        android:fillColor="#97155e"
-        android:pathData="M64,71 C67,71 69,73 69,76 C69,79 67,81 64,81 C61,81 59,79 59,76 C59,73 61,71 64,71 Z"/>
-    <path
-        android:fillColor="#b22575"
-        android:pathData="M75,63 C78,63 80,65 80,68 C80,71 78,73 75,73 C72,73 70,71 70,68 C70,65 72,63 75,63 Z"/>
-    <path
-        android:fillColor="#2a296b"
-        android:pathData="M38,89 L48,89 L48,92 L38,92 Z"
-        android:fillAlpha="0.75"/>
-    <path
-        android:fillColor="#2a296b"
-        android:pathData="M57,89 L67,89 L67,92 L57,92 Z"
-        android:fillAlpha="0.75"/>
-    <path
-        android:fillColor="#ffffff"
-        android:pathData="M36,9 L74,9 Q82,9 82,17 L82,22 L28,38 L28,17 Q28,9 36,9 Z"
-        android:fillAlpha="0.24"/>
+        android:fillColor="#9AA3AF"
+        android:pathData="M48.50,65.00 L52.50,65.00 A1.50,1.50 0 0 1 54.00,66.50 L54.00,66.50 A1.50,1.50 0 0 1 52.50,68.00 L48.50,68.00 A1.50,1.50 0 0 1 47.00,66.50 L47.00,66.50 A1.50,1.50 0 0 1 48.50,65.00 Z M57.50,65.00 L61.50,65.00 A1.50,1.50 0 0 1 63.00,66.50 L63.00,66.50 A1.50,1.50 0 0 1 61.50,68.00 L57.50,68.00 A1.50,1.50 0 0 1 56.00,66.50 L56.00,66.50 A1.50,1.50 0 0 1 57.50,65.00 Z"/>
 </vector>
