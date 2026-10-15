@@ -141,7 +141,7 @@ public final class MainActivity extends Activity {
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "Beetle PCE Fast", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
     private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .sms · .gg · .zip", ".pce · .zip (HuCard)", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "PCE", "PSP", "PS1", "PS2", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(74, 82, 98), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(52, 58, 70), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(239, 108, 53)};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(232, 96, 44), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
