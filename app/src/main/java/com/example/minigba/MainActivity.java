@@ -169,6 +169,7 @@ public final class MainActivity extends Activity {
     private TextView pceBiosBanner;
     private static final int REQUEST_IMPORT_PCE_BIOS = 1021;
     private static final int REQUEST_IMPORT_DC_BIOS = 1026;
+    private static final int REQUEST_PICK_COVER = 1027;
     private TextView dcBiosStatusView;
     private TextView ps2BiosBanner;
     private static final int REQUEST_IMPORT_PS2_BIOS = 1020;
@@ -183,6 +184,13 @@ public final class MainActivity extends Activity {
     private File pendingSaveFile;
     private File pendingSaveRom;
     private LinearLayout romList;
+    // ROM list search and sort (0 이름순, 1 최근 플레이, 2 즐겨찾기 먼저).
+    private String libraryQuery = "";
+    private View librarySearchBar;
+    private final TextView[] sortChips = new TextView[3];
+    private final HashMap<String, android.widget.ImageView> coverViews = new HashMap<>();
+    private final android.util.LruCache<String, android.graphics.Bitmap> coverCache = new android.util.LruCache<>(80);
+    private File pendingCoverRom;
     private TextView screenModeStatusView;
     // Values of the "screen_style" setting, in the order the tile cycles through them.
     private static final String[] SCREEN_STYLES = {"frame", "full", "pad"};
@@ -588,6 +596,15 @@ public final class MainActivity extends Activity {
             this.neoGeoBiosBanner = banner;
             linearLayout3.addView(banner, new LinearLayout.LayoutParams(-1, -2));
         }
+        this.libraryQuery = "";
+        View searchBar = createLibrarySearchBar();
+        this.librarySearchBar = searchBar;
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, -2);
+        searchParams.setMargins(0, dp(6), 0, 0);
+        linearLayout3.addView(searchBar, searchParams);
+        // Keeps the search box from taking focus (and the keyboard) when the list opens.
+        linearLayout.setFocusableInTouchMode(true);
+        linearLayout.requestFocus();
         TextView textView3 = new TextView(this);
         this.emptyView = textView3;
         textView3.setText("아직 가져온 ROM이 없습니다.");
@@ -1307,6 +1324,15 @@ public final class MainActivity extends Activity {
         } else if (i == REQUEST_IMPORT_DC_BIOS) {
             if (data != null) {
                 importDcBios(data);
+            }
+        } else if (i == REQUEST_PICK_COVER) {
+            File rom = this.pendingCoverRom;
+            this.pendingCoverRom = null;
+            if (data != null && rom != null) {
+                Covers.setCustom(this, rom, data, () -> {
+                    onCoverFound(rom, null);
+                    showMessage("표지를 바꿨어요.");
+                }, () -> showError("이 사진을 열 수 없습니다."));
             }
         } else if (i == REQUEST_IMPORT_PS2_BIOS) {
             if (data != null) {
@@ -2492,6 +2518,7 @@ public final class MainActivity extends Activity {
         if (!from.renameTo(to)) {
             return false;
         }
+        Covers.move(this, from, to);
         SharedPreferences prefs = romPrefs();
         SharedPreferences.Editor editor = prefs.edit();
         String[] prefixes = {"title:", "save:", "favorite:", "recent:", "core:"};
@@ -2619,15 +2646,36 @@ public final class MainActivity extends Activity {
             return;
         }
         linearLayout.removeAllViews();
+        this.coverViews.clear();
         File[] listFiles = currentRomDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
             this.emptyView.setText(emptyLibraryText());
             this.emptyView.setVisibility(0);
+            if (this.librarySearchBar != null) {
+                this.librarySearchBar.setVisibility(8);
+            }
+            return;
+        }
+        if (this.librarySearchBar != null) {
+            this.librarySearchBar.setVisibility(0);
+        }
+        List<File> shown = new ArrayList<>();
+        String query = this.libraryQuery.trim().toLowerCase(Locale.ROOT);
+        for (File file : listFiles) {
+            if (query.isEmpty() || displayGameNameFor(file).toLowerCase(Locale.ROOT).contains(query)
+                    || file.getName().toLowerCase(Locale.ROOT).contains(query)) {
+                shown.add(file);
+            }
+        }
+        if (shown.isEmpty()) {
+            this.emptyView.setText("‘" + this.libraryQuery.trim() + "’ 검색 결과가 없어요.");
+            this.emptyView.setVisibility(0);
             return;
         }
         this.emptyView.setVisibility(8);
-        Arrays.sort(listFiles, this::compareRomsForLibrary);
-        for (File file : listFiles) {
+        int sort = librarySort();
+        Collections.sort(shown, sort == 0 ? this::compareRomsByName : sort == 1 ? this::compareRomsByRecent : this::compareRomsForLibrary);
+        for (File file : shown) {
             LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
             layoutParams.setMargins(0, 0, 0, dp(10));
             this.romList.addView(createRomRow(file), layoutParams);
@@ -2699,7 +2747,237 @@ public final class MainActivity extends Activity {
         textView3.setTextSize(12.0f);
         linearLayout.addView(linearLayout2, new LinearLayout.LayoutParams(-1, -2));
         linearLayout.addView(textView3, new LinearLayout.LayoutParams(-1, -2));
-        return linearLayout;
+        // The cover sits left of the details; the card keeps its padding and clicks.
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(0);
+        card.setGravity(16);
+        card.setPadding(dp(10), dp(10), dp(4), dp(10));
+        card.setBackground(rounded(-1, dp(8)));
+        card.setClickable(true);
+        card.setElevation(dp(2));
+        card.setOnClickListener(view -> launchGame(file));
+        card.setOnLongClickListener(view -> onRomLongClick(file));
+        linearLayout.setBackground(null);
+        linearLayout.setElevation(0);
+        linearLayout.setPadding(dp(12), dp(2), dp(10), dp(2));
+        card.addView(createCoverView(file), new LinearLayout.LayoutParams(dp(64), dp(64)));
+        card.addView(linearLayout, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        return card;
+    }
+
+    // ---- ROM list: search, sort and covers ----
+    private int librarySort() {
+        int sort = getSharedPreferences("settings", 0).getInt("library_sort", 2);
+        return sort >= 0 && sort <= 2 ? sort : 2;
+    }
+
+    private View createLibrarySearchBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(1);
+        EditText search = new EditText(this);
+        search.setHint("🔍  게임 이름 검색");
+        search.setSingleLine(true);
+        search.setTextSize(14.0f);
+        search.setTextColor(Color.rgb(31, 41, 51));
+        search.setHintTextColor(Color.rgb(154, 161, 170));
+        search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        search.setPadding(dp(14), 0, dp(14), 0);
+        search.setBackground(rounded(-1, dp(14)));
+        search.setElevation(dp(1));
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable text) {
+                MainActivity.this.libraryQuery = text.toString();
+                refreshLibrary();
+            }
+        });
+        search.setOnEditorActionListener((view, action, event) -> {
+            android.view.inputmethod.InputMethodManager input = (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (input != null) {
+                input.hideSoftInputFromWindow(view.getWindowToken(), 0);
+            }
+            view.clearFocus();
+            return true;
+        });
+        bar.addView(search, new LinearLayout.LayoutParams(-1, dp(44)));
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(0);
+        String[] names = {"이름순", "최근 플레이", "즐겨찾기 먼저"};
+        for (int k = 0; k < names.length; k++) {
+            final int index = k;
+            TextView chip = new TextView(this);
+            chip.setText(names[k]);
+            chip.setTextSize(12.0f);
+            chip.setTypeface(Typeface.DEFAULT_BOLD);
+            chip.setGravity(17);
+            chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+            chip.setOnClickListener(view -> {
+                getSharedPreferences("settings", 0).edit().putInt("library_sort", index).apply();
+                updateSortChips();
+                refreshLibrary();
+            });
+            this.sortChips[k] = chip;
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+            chips.addView(chip, chipParams);
+        }
+        updateSortChips();
+        LinearLayout.LayoutParams chipsParams = new LinearLayout.LayoutParams(-1, -2);
+        chipsParams.setMargins(0, dp(8), 0, dp(2));
+        bar.addView(chips, chipsParams);
+        return bar;
+    }
+
+    private void updateSortChips() {
+        int sort = librarySort();
+        int color = MODE_COLORS[modeIndex(this.currentMode)];
+        for (int k = 0; k < this.sortChips.length; k++) {
+            TextView chip = this.sortChips[k];
+            if (chip == null) {
+                continue;
+            }
+            boolean on = k == sort;
+            chip.setTextColor(on ? -1 : Color.rgb(55, 65, 81));
+            chip.setBackground(rounded(on ? color : -1, dp(14)));
+        }
+    }
+
+    private int compareRomsByName(File file, File file2) {
+        int byName = displayGameNameFor(file).compareToIgnoreCase(displayGameNameFor(file2));
+        return byName != 0 ? byName : file.getName().compareToIgnoreCase(file2.getName());
+    }
+
+    private int compareRomsByRecent(File file, File file2) {
+        long played = lastPlayedAt(file);
+        long played2 = lastPlayedAt(file2);
+        return played != played2 ? Long.compare(played2, played) : compareRomsByName(file, file2);
+    }
+
+    // The game's cover, or a grey square until one is found. Long-press picks a picture.
+    private View createCoverView(final File file) {
+        FrameLayout box = new FrameLayout(this);
+        box.setBackground(rounded(Color.rgb(203, 210, 217), dp(10)));
+        box.setClipToOutline(true);
+        TextView none = new TextView(this);
+        none.setText("표지\n없음");
+        none.setTextSize(10.0f);
+        none.setTypeface(Typeface.DEFAULT_BOLD);
+        none.setTextColor(Color.rgb(107, 114, 128));
+        none.setGravity(17);
+        box.addView(none, new FrameLayout.LayoutParams(-1, -1));
+        android.widget.ImageView image = new android.widget.ImageView(this);
+        image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        box.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        this.coverViews.put(file.getPath(), image);
+        showCover(file, image);
+        box.setOnClickListener(view -> launchGame(file));
+        box.setOnLongClickListener(view -> {
+            showCoverChooser(file);
+            return true;
+        });
+        File cover = Covers.file(this, file);
+        if (!cover.exists() && !Covers.searched(this, file)) {
+            Covers.fetch(this, file, this.currentMode, displayGameNameFor(file), this::onCoverFound);
+        }
+        return box;
+    }
+
+    private void showCover(File file, android.widget.ImageView image) {
+        File cover = Covers.file(this, file);
+        if (!cover.exists()) {
+            image.setImageDrawable(null);
+            return;
+        }
+        String key = cover.getPath() + ":" + cover.lastModified();
+        android.graphics.Bitmap bitmap = this.coverCache.get(key);
+        if (bitmap == null) {
+            android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+            options.inSampleSize = 2;
+            bitmap = android.graphics.BitmapFactory.decodeFile(cover.getPath(), options);
+            if (bitmap != null) {
+                this.coverCache.put(key, bitmap);
+            }
+        }
+        image.setImageBitmap(bitmap);
+    }
+
+    private void onCoverFound(File rom, File cover) {
+        android.widget.ImageView image = this.coverViews.get(rom.getPath());
+        if (image != null) {
+            showCover(rom, image);
+        }
+    }
+
+    private void showCoverChooser(final File file) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        TextView title = new TextView(this);
+        title.setText("게임 표지");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setPadding(dp(4), 0, dp(4), 0);
+        panel.addView(title);
+        TextView game = new TextView(this);
+        game.setText(displayGameNameFor(file));
+        game.setTextSize(12.0f);
+        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setPadding(dp(4), 0, dp(4), dp(2));
+        panel.addView(game);
+        panel.addView(createChoiceRow(RoundIconView.IMPORT, RoundIconView.COLOR_LOAD, "사진 고르기", "갤러리나 파일에서 표지로 쓸 사진 고르기", () -> {
+            dialog.dismiss();
+            this.pendingCoverRom = file;
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("image/*");
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            try {
+                startActivityForResult(Intent.createChooser(intent, "표지 사진"), REQUEST_PICK_COVER);
+            } catch (RuntimeException e) {
+                showError("사진을 고를 앱이 없습니다.");
+            }
+        }));
+        panel.addView(createChoiceRow(RoundIconView.GLOBE, RoundIconView.COLOR_SAVE, "인터넷에서 다시 찾기", "libretro 표지 모음에서 게임 이름으로 찾기", () -> {
+            dialog.dismiss();
+            showMessage("표지를 찾는 중…");
+            Covers.research(this, file, this.currentMode, displayGameNameFor(file), (rom, cover) -> {
+                onCoverFound(rom, cover);
+                showMessage("표지를 찾았어요.");
+            }, message -> {
+                onCoverFound(file, null);
+                showMessage(message);
+            });
+        }));
+        if (Covers.file(this, file).exists()) {
+            panel.addView(createChoiceRow(RoundIconView.TRASH, RoundIconView.COLOR_EXIT, "표지 지우기", "회색 칸으로 두고 다시 받지 않기", () -> {
+                dialog.dismiss();
+                Covers.clear(this, file);
+                onCoverFound(file, null);
+            }));
+        }
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(14.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(13)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(44));
+        cancelParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(cancel, cancelParams);
+        showCardDialog(dialog, panel, -2);
     }
 
     private boolean onRomLongClick(File file) {
@@ -3640,6 +3918,7 @@ public final class MainActivity extends Activity {
             if (roms) {
                 ok = deleteRomFiles(file);
                 if (ok) {
+                    Covers.forget(this, file);
                     romPrefs().edit().remove("title:" + file.getName()).remove("save:" + file.getName()).remove("favorite:" + file.getName()).remove("recent:" + file.getName()).remove("core:" + file.getName()).apply();
                 }
             } else {
@@ -3672,6 +3951,7 @@ public final class MainActivity extends Activity {
 
     private void deleteRomConfirmed(File file, DialogInterface dialogInterface, int i) {
         if (deleteRomFiles(file)) {
+            Covers.forget(this, file);
             romPrefs().edit().remove("title:" + file.getName()).remove("save:" + file.getName()).remove("favorite:" + file.getName()).remove("recent:" + file.getName()).remove("core:" + file.getName()).apply();
             showMessage("ROM을 삭제했습니다.");
             refreshLibrary();

@@ -14,6 +14,9 @@ import java.util.zip.GZIPInputStream;
 // English description. Clones get their set name added so versions stay apart.
 final class GameTitles {
     private static Map<String, String> titles;
+    // English DAT descriptions and parent sets, for finding box art by name.
+    private static Map<String, String> descriptions;
+    private static Map<String, String> parents;
 
     private GameTitles() {
     }
@@ -23,9 +26,24 @@ final class GameTitles {
         return load(context).get(setName.toLowerCase(java.util.Locale.US));
     }
 
+    // The DAT descriptions of this set and of its parent (when a clone), or an empty array.
+    static String[] descriptions(Context context, String setName) {
+        String name = setName.toLowerCase(java.util.Locale.US);
+        load(context);
+        String own = descriptions.get(name);
+        if (own == null) {
+            return new String[0];
+        }
+        String parent = parents.get(name);
+        String parentDescription = parent == null ? null : descriptions.get(parent);
+        return parentDescription == null ? new String[]{own} : new String[]{own, parentDescription};
+    }
+
     private static synchronized Map<String, String> load(Context context) {
         if (titles == null) {
             Map<String, String> map = new HashMap<>();
+            Map<String, String> descriptionMap = new HashMap<>();
+            Map<String, String> parentMap = new HashMap<>();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                     new GZIPInputStream(context.getAssets().open("titles.bin")), StandardCharsets.UTF_8))) {
                 String line;
@@ -37,6 +55,12 @@ final class GameTitles {
                     String name = fields[0];
                     boolean clone = !"-".equals(fields[1]);
                     String korean = fields[3];
+                    if (!fields[2].isEmpty()) {
+                        descriptionMap.put(name, fields[2]);
+                    }
+                    if (clone) {
+                        parentMap.put(name, fields[1]);
+                    }
                     if (!"-".equals(korean)) {
                         map.put(name, clone ? korean + " (" + name + ")" : korean);
                     } else if (!fields[2].isEmpty()) {
@@ -46,6 +70,8 @@ final class GameTitles {
             } catch (IOException e) {
                 // Without the table the ZIP names are shown as before.
             }
+            descriptions = descriptionMap;
+            parents = parentMap;
             titles = map;
         }
         return titles;
