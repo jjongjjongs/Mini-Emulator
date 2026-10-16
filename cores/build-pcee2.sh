@@ -34,6 +34,9 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$PCEE2_COMMIT" ];
     git -C "$DIR" checkout -q --force FETCH_HEAD
 fi
 git -C "$DIR" submodule update -q --init --recursive --depth 1
+# Fixes on top of the pinned commit:
+#   no-osd-messages: PCSX2's on-screen notices (missing patches.zip, the blending level a
+#     game recommends) were drawn over the game for its first seconds.
 for PATCH in "$HERE"/patches/pcee2-*.patch; do
     [ -e "$PATCH" ] || continue
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then

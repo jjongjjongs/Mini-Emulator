@@ -43,8 +43,8 @@ final class NativeGba {
     // "속도 우선" (speed hacks) for the next PSP or PS2 (PCSX2) game created.
     static native void setSpeedFirst(boolean fast);
 
-    // Vulkan (where the device has it) for the next PSP or Dreamcast game created; false
-    // keeps OpenGL ES.
+    // Vulkan (where the device has it) for the next PSP, Dreamcast or PS2 game created;
+    // false keeps OpenGL ES.
     static native void setVulkan(boolean allowed);
 
     // DS screen layout: 0 stacked with a 4-row gap, 1 stacked and touching, 2 side by side.

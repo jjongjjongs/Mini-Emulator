@@ -771,10 +771,15 @@ bool retryResume(const Core* core) {
 }
 
 // PCEE2's VM can be running before its GS has put out a single picture; a state restored
-// that early leaves the GS handing over empty (0x0) frames for the rest of the session -
-// sound, no picture - so the restore waits for the first picture.
+// that early leaves the GS without a picture for the rest of the session - sound, no
+// picture - so the restore waits for the GS. Read back, the first frame handed over is a
+// real picture. In Vulkan the GS hands over its backbuffer from the first vsync, game
+// picture or not, so there it waits about five seconds of frames past that.
 bool readyToResume(const Core* core) {
-    return core->coreId != "pcee2" || core->picturesShown.load() > 0;
+    if (core->coreId != "pcee2") {
+        return true;
+    }
+    return core->picturesShown.load() >= (core->vk != nullptr ? 300u : 1u);
 }
 
 bool saveSram(Core* core) {
@@ -1219,15 +1224,14 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 std::string gPspLanguage = "Korean";
 // PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
 std::atomic<int> gPspScale{2};
-// PSP "속도 우선" per game: speed hacks that can drop some effects.
+// "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
-// PSP and Dreamcast draw with Vulkan where the device has it, unless Java turned it off
-// for the core (after a crash on it). PS2 (PCSX2) is left on its own read-back path: with
-// its frames handed over in Vulkan it showed only black after resuming a quick save.
+// PSP, Dreamcast and PS2 (PCSX2) draw with Vulkan where the device has it, unless Java
+// turned it off for the core (after a crash on it).
 std::atomic<bool> gVulkanAllowed{true};
 
 bool vulkanFor(const std::string& coreId) {
-    return (coreId == "ppsspp" || coreId == "flycast") && gVulkanAllowed.load() && vkhw::available();
+    return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2") && gVulkanAllowed.load() && vkhw::available();
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
@@ -1262,6 +1266,11 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "ppsspp_skip_gpu_readbacks") == 0) return "enabled";
         if (strcmp(key, "ppsspp_frameskip") == 0) return "1";
         if (strcmp(key, "ppsspp_auto_frameskip") == 0) return "enabled";
+        // PS2: the EE at 75% with mild cycle skipping, and the cheapest blending. GPU
+        // read-backs stay accurate: quick saves read the picture back.
+        if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return "-1";
+        if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return "1";
+        if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
     }
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
@@ -1622,6 +1631,7 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
         if (data == RETRO_HW_FRAME_BUFFER_VALID) {
             core->lastWidth = width;
             core->lastHeight = height;
+            core->picturesShown.fetch_add(1);
         }
         presentHwFrame(core);
         return;
@@ -2203,11 +2213,7 @@ void runLoop(Core* core) {
     // and the game ran a few percent slow (the audio queue drained, the music dragged).
     // Above the app's other threads, as audio and video depend on this one keeping time.
     setpriority(PRIO_PROCESS, 0, -10);
-    // Not for PCSX2: since it, PS2 games resumed from a quick save played on behind a black
-    // picture until a reset.
-    if (core->coreId != "pcee2") {
-        pinToFastCores();
-    }
+    pinToFastCores();
     PerformanceHint hint;
     hint.open(static_cast<int64_t>(1e9 / core->fps));
     auto deadline = std::chrono::steady_clock::now();
@@ -2679,7 +2685,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
         return JNI_FALSE;
     }
     return callCore(core, [core] {
-        if (needsFrameBeforeState(core) && core->framesRun == 0) {
+        if ((needsFrameBeforeState(core) && core->framesRun == 0) || !readyToResume(core)) {
             return false;
         }
         core->resumePending = false;
@@ -2707,7 +2713,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateFile(
     }
     std::string source = jstringToString(env, path);
     return callCore(core, [core, source] {
-        if (needsFrameBeforeState(core) && core->framesRun == 0) {
+        if ((needsFrameBeforeState(core) && core->framesRun == 0) || !readyToResume(core)) {
             return false;
         }
         core->resumePending = false;

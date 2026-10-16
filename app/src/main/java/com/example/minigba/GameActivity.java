@@ -3138,6 +3138,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             fastParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createFastRow(dialog), fastParams);
         }
+        if ("pcee2".equals(this.coreId)) {
+            LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
+            fastParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(createFastRow(dialog), fastParams);
+        }
         if (isWonderSwan()) {
             LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
             tallParams.setMargins(0, dp(8), 0, 0);
@@ -3271,7 +3276,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String[] FAST_NOTES = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. 프레임마다 하는 일을 줄여요"};
 
     private boolean speedFirstSupported() {
-        return isPsp();
+        return isPsp() || "pcee2".equals(this.coreId);
     }
 
     // PSP kept its 0.0.106 key.
@@ -3286,7 +3291,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private LinearLayout createFastRow(android.app.Dialog menu) {
         String changes = isPsp()
                 ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임씩 건너뛰어요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠질 수 있어요."
-                : "· GPU에서 화면을 되읽을 때 기다리지 않아요\n· PS2 CPU를 75%로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
+                : "· PS2 CPU를 75%로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
         LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", speedFirst() ? "켜짐" : "꺼짐",
                 view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", FAST_NAMES, FAST_NOTES,
                         speedFirst() ? 1 : 0, "켜면 이렇게 바뀌어요\n" + changes + "\n이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).",
