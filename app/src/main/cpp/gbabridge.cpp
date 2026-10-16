@@ -1195,12 +1195,13 @@ std::string gPspLanguage = "Korean";
 std::atomic<int> gPspScale{2};
 // "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
-// PSP, Dreamcast and PS2 (PCSX2) draw with Vulkan where the device has it, unless Java
-// turned it off for the core (after a crash on it).
+// PSP and Dreamcast draw with Vulkan where the device has it, unless Java turned it off
+// for the core (after a crash on it). PS2 (PCSX2) is left on its own read-back path: with
+// its frames handed over in Vulkan it showed only black after resuming a quick save.
 std::atomic<bool> gVulkanAllowed{true};
 
 bool vulkanFor(const std::string& coreId) {
-    return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2") && gVulkanAllowed.load() && vkhw::available();
+    return (coreId == "ppsspp" || coreId == "flycast") && gVulkanAllowed.load() && vkhw::available();
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
