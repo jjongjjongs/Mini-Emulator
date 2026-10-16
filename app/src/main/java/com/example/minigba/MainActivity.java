@@ -5207,13 +5207,13 @@ public final class MainActivity extends Activity {
         }
     }
 
-    // Bloody Roar 2 (and its versions): MAME 2010's YMF271 plays its music but none of its
-    // sound effects; MAME 2015's plays both.
+    // Bloody Roar 1 and 2 (Beastorizer, and their versions): MAME 2010's YMF271 plays their
+    // music but none of their sound effects; MAME 2015's plays both.
     private static String betterArcadeCore(String set) {
-        return set != null && set.startsWith("bldyror2") ? "mame2015" : null;
+        return set != null && (set.startsWith("bldyror2") || set.equals("bldyroar") || set.equals("beastrzr")) ? "mame2015" : null;
     }
 
-    // Once (0.0.119): Bloody Roar 2 games set to MAME 2010 move to MAME 2015.
+    // Once (0.0.119): Bloody Roar games set to MAME 2010 move to MAME 2015.
     private void moveArcadeGamesToBetterCores() {
         if (settingsPrefs().getBoolean("bldyror2_mame2015", false)) {
             return;
