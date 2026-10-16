@@ -35,6 +35,9 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$PCEE2_COMMIT" ];
 fi
 git -C "$DIR" submodule update -q --init --recursive --depth 1
 # Fixes on top of the pinned commit:
+#   has-picture: exports retro_pcee2_has_picture(), whether the GS has presented a game
+#     picture yet; the app restores a quick save only after that (on Vulkan the frames
+#     handed over from the first vsync do not tell).
 #   no-osd-messages: PCSX2's on-screen notices (missing patches.zip, the blending level a
 #     game recommends) were drawn over the game for its first seconds.
 for PATCH in "$HERE"/patches/pcee2-*.patch; do

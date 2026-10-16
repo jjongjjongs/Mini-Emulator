@@ -364,6 +364,8 @@ struct Core {
     uint64_t resumeRetryAt = 0;
     // Frames the core has shown a picture in (software video), counted from the start.
     std::atomic<uint64_t> picturesShown{0};
+    // PCEE2 (patched): whether its GS has presented a game picture yet.
+    bool (*pcee2HasPicture)() = nullptr;
     // While a restored quick save is still on trial, the frame its marker comes off at.
     uint64_t resumeTrialEnd = 0;
 
@@ -569,6 +571,9 @@ bool loadSymbol(void* library, T& target, const char* name) {
 
 bool loadCoreSymbols(Core* core) {
     void* lib = core->library;
+    if (core->coreId == "pcee2") {
+        core->pcee2HasPicture = reinterpret_cast<bool (*)()>(dlsym(lib, "retro_pcee2_has_picture"));
+    }
     return loadSymbol(lib, core->retroSetEnvironment, "retro_set_environment") &&
            loadSymbol(lib, core->retroSetVideoRefresh, "retro_set_video_refresh") &&
            loadSymbol(lib, core->retroSetAudioSample, "retro_set_audio_sample") &&
@@ -782,7 +787,13 @@ bool readyToResume(const Core* core) {
     if (core->coreId != "pcee2") {
         return true;
     }
-    return core->picturesShown.load() >= (core->vk != nullptr ? 300u : 1u);
+    if (core->vk == nullptr) {
+        return core->picturesShown.load() >= 1;
+    }
+    // On Vulkan the GS says when it has a picture (cores/patches/pcee2-has-picture.patch);
+    // without that, about five seconds of frames.
+    return core->pcee2HasPicture != nullptr ? core->picturesShown.load() >= 1 && core->pcee2HasPicture()
+                                            : core->picturesShown.load() >= 300;
 }
 
 bool saveSram(Core* core) {
