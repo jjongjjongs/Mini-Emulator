@@ -359,6 +359,8 @@ struct Core {
     std::vector<uint8_t> gameData;
     // The next frame a pending quick save is tried again (PCEE2 refuses one while booting).
     uint64_t resumeRetryAt = 0;
+    // Frames the core has shown a picture in (software video), counted from the start.
+    std::atomic<uint64_t> picturesShown{0};
     // While a restored quick save is still on trial, the frame its marker comes off at.
     uint64_t resumeTrialEnd = 0;
 
@@ -763,9 +765,16 @@ bool resumeState(Core* core) {
 }
 
 // PCEE2 takes a state only once its virtual machine runs, which can be many frames
-// after the first while the PS2 boots; keep trying for about 15 seconds.
+// after the first while the PS2 boots; keep trying for about 30 seconds.
 bool retryResume(const Core* core) {
-    return core->coreId == "pcee2" && core->framesRun < 900;
+    return core->coreId == "pcee2" && core->framesRun < 1800;
+}
+
+// PCEE2's VM can be running before its GS has put out a single picture; a state restored
+// that early leaves the GS handing over empty (0x0) frames for the rest of the session -
+// sound, no picture - so the restore waits for the first picture.
+bool readyToResume(const Core* core) {
+    return core->coreId != "pcee2" || core->picturesShown.load() > 0;
 }
 
 bool saveSram(Core* core) {
@@ -1653,6 +1662,7 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
             }
         }
         core->pendingWidth = width;
+        core->picturesShown.fetch_add(1);
         core->pendingHeight = height;
         core->pendingFormat = format;
         core->frameNew = true;
@@ -2240,7 +2250,9 @@ void runLoop(Core* core) {
             }
             ran = true;
             if (core->resumePending) {
-                if (core->framesRun >= core->resumeRetryAt) {
+                if (core->framesRun >= core->resumeRetryAt && !readyToResume(core) && retryResume(core)) {
+                    core->resumeRetryAt = core->framesRun + 10;
+                } else if (core->framesRun >= core->resumeRetryAt) {
                     if (resumeState(core) || !retryResume(core)) {
                         core->resumePending = false;
                     } else {
