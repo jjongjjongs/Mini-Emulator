@@ -3392,6 +3392,13 @@ public final class MainActivity extends Activity {
             showError("PCSX2 게임 데이터베이스를 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
         }
+        // 0.0.107 ran PCSX2 on the bridge's Vulkan device and left its shader and pipeline
+        // caches built there; since then quick saves resumed to a black picture. Start them
+        // over once (PCSX2 rebuilds them as it goes).
+        if (CORE_PCSX2.equals(coreFor(file)) && !settingsPrefs().getBoolean("pcsx2_cache_reset_110", false)) {
+            deleteRecursively(new File(new File(systemDir(), "pcsx2"), "cache"));
+            settingsPrefs().edit().putBoolean("pcsx2_cache_reset_110", true).apply();
+        }
         migrateSaveFileIfNeeded(file);
         markRecentlyPlayed(file);
         Intent intent = new Intent(this, (Class<?>) GameActivity.class);
