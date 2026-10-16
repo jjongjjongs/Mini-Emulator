@@ -1165,11 +1165,15 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
     va_end(args);
     crash::remember(message);
     if (level >= RETRO_LOG_WARN) {
-        std::lock_guard<std::mutex> lock(gLastCoreProblemMutex);
-        gLastCoreProblem = message;
-        while (!gLastCoreProblem.empty() && (gLastCoreProblem.back() == '\n' || gLastCoreProblem.back() == '\r')) {
-            gLastCoreProblem.pop_back();
+        // The last two warnings: the line naming the failure is often followed by a generic one.
+        std::string line = message;
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) {
+            line.pop_back();
         }
+        std::lock_guard<std::mutex> lock(gLastCoreProblemMutex);
+        size_t previous = gLastCoreProblem.rfind('\n');
+        std::string last = previous == std::string::npos ? gLastCoreProblem : gLastCoreProblem.substr(previous + 1);
+        gLastCoreProblem = last.empty() ? line : last + "\n" + line;
     }
     __android_log_print(priority, LOG_TAG, "%s", message);
 }
@@ -2362,7 +2366,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         {
             std::lock_guard<std::mutex> lock(gLastCoreProblemMutex);
             if (!gLastCoreProblem.empty()) {
-                message += "\n\n" + gLastCoreProblem.substr(0, 400);
+                message += "\n\n" + gLastCoreProblem.substr(0, 800);
             }
         }
         throwIllegalState(env, message.c_str());

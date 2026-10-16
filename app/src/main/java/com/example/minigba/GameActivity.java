@@ -3675,7 +3675,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void showFatalError(String str) {
-        new AlertDialog.Builder(this).setTitle(isPadLayout() ? "Mini Emulator" : "Mini Arcade").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
+        new AlertDialog.Builder(this).setTitle("Mini Emulator").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
     }
 
     private int dp(int i) {

@@ -4314,6 +4314,15 @@ public final class MainActivity extends Activity {
         if (detail.contains("찾지 못")) {
             return "모르는 롬셋";
         }
+        if (detail.contains("WBFS 파일이 잘림")) {
+            return "WBFS 잘림";
+        }
+        if (detail.contains("압축 파일")) {
+            return "압축 파일";
+        }
+        if (detail.contains("디스크가 아님")) {
+            return "디스크 아님";
+        }
         return detail.length() > 8 ? detail.substring(0, 8) + "…" : detail;
     }
 
@@ -4427,7 +4436,14 @@ public final class MainActivity extends Activity {
         tagParams.setMargins(dp(8), 0, 0, 0);
         row.addView(tag, tagParams);
         row.setClickable(true);
-        row.setOnClickListener(view -> showMessage(name + "\n" + detail));
+        row.setOnClickListener(view -> {
+            TextView text = new TextView(this);
+            text.setText(detail);
+            text.setTextIsSelectable(true);
+            text.setTextSize(14.0f);
+            text.setPadding(dp(22), dp(12), dp(22), 0);
+            new AlertDialog.Builder(this).setTitle(name).setView(text).setPositiveButton("확인", null).show();
+        });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.setMargins(0, dp(6), 0, 0);
         row.setLayoutParams(params);
@@ -4729,7 +4745,20 @@ public final class MainActivity extends Activity {
         if (start.startsWith("RVZ") || start.startsWith("WIA") || start.equals("CISO") || le == 0xB10BC001) {
             return new RomCheck(true, "압축 디스크 이미지 (" + (le == 0xB10BC001 ? "GCZ" : start.trim()) + ")");
         }
-        return new RomCheck(false, "게임큐브·Wii 디스크가 아님");
+        if (le == 0x04034B50) {
+            return new RomCheck(false, "zip 압축 파일 - 압축을 풀어서 넣어 주세요");
+        }
+        if (start.equals("Rar!") || start.startsWith("7z")) {
+            return new RomCheck(false, (start.equals("Rar!") ? "rar" : "7z") + " 압축 파일 - 압축을 풀어서 넣어 주세요");
+        }
+        if (new String(head, 0, 8, StandardCharsets.ISO_8859_1).equals("WII\u0001DISC")) {
+            return new RomCheck(false, "WDF 이미지 (지원 안 함) - ISO나 RVZ로 바꿔 주세요");
+        }
+        StringBuilder hex = new StringBuilder();
+        for (int i = 0; i < 0x20; i++) {
+            hex.append(String.format(Locale.US, i % 4 == 0 && i > 0 ? " %02X" : "%02X", head[i] & 0xFF));
+        }
+        return new RomCheck(false, "게임큐브·Wii 디스크가 아님\n크기 " + formatSize(file.length()) + " (" + file.length() + " B)\n시작 " + hex);
     }
 
     // A WBFS file maps each block of the disc to a block of the file (the table after the
@@ -4756,7 +4785,7 @@ public final class MainActivity extends Activity {
         }
         long needed = (maxBlock + 1L) * wbfsSector;
         if (needed > file.length()) {
-            return new RomCheck(false, "WBFS 파일이 잘림 (" + formatSize(needed - file.length()) + " 부족) - 다시 복사하거나, .wbf1로 나뉜 파일이면 하나로 합쳐 주세요");
+            return new RomCheck(false, "WBFS 파일이 잘림 (" + formatSize(needed - file.length()) + " 부족) - 다시 복사하거나, .wbf1로 나뉜 파일이면 하나로 합쳐 주세요\n크기 " + formatSize(file.length()) + " (" + file.length() + " B), 필요 " + needed + " B");
         }
         return new RomCheck(true, "압축 디스크 이미지 (WBFS)");
     }
