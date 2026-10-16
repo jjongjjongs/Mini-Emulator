@@ -282,6 +282,7 @@ public final class MainActivity extends Activity {
             showModePicker();
         }
         offerGameCubeCleanup();
+        moveArcadeGamesToBetterCores();
     }
 
     // GameCube · Wii mode was removed in 0.0.105; offer to free the space its games, saves and
@@ -5212,21 +5213,28 @@ public final class MainActivity extends Activity {
         return set != null && set.startsWith("bldyror2") ? "mame2015" : null;
     }
 
-    private void migrateKnownArcadeRoms() {
-        File romDir = arcadeRomDir();
-        File[] listFiles = romDir.listFiles(MainActivity::isZipFile);
-        if (listFiles == null) {
+    // Once (0.0.119): Bloody Roar 2 games set to MAME 2010 move to MAME 2015.
+    private void moveArcadeGamesToBetterCores() {
+        if (settingsPrefs().getBoolean("bldyror2_mame2015", false)) {
             return;
         }
-        // Once (0.0.119): Bloody Roar 2 games set to MAME 2010 move to MAME 2015.
-        if (!settingsPrefs().getBoolean("bldyror2_mame2015", false)) {
+        File[] listFiles = arcadeRomDir().listFiles(MainActivity::isZipFile);
+        if (listFiles != null) {
             for (File file : listFiles) {
                 String set = baseNameWithoutExtension(file.getName()).toLowerCase(Locale.US);
                 if (betterArcadeCore(set) != null && "mame2010".equals(romPrefs().getString("core:" + file.getName(), null))) {
                     romPrefs().edit().putString("core:" + file.getName(), "mame2015").apply();
                 }
             }
-            settingsPrefs().edit().putBoolean("bldyror2_mame2015", true).apply();
+        }
+        settingsPrefs().edit().putBoolean("bldyror2_mame2015", true).apply();
+    }
+
+    private void migrateKnownArcadeRoms() {
+        File romDir = arcadeRomDir();
+        File[] listFiles = romDir.listFiles(MainActivity::isZipFile);
+        if (listFiles == null) {
+            return;
         }
         for (File file : listFiles) {
             String replaceAll = baseNameWithoutExtension(file.getName()).toLowerCase(Locale.US).replaceAll("[^a-z0-9]", "");
