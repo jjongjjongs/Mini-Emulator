@@ -26,7 +26,6 @@ REPOS = [
     "Sony_-_PlayStation", "Sony_-_PlayStation_2", "Sega_-_Dreamcast",
     "Bandai_-_WonderSwan", "Bandai_-_WonderSwan_Color", "SNK_-_Neo_Geo_Pocket", "SNK_-_Neo_Geo_Pocket_Color",
     "Sega_-_Mega-CD_-_Sega_CD", "Sega_-_32X", "Sega_-_Saturn",
-    "Nintendo_-_GameCube", "Nintendo_-_Wii",
 ]
 
 

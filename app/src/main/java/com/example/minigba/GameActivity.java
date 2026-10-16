@@ -94,7 +94,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -445,10 +445,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
-        if (isDolphin()) {
-            addDolphinLandscapeControls(frameLayout);
-            return;
-        }
         if (isSaturn()) {
             addSaturnLandscapeControls(frameLayout);
             return;
@@ -873,7 +869,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
     private boolean rewindSupported() {
-        return !isPs2() && !isDreamcast() && !isSaturn() && !isDolphin() && !isMame139();
+        return !isPs2() && !isDreamcast() && !isSaturn() && !isMame139();
     }
 
     private boolean rewindOn() {
@@ -1972,7 +1968,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     !supported ? "이 기종은 안 돼요" : rewindOn() ? "켜짐" : "꺼짐",
                     view -> {
                         if (!supported) {
-                            Toast.makeText(this, "PS2·게임큐브·새턴·드림캐스트는 상태 저장이 크고 무거워서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
+                            Toast.makeText(this, "PS2·새턴·드림캐스트는 상태 저장이 크고 무거워서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
                             return;
                         }
                         showChoiceDialog(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기", REWIND_NAMES, REWIND_NOTES,
@@ -2256,9 +2252,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isWonderSwan()) {
                         NativeGba.setWonderSwanTall(wonderSwanTall());
                     }
-                    if (isDolphin()) {
-                        NativeGba.setWiiControl(wiiControl());
-                    }
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
                 } catch (RuntimeException e3) {
                     error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
@@ -2388,7 +2381,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Under the A button.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(18), dp(12));
-        } else if (isDreamcast() || isSaturn() || isDolphin()) {
+        } else if (isDreamcast() || isSaturn()) {
             // Under the face buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(54), dp(12));
@@ -2856,10 +2849,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
-        if (isDolphin()) {
-            addDolphinControls(frameLayout);
-            return;
-        }
         if (isSaturn()) {
             addSaturnControls(frameLayout);
             return;
@@ -3142,11 +3131,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
             scaleParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createScaleRow(dialog), scaleParams);
-        }
-        if (isDolphin() && isWiiGame()) {
-            LinearLayout.LayoutParams wiiParams = new LinearLayout.LayoutParams(-1, dp(52));
-            wiiParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createWiiControlRow(dialog), wiiParams);
         }
         if (isWonderSwan()) {
             LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -3697,9 +3681,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // DS: a finger on the game screen is the stylus. Positions go to the core in libretro
     // pointer units across the whole screen view; melonDS DS maps them onto the lower screen.
-    // The DS touch screen, and the Wii remote's pointer (Dolphin follows the finger).
     private void attachTouchScreen(View screen) {
-        if (!isNds() && !isDolphin()) {
+        if (!isNds()) {
             return;
         }
         screen.setOnTouchListener((view, event) -> {
@@ -3729,252 +3712,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean isMegaCd() {
         return "picodrive".equals(this.coreId);
-    }
-
-    private boolean isDolphin() {
-        return "dolphin".equals(this.coreId);
-    }
-
-    // ---- GameCube / Wii (Dolphin) ----
-    // Dolphin reads every pad one to one: A/B/X/Y, L/R, L2/R2, L3/R3, SELECT/START.
-    private static final int DOLPHIN_HOME = 131072;    // R3
-    private static final String[] WII_CONTROL_NAMES = {"리모컨 + 눈차크", "리모컨 가로로 잡기", "클래식 컨트롤러"};
-    private static final String[] WII_CONTROL_NOTES = {"젤다·마리오 갤럭시 등 대부분 (기본)", "뉴 슈퍼마리오·마리오카트 등 가로 게임", "클래식 지원 게임 (몬헌3 등)"};
-    private Boolean wiiDisc;
-
-    // Wii or GameCube, from the disc image's header: a Wii magic word at 0x18 of a plain
-    // image, the disc type of a WIA/RVZ image (0x48), the sub type of a GCZ image (4); WBFS
-    // holds only Wii games.
-    private boolean isWiiGame() {
-        if (this.wiiDisc != null) {
-            return this.wiiDisc;
-        }
-        boolean wii = false;
-        String lower = this.romPath == null ? "" : this.romPath.toLowerCase(Locale.US);
-        if (lower.endsWith(".wbfs")) {
-            wii = true;
-        } else if (this.romPath != null) {
-            try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(this.romPath, "r")) {
-                byte[] head = new byte[0x50];
-                file.readFully(head);
-                int magic = ((head[0] & 0xFF) << 24) | ((head[1] & 0xFF) << 16) | ((head[2] & 0xFF) << 8) | (head[3] & 0xFF);
-                if (magic == 0x52565A01 || magic == 0x57494101) {
-                    wii = ((head[0x48] & 0xFF) << 24 | (head[0x49] & 0xFF) << 16 | (head[0x4A] & 0xFF) << 8 | (head[0x4B] & 0xFF)) == 2;
-                } else if (magic == 0x01C00BB1) {
-                    wii = (head[4] & 0xFF) == 1;
-                } else {
-                    int wiiMagic = ((head[0x18] & 0xFF) << 24) | ((head[0x19] & 0xFF) << 16) | ((head[0x1A] & 0xFF) << 8) | (head[0x1B] & 0xFF);
-                    wii = wiiMagic == 0x5D1C9EA3;
-                }
-            } catch (IOException | RuntimeException e) {
-                wii = false;
-            }
-        }
-        this.wiiDisc = wii;
-        return wii;
-    }
-
-    private int wiiControl() {
-        int value = getSharedPreferences("settings", 0).getInt("wii_control:" + this.saveBaseName, 0);
-        return value >= 0 && value <= 2 ? value : 0;
-    }
-
-    private LinearLayout createWiiControlRow(android.app.Dialog menu) {
-        int current = wiiControl();
-        return createSettingRow(RoundIconView.MOVE, Color.rgb(67, 56, 202), "Wii 조작 방식", WII_CONTROL_NAMES[current],
-                view -> showChoiceDialog(RoundIconView.MOVE, Color.rgb(67, 56, 202), "Wii 조작 방식", WII_CONTROL_NAMES, WII_CONTROL_NOTES,
-                        current, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.\n리모컨 포인터는 게임 화면을 손가락으로 눌러서 가리켜요.",
-                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용하고 이어하기", choice -> {
-                    if (choice == wiiControl()) {
-                        return;
-                    }
-                    getSharedPreferences("settings", 0).edit().putInt("wii_control:" + this.saveBaseName, choice).commit();
-                    menu.dismiss();
-                    relaunchGame();
-                }));
-    }
-
-    private void addStickAt(FrameLayout frameLayout, boolean fromRight, int cxDp, int cyDp, int sizeDp, boolean right) {
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | (fromRight ? Gravity.END : Gravity.START));
-        int side = dp(cxDp) - dp(sizeDp) / 2;
-        params.setMargins(fromRight ? 0 : side, 0, fromRight ? side : 0, dp(cyDp) - dp(sizeDp) / 2);
-        frameLayout.addView(new AnalogStickView(this, right ? this::onAnalogRightChanged : this::onAnalogChanged), params);
-    }
-
-    private void addDPadCentered(FrameLayout frameLayout, boolean fromRight, int cxDp, int cyDp, int sizeDp) {
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | (fromRight ? Gravity.END : Gravity.START));
-        int side = dp(cxDp) - dp(sizeDp) / 2;
-        params.setMargins(fromRight ? 0 : side, 0, fromRight ? side : 0, dp(cyDp) - dp(sizeDp) / 2);
-        frameLayout.addView(new DPadView(this, this::onDirectionChanged), params);
-    }
-
-    // A keycap at the bottom, centred dxDp from the middle (or from the middle of a column).
-    private void addPill(FrameLayout frameLayout, String label, int bit, int gravity, int sideDp, int dxDp, int bottomDp, int widthDp, int heightDp) {
-        TouchButton button = new TouchButton(this, label, bit, this::setButtonPressed);
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(widthDp), dp(heightDp), gravity);
-        params.setMargins(sideDp > 0 && (gravity & Gravity.START) == Gravity.START ? dp(sideDp) : 0, 0,
-                sideDp > 0 && (gravity & Gravity.END) == Gravity.END ? dp(sideDp) : 0, dp(bottomDp));
-        button.setTranslationX(dp(dxDp));
-        frameLayout.addView(button, params);
-    }
-
-    // − HOME + in a row centred on cx (from the left), or on the screen's middle when cx is 0.
-    private void addWiiSystemKeys(FrameLayout frameLayout, int cxDp, int bottomDp, boolean small) {
-        int w = small ? 42 : 58;
-        int home = small ? 58 : 68;
-        int gap = 6;
-        int gravity = Gravity.BOTTOM | (cxDp == 0 ? Gravity.CENTER_HORIZONTAL : Gravity.START);
-        int base = cxDp == 0 ? 0 : cxDp;
-        int[] widths = {w, home, w};
-        String[] labels = {"−", "HOME", "+"};
-        int[] bits = {4, DOLPHIN_HOME, 8};
-        int total = w * 2 + home + gap * 2;
-        int x = -total / 2;
-        for (int k = 0; k < 3; k++) {
-            int center = x + widths[k] / 2;
-            if (cxDp == 0) {
-                addPill(frameLayout, labels[k], bits[k], gravity, 0, center, bottomDp, widths[k], 30);
-            } else {
-                addPill(frameLayout, labels[k], bits[k], gravity, base + center - widths[k] / 2, 0, bottomDp, widths[k], 30);
-            }
-            x += widths[k] + gap;
-        }
-    }
-
-    // GameCube, 마름모 (B안): Y top, X right, A bottom, B left, all one size.
-    private void addGameCubeDiamond(FrameLayout frameLayout, int rcDp, int cyDp, int size, int gap) {
-        addRoundButton(frameLayout, "Y", 2048, true, rcDp, cyDp + gap, size, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "X", 1024, true, rcDp - gap, cyDp, size, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "A", 1, true, rcDp, cyDp - gap, size, TouchButton.STYLE_ARCADE_GREEN);
-        addRoundButton(frameLayout, "B", 2, true, rcDp + gap, cyDp, size, TouchButton.STYLE_ARCADE_RED);
-    }
-
-    private void addDolphinControls(FrameLayout frameLayout) {
-        if (!isWiiGame()) {
-            // L | speed | R on top with Z under the speed button; the stick and the buttons
-            // on one line, the D-pad and the C-stick (right stick) on the next.
-            addButton(frameLayout, "L", kL2, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
-            addButton(frameLayout, "R", kR2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
-            FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(80), dp(30), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-            zParams.setMargins(0, dp(87), 0, 0);
-            frameLayout.addView(new TouchButton(this, "Z", 256, this::setButtonPressed, 2), zParams);
-            addStickAt(frameLayout, false, 86, 240, 112, false);
-            addGameCubeDiamond(frameLayout, 100, 240, 52, 52);
-            addDPadCentered(frameLayout, false, 86, 100, 66);
-            addStickAt(frameLayout, true, 100, 100, 66, true);
-            addFastForwardButton(frameLayout);
-            addCenterButton(frameLayout, "START", 8, 0, 18);
-            return;
-        }
-        int control = wiiControl();
-        if (control == 1) {
-            // Remote held sideways: D-pad, 2 and 1 (the core's A and B), small A/B above them.
-            addDPadCentered(frameLayout, false, 96, 215, 150);
-            addRoundButton(frameLayout, "1", 2, true, 130, 190, 66, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "2", 1, true, 62, 230, 66, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "A", 1024, true, 130, 300, 44, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "B", 2048, true, 62, 330, 44, TouchButton.STYLE_DARK);
-            addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 46, 0, 330, 80, 32);
-            addFastForwardButton(frameLayout);
-            addWiiSystemKeys(frameLayout, 0, 18, false);
-            return;
-        }
-        if (control == 2) {
-            // Classic controller: L ZL | speed | ZR R, D-pad and a b x y, then both sticks.
-            addButton(frameLayout, "L", kL2, 8388659, dp(14), dp(34), dp(54), dp(42), 2);
-            addButton(frameLayout, "ZL", 512, 8388659, dp(72), dp(34), dp(54), dp(42), 2);
-            addButton(frameLayout, "ZR", 256, 8388661, dp(72), dp(34), dp(54), dp(42), 2);
-            addButton(frameLayout, "R", kR2, 8388661, dp(14), dp(34), dp(54), dp(42), 2);
-            addDPadCentered(frameLayout, false, 86, 250, 130);
-            addRoundButton(frameLayout, "x", 1024, true, 100, 302, 52, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "a", 1, true, 48, 250, 52, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "b", 2, true, 100, 198, 52, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "y", 2048, true, 152, 250, 52, TouchButton.STYLE_DARK);
-            addStickAt(frameLayout, false, 86, 110, 90, false);
-            addStickAt(frameLayout, true, 100, 110, 90, true);
-            addFastForwardButton(frameLayout);
-            addWiiSystemKeys(frameLayout, 0, 18, true);
-            return;
-        }
-        // Remote + nunchuk: Z | speed | B on top, nunchuk stick beside the remote's D-pad,
-        // C beside A, 1 and 2 under A (shake beside them), - HOME + at the bottom.
-        addButton(frameLayout, "Z", 2048, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
-        addButton(frameLayout, "B", 2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
-        addStickAt(frameLayout, false, 86, 354, 110, false);
-        addDPadCentered(frameLayout, true, 100, 354, 96);
-        addRoundButton(frameLayout, "C", 1024, false, 86, 236, 54, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "A", 1, true, 100, 236, 66, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "1", 8, true, 130, 152, 46, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "2", 4, true, 70, 152, 46, TouchButton.STYLE_DARK);
-        addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 46, 0, 136, 80, 32);
-        addFastForwardButton(frameLayout);
-        addWiiSystemKeys(frameLayout, 0, 18, false);
-    }
-
-    // Landscape: the same groups in the columns beside the screen (centres 94dp in).
-    private void addDolphinLandscapeControls(FrameLayout frameLayout) {
-        if (!isWiiGame()) {
-            FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
-            lParams.setMargins(dp(14), dp(58), 0, 0);
-            frameLayout.addView(new TouchButton(this, "L", kL2, this::setButtonPressed, 2), lParams);
-            FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(88), dp(34), Gravity.TOP | Gravity.END);
-            rParams.setMargins(0, dp(58), dp(76), 0);
-            frameLayout.addView(new TouchButton(this, "R", kR2, this::setButtonPressed, 2), rParams);
-            FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(56), dp(34), Gravity.TOP | Gravity.END);
-            zParams.setMargins(0, dp(58), dp(14), 0);
-            frameLayout.addView(new TouchButton(this, "Z", 256, this::setButtonPressed, 2), zParams);
-            addStickAt(frameLayout, false, 94, 227, 96, false);
-            addGameCubeDiamond(frameLayout, 94, 227, 42, 42);
-            addDPadCentered(frameLayout, false, 94, 108, 58);
-            addStickAt(frameLayout, true, 94, 108, 58, true);
-            addButton(frameLayout, "START", 8, 8388691, dp(47), dp(14), dp(94), dp(32));
-            return;
-        }
-        int control = wiiControl();
-        if (control == 1) {
-            addDPadCentered(frameLayout, false, 94, 217, 140);
-            addRoundButton(frameLayout, "1", 2, true, 140, 183, 62, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "2", 1, true, 66, 251, 62, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "A", 1024, true, 140, 290, 40, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "B", 2048, true, 66, 318, 40, TouchButton.STYLE_DARK);
-            addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 54, 0, 318, 80, 30);
-            addWiiSystemKeys(frameLayout, 94, 16, true);
-            return;
-        }
-        if (control == 2) {
-            FrameLayout.LayoutParams[] tops = new FrameLayout.LayoutParams[4];
-            String[] labels = {"L", "ZL", "ZR", "R"};
-            int[] bits = {kL2, 512, 256, kR2};
-            for (int k = 0; k < 4; k++) {
-                tops[k] = new FrameLayout.LayoutParams(dp(78), dp(34), Gravity.TOP | (k < 2 ? Gravity.START : Gravity.END));
-                int side = dp(k == 0 || k == 3 ? 14 : 98);
-                tops[k].setMargins(k < 2 ? side : 0, dp(58), k < 2 ? 0 : side, 0);
-                frameLayout.addView(new TouchButton(this, labels[k], bits[k], this::setButtonPressed, 2), tops[k]);
-            }
-            addDPadCentered(frameLayout, false, 94, 236, 108);
-            addRoundButton(frameLayout, "x", 1024, true, 94, 278, 42, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "a", 1, true, 52, 236, 42, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "b", 2, true, 94, 194, 42, TouchButton.STYLE_DARK);
-            addRoundButton(frameLayout, "y", 2048, true, 136, 236, 42, TouchButton.STYLE_DARK);
-            addStickAt(frameLayout, false, 94, 110, 76, false);
-            addStickAt(frameLayout, true, 94, 110, 76, true);
-            addWiiSystemKeys(frameLayout, 94, 16, true);
-            return;
-        }
-        FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
-        zParams.setMargins(dp(14), dp(58), 0, 0);
-        frameLayout.addView(new TouchButton(this, "Z", 2048, this::setButtonPressed, 2), zParams);
-        FrameLayout.LayoutParams bParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.END);
-        bParams.setMargins(0, dp(58), dp(14), 0);
-        frameLayout.addView(new TouchButton(this, "B", 2, this::setButtonPressed, 2), bParams);
-        addStickAt(frameLayout, false, 94, 250, 96, false);
-        addDPadCentered(frameLayout, true, 94, 250, 84);
-        addRoundButton(frameLayout, "C", 1024, false, 94, 150, 48, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "A", 1, true, 94, 150, 58, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "1", 8, true, 122, 86, 40, TouchButton.STYLE_DARK);
-        addRoundButton(frameLayout, "2", 4, true, 66, 86, 40, TouchButton.STYLE_DARK);
-        addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 54, 0, 70, 80, 30);
-        addWiiSystemKeys(frameLayout, 94, 16, true);
     }
 
     private boolean isSaturn() {
@@ -4537,9 +4274,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isWonderSwan()) {
             return wonderSwanTall() ? 144.0f / 224.0f : 224.0f / 144.0f;
         }
-        if (isDolphin() && isWiiGame()) {
-            return 16.0f / 9.0f;
-        }
         if (isNeoGeoPocket()) {
             return 160.0f / 152.0f;
         }
@@ -4565,7 +4299,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "ngp":
             case "picodrive":
             case "yabasanshiro":
-            case "dolphin":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

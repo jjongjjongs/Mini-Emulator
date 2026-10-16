@@ -73,6 +73,4 @@ final class NativeGba {
     static native boolean setCheats(long handle, String[] codes);
 
     static native void setWonderSwanTall(boolean tall);
-
-    static native void setWiiControl(int type);
 }
