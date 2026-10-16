@@ -161,7 +161,6 @@ public final class MainActivity extends Activity {
     private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
     private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "MCD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "SS", "DC", "WS", "NGP", "NEO", "MAME"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
     private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
@@ -533,56 +532,56 @@ public final class MainActivity extends Activity {
         actionRow.setOrientation(0);
         actionRow.setPadding(0, dp(6), 0, dp(6));
         if ("neogeo".equals(this.currentMode)) {
-            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "NEO", MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
-            LinearLayout neoBiosTile = createActionCard("Neo Geo BIOS", neoGeoBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser("neogeo"));
+            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", MODE_DRAWABLES[index], MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
+            LinearLayout neoBiosTile = createActionCard("Neo Geo BIOS", neoGeoBiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showBiosChooser("neogeo"));
             this.neoGeoBiosStatusView = (TextView) neoBiosTile.getTag();
             actionRow.addView(neoBiosTile, actionTileParams());
         } else if ("arcade".equals(this.currentMode)) {
-            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", "MAME", MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
-            LinearLayout mameBiosTile = createActionCard("MAME BIOS", mameBiosStatus(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(BIOS_SOURCE_MAME));
+            actionRow.addView(createActionCard("ROM 추가", "ROM .zip", MODE_DRAWABLES[index], MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
+            LinearLayout mameBiosTile = createActionCard("MAME BIOS", mameBiosStatus(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showBiosChooser(BIOS_SOURCE_MAME));
             this.mameBiosStatusView = (TextView) mameBiosTile.getTag();
             actionRow.addView(mameBiosTile, actionTileParams());
         } else if (isConsoleMode(this.currentMode)) {
-            actionRow.addView(createActionCard("ROM 추가", consoleFor(this.currentMode)[3], MODE_ICONS[index], MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
+            actionRow.addView(createActionCard("ROM 추가", consoleFor(this.currentMode)[3], MODE_DRAWABLES[index], MODE_COLORS[index], view -> showRomAddChooser()), actionTileParams());
             if (MODE_PCE.equals(this.currentMode)) {
-                LinearLayout pceBiosTile = createActionCard("CD BIOS", pceBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPceBiosSheet());
+                LinearLayout pceBiosTile = createActionCard("CD BIOS", pceBiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPceBiosSheet());
                 this.pceBiosStatusView = (TextView) pceBiosTile.getTag();
                 actionRow.addView(pceBiosTile, actionTileParams());
             }
             if (MODE_SS.equals(this.currentMode)) {
-                LinearLayout ssBiosTile = createActionCard("새턴 BIOS", saturnBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showSaturnBiosSheet());
+                LinearLayout ssBiosTile = createActionCard("새턴 BIOS", saturnBiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showSaturnBiosSheet());
                 this.saturnBiosStatusView = (TextView) ssBiosTile.getTag();
                 actionRow.addView(ssBiosTile, actionTileParams());
             }
             if (MODE_MCD.equals(this.currentMode)) {
-                LinearLayout mcdBiosTile = createActionCard("CD BIOS", mcdBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showMcdBiosSheet());
+                LinearLayout mcdBiosTile = createActionCard("CD BIOS", mcdBiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showMcdBiosSheet());
                 this.mcdBiosStatusView = (TextView) mcdBiosTile.getTag();
                 actionRow.addView(mcdBiosTile, actionTileParams());
             }
             if (MODE_DC.equals(this.currentMode)) {
-                LinearLayout dcBiosTile = createActionCard("DC BIOS", dcBiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showDcBiosSheet());
+                LinearLayout dcBiosTile = createActionCard("DC BIOS", dcBiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showDcBiosSheet());
                 this.dcBiosStatusView = (TextView) dcBiosTile.getTag();
                 actionRow.addView(dcBiosTile, actionTileParams());
             }
             if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
-                LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
+                LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
                 this.ps2BiosStatusView = (TextView) ps2BiosTile.getTag();
                 actionRow.addView(ps2BiosTile, actionTileParams());
             }
         } else {
-            actionRow.addView(createActionCard("GBA · GBC ROM", ".gba / .gbc / .zip", "GBA", Color.rgb(34, 166, 197), view -> showRomAddChooser()), actionTileParams());
-            LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), "BIOS", Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_GBA));
+            actionRow.addView(createActionCard("GBA · GBC ROM", ".gba / .gbc / .zip", R.drawable.console_gba, MODE_COLORS[0], view -> showRomAddChooser()), actionTileParams());
+            LinearLayout biosTile = createActionCard("GBA BIOS", biosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showBiosChooser(MODE_GBA));
             this.biosStatusView = (TextView) biosTile.getTag();
             actionRow.addView(biosTile, actionTileParams());
         }
         if ("arcade".equals(this.currentMode) || "neogeo".equals(this.currentMode)) {
-            LinearLayout engineTile = createActionCard("엔진", shortCoreName(defaultCoreFor(this.currentMode)), "ENG", Color.rgb(245, 158, 11), view -> showDefaultCorePicker());
+            LinearLayout engineTile = createActionCard("엔진", shortCoreName(defaultCoreFor(this.currentMode)), R.drawable.action_engine, Color.rgb(245, 158, 11), view -> showDefaultCorePicker());
             this.engineStatusView = (TextView) engineTile.getTag();
             actionRow.addView(engineTile, actionTileParams());
         } else {
-            actionRow.addView(createActionCard("ROM 검사", "기본 검사", "OK", Color.rgb(98, 111, 204), view -> checkImportedRoms()), actionTileParams());
+            actionRow.addView(createActionCard("ROM 검사", "기본 검사", R.drawable.action_check, Color.rgb(98, 111, 204), view -> checkImportedRoms()), actionTileParams());
         }
-        LinearLayout screenModeTile = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], "VIEW", Color.rgb(55, 188, 116), view -> cycleScreenMode(view));
+        LinearLayout screenModeTile = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], R.drawable.action_screen, Color.rgb(55, 188, 116), view -> cycleScreenMode(view));
         this.screenModeStatusView = (TextView) screenModeTile.getTag();
         actionRow.addView(screenModeTile, actionTileParams());
         linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
@@ -690,12 +689,10 @@ public final class MainActivity extends Activity {
             if (mode.equals(this.currentMode)) {
                 row.setBackground(rounded(Color.rgb(224, 247, 251), dp(10)));
             }
-            TextView icon = new TextView(this);
-            icon.setText(MODE_ICONS[i]);
-            icon.setGravity(17);
-            icon.setTextColor(-1);
-            icon.setTextSize(9.0f);
-            icon.setTypeface(Typeface.DEFAULT_BOLD);
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(MODE_DRAWABLES[i]);
+            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            icon.setPadding(dp(2), dp(2), dp(2), dp(2));
             icon.setBackground(rounded(MODE_COLORS[i], dp(9)));
             row.addView(icon, new LinearLayout.LayoutParams(dp(30), dp(30)));
             TextView name = new TextView(this);
@@ -1041,19 +1038,18 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private LinearLayout createActionCard(String title, String status, String iconLabel, int iconColor, View.OnClickListener onClickListener) {
+    private LinearLayout createActionCard(String title, String status, int iconDrawable, int iconColor, View.OnClickListener onClickListener) {
         LinearLayout tile = new LinearLayout(this);
         tile.setOrientation(1);
         tile.setGravity(49);
         tile.setPadding(0, dp(4), 0, dp(4));
         tile.setClickable(true);
         tile.setOnClickListener(onClickListener);
-        TextView icon = new TextView(this);
-        icon.setText(iconLabel);
-        icon.setGravity(17);
-        icon.setTextColor(-1);
-        icon.setTextSize(iconLabel.length() > 3 ? 12.0f : 14.0f);
-        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconDrawable);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setPadding(dp(4), dp(4), dp(4), dp(4));
+        icon.setContentDescription(title);
         icon.setBackground(rounded(iconColor, dp(16)));
         icon.setElevation(dp(2));
         LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(56), dp(56));
@@ -3055,12 +3051,11 @@ public final class MainActivity extends Activity {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(0);
         header.setGravity(16);
-        TextView badge = new TextView(this);
-        badge.setText(MODE_ICONS[modeIndex]);
-        badge.setTextColor(-1);
-        badge.setTextSize(12.0f);
-        badge.setTypeface(Typeface.DEFAULT_BOLD);
-        badge.setGravity(17);
+        ImageView badge = new ImageView(this);
+        badge.setImageResource(MODE_DRAWABLES[modeIndex]);
+        badge.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        badge.setPadding(dp(3), dp(3), dp(3), dp(3));
+        badge.setContentDescription(MODE_NAMES[modeIndex]);
         badge.setBackground(rounded(MODE_COLORS[modeIndex], dp(13)));
         header.addView(badge, new LinearLayout.LayoutParams(dp(46), dp(46)));
         LinearLayout texts = new LinearLayout(this);
