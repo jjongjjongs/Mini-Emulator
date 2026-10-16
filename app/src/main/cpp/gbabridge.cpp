@@ -612,6 +612,19 @@ bool autoState(const Core* core) {
     return core->coreId != "play";
 }
 
+namespace crash {
+void remember(const char* text);
+}
+
+// Notes a quick save or restore in the engine log the app can show (PS2 diagnosis).
+void noteState(const Core* core, const char* what, const std::string& path, bool ok) {
+    char line[200];
+    size_t slash = path.find_last_of('/');
+    snprintf(line, sizeof(line), "[Mini] %s %s: %s (frame %llu)", what, slash == std::string::npos ? path.c_str() : path.c_str() + slash + 1,
+             ok ? "ok" : "failed", static_cast<unsigned long long>(core->framesRun));
+    crash::remember(line);
+}
+
 bool saveStateTo(Core* core, const std::string& path) {
     // Before the quick save has been restored (or before MAME has a machine), saving
     // would replace the player's state with the bare start of the game.
@@ -652,8 +665,10 @@ bool saveStateTo(Core* core, const std::string& path) {
     bool ok = fclose(file) == 0 && written == size;
     if (!ok || rename(temp.c_str(), path.c_str()) != 0) {
         remove(temp.c_str());
+        noteState(core, "save", path, false);
         return false;
     }
+    noteState(core, "save", path, true);
     return true;
 }
 
@@ -695,7 +710,9 @@ bool loadStateFrom(Core* core, const std::string& path) {
             return false;
         }
     }
-    return core->retroUnserialize(buffer.data() + header, read - header);
+    bool ok = core->retroUnserialize(buffer.data() + header, read - header);
+    noteState(core, "load", path, ok);
+    return ok;
 }
 
 bool loadState(Core* core) {
@@ -797,7 +814,7 @@ void loadSram(Core* core) {
 
 namespace crash {
 
-constexpr int kLines = 48;
+constexpr int kLines = 160;
 constexpr int kLineLength = 240;
 char gLines[kLines][kLineLength];
 std::atomic<unsigned> gNextLine{0};

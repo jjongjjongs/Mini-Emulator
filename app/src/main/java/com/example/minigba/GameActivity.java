@@ -84,8 +84,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.romPath = getIntent().getStringExtra("com.example.minigba.ROM_PATH");
         // Marks a game session; closing the game clears it. If the game process ends any
         // other way the game list asks the system why (MainActivity.showUnexpectedGameExit).
-        getSharedPreferences("settings", 0).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
         String stringExtra = getIntent().getStringExtra("com.example.minigba.CORE_ID");
+        getSharedPreferences("settings", 0).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
+        // PS2 (PCSX2) sessions end with their engine log shown (MainActivity), while the black
+        // picture after resuming a quick save is tracked down. A file, as the game list runs
+        // in another process.
+        if ("pcee2".equals(stringExtra)) {
+            try {
+                new File(getFilesDir(), MainActivity.PS2_LOG_MARKER).createNewFile();
+            } catch (IOException ignored) {
+                // No log shown afterwards.
+            }
+        }
         this.coreId = stringExtra;
         Haptics.setLevel(this, hapticLevel());
         NativeGba.setSharpScaling(screenFilter() != 0);
