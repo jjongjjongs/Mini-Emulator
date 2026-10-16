@@ -764,30 +764,11 @@ public final class MainActivity extends Activity {
         updateNote();
         refreshLibrary();
         boolean reported = showLastCrashReport();
-        if (!reported) {
-            reported = showPs2Log();
-        }
         checkGameSession(reported, 0);
+        // Left by 0.0.112-0.0.113, which showed the PS2 engine log after each PS2 game.
+        new File(getFilesDir(), "ps2_log_pending").delete();
     }
 
-    static final String PS2_LOG_MARKER = "ps2_log_pending";
-
-    // After a PS2 game ended: its engine's last log lines, to copy and send while the black
-    // picture after resuming a quick save is tracked down. Waits for the game process to
-    // be gone, as it writes the log on its way out.
-    private boolean showPs2Log() {
-        File marker = new File(getFilesDir(), PS2_LOG_MARKER);
-        if (!marker.isFile() || isGameProcessRunning()) {
-            return false;
-        }
-        marker.delete();
-        String log = readGameLog();
-        if (log.isEmpty()) {
-            return false;
-        }
-        showReport("PS2 진단 기록", "화면이 안 나오는 문제를 찾는 데 쓰는 기록이에요. 아래 내용을 복사해서 보내 주세요.", log);
-        return true;
-    }
 
     // A game session that was not closed from the game screen ended some other way. The
     // game process can still be on its way out when this screen comes back, so look again
@@ -795,17 +776,6 @@ public final class MainActivity extends Activity {
     private void checkGameSession(boolean reported, int attempt) {
         SharedPreferences prefs = settingsPrefs();
         long sessionStart = prefs.getLong(GameActivity.SESSION_START, 0);
-        if (new File(getFilesDir(), PS2_LOG_MARKER).isFile() && attempt < 10) {
-            // The PS2 log once the game process has written it and gone.
-            if (!showPs2Log()) {
-                getWindow().getDecorView().postDelayed(() -> {
-                    if (!isFinishing() && !isDestroyed()) {
-                        checkGameSession(reported, attempt + 1);
-                    }
-                }, 1000);
-            }
-            return;
-        }
         if (sessionStart == 0 || prefs.getBoolean(GameActivity.SESSION_CLOSED, true)) {
             return;
         }
