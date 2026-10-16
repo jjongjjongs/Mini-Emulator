@@ -1255,6 +1255,32 @@ std::atomic<int> gNdsLayout{0};
 // WonderSwan games made to be held upright: the core turns the picture (and the pad) for
 // them. Set per game before it starts.
 std::atomic<bool> gWsTall{false};
+// N64 games built from small 2D tiles that GLideN64 leaves thin black lines between when
+// it draws them above native resolution (StarCraft 64); they get their 2D at native
+// resolution. Set from the ROM header before the game starts.
+std::atomic<bool> gN64NativeTiles{false};
+
+// The internal name in an N64 ROM header (0x20, 20 bytes), whatever byte order the dump
+// uses: .z64 big-endian, .v64 byte-swapped, .n64 word-swapped.
+std::string n64RomName(const std::string& path) {
+    unsigned char h[0x40];
+    FILE* f = fopen(path.c_str(), "rb");
+    if (f == nullptr) return "";
+    size_t got = fread(h, 1, sizeof h, f);
+    fclose(f);
+    if (got != sizeof h) return "";
+    if (h[0] == 0x37 && h[1] == 0x80) {
+        for (size_t i = 0; i < sizeof h; i += 2) std::swap(h[i], h[i + 1]);
+    } else if (h[0] == 0x40 && h[1] == 0x12) {
+        for (size_t i = 0; i < sizeof h; i += 4) {
+            std::swap(h[i], h[i + 3]);
+            std::swap(h[i + 1], h[i + 2]);
+        }
+    } else if (h[0] != 0x80 || h[1] != 0x37) {
+        return "";
+    }
+    return std::string(reinterpret_cast<char*>(h + 0x20), 20);
+}
 
 // Core options the app pins regardless of what the core reports as default.
 const char* fixedVariable(const char* key) {
@@ -1310,7 +1336,9 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mupen64plus-cpucore") == 0) return "dynamic_recompiler";
     if (strcmp(key, "mupen64plus-43screensize") == 0) return "640x480";
     if (strcmp(key, "mupen64plus-alt-map") == 0) return "True";
-    if (strcmp(key, "mupen64plus-CorrectTexrectCoords") == 0) return "Auto";  // no black lines between upscaled 2D tiles (StarCraft 64)
+    // Continuous coordinates between 2D rectangles keeps most upscaled 2D seamless.
+    if (strcmp(key, "mupen64plus-CorrectTexrectCoords") == 0) return gN64NativeTiles.load() ? "Force" : "Auto";
+    if (strcmp(key, "mupen64plus-EnableNativeResTexrects") == 0) return gN64NativeTiles.load() ? "Optimized" : "Disabled";
     // Dreamcast: the real BIOS (system/dc/dc_boot.bin) when the player added one, otherwise
     // Flycast's own high-level BIOS, which runs most games.
     if (strcmp(key, "reicast_hle_bios") == 0) {
@@ -2446,6 +2474,8 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     core->systemDir = jstringToString(env, systemDir);
     core->coreId = jstringToString(env, coreId);
     crash::install(core->systemDir, core->coreId, core->romPath);
+    gN64NativeTiles = core->coreId == "mupen64plus_next" &&
+                      n64RomName(core->romPath).find("STARCRAFT") != std::string::npos;
     std::string requestedName = jstringToString(env, saveName);
     std::string baseName = saveBaseName(requestedName.c_str(), core->romPath);
     core->sramPath = core->saveDir + "/" + baseName + ".sav";
