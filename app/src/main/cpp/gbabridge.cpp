@@ -1256,8 +1256,8 @@ std::atomic<int> gNdsLayout{0};
 // them. Set per game before it starts.
 std::atomic<bool> gWsTall{false};
 // N64 games built from small 2D tiles that GLideN64 leaves thin black lines between when
-// it draws them above native resolution (StarCraft 64); they get their 2D at native
-// resolution. Set from the ROM header before the game starts.
+// it draws them above native resolution (StarCraft 64); they run at the N64's own
+// 320x240, with texture reads kept inside each tile. Set from the ROM header before the game starts.
 std::atomic<bool> gN64NativeTiles{false};
 
 // The internal name in an N64 ROM header (0x20, 20 bytes), whatever byte order the dump
@@ -1334,11 +1334,12 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mupen64plus-rdp-plugin") == 0) return "gliden64";
     if (strcmp(key, "mupen64plus-rsp-plugin") == 0) return "hle";
     if (strcmp(key, "mupen64plus-cpucore") == 0) return "dynamic_recompiler";
-    if (strcmp(key, "mupen64plus-43screensize") == 0) return "640x480";
+    if (strcmp(key, "mupen64plus-43screensize") == 0) return gN64NativeTiles.load() ? "320x240" : "640x480";
     if (strcmp(key, "mupen64plus-alt-map") == 0) return "True";
     // Continuous coordinates between 2D rectangles keeps most upscaled 2D seamless.
     if (strcmp(key, "mupen64plus-CorrectTexrectCoords") == 0) return gN64NativeTiles.load() ? "Force" : "Auto";
     if (strcmp(key, "mupen64plus-EnableNativeResTexrects") == 0) return gN64NativeTiles.load() ? "Optimized" : "Disabled";
+    if (strcmp(key, "mupen64plus-EnableTexCoordBounds") == 0) return gN64NativeTiles.load() ? "True" : "False";
     // Dreamcast: the real BIOS (system/dc/dc_boot.bin) when the player added one, otherwise
     // Flycast's own high-level BIOS, which runs most games.
     if (strcmp(key, "reicast_hle_bios") == 0) {
