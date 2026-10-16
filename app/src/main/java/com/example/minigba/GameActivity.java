@@ -506,8 +506,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             } else {
                 // Master System: 2 is libretro A, 1 is B (Genesis Plus GX's two-button pad).
                 boolean sms = isMasterSystem();
-                addLandscapeActionButton(frameLayout, sms ? "2" : "A", 1, dp(wideGba ? 6 : 26), -dp(42), sms ? TouchButton.STYLE_DARK : 3);
-                addLandscapeActionButton(frameLayout, sms ? "1" : "B", 2, dp(wideGba ? 62 : 92), dp(42), sms ? TouchButton.STYLE_DARK : 3);
+                addLandscapeActionButton(frameLayout, sms ? "2" : "A", 1, dp(wideGba ? 22 : 26), -dp(42), sms ? TouchButton.STYLE_DARK : 3);
+                addLandscapeActionButton(frameLayout, sms ? "1" : "B", 2, dp(wideGba ? 78 : 92), dp(42), sms ? TouchButton.STYLE_DARK : 3);
             }
         } else if (isNeoGeoMode()) {
             // Diamond with equal spacing; the right edge matches the joystick's left margin.
