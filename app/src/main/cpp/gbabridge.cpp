@@ -2182,7 +2182,11 @@ void runLoop(Core* core) {
     // and the game ran a few percent slow (the audio queue drained, the music dragged).
     // Above the app's other threads, as audio and video depend on this one keeping time.
     setpriority(PRIO_PROCESS, 0, -10);
-    pinToFastCores();
+    // Not for PCSX2: since it, PS2 games resumed from a quick save played on behind a black
+    // picture until a reset.
+    if (core->coreId != "pcee2") {
+        pinToFastCores();
+    }
     PerformanceHint hint;
     hint.open(static_cast<int64_t>(1e9 / core->fps));
     auto deadline = std::chrono::steady_clock::now();
