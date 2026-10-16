@@ -40,11 +40,12 @@ final class NativeGba {
     // PSP rendering scale (1x, 2x or 3x the PSP's 480x272) for the next game created.
     static native void setPspScale(int scale);
 
-    // PSP "속도 우선" (speed hacks and auto frameskip) for the next game created.
-    static native void setPspFast(boolean fast);
+    // "속도 우선" (speed hacks) for the next PSP or PS2 (PCSX2) game created.
+    static native void setSpeedFirst(boolean fast);
 
-    // PSP on Vulkan (where the device has it) for the next game created; false keeps OpenGL ES.
-    static native void setPspVulkan(boolean allowed);
+    // Vulkan (where the device has it) for the next PSP, Dreamcast or PS2 game created;
+    // false keeps OpenGL ES.
+    static native void setVulkan(boolean allowed);
 
     // DS screen layout: 0 stacked with a 4-row gap, 1 stacked and touching, 2 side by side.
     // With handle 0 it applies to the next game created; a running game changes layout.

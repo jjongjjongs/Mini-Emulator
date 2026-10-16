@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <jni.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
@@ -43,6 +44,7 @@
 
 #define LOG_TAG "MiniGBA"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 namespace {
 
@@ -1191,14 +1193,14 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 std::string gPspLanguage = "Korean";
 // PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
 std::atomic<int> gPspScale{2};
-// PSP "속도 우선" per game: cheaper texture checks, no GPU readbacks, and up to one frame
-// skipped when the game falls behind.
-std::atomic<bool> gPspFast{false};
-// PSP on Vulkan where the device has it, unless Java turned it off (after a crash on it).
-std::atomic<bool> gPspVulkanAllowed{true};
+// "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
+std::atomic<bool> gSpeedFirst{false};
+// PSP, Dreamcast and PS2 (PCSX2) draw with Vulkan where the device has it, unless Java
+// turned it off for the core (after a crash on it).
+std::atomic<bool> gVulkanAllowed{true};
 
-bool pspVulkan() {
-    return gPspVulkanAllowed.load() && vkhw::available();
+bool vulkanFor(const std::string& coreId) {
+    return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2") && gVulkanAllowed.load() && vkhw::available();
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
@@ -1217,8 +1219,8 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_frameskip") == 0) return "0";
     // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
     if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
-    // PSP: the bridge offers OpenGL ES only; render at the scale picked per game (2x by default).
-    if (strcmp(key, "ppsspp_backend") == 0) return pspVulkan() ? "vulkan" : "opengl";
+    // PSP: Vulkan where available, else OpenGL ES; render at the scale picked per game (2x by default).
+    if (strcmp(key, "ppsspp_backend") == 0) return vulkanFor("ppsspp") ? "vulkan" : "opengl";
     if (strcmp(key, "ppsspp_internal_resolution") == 0) {
         int scale = gPspScale.load();
         return scale == 1 ? "480x272" : scale == 3 ? "1440x816" : "960x544";
@@ -1227,11 +1229,18 @@ const char* fixedVariable(const char* key) {
     // text and the kr0.pgf system font from it. Games without Korean that still follow it
     // (Call of Duty: Roads to Victory's name keyboard) are set to English per game.
     if (strcmp(key, "ppsspp_language") == 0) return gPspLanguage.c_str();
-    if (gPspFast.load()) {
+    if (gSpeedFirst.load()) {
+        // PSP: cheaper texture checks, no GPU readbacks, up to one frame skipped when behind.
         if (strcmp(key, "ppsspp_lazy_texture_caching") == 0) return "enabled";
         if (strcmp(key, "ppsspp_skip_gpu_readbacks") == 0) return "enabled";
         if (strcmp(key, "ppsspp_frameskip") == 0) return "1";
         if (strcmp(key, "ppsspp_auto_frameskip") == 0) return "enabled";
+        // PS2: GPU readbacks without stalling, the EE at 75% with mild cycle skipping, and
+        // the cheapest blending.
+        if (strcmp(key, "pcsx2_hw_download_mode") == 0) return "unsynchronized";
+        if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return "-1";
+        if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return "1";
+        if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
     }
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
@@ -1374,7 +1383,7 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             auto* hw = static_cast<retro_hw_render_callback*>(data);
             if (hw == nullptr) return false;
             if (hw->context_type == RETRO_HW_CONTEXT_VULKAN) {
-                if (core->coreId != "ppsspp" || !pspVulkan()) {
+                if (!vulkanFor(core->coreId)) {
                     return false;
                 }
                 core->vk = vkhw::create(*hw);
@@ -1962,6 +1971,58 @@ void tearDownHw(Core* core) {
 }
 
 
+// Keeps the calling thread on the phone's fast cores (those clocked within 70% of the
+// fastest, or 55% where that is a single core): the scheduler otherwise moves it to a
+// little core now and then, and that frame runs late. Threads the core starts from it
+// later (PPSSPP's renderer) inherit the set, so it is never one core. Phones whose cores
+// all run alike are left alone.
+void pinToFastCores() {
+    long cpus = sysconf(_SC_NPROCESSORS_CONF);
+    if (cpus <= 1 || cpus > CPU_SETSIZE) {
+        return;
+    }
+    std::vector<long> maxFreq(static_cast<size_t>(cpus), 0);
+    long fastest = 0;
+    for (long cpu = 0; cpu < cpus; ++cpu) {
+        char path[96];
+        snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%ld/cpufreq/cpuinfo_max_freq", cpu);
+        FILE* file = fopen(path, "r");
+        if (file == nullptr) {
+            continue;
+        }
+        long khz = 0;
+        if (fscanf(file, "%ld", &khz) == 1) {
+            maxFreq[static_cast<size_t>(cpu)] = khz;
+            fastest = khz > fastest ? khz : fastest;
+        }
+        fclose(file);
+    }
+    if (fastest <= 0) {
+        return;
+    }
+    cpu_set_t set;
+    int chosen = 0;
+    for (long percent : {70L, 55L}) {
+        CPU_ZERO(&set);
+        chosen = 0;
+        for (long cpu = 0; cpu < cpus; ++cpu) {
+            if (maxFreq[static_cast<size_t>(cpu)] * 100 >= fastest * percent) {
+                CPU_SET(static_cast<int>(cpu), &set);
+                ++chosen;
+            }
+        }
+        if (chosen >= 2) {
+            break;
+        }
+    }
+    if (chosen < 2 || chosen == cpus) {
+        return;
+    }
+    if (sched_setaffinity(0, sizeof(set), &set) == 0) {
+        LOGI("emulation thread on %d of %ld cores", chosen, cpus);
+    }
+}
+
 // Android's performance hints (API 33+): the emulation thread reports how long each frame
 // took against the time it has, and the system raises the CPU clocks before frames run
 // late instead of after. Looked up at run time, as the app also runs on older Android.
@@ -2120,6 +2181,7 @@ void runLoop(Core* core) {
     // and the game ran a few percent slow (the audio queue drained, the music dragged).
     // Above the app's other threads, as audio and video depend on this one keeping time.
     setpriority(PRIO_PROCESS, 0, -10);
+    pinToFastCores();
     PerformanceHint hint;
     hint.open(static_cast<int64_t>(1e9 / core->fps));
     auto deadline = std::chrono::steady_clock::now();
@@ -2758,12 +2820,12 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
 }
 
-JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspFast(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {
-    gPspFast.store(fast == JNI_TRUE);
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirst(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {
+    gSpeedFirst.store(fast == JNI_TRUE);
 }
 
-JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean allowed) {
-    gPspVulkanAllowed.store(allowed == JNI_TRUE);
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean allowed) {
+    gVulkanAllowed.store(allowed == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSharpScaling(JNIEnv* /*env*/, jclass /*cls*/, jboolean sharp) {
