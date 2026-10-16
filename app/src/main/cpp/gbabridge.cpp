@@ -1193,7 +1193,7 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 std::string gPspLanguage = "Korean";
 // PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
 std::atomic<int> gPspScale{2};
-// "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
+// PSP "속도 우선" per game: speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
 // PSP and Dreamcast draw with Vulkan where the device has it, unless Java turned it off
 // for the core (after a crash on it). PS2 (PCSX2) is left on its own read-back path: with
@@ -1236,12 +1236,6 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "ppsspp_skip_gpu_readbacks") == 0) return "enabled";
         if (strcmp(key, "ppsspp_frameskip") == 0) return "1";
         if (strcmp(key, "ppsspp_auto_frameskip") == 0) return "enabled";
-        // PS2: GPU readbacks without stalling, the EE at 75% with mild cycle skipping, and
-        // the cheapest blending.
-        if (strcmp(key, "pcsx2_hw_download_mode") == 0) return "unsynchronized";
-        if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return "-1";
-        if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return "1";
-        if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
     }
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";

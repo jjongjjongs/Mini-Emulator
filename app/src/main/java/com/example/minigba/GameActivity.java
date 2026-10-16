@@ -3138,11 +3138,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             fastParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createFastRow(dialog), fastParams);
         }
-        if ("pcee2".equals(this.coreId)) {
-            LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
-            fastParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createFastRow(dialog), fastParams);
-        }
         if (isWonderSwan()) {
             LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
             tallParams.setMargins(0, dp(8), 0, 0);
@@ -3276,7 +3271,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String[] FAST_NOTES = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. 프레임마다 하는 일을 줄여요"};
 
     private boolean speedFirstSupported() {
-        return isPsp() || "pcee2".equals(this.coreId);
+        return isPsp();
     }
 
     // PSP kept its 0.0.106 key.
