@@ -315,7 +315,7 @@ jobs:
 
       - name: Native bridge host test
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq lld llvm > /dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq lld llvm libvulkan-dev > /dev/null
           ./native-test/run.sh
 
       # Release signing needs these repository secrets:

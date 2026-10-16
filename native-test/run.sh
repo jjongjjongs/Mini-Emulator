@@ -3,7 +3,8 @@
 # for the Android NDK APIs, builds the mGBA libretro core from source, and
 # drives the bridge through JNI from a plain JVM with a tiny test ROM.
 #
-# Needs: clang/clang++, ld.lld, llvm-objcopy, cmake, make, git, a JDK.
+# Needs: clang/clang++, ld.lld, llvm-objcopy, cmake, make, git, a JDK, Vulkan headers
+# (libvulkan-dev; the Vulkan presenter is built with a headless surface for the host).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -39,7 +40,7 @@ JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)
 SANITIZE="${SANITIZE:-}"
 clang++ -std=c++17 -O1 -g -Wall -Wextra -fPIC -shared $SANITIZE \
     -I"$HERE/include" -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
-    "$REPO/app/src/main/cpp/gbabridge.cpp" "$HERE/stubs.cpp" \
+    -DVKHW_HEADLESS "$REPO/app/src/main/cpp/gbabridge.cpp" "$REPO/app/src/main/cpp/vulkan_hw.cpp" "$HERE/stubs.cpp" \
     -o "$WORK/lib/libgbabridge.so" -ldl -lpthread
 
 # 4. JNI harness. NativeGba is copied from the app with its methods made public.

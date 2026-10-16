@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "libretro.h"
+#include "vulkan_hw.h"
 
 #define LOG_TAG "MiniGBA"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -373,6 +374,8 @@ struct Core {
     // Hardware rendering: the core draws with OpenGL ES into fbo on the emulation
     // thread, which then stretches it onto the window.
     bool hwRender = false;
+    // Set when the core renders with Vulkan instead of OpenGL ES.
+    vkhw::Host* vk = nullptr;
     retro_hw_render_callback hw{};
     bool hwReady = false;
     gl::EGLDisplay eglDisplay = nullptr;
@@ -1104,6 +1107,12 @@ void captureStdio() {
 }
 #endif
 
+// Adds to the "core ..., rom ..." line of a crash report (e.g. the renderer in use).
+void appendContext(const char* text) {
+    size_t used = strlen(gContext);
+    snprintf(gContext + used, sizeof(gContext) - used, "%s", text);
+}
+
 void install(const std::string& systemDir, const std::string& coreId, const std::string& romPath) {
     std::string filesDir = systemDir;
     size_t slash = filesDir.find_last_of('/');
@@ -1182,6 +1191,15 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 std::string gPspLanguage = "Korean";
 // PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
 std::atomic<int> gPspScale{2};
+// PSP "속도 우선" per game: cheaper texture checks, no GPU readbacks, and up to one frame
+// skipped when the game falls behind.
+std::atomic<bool> gPspFast{false};
+// PSP on Vulkan where the device has it, unless Java turned it off (after a crash on it).
+std::atomic<bool> gPspVulkanAllowed{true};
+
+bool pspVulkan() {
+    return gPspVulkanAllowed.load() && vkhw::available();
+}
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
 // DS screen layout: 0 stacked 4 rows apart (portrait), 1 stacked and touching
@@ -1200,7 +1218,7 @@ const char* fixedVariable(const char* key) {
     // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
     if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
     // PSP: the bridge offers OpenGL ES only; render at the scale picked per game (2x by default).
-    if (strcmp(key, "ppsspp_backend") == 0) return "opengl";
+    if (strcmp(key, "ppsspp_backend") == 0) return pspVulkan() ? "vulkan" : "opengl";
     if (strcmp(key, "ppsspp_internal_resolution") == 0) {
         int scale = gPspScale.load();
         return scale == 1 ? "480x272" : scale == 3 ? "1440x816" : "960x544";
@@ -1209,6 +1227,12 @@ const char* fixedVariable(const char* key) {
     // text and the kr0.pgf system font from it. Games without Korean that still follow it
     // (Call of Duty: Roads to Victory's name keyboard) are set to English per game.
     if (strcmp(key, "ppsspp_language") == 0) return gPspLanguage.c_str();
+    if (gPspFast.load()) {
+        if (strcmp(key, "ppsspp_lazy_texture_caching") == 0) return "enabled";
+        if (strcmp(key, "ppsspp_skip_gpu_readbacks") == 0) return "enabled";
+        if (strcmp(key, "ppsspp_frameskip") == 0) return "1";
+        if (strcmp(key, "ppsspp_auto_frameskip") == 0) return "enabled";
+    }
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
     // "Fit Screen" letterboxes games whose picture is smaller than the output (GTA San
@@ -1346,9 +1370,21 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         case 51:
             return true;
         case RETRO_ENVIRONMENT_SET_HW_RENDER: {
-            // OpenGL ES only; the context itself is made on the emulation thread.
+            // OpenGL ES, or Vulkan for PSP; the context itself is made on the emulation thread.
             auto* hw = static_cast<retro_hw_render_callback*>(data);
             if (hw == nullptr) return false;
+            if (hw->context_type == RETRO_HW_CONTEXT_VULKAN) {
+                if (core->coreId != "ppsspp" || !pspVulkan()) {
+                    return false;
+                }
+                core->vk = vkhw::create(*hw);
+                if (core->vk == nullptr) {
+                    return false;
+                }
+                core->hw = *hw;
+                core->hwRender = true;
+                return true;
+            }
             if (hw->context_type != RETRO_HW_CONTEXT_OPENGLES2 && hw->context_type != RETRO_HW_CONTEXT_OPENGLES3 &&
                 hw->context_type != RETRO_HW_CONTEXT_OPENGLES_VERSION && hw->context_type != RETRO_HW_CONTEXT_OPENGL) {
                 return false;
@@ -1361,6 +1397,19 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             hw->get_proc_address = hwProcAddress;
             core->hw = *hw;
             core->hwRender = true;
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE: {
+            auto* iface = static_cast<const retro_hw_render_context_negotiation_interface*>(data);
+            if (iface == nullptr || core->vk == nullptr || iface->interface_type != RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) {
+                return false;
+            }
+            vkhw::setNegotiation(core->vk, iface);
+            return true;
+        }
+        case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE: {
+            if (data == nullptr || core->vk == nullptr || !core->hwReady) return false;
+            *static_cast<const retro_hw_render_interface**>(data) = vkhw::renderInterface(core->vk);
             return true;
         }
         case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: {
@@ -1399,6 +1448,10 @@ private:
 // Stretches the core's last frame from fbo onto the window and shows it. Runs on
 // the emulation thread with the context current.
 void presentHwFrame(Core* core) {
+    if (core->vk != nullptr) {
+        vkhw::present(core->vk);
+        return;
+    }
     if (core->eglWindowSurface == nullptr || core->lastWidth == 0 || core->lastHeight == 0) {
         return;
     }
@@ -1543,7 +1596,7 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
         presentHwFrame(core);
         return;
     }
-    if (data == nullptr || core == nullptr || width == 0 || height == 0) {
+    if (data == nullptr || data == RETRO_HW_FRAME_BUFFER_VALID || core == nullptr || width == 0 || height == 0) {
         return;
     }
     bool wide = core->pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888;
@@ -1717,6 +1770,18 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
 // Makes the context the core draws with, plus an offscreen surface to keep it current
 // while no window is attached, and the framebuffer it renders into.
 bool setUpHwContext(Core* core) {
+    if (core->vk != nullptr) {
+        if (!vkhw::init(core->vk)) {
+            LOGE("Could not set up Vulkan");
+            return false;
+        }
+        crash::appendContext(", renderer vulkan");
+        core->hwReady = true;
+        if (core->hw.context_reset != nullptr) {
+            core->hw.context_reset();
+        }
+        return true;
+    }
     core->eglDisplay = gGl.GetDisplay(nullptr);
     if (core->eglDisplay == nullptr || !gGl.Initialize(core->eglDisplay, nullptr, nullptr)) {
         LOGE("eglInitialize failed");
@@ -1783,6 +1848,13 @@ void bindHwWindow(Core* core) {
         if (wanted != nullptr) {
             ANativeWindow_acquire(wanted);
         }
+    }
+    if (core->vk != nullptr) {
+        vkhw::setWindow(core->vk, wanted);
+        if (wanted != nullptr) {
+            ANativeWindow_release(wanted);
+        }
+        return;
     }
     if (wanted == core->eglWindow) {
         if (wanted != nullptr) {
@@ -1867,6 +1939,11 @@ void tearDownHw(Core* core) {
             core->retroUnloadGame();
             core->gameLoaded = false;
         }
+    }
+    if (core->vk != nullptr) {
+        vkhw::shutdown(core->vk);
+        core->hwReady = false;
+        return;
     }
     if (core->fbo != 0) gGl.DeleteFramebuffers(1, &core->fbo);
     if (core->fboTexture != 0) gGl.DeleteTextures(1, &core->fboTexture);
@@ -2679,6 +2756,14 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIE
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspFast(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {
+    gPspFast.store(fast == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean allowed) {
+    gPspVulkanAllowed.store(allowed == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSharpScaling(JNIEnv* /*env*/, jclass /*cls*/, jboolean sharp) {

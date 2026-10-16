@@ -38,6 +38,7 @@ final class RoundIconView extends View {
     static final int MOVE = 23;
     static final int CHEAT = 24;
     static final int SWAP = 25;
+    static final int BOLT = 26;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -57,6 +58,7 @@ final class RoundIconView extends View {
     static final int COLOR_REWIND = Color.rgb(109, 40, 217);
     static final int COLOR_MOVE = Color.rgb(16, 185, 129);
     static final int COLOR_CHEAT = Color.rgb(225, 29, 72);
+    static final int COLOR_BOLT = Color.rgb(249, 115, 22);
 
     private final int icon;
     private final int color;
@@ -383,6 +385,19 @@ final class RoundIconView extends View {
                 text.setFakeBoldText(true);
                 text.setTextAlign(Paint.Align.CENTER);
                 canvas.drawText("HD", 12, 15.1f, text);
+                break;
+            case BOLT:
+                path.moveTo(13.5f, 2);
+                path.lineTo(4.5f, 13.5f);
+                path.lineTo(10.5f, 13.5f);
+                path.lineTo(9.5f, 22);
+                path.lineTo(19.5f, 9.5f);
+                path.lineTo(13.3f, 9.5f);
+                path.close();
+                Paint bolt = new Paint(line);
+                bolt.setStyle(Paint.Style.FILL_AND_STROKE);
+                bolt.setStrokeWidth(1);
+                canvas.drawPath(path, bolt);
                 break;
             case PLAY:
             default:

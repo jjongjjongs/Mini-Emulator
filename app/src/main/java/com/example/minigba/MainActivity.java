@@ -927,7 +927,13 @@ public final class MainActivity extends Activity {
         if (report.trim().isEmpty()) {
             return false;
         }
-        showReport("게임이 비정상 종료됐습니다", "엔진이 멈춘 위치를 기록했습니다. 아래 내용을 복사해서 보내 주시면 원인을 찾는 데 도움이 됩니다.", report);
+        String intro = "엔진이 멈춘 위치를 기록했습니다. 아래 내용을 복사해서 보내 주시면 원인을 찾는 데 도움이 됩니다.";
+        // PSP crashed while drawing with Vulkan: run PSP games on OpenGL ES from now on.
+        if (report.contains("core ppsspp") && report.contains("renderer vulkan")) {
+            settingsPrefs().edit().putBoolean("psp_vulkan_off", true).apply();
+            intro += "\nPSP 게임은 다음부터 Vulkan 대신 OpenGL로 실행돼요.";
+        }
+        showReport("게임이 비정상 종료됐습니다", intro, report);
         return true;
     }
 

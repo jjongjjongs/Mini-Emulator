@@ -2248,6 +2248,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isPsp()) {
                         NativeGba.setPspLanguage(0, pspLanguage());
                         NativeGba.setPspScale(pspScale());
+                        NativeGba.setPspFast(pspFast());
+                        // A crash while on Vulkan turns it off for good (MainActivity).
+                        NativeGba.setPspVulkan(!getSharedPreferences("settings", 0).getBoolean("psp_vulkan_off", false));
                     }
                     if (isWonderSwan()) {
                         NativeGba.setWonderSwanTall(wonderSwanTall());
@@ -3131,6 +3134,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
             scaleParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createScaleRow(dialog), scaleParams);
+            LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
+            fastParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createFastRow(dialog), fastParams);
         }
         if (isWonderSwan()) {
             LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -3257,6 +3263,32 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     menu.dismiss();
                     relaunchGame();
                 }));
+    }
+
+    // PSP "속도 우선", per game: speed hacks that can drop some effects, off by default.
+    private static final String[] PSP_FAST_NAMES = {"끔 · 정확하게", "켬 · 빠르게"};
+    private static final String[] PSP_FAST_NOTES = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. 프레임마다 하는 일을 줄여요"};
+
+    private boolean pspFast() {
+        return getSharedPreferences("settings", 0).getBoolean("psp_fast:" + this.saveBaseName, false);
+    }
+
+    private LinearLayout createFastRow(android.app.Dialog menu) {
+        LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", pspFast() ? "켜짐" : "꺼짐",
+                view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", PSP_FAST_NAMES, PSP_FAST_NOTES,
+                        pspFast() ? 1 : 0, "켜면 이렇게 바뀌어요\n· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임씩 건너뛰어요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠질 수 있어요.\n이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 이어하기", choice -> {
+                    if ((choice == 1) == pspFast()) {
+                        return;
+                    }
+                    getSharedPreferences("settings", 0).edit().putBoolean("psp_fast:" + this.saveBaseName, choice == 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (!pspFast()) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
     }
 
     // Closes the game (saving it as on exit) and has the ROM list open it again once this

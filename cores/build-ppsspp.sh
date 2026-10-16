@@ -42,6 +42,9 @@ done
 #     keyboard with the Japanese or Latin font they opened now get those characters from
 #     kr0.pgf, and system dialog text the PPGe atlas lacks (the libretro build has no
 #     system text drawer) is drawn with the PSP's own flash0 fonts.
+#   vulkan-features: the libretro Vulkan device was created with an empty pEnabledFeatures
+#     next to the VkPhysicalDeviceFeatures2 PPSSPP chains, which drivers may take, leaving
+#     depth clamp, clip distances and other features it uses off.
 for PATCH in "$HERE"/patches/ppsspp-*.patch; do
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
         git -C "$DIR" apply "$PATCH"
