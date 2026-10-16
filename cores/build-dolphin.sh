@@ -48,6 +48,15 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$DOLPHIN_COMMIT" 
 fi
 git -C "$DIR" submodule update -q --init --recursive --depth 1
 
+# Dolphin only opens a WBFS file whose size matches the sector count in its header, but
+# tools that trim the unused space after the last block write smaller files that hold the
+# whole game. Read those too: a block past the end of the file just fails to read.
+WBFS="$DIR/Source/Core/DiscIO/WbfsBlob.cpp"
+if grep -q 'if (m_size != (m_header.hd_sector_count \* m_hd_sector_size))' "$WBFS"; then
+    sed -i 's/if (m_size != (m_header.hd_sector_count \* m_hd_sector_size))/if (m_size > (m_header.hd_sector_count * m_hd_sector_size))/' "$WBFS"
+fi
+grep -q 'if (m_size > (m_header.hd_sector_count \* m_hd_sector_size))' "$WBFS"
+
 GENERATOR="Unix Makefiles"
 if command -v ninja > /dev/null; then
     GENERATOR=Ninja

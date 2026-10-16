@@ -2211,7 +2211,9 @@ void destroyCore(Core* core) {
         core->audioSink = nullptr;
         core->audioArray = nullptr;
     }
-    if (core->library != nullptr && !core->keepLibraryLoaded) {
+    // Dolphin's static destructors crash when it is unloaded, so it stays loaded until the
+    // game process exits.
+    if (core->library != nullptr && !core->keepLibraryLoaded && core->coreId != "dolphin") {
         dlclose(core->library);
         core->library = nullptr;
     }

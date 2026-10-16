@@ -4723,10 +4723,42 @@ public final class MainActivity extends Activity {
         if (wii == 0x5D1C9EA3) {
             return new RomCheck(true, "Wii 디스크 정상");
         }
-        if (start.startsWith("RVZ") || start.startsWith("WIA") || start.equals("WBFS") || start.equals("CISO") || le == 0xB10BC001) {
+        if (start.equals("WBFS")) {
+            return checkWbfsImage(file, head);
+        }
+        if (start.startsWith("RVZ") || start.startsWith("WIA") || start.equals("CISO") || le == 0xB10BC001) {
             return new RomCheck(true, "압축 디스크 이미지 (" + (le == 0xB10BC001 ? "GCZ" : start.trim()) + ")");
         }
         return new RomCheck(false, "게임큐브·Wii 디스크가 아님");
+    }
+
+    // A WBFS file maps each block of the disc to a block of the file (the table after the
+    // disc header at one hd sector in). Every mapped block has to lie inside the file; when
+    // one does not, the file was cut short or is the first part of a split (.wbf1) image.
+    private RomCheck checkWbfsImage(File file, byte[] head) {
+        int hdShift = head[8] & 0xFF;
+        int wbfsShift = head[9] & 0xFF;
+        if (hdShift < 9 || hdShift > 20 || wbfsShift < 15 || wbfsShift > 30 || head[12] == 0) {
+            return new RomCheck(false, "WBFS 헤더 손상");
+        }
+        long wbfsSector = 1L << wbfsShift;
+        int blocks = (int) ((286864L * 0x8000 + wbfsSector - 1) / wbfsSector);
+        int maxBlock = 0;
+        try (RandomAccessFile in = new RandomAccessFile(file, "r")) {
+            byte[] table = new byte[blocks * 2];
+            in.seek((1L << hdShift) + 0x100);
+            in.readFully(table);
+            for (int i = 0; i < blocks; i++) {
+                maxBlock = Math.max(maxBlock, (table[i * 2] & 0xFF) << 8 | (table[i * 2 + 1] & 0xFF));
+            }
+        } catch (IOException e) {
+            return new RomCheck(false, "WBFS 읽기 실패");
+        }
+        long needed = (maxBlock + 1L) * wbfsSector;
+        if (needed > file.length()) {
+            return new RomCheck(false, "WBFS 파일이 잘림 (" + formatSize(needed - file.length()) + " 부족) - 다시 복사하거나, .wbf1로 나뉜 파일이면 하나로 합쳐 주세요");
+        }
+        return new RomCheck(true, "압축 디스크 이미지 (WBFS)");
     }
 
     private static byte[] readTail(File file, int length) {
