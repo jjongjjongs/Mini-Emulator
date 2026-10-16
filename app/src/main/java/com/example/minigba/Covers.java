@@ -150,6 +150,14 @@ final class Covers {
                 }
                 break;
             case "ss": list.add("Sega_-_Saturn"); break;
+            case "gc":
+                if (lowerName.endsWith(".wbfs")) {
+                    list.add("Nintendo_-_Wii");
+                } else {
+                    list.add("Nintendo_-_GameCube");
+                    list.add("Nintendo_-_Wii");
+                }
+                break;
             case "mcd":
                 if (lowerName.endsWith(".32x")) {
                     list.add("Sega_-_32X");

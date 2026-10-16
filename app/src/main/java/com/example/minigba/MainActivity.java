@@ -78,6 +78,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_WS = "ws";
     private static final String MODE_MCD = "mcd";
     private static final String MODE_SS = "ss";
+    private static final String MODE_GC = "gc";
     private static final String MODE_NGP = "ngp";
     private static final String MODE_PCE = "pce";
     private static final String MODE_PSP = "psp";
@@ -97,6 +98,8 @@ public final class MainActivity extends Activity {
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
+            // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
+            {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs", ".iso / .rvz / .wbfs", "roms_gc", "1034"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
             {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
@@ -156,12 +159,12 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_SS, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
-    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "MCD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "SS", "DC", "WS", "NGP", "NEO", "MAME"};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".iso · .rvz · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "MCD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "GC", "SS", "DC", "WS", "NGP", "NEO", "MAME"};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(67, 56, 202), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -3366,6 +3369,17 @@ public final class MainActivity extends Activity {
 
     private void startGameActivity(File file) {
         String mode = modeForFile(file);
+        if (MODE_GC.equals(mode)) {
+            if (android.os.Build.VERSION.SDK_INT < 26) {
+                showError("게임큐브·Wii는 안드로이드 8 이상에서만 실행할 수 있어요.");
+                return;
+            }
+            // Dolphin's data (game settings, fonts, shaders) in <system>/dolphin-emu/Sys.
+            if (!unpackSystemAsset("dolphin_sys.zip", new File(new File(systemDir(), "dolphin-emu"), "Sys"))) {
+                showError("게임큐브·Wii 엔진 파일을 준비하지 못했어요. 저장 공간을 확인해 주세요.");
+                return;
+            }
+        }
         if (MODE_SS.equals(mode) && !saturnBiosFile().isFile()) {
             showError("세가 새턴 게임은 새턴 BIOS가 필요해요. 새턴 화면의 BIOS 칸에서 가져와 주세요.");
             showSaturnBiosSheet();
@@ -4745,6 +4759,29 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // GameCube / Wii images: the magic words of a plain disc (0x1C GameCube, 0x18 Wii) or of
+    // a compressed format (RVZ, WIA, GCZ, CISO, WBFS).
+    private RomCheck checkDolphinImage(File file) {
+        byte[] head = readHead(file, 0x20);
+        if (head == null) {
+            return new RomCheck(false, "읽기 실패");
+        }
+        String start = new String(head, 0, 4, StandardCharsets.ISO_8859_1);
+        int le = (head[0] & 0xFF) | (head[1] & 0xFF) << 8 | (head[2] & 0xFF) << 16 | (head[3] & 0xFF) << 24;
+        int gc = (head[0x1C] & 0xFF) << 24 | (head[0x1D] & 0xFF) << 16 | (head[0x1E] & 0xFF) << 8 | (head[0x1F] & 0xFF);
+        int wii = (head[0x18] & 0xFF) << 24 | (head[0x19] & 0xFF) << 16 | (head[0x1A] & 0xFF) << 8 | (head[0x1B] & 0xFF);
+        if (gc == 0xC2339F3D) {
+            return new RomCheck(true, "게임큐브 디스크 정상");
+        }
+        if (wii == 0x5D1C9EA3) {
+            return new RomCheck(true, "Wii 디스크 정상");
+        }
+        if (start.startsWith("RVZ") || start.startsWith("WIA") || start.equals("WBFS") || start.equals("CISO") || le == 0xB10BC001) {
+            return new RomCheck(true, "압축 디스크 이미지 (" + (le == 0xB10BC001 ? "GCZ" : start.trim()) + ")");
+        }
+        return new RomCheck(false, "게임큐브·Wii 디스크가 아님");
+    }
+
     private static byte[] readTail(File file, int length) {
         if (file.length() < length) {
             return null;
@@ -4778,6 +4815,9 @@ public final class MainActivity extends Activity {
         }
         if (MODE_SS.equals(mode)) {
             return checkPs1Image(file);
+        }
+        if (MODE_GC.equals(mode)) {
+            return checkDolphinImage(file);
         }
         if (MODE_MCD.equals(mode)) {
             String lower = file.getName().toLowerCase(Locale.US);
@@ -6751,6 +6791,9 @@ public final class MainActivity extends Activity {
         }
         if ("yabasanshiro".equals(str)) {
             return "YabaSanshiro";
+        }
+        if ("dolphin".equals(str)) {
+            return "Dolphin";
         }
         if ("ngp".equals(str)) {
             return "Beetle NeoPop";
