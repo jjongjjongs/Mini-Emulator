@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the Flycast libretro core (Dreamcast) for arm64-v8a with the Android NDK and
-# CMake, and copies it into app/src/main/jniLibs. It renders with OpenGL ES 3, the context
-# the bridge offers, so Vulkan is left out, as are the parts only the standalone app uses
-# (Lua, crash reports, OpenMP). It runs in its own workflow, like melonDS DS.
+# CMake, and copies it into app/src/main/jniLibs. It renders with Vulkan where the device
+# has it and OpenGL ES 3 otherwise (both offered by the bridge); the parts only the
+# standalone app uses (Lua, crash reports, OpenMP) are left out. It runs in its own
+# workflow, like melonDS DS.
 #
 # Usage: ANDROID_NDK_HOME=/path/to/ndk ./cores/build-flycast.sh
 set -euo pipefail
@@ -41,7 +42,7 @@ echo "== building flycast"
         -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
         -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_static \
         -DCMAKE_BUILD_TYPE=Release \
-        -DLIBRETRO=ON -DUSE_VULKAN=OFF -DUSE_LUA=OFF -DUSE_BREAKPAD=OFF -DUSE_OPENMP=OFF \
+        -DLIBRETRO=ON -DUSE_VULKAN=ON -DUSE_LUA=OFF -DUSE_BREAKPAD=OFF -DUSE_OPENMP=OFF \
         -DUSE_HOST_LIBZIP=OFF -DUSE_HOST_LIBCHDR=OFF \
         "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384" &&
     cmake --build "$BUILD" --target flycast_libretro -j"$JOBS"
