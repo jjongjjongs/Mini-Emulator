@@ -1310,6 +1310,7 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mupen64plus-cpucore") == 0) return "dynamic_recompiler";
     if (strcmp(key, "mupen64plus-43screensize") == 0) return "640x480";
     if (strcmp(key, "mupen64plus-alt-map") == 0) return "True";
+    if (strcmp(key, "mupen64plus-CorrectTexrectCoords") == 0) return "Auto";  // no black lines between upscaled 2D tiles (StarCraft 64)
     // Dreamcast: the real BIOS (system/dc/dc_boot.bin) when the player added one, otherwise
     // Flycast's own high-level BIOS, which runs most games.
     if (strcmp(key, "reicast_hle_bios") == 0) {
