@@ -2535,6 +2535,16 @@ public final class MainActivity extends Activity {
                 best = match;
             }
         }
+        // Sets that play better on an engine other than the first that has them.
+        if (best != null) {
+            String betterCore = betterArcadeCore(best.name);
+            if (betterCore != null && !betterCore.equals(best.core)) {
+                RomsetIndex.Match better = RomsetIndex.identify(this, betterCore, crcs);
+                if (better != null && (better.isComplete(dir) || !best.isComplete(dir))) {
+                    best = better;
+                }
+            }
+        }
         result.match = best;
         if (best == null) {
             return result;
@@ -5196,11 +5206,27 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // Bloody Roar 2 (and its versions): MAME 2010's YMF271 plays its music but none of its
+    // sound effects; MAME 2015's plays both.
+    private static String betterArcadeCore(String set) {
+        return set != null && set.startsWith("bldyror2") ? "mame2015" : null;
+    }
+
     private void migrateKnownArcadeRoms() {
         File romDir = arcadeRomDir();
         File[] listFiles = romDir.listFiles(MainActivity::isZipFile);
         if (listFiles == null) {
             return;
+        }
+        // Once (0.0.119): Bloody Roar 2 games set to MAME 2010 move to MAME 2015.
+        if (!settingsPrefs().getBoolean("bldyror2_mame2015", false)) {
+            for (File file : listFiles) {
+                String set = baseNameWithoutExtension(file.getName()).toLowerCase(Locale.US);
+                if (betterArcadeCore(set) != null && "mame2010".equals(romPrefs().getString("core:" + file.getName(), null))) {
+                    romPrefs().edit().putString("core:" + file.getName(), "mame2015").apply();
+                }
+            }
+            settingsPrefs().edit().putBoolean("bldyror2_mame2015", true).apply();
         }
         for (File file : listFiles) {
             String replaceAll = baseNameWithoutExtension(file.getName()).toLowerCase(Locale.US).replaceAll("[^a-z0-9]", "");
@@ -5227,7 +5253,7 @@ public final class MainActivity extends Activity {
                 }
                 if (z) {
                     normalizeBloodRoar2Package(file3);
-                    romPrefs().edit().putString("title:" + file3.getName(), "동물철권2 (Blood Roar 2)").putString("core:" + file3.getName(), "mame2010").apply();
+                    romPrefs().edit().putString("title:" + file3.getName(), "동물철권2 (Blood Roar 2)").putString("core:" + file3.getName(), "mame2015").apply();
                 }
             }
         }
