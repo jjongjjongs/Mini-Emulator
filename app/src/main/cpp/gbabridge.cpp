@@ -355,6 +355,9 @@ struct Core {
     uint64_t framesRun = 0;
     // The quick save to resume from once the first frame has run.
     bool resumePending = false;
+    // PCEE2 shows nothing until its quick save is back: the PS2 boot it waits through
+    // would otherwise flash up before the scene the player left.
+    std::atomic<bool> hidePicture{false};
     // The ROM's bytes, for a core that takes the game from memory (kept while it is loaded).
     std::vector<uint8_t> gameData;
     // The next frame a pending quick save is tried again (PCEE2 refuses one while booting).
@@ -1633,10 +1636,17 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
             core->lastHeight = height;
             core->picturesShown.fetch_add(1);
         }
+        if (core->hidePicture.load()) {
+            return;
+        }
         presentHwFrame(core);
         return;
     }
     if (data == nullptr || data == RETRO_HW_FRAME_BUFFER_VALID || core == nullptr || width == 0 || height == 0) {
+        return;
+    }
+    core->picturesShown.fetch_add(1);
+    if (core->hidePicture.load()) {
         return;
     }
     bool wide = core->pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888;
@@ -1672,7 +1682,6 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
             }
         }
         core->pendingWidth = width;
-        core->picturesShown.fetch_add(1);
         core->pendingHeight = height;
         core->pendingFormat = format;
         core->frameNew = true;
@@ -2249,6 +2258,10 @@ void runLoop(Core* core) {
                 if (core->coreId == "mupen64plus_next" || core->coreId == "flycast") {
                     fps = audioClockFps(core, core->audioPending.size() / 2);
                 }
+                if (core->hidePicture.load()) {
+                    // The boot behind a hidden picture is not heard either.
+                    core->audioPending.clear();
+                }
                 flushAudio(core);
             }
             if (canRewind && !held) {
@@ -2261,6 +2274,7 @@ void runLoop(Core* core) {
                 } else if (core->framesRun >= core->resumeRetryAt) {
                     if (resumeState(core) || !retryResume(core)) {
                         core->resumePending = false;
+                        core->hidePicture.store(false);
                     } else {
                         core->resumeRetryAt = core->framesRun + 30;
                     }
@@ -2566,6 +2580,8 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         // Nothing to restore.
     } else if (needsFrameBeforeState(core)) {
         core->resumePending = true;
+        struct stat st {};
+        core->hidePicture.store(core->coreId == "pcee2" && stat(core->statePath.c_str(), &st) == 0);
     } else {
         resumeState(core);
     }
@@ -2689,6 +2705,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateNow(
             return false;
         }
         core->resumePending = false;
+        core->hidePicture.store(false);
         core->rewindClear.store(true);
         return loadState(core);
     }) ? JNI_TRUE : JNI_FALSE;
@@ -2717,6 +2734,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_loadStateFile(
             return false;
         }
         core->resumePending = false;
+        core->hidePicture.store(false);
         core->rewindClear.store(true);
         return loadStateFrom(core, source);
     }) ? JNI_TRUE : JNI_FALSE;
