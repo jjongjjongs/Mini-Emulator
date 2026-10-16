@@ -284,59 +284,6 @@ public final class MainActivity extends Activity {
         } else {
             showModePicker();
         }
-        offerPlayStationCleanup();
-    }
-
-    // PlayStation mode was removed in 0.0.11; offer to free the space its games used.
-    private void offerPlayStationCleanup() {
-        final File games = new File(getFilesDir(), "roms_ps");
-        final File saves = new File(saveDir(), "ps");
-        final List<File> bios = new ArrayList<>();
-        File[] systemFiles = systemDir().listFiles(file -> file.isFile() && file.getName().toLowerCase(Locale.US).endsWith(".bin") && (file.length() == 524288L || file.length() == 4194304L));
-        if (systemFiles != null) {
-            bios.addAll(Arrays.asList(systemFiles));
-        }
-        long size = folderSize(games) + folderSize(saves);
-        for (File file : bios) {
-            size += file.length();
-        }
-        if (size == 0) {
-            return;
-        }
-        new AlertDialog.Builder(this).setTitle("PlayStation 파일 정리").setMessage("PlayStation 모드가 없어졌습니다. 남아 있는 PlayStation 게임 · BIOS · 메모리카드 파일(" + formatFileSize(size) + ")을 삭제할까요?").setNegativeButton("나중에", null).setPositiveButton("삭제", (dialog, which) -> {
-            deleteRecursively(games);
-            deleteRecursively(saves);
-            for (File file : bios) {
-                deleteRecursively(file);
-            }
-            showMessage("PlayStation 파일을 삭제했습니다.");
-        }).show();
-    }
-
-    private static long folderSize(File file) {
-        if (file.isFile()) {
-            return file.length();
-        }
-        long size = 0;
-        File[] children = file.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                size += folderSize(child);
-            }
-        }
-        return size;
-    }
-
-    private static void deleteRecursively(File file) {
-        File[] children = file.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                deleteRecursively(child);
-            }
-        }
-        if (file.exists() && !file.delete()) {
-            file.deleteOnExit();
-        }
     }
 
     @Override
