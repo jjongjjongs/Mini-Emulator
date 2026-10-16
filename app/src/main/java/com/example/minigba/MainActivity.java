@@ -23,6 +23,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -161,6 +162,8 @@ public final class MainActivity extends Activity {
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
     private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     private static final String[] MODE_ICONS = {"GBA", "NDS", "SFC", "FC", "MD", "MCD", "SMS", "PCE", "N64", "PSP", "PS1", "PS2", "SS", "DC", "WS", "NGP", "NEO", "MAME"};
+    // Console pictures on the mode picker cards, in MODE_IDS order.
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
@@ -428,12 +431,11 @@ public final class MainActivity extends Activity {
         card.setElevation(dp(2));
         card.setClickable(true);
         card.setOnClickListener(onClickListener);
-        TextView icon = new TextView(this);
-        icon.setText(MODE_ICONS[index]);
-        icon.setGravity(17);
-        icon.setTextColor(-1);
-        icon.setTextSize(MODE_ICONS[index].length() > 3 ? 11.0f : 13.0f);
-        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(MODE_DRAWABLES[index]);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        icon.setPadding(dp(4), dp(4), dp(4), dp(4));
+        icon.setContentDescription(MODE_NAMES[index]);
         icon.setBackground(rounded(Color.argb(56, 255, 255, 255), dp(14)));
         card.addView(icon, new LinearLayout.LayoutParams(dp(50), dp(50)));
         LinearLayout texts = new LinearLayout(this);
