@@ -87,7 +87,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/src/main/jniLibs/arm64-v8a/libmame2015_libretro_android.so
-          key: mame2015-${{ hashFiles('cores/build-mame2015.sh') }}
+          key: mame2015-${{ hashFiles('cores/build-mame2015.sh', 'cores/patches/mame2015-*.patch') }}
 
       - name: Build MAME 2015 core
         if: steps.mame2015-cache.outputs.cache-hit != 'true'
@@ -98,7 +98,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/src/main/jniLibs/arm64-v8a/libmame2015_libretro_android.so
-          key: mame2015-${{ hashFiles('cores/build-mame2015.sh') }}
+          key: mame2015-${{ hashFiles('cores/build-mame2015.sh', 'cores/patches/mame2015-*.patch') }}
 
       - name: Restore Snes9x core
         id: snes9x-cache

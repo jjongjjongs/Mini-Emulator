@@ -618,10 +618,8 @@ size_t stateHeaderSize(const Core* core) {
 // Whether the quick save is written when a game closes and restored when it starts. Not for
 // Play!: its states are slow (40 MB) and not reliable enough to restore on every launch;
 // PS2 games keep their progress on the memory card, and the menu's quick save still works.
-// Nor for MAME 2015: Bloody Roar 1/2 (Sony ZN) came back from its state with a frozen
-// picture, so those games start from boot each time.
 bool autoState(const Core* core) {
-    return core->coreId != "play" && core->coreId != "mame2015";
+    return core->coreId != "play";
 }
 
 namespace crash {
@@ -653,7 +651,16 @@ bool saveStateTo(Core* core, const std::string& path) {
     size_t header = stateHeaderSize(core);
     std::vector<uint8_t> buffer(header + size);
     memcpy(buffer.data(), kPlayStateHeader, header);
-    if (!core->retroSerialize(buffer.data() + header, size)) {
+    bool serialized = core->retroSerialize(buffer.data() + header, size);
+    // MAME 2015 refuses while a temporary timer is pending (cores/patches/
+    // mame2015-safe-state.patch): run the machine on, unheard, until it takes the state.
+    for (int i = 0; !serialized && core->coreId == "mame2015" && i < 120; i++) {
+        core->retroRun();
+        core->framesRun++;
+        core->audioPending.clear();
+        serialized = core->retroSerialize(buffer.data() + header, size);
+    }
+    if (!serialized) {
         return false;
     }
     size += header;
@@ -776,8 +783,9 @@ bool resumeState(Core* core) {
 
 // PCEE2 takes a state only once its virtual machine runs, which can be many frames
 // after the first while the PS2 boots; keep trying for about 30 seconds.
+// MAME 2015 takes it only while no temporary timer is pending; that clears within frames.
 bool retryResume(const Core* core) {
-    return core->coreId == "pcee2" && core->framesRun < 1800;
+    return (core->coreId == "pcee2" && core->framesRun < 1800) || (core->coreId == "mame2015" && core->framesRun < 600);
 }
 
 // PCEE2's VM can be running before its GS has put out a single picture; a state restored
@@ -2319,7 +2327,7 @@ void runLoop(Core* core) {
                         core->resumePending = false;
                         core->hidePicture.store(false);
                     } else {
-                        core->resumeRetryAt = core->framesRun + 30;
+                        core->resumeRetryAt = core->framesRun + (core->coreId == "mame2015" ? 2 : 30);
                     }
                 }
             } else if (core->resumeTrialEnd != 0 && core->framesRun >= core->resumeTrialEnd) {

@@ -27,6 +27,17 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$MAME2015_COMMIT"
 fi
 git -C "$DIR" checkout -q --force FETCH_HEAD 2>/dev/null || git -C "$DIR" checkout -q --force "$MAME2015_COMMIT"
 
+# Fixes in cores/patches/mame2015-*.patch:
+#   safe-state: retro_serialize/retro_unserialize refuse while temporary (anonymous)
+#     timers are pending, as MAME's own save/load does; their callbacks are not in the
+#     state, so a state taken then left Bloody Roar 1/2 (ZN) frozen when restored. The
+#     frontend runs a frame and tries again.
+for PATCH in "$HERE"/patches/mame2015-*.patch; do
+    if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+        git -C "$DIR" apply "$PATCH"
+    fi
+done
+
 # The Makefile's Android target already uses the flags MAME needs
 # (-fsigned-char, -fno-strict-aliasing, -fno-delete-null-pointer-checks);
 # only the 16 KB page alignment is missing.
