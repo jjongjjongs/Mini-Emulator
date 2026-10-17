@@ -1316,6 +1316,9 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "ppsspp_skip_gpu_readbacks") == 0) return "enabled";
         if (strcmp(key, "ppsspp_frameskip") == 0) return "1";
         if (strcmp(key, "ppsspp_auto_frameskip") == 0) return "enabled";
+        // Effects (blur, bloom; heavy in Monster Hunter) at a lower resolution, plainer curves.
+        if (strcmp(key, "ppsspp_lower_resolution_for_effects") == 0) return "Balanced";
+        if (strcmp(key, "ppsspp_spline_quality") == 0) return "Low";
         // PS2: the EE at 75% with mild cycle skipping, and the cheapest blending. GPU
         // read-backs stay accurate: quick saves read the picture back.
         if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return "-1";

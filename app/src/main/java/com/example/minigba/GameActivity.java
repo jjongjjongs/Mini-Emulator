@@ -3337,7 +3337,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private LinearLayout createFastRow(android.app.Dialog menu) {
         String changes = isPsp()
-                ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임씩 건너뛰어요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠질 수 있어요."
+                ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임씩 건너뛰어요\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
                 : "· PS2 CPU를 75%로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
         LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", speedFirst() ? "켜짐" : "꺼짐",
                 view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", FAST_NAMES, FAST_NOTES,
