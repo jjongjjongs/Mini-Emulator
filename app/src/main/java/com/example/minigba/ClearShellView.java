@@ -238,14 +238,14 @@ final class ClearShellView extends View {
         }
     }
 
-    // Grey bezel around the game screen, with a rounder lower-right corner and an engraved name.
+    // Grey bezel around the game screen, nearly square at the corners, with an engraved name.
     private void drawBezel(Canvas canvas, RectF screen) {
         float side = dp(landscape ? 10 : 14);
         float top = dp(landscape ? 10 : 16);
         float bottom = compactBezel ? side : dp(landscape ? 26 : 34);
         RectF bezel = new RectF(screen.left - side, screen.top - top, screen.right + side, screen.bottom + bottom);
-        float small = dp(14);
-        float large = dp(34);
+        float small = frameRadius();
+        float large = frameRadius();
         Path path = new Path();
         path.addRoundRect(bezel, new float[]{small, small, small, small, large, large, small, small}, Path.Direction.CW);
         // Drop shadow first, then the bezel itself.
@@ -276,7 +276,7 @@ final class ClearShellView extends View {
     private void drawGlassRim(Canvas canvas, RectF screen) {
         float edge = dp(5);
         RectF rim = new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
-        float radius = dp(10);
+        float radius = frameRadius();
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.argb(36, 0, 0, 0));
         canvas.drawRoundRect(new RectF(rim.left, rim.top + dp(3), rim.right, rim.bottom + dp(4)), radius, radius, paint);
@@ -324,6 +324,11 @@ final class ClearShellView extends View {
             plate.set(plate.left + dp(14), plate.top + dp(2), plate.right - dp(14), plate.bottom - dp(14));
         }
         return plate.width() > 0 && plate.height() > 0 ? plate : null;
+    }
+
+    // Corners of the frame around the game screen: nearly square, like the picture inside.
+    private float frameRadius() {
+        return dp(thinBezel ? 3 : 4);
     }
 
     // The frame around the game screen, the same size as the clear case's bezel.
@@ -424,7 +429,7 @@ final class ClearShellView extends View {
         drawGrille(canvas, width, height, Color.argb(80, 0, 0, 0), 6, 9);
         if (frame != null) {
             boolean light = luminance(body) >= 0.5f;
-            fillFrame(canvas, frame, light ? Color.rgb(110, 114, 124) : Color.rgb(44, 47, 58), light ? Color.rgb(92, 96, 106) : Color.rgb(27, 29, 36), dp(14), dp(34));
+            fillFrame(canvas, frame, light ? Color.rgb(110, 114, 124) : Color.rgb(44, 47, 58), light ? Color.rgb(92, 96, 106) : Color.rgb(27, 29, 36), frameRadius(), frameRadius());
             text.setColor(light ? Color.rgb(222, 225, 232) : Color.rgb(154, 160, 180));
         }
     }
@@ -442,8 +447,8 @@ final class ClearShellView extends View {
         canvas.drawRect(0, 0, width, dp(3), paint);
         if (frame != null) {
             paint.setColor(Color.BLACK);
-            canvas.drawRoundRect(frame, dp(14), dp(14), paint);
-            strokeRoundRect(canvas, frame, dp(14), dp(1), Color.argb(22, 255, 255, 255));
+            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
+            strokeRoundRect(canvas, frame, frameRadius(), dp(1), Color.argb(22, 255, 255, 255));
             text.setColor(Color.rgb(93, 100, 112));
         }
     }
@@ -466,8 +471,8 @@ final class ClearShellView extends View {
         }
         if (frame != null) {
             paint.setColor(Color.argb(140, 255, 255, 255));
-            canvas.drawRoundRect(frame, dp(20), dp(20), paint);
-            strokeRoundRect(canvas, frame, dp(20), dp(1.5f), Color.argb(230, 255, 255, 255));
+            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
+            strokeRoundRect(canvas, frame, frameRadius(), dp(1.5f), Color.argb(230, 255, 255, 255));
             text.setColor(mix(accent, Color.rgb(60, 56, 80), 0.6f));
         }
     }
@@ -509,8 +514,8 @@ final class ClearShellView extends View {
         }
         if (frame != null) {
             paint.setColor(Color.rgb(21, 23, 26));
-            canvas.drawRoundRect(frame, dp(12), dp(12), paint);
-            strokeRoundRect(canvas, frame, dp(12), dp(2), Color.rgb(154, 162, 169));
+            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
+            strokeRoundRect(canvas, frame, frameRadius(), dp(2), Color.rgb(154, 162, 169));
             text.setColor(Color.rgb(142, 150, 157));
         }
     }
@@ -543,8 +548,8 @@ final class ClearShellView extends View {
         neonStroke(canvas, rim, dp(20), edge);
         if (frame != null) {
             paint.setColor(Color.rgb(7, 6, 15));
-            canvas.drawRoundRect(frame, dp(12), dp(12), paint);
-            neonStroke(canvas, frame, dp(12), glow);
+            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
+            neonStroke(canvas, frame, frameRadius(), glow);
             text.setColor(mix(glow, Color.WHITE, 0.55f));
         }
     }
