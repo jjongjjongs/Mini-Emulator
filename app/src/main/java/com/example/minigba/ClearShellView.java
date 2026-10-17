@@ -160,7 +160,7 @@ final class ClearShellView extends View {
         RectF plate = plateView == null ? null : boundsOf(plateView);
         if (plate != null) {
             if (landscape) {
-                plate.set(plate.left + dp(8), plate.top + dp(56), plate.right - dp(8), plate.bottom - dp(8));
+                plate.set(plate.left + dp(8), plate.top + dp(8), plate.right - dp(8), plate.bottom - dp(8));
             } else {
                 plate.set(plate.left + dp(14), plate.top + dp(2), plate.right - dp(14), plate.bottom - dp(14));
             }
@@ -319,7 +319,7 @@ final class ClearShellView extends View {
         }
         RectF plate = boundsOf(plateView);
         if (landscape) {
-            plate.set(plate.left + dp(8), plate.top + dp(56), plate.right - dp(8), plate.bottom - dp(8));
+            plate.set(plate.left + dp(8), plate.top + dp(8), plate.right - dp(8), plate.bottom - dp(8));
         } else {
             plate.set(plate.left + dp(14), plate.top + dp(2), plate.right - dp(14), plate.bottom - dp(14));
         }
