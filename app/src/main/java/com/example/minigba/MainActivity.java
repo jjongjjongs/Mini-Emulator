@@ -2817,7 +2817,7 @@ public final class MainActivity extends Activity {
 
     // ---- ROM list: search, sort and covers ----
     private int librarySort() {
-        int sort = getSharedPreferences("settings", 0).getInt("library_sort", 2);
+        int sort = MainActivity.sharedSettings(this).getInt("library_sort", 2);
         return sort >= 0 && sort <= 2 ? sort : 2;
     }
 
@@ -2870,7 +2870,7 @@ public final class MainActivity extends Activity {
             chip.setGravity(17);
             chip.setPadding(dp(12), dp(6), dp(12), dp(6));
             chip.setOnClickListener(view -> {
-                getSharedPreferences("settings", 0).edit().putInt("library_sort", index).apply();
+                MainActivity.sharedSettings(this).edit().putInt("library_sort", index).apply();
                 updateSortChips();
                 refreshLibrary();
             });
@@ -6871,7 +6871,15 @@ public final class MainActivity extends Activity {
     }
 
     private SharedPreferences settingsPrefs() {
-        return getSharedPreferences("settings", 0);
+        return sharedSettings(this);
+    }
+
+    // The settings file both processes write: this screen and the game (":game"), which
+    // saves its own settings (background, screen filter, vibration...). Without reloading
+    // a changed file, this process would write its stale copy back over the game's.
+    @SuppressWarnings("deprecation")
+    static SharedPreferences sharedSettings(android.content.Context context) {
+        return context.getSharedPreferences("settings", android.content.Context.MODE_MULTI_PROCESS);
     }
 
     private String baseNameWithoutExtension(String str) {

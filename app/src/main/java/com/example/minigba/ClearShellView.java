@@ -30,12 +30,11 @@ final class ClearShellView extends View {
     static final int STYLE_PLASTIC = 1;
     static final int STYLE_DARK = 2;
     static final int STYLE_PASTEL = 3;
-    static final int STYLE_RETRO = 4;
-    static final int STYLE_METAL = 5;
-    static final int STYLE_NEON = 6;
-    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "레트로 그레이", "메탈 · 카본", "네온 나이트"};
+    static final int STYLE_METAL = 4;
+    static final int STYLE_NEON = 5;
+    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트"};
     static final String[] STYLE_NOTES = {"지금 디자인 · 속이 비치는 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
-            "부드러운 그라데이션 + 반투명 유리판", "원조 게임보이 같은 회색", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기"};
+            "부드러운 그라데이션 + 반투명 유리판", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기"};
 
     private static final int[][] TINTS = {
             // case colour, rim highlight, plate colour
@@ -355,9 +354,6 @@ final class ClearShellView extends View {
             case STYLE_PASTEL:
                 drawPastel(canvas, width, height, plate, frame);
                 break;
-            case STYLE_RETRO:
-                drawRetro(canvas, width, height, screen, frame);
-                break;
             case STYLE_METAL:
                 drawMetal(canvas, width, height, plate, frame);
                 break;
@@ -367,9 +363,7 @@ final class ClearShellView extends View {
         }
         if (frame != null && label != null && !thinBezel && !compactBezel) {
             text.setTextSize(dp(landscape ? 8 : 9));
-            text.setTextSkewX(style == STYLE_RETRO ? -0.25f : 0);
             canvas.drawText(label, frame.centerX(), screen.bottom + (frame.bottom - screen.bottom) * 0.62f, text);
-            text.setTextSkewX(0);
         }
     }
 
@@ -475,30 +469,6 @@ final class ClearShellView extends View {
             canvas.drawRoundRect(frame, dp(20), dp(20), paint);
             strokeRoundRect(canvas, frame, dp(20), dp(1.5f), Color.argb(230, 255, 255, 255));
             text.setColor(mix(accent, Color.rgb(60, 56, 80), 0.6f));
-        }
-    }
-
-    private void drawRetro(Canvas canvas, float width, float height, RectF screen, RectF frame) {
-        paint.setShader(new LinearGradient(0, 0, 0, height, Color.rgb(217, 214, 207), Color.rgb(201, 197, 188), Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, paint);
-        paint.setShader(null);
-        // Fine moulding lines across the plastic.
-        paint.setColor(Color.argb(10, 0, 0, 0));
-        for (float y = 0; y < height; y += dp(3)) {
-            canvas.drawRect(0, y, width, y + dp(1), paint);
-        }
-        drawGrille(canvas, width, height, Color.argb(90, 60, 55, 50), 5, 12);
-        if (frame != null) {
-            fillFrame(canvas, frame, Color.rgb(109, 111, 120), Color.rgb(102, 104, 113), dp(10), dp(40));
-            if (!thinBezel) {
-                float stripe = screen.width() * 0.62f;
-                float y = frame.top + (screen.top - frame.top) * 0.35f;
-                paint.setColor(Color.rgb(155, 42, 92));
-                canvas.drawRect(screen.left - dp(6), y, screen.left - dp(6) + stripe, y + dp(2), paint);
-                paint.setColor(Color.rgb(44, 60, 140));
-                canvas.drawRect(screen.left - dp(6), y + dp(4), screen.left - dp(6) + stripe, y + dp(6), paint);
-            }
-            text.setColor(Color.rgb(217, 217, 226));
         }
     }
 

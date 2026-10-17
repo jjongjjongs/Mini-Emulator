@@ -76,7 +76,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
-        boolean z = getSharedPreferences("settings", 0).getInt("orientation_mode", 0) == 1;
+        boolean z = MainActivity.sharedSettings(this).getInt("orientation_mode", 0) == 1;
         this.landscapeMode = z;
         setRequestedOrientation(z ? 6 : 1);
         requestWindowFeature(1);
@@ -85,7 +85,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // Marks a game session; closing the game clears it. If the game process ends any
         // other way the game list asks the system why (MainActivity.showUnexpectedGameExit).
         String stringExtra = getIntent().getStringExtra("com.example.minigba.CORE_ID");
-        getSharedPreferences("settings", 0).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
+        MainActivity.sharedSettings(this).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
         this.coreId = stringExtra;
         Haptics.setLevel(this, hapticLevel());
         NativeGba.setSharpScaling(screenFilter() != 0);
@@ -220,13 +220,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean isFullScreenStyle() {
-        return "full".equals(getSharedPreferences("settings", 0).getString("screen_style", "frame"));
+        return "full".equals(MainActivity.sharedSettings(this).getString("screen_style", "frame"));
     }
 
     // "게임패드": for a physical controller. No touch controls or case, only the game screen;
     // the menu button shows for a moment after a tap, or SELECT + START opens the menu.
     private boolean isPadScreen() {
-        return "pad".equals(getSharedPreferences("settings", 0).getString("screen_style", "frame"));
+        return "pad".equals(MainActivity.sharedSettings(this).getString("screen_style", "frame"));
     }
 
     private int ndsLayout;
@@ -353,7 +353,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Background picked in the game settings (ClearShellView.STYLE_*), for all games.
     private int shellStyle() {
-        int value = getSharedPreferences("settings", 0).getInt("shell_style", ClearShellView.STYLE_CLEAR);
+        int value = MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_CLEAR);
         return value >= 0 && value < ClearShellView.STYLE_NAMES.length ? value : ClearShellView.STYLE_CLEAR;
     }
 
@@ -796,7 +796,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private final java.util.Map<android.view.ViewGroup, String> comboSignatures = new java.util.HashMap<>();
 
     private int comboLevel() {
-        int level = getSharedPreferences("settings", 0).getInt("combo_level", 0);
+        int level = MainActivity.sharedSettings(this).getInt("combo_level", 0);
         return level >= 0 && level <= 2 ? level : 0;
     }
 
@@ -876,7 +876,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 view -> showChoiceDialog(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "버튼 사이 동시 입력", COMBO_NAMES, COMBO_NOTES,
                         comboLevel(), "모든 게임에 바로 적용돼요.\n손가락 두 개로 각각 누르는 건 설정과 상관없이 항상 돼요.",
                         Color.rgb(255, 247, 232), Color.rgb(138, 90, 0), "적용", choice -> {
-                    getSharedPreferences("settings", 0).edit().putInt("combo_level", choice).apply();
+                    MainActivity.sharedSettings(this).edit().putInt("combo_level", choice).apply();
                     for (android.view.ViewGroup parent : this.comboParents) {
                         layoutComboZones(parent, true);
                     }
@@ -907,7 +907,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean rewindOn() {
-        return rewindSupported() && getSharedPreferences("settings", 0).getBoolean("rewind_enabled", false);
+        return rewindSupported() && MainActivity.sharedSettings(this).getBoolean("rewind_enabled", false);
     }
 
     // Puts the rewind button by the speed button: centred as a pair (BESIDE), to its left in
@@ -1015,7 +1015,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private java.util.Map<String, float[]> loadLayoutEdits() {
         java.util.Map<String, float[]> map = new java.util.HashMap<>();
-        String saved = getSharedPreferences("settings", 0).getString(layoutKey(), "");
+        String saved = MainActivity.sharedSettings(this).getString(layoutKey(), "");
         for (String entry : saved.split(";")) {
             int eq = entry.indexOf('=');
             if (eq <= 0) {
@@ -1113,7 +1113,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     sb.append(layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',')
                             .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f).append(';');
                 }
-                getSharedPreferences("settings", 0).edit().putString(layoutKey(), sb.toString()).apply();
+                MainActivity.sharedSettings(this).edit().putString(layoutKey(), sb.toString()).apply();
                 finishLayoutEditor("버튼 배치를 저장했어요.");
             }
 
@@ -1894,12 +1894,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     };
 
     private int screenFilter() {
-        int value = getSharedPreferences("settings", 0).getInt("screen_filter", 0);
+        int value = MainActivity.sharedSettings(this).getInt("screen_filter", 0);
         return value >= 0 && value <= 3 ? value : 0;
     }
 
     private int hapticLevel() {
-        int value = getSharedPreferences("settings", 0).getInt("haptic_level", 0);
+        int value = MainActivity.sharedSettings(this).getInt("haptic_level", 0);
         return value >= 0 && value <= 3 ? value : 0;
     }
 
@@ -1975,7 +1975,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 view -> showChoiceDialog(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", FILTER_NAMES, FILTER_NOTES,
                         screenFilter(), "모든 게임에 바로 적용돼요.\nPSP·PS2·N64·드림캐스트 같은 3D 게임은 '기본'이 가장 깔끔해요.",
                         Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
-                    getSharedPreferences("settings", 0).edit().putInt("screen_filter", choice).apply();
+                    MainActivity.sharedSettings(this).edit().putInt("screen_filter", choice).apply();
                     NativeGba.setSharpScaling(choice != 0);
                     updateScreenFilters();
                     reopen.run();
@@ -1988,7 +1988,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES, ClearShellView.STYLE_NOTES,
                             shellStyle(), "모든 게임에 바로 적용돼요. 버튼과 화면 크기는 그대로예요.\n실물 플라스틱·다크 매트·파스텔·네온은 모드마다 색이 달라요.",
                             Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
-                        getSharedPreferences("settings", 0).edit().putInt("shell_style", choice).apply();
+                        MainActivity.sharedSettings(this).edit().putInt("shell_style", choice).apply();
                         rebuildContent();
                         reopen.run();
                     })), styleParams);
@@ -2000,7 +2000,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     view -> showChoiceDialog(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES, HAPTIC_NOTES,
                             hapticLevel(), "화면 버튼을 누를 때 짧게 진동해요.\n휴대폰이 무음·진동 끔이어도 울릴 수 있어요.",
                             Color.rgb(243, 240, 255), Color.rgb(91, 33, 182), "적용", choice -> {
-                        getSharedPreferences("settings", 0).edit().putInt("haptic_level", choice).apply();
+                        MainActivity.sharedSettings(this).edit().putInt("haptic_level", choice).apply();
                         Haptics.setLevel(this, choice);
                         Haptics.tap();
                         reopen.run();
@@ -2021,7 +2021,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         showChoiceDialog(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기", REWIND_NAMES, REWIND_NOTES,
                                 rewindOn() ? 1 : 0, "켜면 배속 버튼 옆에 되감기 버튼이 생겨요.\n누르고 있는 동안 최대 약 10초 전까지 거꾸로 가요. 휴대폰 메모리를 조금 더 써요.",
                                 Color.rgb(243, 240, 255), Color.rgb(91, 33, 182), "적용", choice -> {
-                            getSharedPreferences("settings", 0).edit().putBoolean("rewind_enabled", choice == 1).apply();
+                            MainActivity.sharedSettings(this).edit().putBoolean("rewind_enabled", choice == 1).apply();
                             long handle = this.nativeHandle;
                             if (handle != 0) {
                                 NativeGba.setRewindEnabled(handle, rewindOn());
@@ -2131,7 +2131,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 sink.release();
             }
             if (finishing) {
-                getSharedPreferences("settings", 0).edit().putBoolean(SESSION_CLOSED, true).commit();
+                MainActivity.sharedSettings(this).edit().putBoolean(SESSION_CLOSED, true).commit();
                 android.os.Process.killProcess(android.os.Process.myPid());
             }
         });
@@ -2301,7 +2301,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                     NativeGba.setSpeedFirst(speedFirstSupported() && speedFirst());
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
-                    NativeGba.setVulkan(!MainActivity.vulkanOff(getSharedPreferences("settings", 0), this.coreId));
+                    NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
                 } catch (RuntimeException e3) {
                     error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
@@ -2894,7 +2894,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // No save here: the activity handles the rotation itself and the game keeps running,
         // and saving stalled the game long enough (a DS state is megabytes) to drag the music.
         int i = !this.landscapeMode ? 1 : 0;
-        getSharedPreferences("settings", 0).edit().putInt("orientation_mode", i).commit();
+        MainActivity.sharedSettings(this).edit().putInt("orientation_mode", i).commit();
         setRequestedOrientation(i == 1 ? 6 : 1);
     }
 
@@ -3235,7 +3235,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String[] PSP_LANGUAGE_NOTES = {"기본값 · 한국어 지원 게임·한글 패치용", "영문판 게임 (이름 입력 키보드가 영어로)", "일본판 게임"};
 
     private String pspLanguage() {
-        String value = getSharedPreferences("settings", 0).getString("psp_language:" + this.saveBaseName, "Korean");
+        String value = MainActivity.sharedSettings(this).getString("psp_language:" + this.saveBaseName, "Korean");
         for (String language : PSP_LANGUAGES) {
             if (language.equals(value)) {
                 return value;
@@ -3284,7 +3284,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (language.equals(pspLanguage())) {
                 return;
             }
-            getSharedPreferences("settings", 0).edit().putString("psp_language:" + this.saveBaseName, language).apply();
+            MainActivity.sharedSettings(this).edit().putString("psp_language:" + this.saveBaseName, language).apply();
             menu.dismiss();
             callCore(handle -> {
                 NativeGba.setPspLanguage(handle, language);
@@ -3299,7 +3299,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String[] PSP_SCALE_NOTES = {"PSP 원래 해상도. 가장 빠름 — 무거운 게임이 느릴 때", "선명하고 대부분 게임에 무난 (기본)", "가장 선명. 성능 좋은 폰·가벼운 게임용"};
 
     private int pspScale() {
-        int scale = getSharedPreferences("settings", 0).getInt("psp_scale:" + this.saveBaseName, 2);
+        int scale = MainActivity.sharedSettings(this).getInt("psp_scale:" + this.saveBaseName, 2);
         return scale >= 1 && scale <= 3 ? scale : 2;
     }
 
@@ -3311,7 +3311,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (choice + 1 == pspScale()) {
                         return;
                     }
-                    getSharedPreferences("settings", 0).edit().putInt("psp_scale:" + this.saveBaseName, choice + 1).commit();
+                    MainActivity.sharedSettings(this).edit().putInt("psp_scale:" + this.saveBaseName, choice + 1).commit();
                     menu.dismiss();
                     relaunchGame();
                 }));
@@ -3332,7 +3332,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean speedFirst() {
-        return getSharedPreferences("settings", 0).getBoolean(speedFirstKey(), false);
+        return MainActivity.sharedSettings(this).getBoolean(speedFirstKey(), false);
     }
 
     private LinearLayout createFastRow(android.app.Dialog menu) {
@@ -3346,7 +3346,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if ((choice == 1) == speedFirst()) {
                         return;
                     }
-                    getSharedPreferences("settings", 0).edit().putBoolean(speedFirstKey(), choice == 1).commit();
+                    MainActivity.sharedSettings(this).edit().putBoolean(speedFirstKey(), choice == 1).commit();
                     menu.dismiss();
                     relaunchGame();
                 }));
@@ -3882,7 +3882,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String[] WS_TALL_NOTES = {"보통 게임 (기본)", "세로로 들고 하는 게임 · 화면을 세워요"};
 
     private boolean wonderSwanTall() {
-        return getSharedPreferences("settings", 0).getBoolean("ws_tall:" + this.saveBaseName, false);
+        return MainActivity.sharedSettings(this).getBoolean("ws_tall:" + this.saveBaseName, false);
     }
 
     private LinearLayout createWonderSwanTallRow(android.app.Dialog menu) {
@@ -3894,7 +3894,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if ((choice == 1) == wonderSwanTall()) {
                         return;
                     }
-                    getSharedPreferences("settings", 0).edit().putBoolean("ws_tall:" + this.saveBaseName, choice == 1).commit();
+                    MainActivity.sharedSettings(this).edit().putBoolean("ws_tall:" + this.saveBaseName, choice == 1).commit();
                     menu.dismiss();
                     relaunchGame();
                 }));
