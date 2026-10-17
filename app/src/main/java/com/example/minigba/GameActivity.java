@@ -351,6 +351,39 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return new int[]{side, Math.max(dp(176), Math.round(screenWidth / screenAspect()) + padding)};
     }
 
+    // Background picked in the game settings (ClearShellView.STYLE_*), for all games.
+    private int shellStyle() {
+        int value = getSharedPreferences("settings", 0).getInt("shell_style", ClearShellView.STYLE_CLEAR);
+        return value >= 0 && value < ClearShellView.STYLE_NAMES.length ? value : ClearShellView.STYLE_CLEAR;
+    }
+
+    // The mode's colour on the mode picker, and the colour of the console's own plastic.
+    private int[] shellColors() {
+        if (this.coreId.equals("gba")) return new int[]{Color.rgb(22, 185, 207), Color.rgb(91, 79, 168)};
+        if (isSnes()) return new int[]{Color.rgb(84, 92, 168), Color.rgb(200, 201, 207)};
+        if (isNds()) return new int[]{Color.rgb(219, 39, 119), Color.rgb(52, 56, 66)};
+        if (isNes()) return new int[]{Color.rgb(196, 42, 52), Color.rgb(170, 34, 42)};
+        if (isN64()) return new int[]{Color.rgb(22, 163, 74), Color.rgb(45, 47, 52)};
+        if (isDreamcast()) return new int[]{Color.rgb(202, 138, 4), Color.rgb(228, 230, 233)};
+        if (isMasterSystem()) return new int[]{Color.rgb(162, 28, 175), Color.rgb(30, 30, 33)};
+        if (isMegaCd()) return new int[]{Color.rgb(159, 18, 57), Color.rgb(32, 32, 35)};
+        if (isMegaDrive()) return new int[]{Color.rgb(15, 118, 110), Color.rgb(28, 28, 30)};
+        if (isPcEngine()) return new int[]{Color.rgb(232, 96, 44), Color.rgb(230, 230, 226)};
+        if (isPsp()) return new int[]{Color.rgb(28, 30, 36), Color.rgb(22, 22, 26)};
+        if (isPs1()) return new int[]{Color.rgb(120, 126, 138), Color.rgb(180, 182, 188)};
+        if (isPs2()) return new int[]{Color.rgb(36, 84, 168), Color.rgb(24, 26, 34)};
+        if (isSaturn()) return new int[]{Color.rgb(71, 85, 105), Color.rgb(58, 60, 68)};
+        if (isWonderSwan()) return new int[]{Color.rgb(101, 163, 13), Color.rgb(96, 140, 52)};
+        if (isNeoGeoPocket()) return new int[]{Color.rgb(3, 105, 161), Color.rgb(36, 74, 140)};
+        if (isNeoGeoMode()) return new int[]{Color.rgb(124, 58, 237), Color.rgb(24, 24, 26)};
+        return new int[]{Color.rgb(154, 91, 46), Color.rgb(59, 75, 140)};
+    }
+
+    // Labels drawn straight on the background turn light on the dark styles.
+    private int shellTextColor() {
+        return ClearShellView.darkBackground(shellStyle(), shellColors()[1]) ? Color.rgb(230, 232, 238) : Color.rgb(58, 63, 75);
+    }
+
     // Clear case behind the controls, tinted per game kind.
     private ClearShellView createShell(boolean landscape) {
         int tint;
@@ -398,7 +431,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             tint = ClearShellView.TINT_ORANGE;
             name = "ARCADE";
         }
-        return new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape);
+        int[] colors = shellColors();
+        return new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape, shellStyle(), colors[0], colors[1]);
     }
 
     private void fitLandscapeScreen(int i, FrameLayout frameLayout, View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
@@ -1947,6 +1981,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     reopen.run();
                 })), filterParams);
         if (!isPadScreen()) {
+            // The controller-only screen has no case behind it.
+            LinearLayout.LayoutParams styleParams = new LinearLayout.LayoutParams(-1, dp(52));
+            styleParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES[shellStyle()],
+                    view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES, ClearShellView.STYLE_NOTES,
+                            shellStyle(), "모든 게임에 바로 적용돼요. 버튼과 화면 크기는 그대로예요.\n실물 플라스틱·다크 매트·파스텔·네온은 모드마다 색이 달라요.",
+                            Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
+                        getSharedPreferences("settings", 0).edit().putInt("shell_style", choice).apply();
+                        rebuildContent();
+                        reopen.run();
+                    })), styleParams);
+        }
+        if (!isPadScreen()) {
             LinearLayout.LayoutParams hapticParams = new LinearLayout.LayoutParams(-1, dp(52));
             hapticParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createSettingRow(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES[hapticLevel()],
@@ -2431,7 +2478,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         text.setText(label);
         text.setTextSize(textSp);
         text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        text.setTextColor(Color.rgb(58, 63, 75));
+        text.setTextColor(shellTextColor());
         text.setGravity(1);
         text.setSingleLine(true);
         box.addView(text, new LinearLayout.LayoutParams(-2, -2));
@@ -3477,7 +3524,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         buttonsParams.setMargins(0, dp(14), 0, 0);
         panel.addView(buttons, buttonsParams);
 
-        dialog.setContentView(panel);
+        // Long lists (the 7 backgrounds) scroll on a landscape screen.
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));

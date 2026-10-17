@@ -25,6 +25,18 @@ final class ClearShellView extends View {
     static final int TINT_SMOKE = 5;
     static final int TINT_AQUA = 6;
 
+    // Background styles the player picks in the game settings ("배경").
+    static final int STYLE_CLEAR = 0;
+    static final int STYLE_PLASTIC = 1;
+    static final int STYLE_DARK = 2;
+    static final int STYLE_PASTEL = 3;
+    static final int STYLE_RETRO = 4;
+    static final int STYLE_METAL = 5;
+    static final int STYLE_NEON = 6;
+    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "레트로 그레이", "메탈 · 카본", "네온 나이트"};
+    static final String[] STYLE_NOTES = {"지금 디자인 · 속이 비치는 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
+            "부드러운 그라데이션 + 반투명 유리판", "원조 게임보이 같은 회색", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기"};
+
     private static final int[][] TINTS = {
             // case colour, rim highlight, plate colour
             {Color.rgb(235, 238, 241), Color.argb(150, 255, 255, 255), Color.rgb(238, 240, 241)},
@@ -39,6 +51,10 @@ final class ClearShellView extends View {
     private static final int TRACE_SILVER = Color.argb(150, 154, 164, 171);
 
     private final int tint;
+    private final int style;
+    // The mode's colour (dark/pastel/neon styles) and the console's body colour (plastic).
+    private final int accent;
+    private final int body;
     private final String label;
     private final boolean landscape;
     private View screenView;
@@ -52,8 +68,15 @@ final class ClearShellView extends View {
     private final float density;
 
     ClearShellView(Context context, int tint, String label, boolean landscape) {
+        this(context, tint, label, landscape, STYLE_CLEAR, Color.GRAY, Color.GRAY);
+    }
+
+    ClearShellView(Context context, int tint, String label, boolean landscape, int style, int accent, int body) {
         super(context);
         this.tint = tint;
+        this.style = style >= 0 && style < STYLE_NAMES.length ? style : STYLE_CLEAR;
+        this.accent = accent;
+        this.body = body;
         this.label = label;
         this.landscape = landscape;
         this.density = context.getResources().getDisplayMetrics().density;
@@ -100,9 +123,31 @@ final class ClearShellView extends View {
         return new RectF(left, top, left + view.getWidth(), top + view.getHeight());
     }
 
+    // Whether text drawn straight on this background (the labels under the top icons)
+    // should be light.
+    static boolean darkBackground(int style, int body) {
+        switch (style) {
+            case STYLE_DARK:
+            case STYLE_NEON:
+                return true;
+            case STYLE_PLASTIC:
+                return luminance(body) < 0.5f;
+            default:
+                return false;
+        }
+    }
+
+    private static float luminance(int color) {
+        return (0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color)) / 255f;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if (style != STYLE_CLEAR) {
+            drawStyled(canvas);
+            return;
+        }
         float width = getWidth();
         float height = getHeight();
         int[] colors = TINTS[Math.max(0, Math.min(TINTS.length - 1, tint))];
@@ -265,6 +310,281 @@ final class ClearShellView extends View {
         float k = r * 0.5f;
         canvas.drawLine(x - k, y - k, x + k, y + k, paint);
         canvas.drawLine(x - k, y + k, x + k, y - k, paint);
+    }
+
+    // ---- The other background styles ----
+
+    private RectF plateBounds() {
+        if (plateView == null) {
+            return null;
+        }
+        RectF plate = boundsOf(plateView);
+        if (landscape) {
+            plate.set(plate.left + dp(8), plate.top + dp(56), plate.right - dp(8), plate.bottom - dp(8));
+        } else {
+            plate.set(plate.left + dp(14), plate.top + dp(2), plate.right - dp(14), plate.bottom - dp(14));
+        }
+        return plate.width() > 0 && plate.height() > 0 ? plate : null;
+    }
+
+    // The frame around the game screen, the same size as the clear case's bezel.
+    private RectF frameAround(RectF screen) {
+        if (thinBezel) {
+            float edge = dp(5);
+            return new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
+        }
+        float side = dp(landscape ? 10 : 14);
+        float top = dp(landscape ? 10 : 16);
+        float bottom = compactBezel ? side : dp(landscape ? 26 : 34);
+        return new RectF(screen.left - side, screen.top - top, screen.right + side, screen.bottom + bottom);
+    }
+
+    private void drawStyled(Canvas canvas) {
+        float width = getWidth();
+        float height = getHeight();
+        RectF plate = plateBounds();
+        RectF screen = screenView != null && screenView.getWidth() > 0 ? boundsOf(screenView) : null;
+        RectF frame = screen == null ? null : frameAround(screen);
+        switch (style) {
+            case STYLE_PLASTIC:
+                drawPlastic(canvas, width, height, frame);
+                break;
+            case STYLE_DARK:
+                drawDark(canvas, width, height, plate, frame);
+                break;
+            case STYLE_PASTEL:
+                drawPastel(canvas, width, height, plate, frame);
+                break;
+            case STYLE_RETRO:
+                drawRetro(canvas, width, height, screen, frame);
+                break;
+            case STYLE_METAL:
+                drawMetal(canvas, width, height, plate, frame);
+                break;
+            default:
+                drawNeon(canvas, width, height, frame);
+                break;
+        }
+        if (frame != null && label != null && !thinBezel && !compactBezel) {
+            text.setTextSize(dp(landscape ? 8 : 9));
+            text.setTextSkewX(style == STYLE_RETRO ? -0.25f : 0);
+            canvas.drawText(label, frame.centerX(), screen.bottom + (frame.bottom - screen.bottom) * 0.62f, text);
+            text.setTextSkewX(0);
+        }
+    }
+
+    private void fillFrame(Canvas canvas, RectF frame, int top, int bottom, float radius, float lowerRight) {
+        Path path = new Path();
+        path.addRoundRect(frame, new float[]{radius, radius, radius, radius, lowerRight, lowerRight, radius, radius}, Path.Direction.CW);
+        paint.setShader(new LinearGradient(0, frame.top, 0, frame.bottom, top, bottom, Shader.TileMode.CLAMP));
+        canvas.drawPath(path, paint);
+        paint.setShader(null);
+    }
+
+    private void strokeRoundRect(Canvas canvas, RectF rect, float radius, float stroke, int color) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(stroke);
+        paint.setColor(color);
+        canvas.drawRoundRect(rect, radius, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    // Slanted slots of a speaker in the lower-right corner.
+    private void drawGrille(Canvas canvas, float width, float height, int color, int count, float gap) {
+        paint.setColor(color);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeWidth(dp(4));
+        for (int i = 0; i < count; i++) {
+            float x = width - dp(28) - (count - 1 - i) * dp(gap);
+            canvas.drawLine(x, height - dp(18), x - dp(14), height - dp(44), paint);
+        }
+        paint.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    private static int mix(int color, int other, float amount) {
+        return Color.rgb(Math.round(Color.red(color) + (Color.red(other) - Color.red(color)) * amount),
+                Math.round(Color.green(color) + (Color.green(other) - Color.green(color)) * amount),
+                Math.round(Color.blue(color) + (Color.blue(other) - Color.blue(color)) * amount));
+    }
+
+    private static int hue(int color, float shift, float saturation, float value) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(color, hsv);
+        hsv[0] = (hsv[0] + shift + 360f) % 360f;
+        if (saturation >= 0) {
+            hsv[1] = saturation;
+        }
+        if (value >= 0) {
+            hsv[2] = value;
+        }
+        return Color.HSVToColor(hsv);
+    }
+
+    private void drawPlastic(Canvas canvas, float width, float height, RectF frame) {
+        paint.setShader(new RadialGradient(width * 0.3f, height * 0.2f, Math.max(width, height),
+                new int[]{mix(body, Color.WHITE, 0.12f), body, mix(body, Color.BLACK, 0.25f)}, new float[]{0, 0.45f, 1}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        RectF edge = new RectF(dp(3), dp(3), width - dp(3), height - dp(3));
+        strokeRoundRect(canvas, edge, dp(20), dp(2), Color.argb(56, 255, 255, 255));
+        drawGrille(canvas, width, height, Color.argb(80, 0, 0, 0), 6, 9);
+        if (frame != null) {
+            boolean light = luminance(body) >= 0.5f;
+            fillFrame(canvas, frame, light ? Color.rgb(110, 114, 124) : Color.rgb(44, 47, 58), light ? Color.rgb(92, 96, 106) : Color.rgb(27, 29, 36), dp(14), dp(34));
+            text.setColor(light ? Color.rgb(222, 225, 232) : Color.rgb(154, 160, 180));
+        }
+    }
+
+    private void drawDark(Canvas canvas, float width, float height, RectF plate, RectF frame) {
+        paint.setShader(new LinearGradient(0, 0, 0, height, Color.rgb(28, 31, 38), Color.rgb(17, 19, 24), Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        if (plate != null) {
+            paint.setColor(Color.rgb(24, 27, 33));
+            canvas.drawRoundRect(plate, dp(24), dp(24), paint);
+            strokeRoundRect(canvas, plate, dp(24), dp(1), Color.argb(14, 255, 255, 255));
+        }
+        paint.setColor(accent);
+        canvas.drawRect(0, 0, width, dp(3), paint);
+        if (frame != null) {
+            paint.setColor(Color.BLACK);
+            canvas.drawRoundRect(frame, dp(14), dp(14), paint);
+            strokeRoundRect(canvas, frame, dp(14), dp(1), Color.argb(22, 255, 255, 255));
+            text.setColor(Color.rgb(93, 100, 112));
+        }
+    }
+
+    private void drawPastel(Canvas canvas, float width, float height, RectF plate, RectF frame) {
+        int a = mix(accent, Color.WHITE, 0.6f);
+        int b = mix(hue(accent, 45, -1, -1), Color.WHITE, 0.62f);
+        int c = mix(hue(accent, -40, -1, -1), Color.WHITE, 0.72f);
+        paint.setShader(new LinearGradient(0, 0, width * 0.5f, height, new int[]{a, b, c}, new float[]{0, 0.55f, 1}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        float glow = Math.min(width, height) * 0.55f;
+        paint.setShader(new RadialGradient(width * 0.1f, height * 0.7f, glow, Color.argb(110, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
+        canvas.drawCircle(width * 0.1f, height * 0.7f, glow, paint);
+        paint.setShader(null);
+        if (plate != null) {
+            paint.setColor(Color.argb(97, 255, 255, 255));
+            canvas.drawRoundRect(plate, dp(26), dp(26), paint);
+            strokeRoundRect(canvas, plate, dp(26), dp(1.5f), Color.argb(190, 255, 255, 255));
+        }
+        if (frame != null) {
+            paint.setColor(Color.argb(140, 255, 255, 255));
+            canvas.drawRoundRect(frame, dp(20), dp(20), paint);
+            strokeRoundRect(canvas, frame, dp(20), dp(1.5f), Color.argb(230, 255, 255, 255));
+            text.setColor(mix(accent, Color.rgb(60, 56, 80), 0.6f));
+        }
+    }
+
+    private void drawRetro(Canvas canvas, float width, float height, RectF screen, RectF frame) {
+        paint.setShader(new LinearGradient(0, 0, 0, height, Color.rgb(217, 214, 207), Color.rgb(201, 197, 188), Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        // Fine moulding lines across the plastic.
+        paint.setColor(Color.argb(10, 0, 0, 0));
+        for (float y = 0; y < height; y += dp(3)) {
+            canvas.drawRect(0, y, width, y + dp(1), paint);
+        }
+        drawGrille(canvas, width, height, Color.argb(90, 60, 55, 50), 5, 12);
+        if (frame != null) {
+            fillFrame(canvas, frame, Color.rgb(109, 111, 120), Color.rgb(102, 104, 113), dp(10), dp(40));
+            if (!thinBezel) {
+                float stripe = screen.width() * 0.62f;
+                float y = frame.top + (screen.top - frame.top) * 0.35f;
+                paint.setColor(Color.rgb(155, 42, 92));
+                canvas.drawRect(screen.left - dp(6), y, screen.left - dp(6) + stripe, y + dp(2), paint);
+                paint.setColor(Color.rgb(44, 60, 140));
+                canvas.drawRect(screen.left - dp(6), y + dp(4), screen.left - dp(6) + stripe, y + dp(6), paint);
+            }
+            text.setColor(Color.rgb(217, 217, 226));
+        }
+    }
+
+    private void drawMetal(Canvas canvas, float width, float height, RectF plate, RectF frame) {
+        paint.setShader(new LinearGradient(0, 0, width, height,
+                new int[]{Color.rgb(201, 206, 212), Color.rgb(238, 241, 244), Color.rgb(184, 190, 197), Color.rgb(223, 227, 231)},
+                new float[]{0, 0.4f, 0.7f, 1}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        // Brushed grain.
+        paint.setColor(Color.argb(22, 255, 255, 255));
+        for (float x = 0; x < width; x += dp(2)) {
+            canvas.drawRect(x, 0, x + dp(0.6f), height, paint);
+        }
+        if (plate != null) {
+            float radius = dp(22);
+            Path clip = new Path();
+            clip.addRoundRect(plate, radius, radius, Path.Direction.CW);
+            canvas.save();
+            canvas.clipPath(clip);
+            paint.setColor(Color.rgb(30, 32, 35));
+            canvas.drawRect(plate, paint);
+            // Carbon weave: diagonal bands.
+            paint.setColor(Color.rgb(42, 44, 48));
+            paint.setStrokeWidth(dp(4));
+            float span = plate.width() + plate.height();
+            for (float d = -plate.height(); d < span; d += dp(8)) {
+                canvas.drawLine(plate.left + d, plate.bottom, plate.left + d + plate.height(), plate.top, paint);
+            }
+            canvas.restore();
+            strokeRoundRect(canvas, plate, radius, dp(1.5f), Color.argb(30, 255, 255, 255));
+            for (float x : new float[]{plate.left + dp(18), plate.right - dp(18)}) {
+                float y = plate.bottom - dp(16);
+                paint.setShader(new RadialGradient(x - dp(1.5f), y - dp(2), dp(7), Color.rgb(244, 246, 248), Color.rgb(141, 149, 156), Shader.TileMode.CLAMP));
+                canvas.drawCircle(x, y, dp(6), paint);
+                paint.setShader(null);
+            }
+        }
+        if (frame != null) {
+            paint.setColor(Color.rgb(21, 23, 26));
+            canvas.drawRoundRect(frame, dp(12), dp(12), paint);
+            strokeRoundRect(canvas, frame, dp(12), dp(2), Color.rgb(154, 162, 169));
+            text.setColor(Color.rgb(142, 150, 157));
+        }
+    }
+
+    private void drawNeon(Canvas canvas, float width, float height, RectF frame) {
+        int edge = hue(accent, 0, 0.75f, 1f);
+        float[] hsv = new float[3];
+        Color.colorToHSV(accent, hsv);
+        // Purple screen frame, or pink when the mode itself is purple.
+        int glow = hsv[0] >= 240 && hsv[0] <= 300 ? Color.rgb(236, 72, 153) : Color.rgb(168, 85, 247);
+        paint.setShader(new RadialGradient(width / 2, height, Math.max(width, height) * 0.9f,
+                Color.rgb(42, 18, 80), Color.rgb(12, 10, 29), Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        // A grid floor running into the distance along the bottom.
+        float floor = height * (landscape ? 0.35f : 0.22f);
+        float horizon = height - floor;
+        paint.setStrokeWidth(dp(1));
+        paint.setColor(withAlpha(glow, 80));
+        for (int i = 1; i <= 7; i++) {
+            float t = i / 7f;
+            float y = horizon + floor * t * t;
+            canvas.drawLine(0, y, width, y, paint);
+        }
+        for (int i = -8; i <= 8; i++) {
+            float x = width / 2 + i * dp(34);
+            canvas.drawLine(width / 2 + i * dp(10), horizon, x, height, paint);
+        }
+        RectF rim = new RectF(dp(4), dp(4), width - dp(4), height - dp(4));
+        neonStroke(canvas, rim, dp(20), edge);
+        if (frame != null) {
+            paint.setColor(Color.rgb(7, 6, 15));
+            canvas.drawRoundRect(frame, dp(12), dp(12), paint);
+            neonStroke(canvas, frame, dp(12), glow);
+            text.setColor(mix(glow, Color.WHITE, 0.55f));
+        }
+    }
+
+    // A bright line with a soft glow, drawn as widening faint strokes.
+    private void neonStroke(Canvas canvas, RectF rect, float radius, int color) {
+        for (int i = 4; i >= 1; i--) {
+            strokeRoundRect(canvas, rect, radius, dp(2 + i * 3), withAlpha(color, 18));
+        }
+        strokeRoundRect(canvas, rect, radius, dp(2), color);
     }
 
     private static int withAlpha(int color, int alpha) {

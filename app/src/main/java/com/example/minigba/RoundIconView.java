@@ -39,6 +39,7 @@ final class RoundIconView extends View {
     static final int CHEAT = 24;
     static final int SWAP = 25;
     static final int BOLT = 26;
+    static final int PALETTE = 27;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -59,6 +60,7 @@ final class RoundIconView extends View {
     static final int COLOR_MOVE = Color.rgb(16, 185, 129);
     static final int COLOR_CHEAT = Color.rgb(225, 29, 72);
     static final int COLOR_BOLT = Color.rgb(249, 115, 22);
+    static final int COLOR_PALETTE = Color.rgb(225, 29, 72);
 
     private final int icon;
     private final int color;
@@ -398,6 +400,17 @@ final class RoundIconView extends View {
                 bolt.setStyle(Paint.Style.FILL_AND_STROKE);
                 bolt.setStrokeWidth(1);
                 canvas.drawPath(path, bolt);
+                break;
+            case PALETTE:
+                // A paint palette: a round board with a thumb hole and three paint dabs.
+                path.addCircle(12, 12, 8.5f, Path.Direction.CW);
+                canvas.drawPath(path, line);
+                Paint dab = new Paint(line);
+                dab.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(8, 10.5f, 1.6f, dab);
+                canvas.drawCircle(11, 7.3f, 1.6f, dab);
+                canvas.drawCircle(15.5f, 8.3f, 1.6f, dab);
+                canvas.drawCircle(15, 15, 2.2f, dab);
                 break;
             case PLAY:
             default:
