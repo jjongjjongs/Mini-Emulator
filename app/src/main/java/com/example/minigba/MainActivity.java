@@ -284,7 +284,7 @@ public final class MainActivity extends Activity {
             showModePicker();
         }
         offerGameCubeCleanup();
-        moveArcadeGamesToBetterCores();
+        moveBloodyRoarBackToMame2010();
     }
 
     // GameCube · Wii mode was removed in 0.0.105; offer to free the space its games, saves and
@@ -2532,16 +2532,6 @@ public final class MainActivity extends Activity {
                     || (match.isComplete(dir) && best.isComplete(dir) && match.working && !best.working)
                     || (!match.isComplete(dir) && !best.isComplete(dir) && match.missingOwn < best.missingOwn)) {
                 best = match;
-            }
-        }
-        // Sets that play better on an engine other than the first that has them.
-        if (best != null) {
-            String betterCore = betterArcadeCore(best.name);
-            if (betterCore != null && !betterCore.equals(best.core)) {
-                RomsetIndex.Match better = RomsetIndex.identify(this, betterCore, crcs);
-                if (better != null && (better.isComplete(dir) || !best.isComplete(dir))) {
-                    best = better;
-                }
             }
         }
         result.match = best;
@@ -5206,25 +5196,23 @@ public final class MainActivity extends Activity {
 
     // Bloody Roar 1 and 2 (Beastorizer, and their versions): MAME 2010's YMF271 plays their
     // music but none of their sound effects; MAME 2015's plays both.
-    private static String betterArcadeCore(String set) {
-        return set != null && (set.startsWith("bldyror2") || set.equals("bldyroar") || set.equals("beastrzr")) ? "mame2015" : null;
-    }
-
-    // Once (0.0.119): Bloody Roar games set to MAME 2010 move to MAME 2015.
-    private void moveArcadeGamesToBetterCores() {
-        if (settingsPrefs().getBoolean("bldyror2_mame2015", false)) {
+    // Once (0.0.131): Bloody Roar 1/2, moved to MAME 2015 in 0.0.119 for its sound effects,
+    // go back to MAME 2010, where they resume where they were left (MAME 2015 froze).
+    private void moveBloodyRoarBackToMame2010() {
+        if (settingsPrefs().getBoolean("bldyroar_mame2010_131", false)) {
             return;
         }
         File[] listFiles = arcadeRomDir().listFiles(MainActivity::isZipFile);
         if (listFiles != null) {
             for (File file : listFiles) {
                 String set = baseNameWithoutExtension(file.getName()).toLowerCase(Locale.US);
-                if (betterArcadeCore(set) != null && "mame2010".equals(romPrefs().getString("core:" + file.getName(), null))) {
-                    romPrefs().edit().putString("core:" + file.getName(), "mame2015").apply();
+                boolean bloodyRoar = set.startsWith("bldyror2") || set.equals("bldyroar") || set.equals("beastrzr");
+                if (bloodyRoar && "mame2015".equals(romPrefs().getString("core:" + file.getName(), null))) {
+                    romPrefs().edit().putString("core:" + file.getName(), "mame2010").apply();
                 }
             }
         }
-        settingsPrefs().edit().putBoolean("bldyror2_mame2015", true).apply();
+        settingsPrefs().edit().putBoolean("bldyroar_mame2010_131", true).apply();
     }
 
     private void migrateKnownArcadeRoms() {
