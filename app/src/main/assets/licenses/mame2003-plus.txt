@@ -1,0 +1,13 @@
+Bundled native core:
+libmame2003_plus_libretro_android.so
+
+Built from the libretro MAME 2003-Plus source (commit b5ca65f5fd5a80f1372e0fcc67f00f7e0f09cf62)
+for Android arm64-v8a with 16 KB ELF alignment.
+
+MAME 2003-Plus source:
+https://github.com/libretro/mame2003-plus-libretro
+
+MAME 2003-Plus license (MAME non-commercial license):
+https://github.com/libretro/mame2003-plus-libretro/blob/master/LICENSE.md
+
+No ROM or BIOS files are bundled with this application.

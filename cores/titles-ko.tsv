@@ -1,0 +1,447 @@
+# Korean titles for arcade romsets, keyed by the parent set name (clones use their parent's).
+# gen-titles.py drops names that none of the bundled cores know.
+# --- Neo Geo
+kof94	더 킹 오브 파이터즈 '94
+kof95	더 킹 오브 파이터즈 '95
+kof96	더 킹 오브 파이터즈 '96
+kof97	더 킹 오브 파이터즈 '97
+kof98	더 킹 오브 파이터즈 '98
+kof99	더 킹 오브 파이터즈 '99
+kof2000	더 킹 오브 파이터즈 2000
+kof2001	더 킹 오브 파이터즈 2001
+kof2002	더 킹 오브 파이터즈 2002
+kof2003	더 킹 오브 파이터즈 2003
+svc	SNK vs. 캡콤 SVC 카오스
+mslug	메탈슬러그
+mslug2	메탈슬러그 2
+mslugx	메탈슬러그 X
+mslug3	메탈슬러그 3
+mslug4	메탈슬러그 4
+mslug5	메탈슬러그 5
+samsho	사무라이 스피리츠
+samsho2	진 사무라이 스피리츠
+samsho3	사무라이 스피리츠 참홍랑무쌍검
+samsho4	사무라이 스피리츠 천초검
+samsho5	사무라이 스피리츠 제로
+samsh5sp	사무라이 스피리츠 제로 스페셜
+fatfury1	아랑전설
+fatfury2	아랑전설 2
+fatfursp	아랑전설 스페셜
+fatfury3	아랑전설 3
+rbff1	리얼 바웃 아랑전설
+rbffspec	리얼 바웃 아랑전설 스페셜
+rbff2	리얼 바웃 아랑전설 2
+garou	아랑전설 마크 오브 더 울브스
+aof	용호의 권
+aof2	용호의 권 2
+aof3	용호의 권 외전
+lastblad	월화의 검사
+lastbld2	월화의 검사 2
+wh1	월드 히어로즈
+wh2	월드 히어로즈 2
+wh2j	월드 히어로즈 2 제트
+whp	월드 히어로즈 퍼펙트
+kotm	킹 오브 더 몬스터즈
+kotm2	킹 오브 더 몬스터즈 2
+blazstar	블레이징 스타
+pulstar	펄스타
+shocktro	쇼크 트루퍼즈
+shocktr2	쇼크 트루퍼즈 2nd 스쿼드
+sengoku	전국전승
+sengoku2	전국전승 2
+sengoku3	전국전승 3
+ncombat	닌자 컴뱃
+ncommand	닌자 커맨도
+ninjamas	닌자 마스터즈
+neobombe	네오 봄버맨
+neocup98	네오지오 컵 '98
+turfmast	네오 터프 마스터즈
+superspy	슈퍼 스파이
+viewpoin	뷰포인트
+breakers	브레이커즈
+breakrev	브레이커즈 리벤지
+kizuna	풍운 슈퍼 태그 배틀
+savagere	풍운묵시록
+doubledr	더블 드래곤 (네오지오)
+galaxyfg	갤럭시 파이트
+karnovr	카르노프의 복수
+rotd	레이지 오브 더 드래곤
+kabukikl	천외마경 진전
+lresort	라스트 리조트
+ssideki	득점왕
+ssideki2	득점왕 2
+ssideki3	득점왕 3
+ssideki4	얼티밋 11
+3countb	3 카운트 바웃
+fightfev	파이트 피버
+aodk	어그레서 오브 다크 컴뱃
+zupapa	주파파
+ironclad	아이언클래드
+sonicwi2	에어로 파이터즈 2
+sonicwi3	에어로 파이터즈 3
+strhoop	스트리트 후프
+pbobblen	퍼즐 버블 (네오지오)
+pbobbl2n	퍼즐 버블 2 (네오지오)
+nam1975	NAM-1975
+mutnat	뮤테이션 네이션
+burningf	버닝 파이트
+roboarmy	로보 아미
+lbowling	리그 볼링
+crsword	크로스드 소드
+eightman	에이트맨
+gpilots	고스트 파일럿
+cyberlip	사이버 립
+alpham2	알파 미션 2
+spinmast	스핀 마스터
+wjammers	윈드재머즈
+zedblade	제드 블레이드
+overtop	오버 탑
+neodrift	네오 드리프트 아웃
+ragnagrd	신무전 라그나가드
+s1945p	스트라이커즈 1945 플러스
+bangbead	뱅 비드
+nitd	나이트메어 인 더 다크
+matrim	파워 인스팅트 매트리멜리
+magdrop2	매지컬 드롭 2
+magdrop3	매지컬 드롭 3
+goalx3	골! 골! 골!
+pgoal	플레저 골
+stakwin	스테이크스 위너
+twinspri	트윈클 스타 스프라이츠
+mosyougi	장기의 달인
+# --- Capcom CPS1
+sf2	스트리트 파이터 II
+sf2ce	스트리트 파이터 II 대시
+sf2hf	스트리트 파이터 II 대시 터보
+ffight	파이널 파이트
+captcomm	캡틴 코만도
+knights	나이츠 오브 더 라운드
+kod	킹 오브 드래곤즈
+dino	캐딜락 & 다이노소어
+punisher	퍼니셔
+wof	천지를 먹다 2 적벽대전
+mercs	머크스
+strider	스트라이더 비룡
+ghouls	대마계촌
+willow	윌로우
+forgottn	포가튼 월드
+unsquad	U.N. 스쿼드론
+mtwins	메가 트윈스
+nemo	니모
+cawing	캐리어 에어 윙
+varth	바스
+1941	1941 카운터 어택
+pang3	팡 3
+slammast	슬램 마스터즈
+mbombrd	머슬 봄버 듀오
+sf2ce	스트리트 파이터 II 대시
+# --- Capcom CPS2
+ssf2	슈퍼 스트리트 파이터 II
+ssf2t	슈퍼 스트리트 파이터 II X
+sfa	스트리트 파이터 제로
+sfa2	스트리트 파이터 제로 2
+sfz2al	스트리트 파이터 제로 2 알파
+sfa3	스트리트 파이터 제로 3
+dstlk	뱀파이어
+nwarr	뱀파이어 헌터
+vhunt2	뱀파이어 헌터 2
+vsav	뱀파이어 세이비어
+vsav2	뱀파이어 세이비어 2
+xmcota	엑스맨 칠드런 오브 디 아톰
+msh	마블 슈퍼 히어로즈
+xmvsf	엑스맨 vs. 스트리트 파이터
+mshvsf	마블 슈퍼 히어로즈 vs. 스트리트 파이터
+mvsc	마블 vs. 캡콤
+avsp	에일리언 vs. 프레데터
+ddtod	던전 앤 드래곤 타워 오브 둠
+ddsom	던전 앤 드래곤 섀도우 오버 미스타라
+armwar	아머드 워리어즈
+batcir	배틀 서킷
+cybots	사이버보츠
+ringdest	링 오브 디스트럭션
+sgemf	포켓 파이터
+spf2t	슈퍼 퍼즐 파이터 II X
+progear	프로기어의 폭풍
+mmatrix	마즈 매트릭스
+dimahoo	디마후
+gigawing	기가윙
+1944	1944 더 루프 마스터
+19xx	19XX 더 워 어게인스트 데스티니
+megaman	록맨 더 파워 배틀
+megaman2	록맨 2 더 파워 파이터즈
+mpang	마이티! 팡
+csclub	캡콤 스포츠 클럽
+ecofghtr	에코 파이터즈
+# --- Capcom CPS3
+sfiii	스트리트 파이터 III
+sfiii2	스트리트 파이터 III 2nd 임팩트
+sfiii3	스트리트 파이터 III 3rd 스트라이크
+jojo	죠죠의 기묘한 모험
+jojoba	죠죠의 기묘한 모험 미래를 위한 유산
+redearth	레드 어스
+# --- Capcom (older)
+sf	스트리트 파이터
+commando	코만도
+gunsmoke	건스모크
+bionicc	바이오닉 코만도
+gng	마계촌
+sectionz	섹션 Z
+exedexes	엑스드 엑시즈
+lwings	레전더리 윙스
+blktiger	블랙 타이거
+sidearms	사이드 암즈
+tigeroad	타이거 로드
+trojan	트로잔
+1942	1942
+1943	1943 미드웨이 해전
+1943kai	1943 改
+vulgus	벌거스
+sonson	손손
+higemaru	해적선 히게마루
+pang	팡
+spang	슈퍼 팡
+block	블록 블록
+# --- Namco
+pacman	팩맨
+mspacman	미즈 팩맨
+galaga	갤러그
+galaxian	갤럭시안
+gaplus	갤러그 3
+galaga88	갤러그 '88
+digdug	디그더그
+xevious	제비우스
+mappy	매피
+bosco	보스코니안
+pacland	팩랜드
+pacmania	팩매니아
+rthunder	롤링 썬더
+splatter	스플래터하우스
+valkyrie	발키리의 전설
+polepos	폴 포지션
+tekken	철권
+tekken2	철권 2
+tekken3	철권 3
+tektagt	철권 태그 토너먼트
+# --- Konami
+tmnt	닌자 거북이
+tmnt2	닌자 거북이 터틀즈 인 타임
+simpsons	심슨 가족
+ssriders	선셋 라이더즈
+xmen	엑스맨
+nemesis	그라디우스
+gradius3	그라디우스 III
+salamand	사라만다
+parodius	파로디우스다!
+twinbee	트윈비
+contra	혼두라
+vendetta	벤데타
+crimfght	크라임 파이터즈
+aliens	에일리언
+punkshot	펑크 샷
+lgtnfght	라이트닝 파이터즈
+gberet	그린베레
+trackfld	하이퍼 올림픽
+circusc	서커스 찰리
+yiear	이얼 쿵후
+pooyan	푸얀
+frogger	프로거
+scramble	스크램블
+timeplt	타임 파일럿
+roadf	로드 파이터
+mystwarr	미스틱 워리어즈
+dbz	드래곤볼 Z
+dbz2	드래곤볼 Z 2 슈퍼 배틀
+# --- Taito
+bublbobl	보글보글
+bublbob2	버블 심포니
+rainbow	레인보우 아일랜드
+tnzs	뉴질랜드 스토리
+rastan	라스탄 사가
+ninjak	닌자 키즈
+pbobble	퍼즐 버블
+pbobble2	퍼즐 버블 2
+pbobble3	퍼즐 버블 3
+pbobble4	퍼즐 버블 4
+bubblem	버블 메모리즈
+arkanoid	알카노이드
+qix	큐익스
+elevator	엘리베이터 액션
+darius	다라이어스
+dariusg	다라이어스 외전
+rayforce	레이포스
+cadash	카다시
+growl	그라울
+kaiserkn	카이저 너클
+gunfront	건 프론티어
+metalb	메탈 블랙
+chasehq	체이스 H.Q.
+sci	체이스 H.Q. 2 스페셜 크리미널 인베스티게이션
+# --- Sega
+altbeast	수왕기
+goldnaxe	골든 액스
+ga2	골든 액스 데스 애더의 복수
+shinobi	시노비
+sharrier	스페이스 해리어
+hangon	행온
+outrun	아웃런
+aburner2	애프터 버너 II
+ddcrew	D.D. 크루
+bloxeed	블록시드
+tetris	테트리스 (세가)
+columns	컬럼스
+wb3	원더보이 III
+wboy	원더보이
+spidman	스파이더맨
+arabfgt	아라비안 파이트
+jpark	쥬라기 공원
+mwalk	마이클 잭슨의 문워커
+eswat	이스와트
+shdancer	섀도우 댄서
+astorm	에일리언 스톰
+ddux	다이나마이트 덕스
+fantzone	판타지 존
+quartet	쿼텟
+aliensyn	에일리언 신드롬
+# --- Irem
+rtype	알타입
+rtype2	알타입 II
+rtypeleo	알타입 레오
+kungfum	스파르탄 X
+hook	후크
+nbbatman	닌자 배트맨
+gunforce	건포스
+gunforc2	건포스 2
+inthunt	인 더 헌트
+bmaster	블레이드 마스터
+cosmccop	코스믹 캅
+mrheli	미스터 헬리
+dbreed	드래곤 브리드
+uccops	언더커버 캅스
+airduel	에어 듀얼
+xmultipl	엑스 멀티플라이
+# --- Data East
+robocop	로보캅
+karnov	카르노프
+midres	미드나잇 레지스탕스
+tumblep	텀블팝
+nslasher	나이트 슬래셔즈
+cninja	원시인 조 앤 맥
+joemacr	조 앤 맥 리턴즈
+captaven	캡틴 아메리카 앤 디 어벤저스
+boogwing	부기 윙즈
+# --- Technos
+ddragon	더블 드래곤
+ddragon2	더블 드래곤 II
+ddragon3	더블 드래곤 3
+renegade	레니게이드
+wwfsstar	WWF 슈퍼스타즈
+wwfwfest	WWF 레슬페스트
+ctribe	컴뱃 트라이브스
+# --- Midway
+mk	모탈 컴뱃
+mk2	모탈 컴뱃 II
+mk3	모탈 컴뱃 3
+umk3	얼티밋 모탈 컴뱃 3
+nbajam	NBA 잼
+nbajamte	NBA 잼 토너먼트 에디션
+rampage	램페이지
+smashtv	스매시 TV
+totcarn	토탈 카니지
+narc	나크
+# --- Toaplan
+truxton	타츠진
+truxton2	타츠진 오
+batsugun	바쓰군
+snowbros	스노우 브라더스
+snowbro2	스노우 브라더스 2
+fireshrk	파이어 샤크
+outzone	아웃 존
+zerowing	제로 윙
+hellfire	헬파이어
+# --- Psikyo
+s1945	스트라이커즈 1945
+s1945ii	스트라이커즈 1945 II
+s1945iii	스트라이커즈 1945 III
+gunbird	건버드
+gunbird2	건버드 2
+sngkace	전국 에이스
+tengai	전국 블레이드
+dragnblz	드래곤 블레이즈
+# --- Cave
+donpachi	돈파치
+ddonpach	도돈파치
+ddpdoj	도돈파치 대왕생
+dfeveron	단군 피버론
+esprade	에스프레이드
+guwange	구와게
+espgal	에스프갈루다
+ket	케츠이
+mushisam	무시히메사마
+# --- Raizing / 8ing
+bgaregga	배틀 가레가
+sstriker	소서 스트라이커
+# --- Seibu
+raiden	라이덴
+raiden2	라이덴 II
+raidendx	라이덴 DX
+rdft	라이덴 파이터즈
+rdft2	라이덴 파이터즈 2
+rfjet	라이덴 파이터즈 제트
+viprp1	바이퍼 페이즈 1
+cabal	카발
+bloodbro	블러드 브라더스
+dynduke	다이너마이트 듀크
+# --- Atari
+gauntlet	건틀릿
+gaunt2	건틀릿 II
+paperboy	페이퍼보이
+marble	마블 매드니스
+rampart	램파트
+klax	클랙스
+atetris	테트리스 (아타리)
+centiped	센티피드
+asteroid	아스테로이드
+# --- Video System
+aerofgt	에어로 파이터즈
+turbofrc	터보 포스
+pspikes	파워 스파이크스
+f1gp	F1 그랑프리
+# --- IGS
+kov	삼국전기
+kovplus	삼국전기 플러스
+kovsh	삼국전기 슈퍼 히어로즈
+kov2	삼국전기 2
+kov2p	삼국전기 2 플러스
+orlegend	서유석액
+olds	서유석액 슈퍼
+killbld	더 킬링 블레이드
+martmast	마샬 마스터즈
+theglad	더 글래디에이터
+ddp2	도돈파치 II 바틀 버스트
+# --- Others
+dkong	동키콩
+dkongjr	동키콩 주니어
+invaders	스페이스 인베이더
+bombjack	봄잭
+mrdo	미스터 두
+ladybug	레이디버그
+rygar	라이거
+gemini	제미니 윙
+silkworm	실크웜
+wc90	월드컵 '90
+gaiden	닌자 용검전
+psychic5	사이킥 5
+tetrisp	테트리스 플러스
+tetrisp2	테트리스 플러스 2
+galpanic	갈스 패닉
+terracre	테라 크레스타
+cclimber	크레이지 클라이머
+ikari	이카리
+# --- Parents of sets better known by a clone's name
+puckman	팩맨
+gunlock	레이포스
+bchopper	미스터 헬리
+samuraia	전국 에이스
+ddp3	도돈파치 대왕생
+feversos	단군 피버론
+shadoww	닌자 용검전
