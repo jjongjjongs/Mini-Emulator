@@ -3731,10 +3731,101 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         }
         this.menuExiting = false;
-        AlertDialog create = new AlertDialog.Builder(this).setTitle("게임으로 돌아갈까요?").setMessage("아니오를 누르면 현재 게임을 저장하고 ROM 목록으로 나갑니다.").setNegativeButton("예", (dialog, which) -> resumeEmulation()).setPositiveButton("아니오", (dialog, which) -> saveAndExit()).create();
-        create.setOnCancelListener(dialog -> resumeEmulation());
-        create.setOnDismissListener(dialog -> resumeUnlessExiting());
-        create.show();
+        // Two big tiles in the pause menu's style: carry on, or save this moment and leave.
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("게임을 나갈까요?");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setGravity(1);
+        panel.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        TextView game = new TextView(this);
+        game.setText(this.gameTitle);
+        game.setTextSize(12.0f);
+        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setGravity(1);
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        panel.addView(game, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout tiles = new LinearLayout(this);
+        tiles.setOrientation(0);
+        tiles.addView(createBackExitTile(RoundIconView.PLAY, Color.rgb(22, 185, 207), Color.rgb(241, 251, 252), "계속하기", "게임으로\n돌아가기",
+                view -> dialog.cancel()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams exitParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        exitParams.setMargins(dp(10), 0, 0, 0);
+        tiles.addView(createBackExitTile(RoundIconView.EXIT, RoundIconView.COLOR_EXIT, Color.rgb(254, 243, 243), "나가기", "지금 장면 저장 후\nROM 목록으로",
+                view -> {
+                    // Flag the exit before the dismiss listener would resume the game.
+                    this.menuExiting = true;
+                    dialog.dismiss();
+                    saveAndExit();
+                }), exitParams);
+        LinearLayout.LayoutParams tilesParams = new LinearLayout.LayoutParams(-1, -2);
+        tilesParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(tiles, tilesParams);
+        dialog.setContentView(panel);
+        dialog.setOnCancelListener(d -> resumeEmulation());
+        dialog.setOnDismissListener(d -> resumeUnlessExiting());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(48), dp(360));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout createBackExitTile(int icon, int color, int fill, String label, String detail, View.OnClickListener onClick) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(1);
+        tile.setGravity(1);
+        tile.setPadding(dp(8), dp(18), dp(8), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(fill);
+        background.setCornerRadius(dp(18));
+        tile.setBackground(background);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        tile.addView(iconView, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(15.0f);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.setTextColor(Color.rgb(31, 41, 51));
+        text.setGravity(1);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(0, dp(10), 0, 0);
+        tile.addView(text, textParams);
+        TextView sub = new TextView(this);
+        sub.setText(detail);
+        sub.setTextSize(11.5f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setGravity(1);
+        sub.setLineSpacing(0, 1.1f);
+        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-2, -2);
+        subParams.setMargins(0, dp(3), 0, 0);
+        tile.addView(sub, subParams);
+        tile.setClickable(true);
+        tile.setContentDescription(label);
+        tile.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+            }
+            return false;
+        });
+        tile.setOnClickListener(onClick);
+        return tile;
     }
 
     private void resumeEmulation() {
