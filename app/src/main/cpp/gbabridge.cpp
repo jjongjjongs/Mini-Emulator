@@ -2309,7 +2309,10 @@ void runLoop(Core* core) {
                 // Backwards sound is noise; and the frame shouldn't count toward the audio clock.
                 core->audioPending.clear();
             } else {
-                if (core->coreId == "mupen64plus_next" || core->coreId == "flycast") {
+                // These can hand over more (or less) than a frame's audio per call - PPSSPP in
+                // some screens, such as Monster Hunter's character creation, which then ran
+                // fast with its sound breaking up - so they are paced by the audio they make.
+                if (core->coreId == "mupen64plus_next" || core->coreId == "flycast" || core->coreId == "ppsspp") {
                     fps = audioClockFps(core, core->audioPending.size() / 2);
                 }
                 if (core->hidePicture.load()) {
