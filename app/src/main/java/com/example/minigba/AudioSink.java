@@ -11,10 +11,20 @@ import android.media.AudioTrack;
 // should run to steer the (smoothed) queue back to TARGET_MS, so the music keeps its own
 // speed and pitch. Only when the game cannot keep up (a heavy scene) is a frame's audio
 // stretched, by at most MAX_STRETCH, which is hard to hear.
+// A frame that takes much longer than usual (PSP games such as Monster Hunter now and then)
+// empties the queue, and the gap is heard as a crack; each one raises the amount kept
+// queued, up to MAX_TARGET_MS, so the next hitch is covered. It eases back down after a
+// quiet while, as it adds that much delay to the sound.
 final class AudioSink {
     // Room in the track and the amount kept queued, in milliseconds.
-    private static final int BUFFER_MS = 200;
+    private static final int BUFFER_MS = 400;
     private static final int TARGET_MS = 80;
+    private static final int MAX_TARGET_MS = 200;
+    private static final int TARGET_STEP_MS = 30;
+    private static final long CALM_NS = 60_000_000_000L;
+    // A longer pause than this between writes is the game standing still (the menu, a
+    // quick save), not a hitch.
+    private static final long PAUSE_NS = 500_000_000L;
     // Longest a frame's audio is stretched; more than this drags the music audibly, so a
     // game that slow gets short gaps instead.
     private static final double MAX_STRETCH = 1.05;
@@ -33,6 +43,8 @@ final class AudioSink {
     private static final long RESTART_GAP_NS = 50_000_000L;
     private long lastWriteNs;
     private short[] silence = new short[0];
+    private int targetMs = TARGET_MS;
+    private long lastGapNs;
 
     AudioSink() {
     }
@@ -43,6 +55,8 @@ final class AudioSink {
         this.framesWritten = 0;
         this.smoothedQueued = -1;
         this.lastWriteNs = 0;
+        this.targetMs = TARGET_MS;
+        this.lastGapNs = 0;
         // AudioTrack wants whole stereo 16-bit frames (4 bytes); a rate such as the DS's
         // 32768 Hz gives a byte count that is not.
         int bytes = Math.max(AudioTrack.getMinBufferSize(i, 12, 2), i * 4 * BUFFER_MS / 1000);
@@ -61,10 +75,21 @@ final class AudioSink {
         }
         long played = audioTrack.getPlaybackHeadPosition() & 0xffffffffL;
         long queued = Math.max(0, this.framesWritten - played);
-        double target = (double) this.sampleRate * TARGET_MS / 1000;
-        double room = (double) this.sampleRate * BUFFER_MS / 1000 - target;
         long now = System.nanoTime();
-        boolean restarted = queued < target / 4 || (this.lastWriteNs != 0 && now - this.lastWriteNs > RESTART_GAP_NS);
+        long sinceWrite = this.lastWriteNs == 0 ? 0 : now - this.lastWriteNs;
+        double target = (double) this.sampleRate * this.targetMs / 1000;
+        boolean restarted = queued < target / 4 || sinceWrite > RESTART_GAP_NS;
+        if (restarted && this.lastWriteNs != 0 && sinceWrite < PAUSE_NS) {
+            // The queue ran dry while the game was running: keep more queued from now on.
+            this.targetMs = Math.min(MAX_TARGET_MS, this.targetMs + TARGET_STEP_MS);
+            this.lastGapNs = now;
+            target = (double) this.sampleRate * this.targetMs / 1000;
+        } else if (this.targetMs > TARGET_MS && now - this.lastGapNs > CALM_NS) {
+            this.targetMs = Math.max(TARGET_MS, this.targetMs - 10);
+            this.lastGapNs = now;
+            target = (double) this.sampleRate * this.targetMs / 1000;
+        }
+        double room = (double) this.sampleRate * BUFFER_MS / 1000 - target;
         this.lastWriteNs = now;
         if (restarted && queued < target) {
             int fill = (int) Math.round(target - queued);
