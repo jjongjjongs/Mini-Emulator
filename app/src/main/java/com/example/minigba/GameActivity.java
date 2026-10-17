@@ -1113,7 +1113,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     sb.append(layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',')
                             .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f).append(';');
                 }
-                MainActivity.sharedSettings(this).edit().putString(layoutKey(), sb.toString()).apply();
+                MainActivity.sharedSettings(GameActivity.this).edit().putString(layoutKey(), sb.toString()).apply();
                 finishLayoutEditor("버튼 배치를 저장했어요.");
             }
 
