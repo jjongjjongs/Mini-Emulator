@@ -618,8 +618,10 @@ size_t stateHeaderSize(const Core* core) {
 // Whether the quick save is written when a game closes and restored when it starts. Not for
 // Play!: its states are slow (40 MB) and not reliable enough to restore on every launch;
 // PS2 games keep their progress on the memory card, and the menu's quick save still works.
+// Nor for MAME 2015: Bloody Roar 1/2 (Sony ZN) came back from its state with a frozen
+// picture, so those games start from boot each time.
 bool autoState(const Core* core) {
-    return core->coreId != "play";
+    return core->coreId != "play" && core->coreId != "mame2015";
 }
 
 namespace crash {
