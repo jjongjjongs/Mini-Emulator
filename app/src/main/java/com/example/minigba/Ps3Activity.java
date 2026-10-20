@@ -81,6 +81,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     private volatile boolean leaving;
     private String gamePath;
     private TextView statusView;
+    private boolean statusHidden;
 
     static File rootDir(Context context) {
         return new File(context.getFilesDir(), "ps3");
@@ -144,12 +145,37 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             // posted to its "main thread" (save data, state saves) and PPU/SPU compilation.
             startDaemon("ps3-main-thread", () -> RPCSX.instance.startMainThreadProcessor());
             startDaemon("ps3-compile", () -> RPCSX.instance.processCompilationQueue());
+            applyEngineSettings(context);
             engineReady = true;
             return true;
         } catch (Throwable t) {
             engineError = "PS3 엔진 오류: " + t.getMessage();
             return false;
         }
+    }
+
+    // Resolution scale and the FPS overlay, kept in our settings and handed to the engine.
+    private static final int[] RES_VALUES = {50, 100, 150, 200};
+    private static final String[] RES_NAMES = {"0.5배 · 360p", "1배 · 720p", "1.5배 · 1080p", "2배 · 1440p"};
+    private static final String[] RES_NOTES = {"가장 빠름 · 흐릿함", "PS3 원래 해상도 (기본)", "더 선명 · 조금 느려짐", "가장 선명 · 많이 느려질 수 있음"};
+
+    private static int resIndex(Context context) {
+        int value = MainActivity.sharedSettings(context).getInt("ps3_res", 100);
+        for (int k = 0; k < RES_VALUES.length; k++) {
+            if (RES_VALUES[k] == value) {
+                return k;
+            }
+        }
+        return 1;
+    }
+
+    private static boolean perfOverlay(Context context) {
+        return MainActivity.sharedSettings(context).getBoolean("ps3_perf", false);
+    }
+
+    private static void applyEngineSettings(Context context) {
+        RPCSX.instance.settingsSet("Video@@Resolution Scale", String.valueOf(RES_VALUES[resIndex(context)]));
+        RPCSX.instance.settingsSet("Video@@Performance Overlay@@Enabled", perfOverlay(context) ? "true" : "false");
     }
 
     private static void startDaemon(String name, Runnable body) {
@@ -267,20 +293,56 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
 
     // ---- Game screen ----
 
+    private boolean landscape() {
+        return MainActivity.sharedSettings(this).getBoolean("ps3_landscape", false);
+    }
+
     private void buildGameScreen() {
+        setRequestedOrientation(landscape() ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        boolean wide = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         FrameLayout root = new FrameLayout(this);
         int style = MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_CLEAR);
         int body = Color.rgb(24, 26, 34);
-        ClearShellView shell = new ClearShellView(this, ClearShellView.TINT_SMOKE, "MINI EMULATOR · PS3", false, style, INDIGO, body);
+        ClearShellView shell = new ClearShellView(this, ClearShellView.TINT_SMOKE, "MINI EMULATOR · PS3", wide, style, INDIGO, body);
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         int labelColor = ClearShellView.darkBackground(style, body) ? Color.rgb(230, 232, 238) : Color.rgb(58, 63, 75);
+
+        FrameLayout screen = new FrameLayout(this);
+        screen.setBackgroundColor(Color.BLACK);
+        SurfaceView surface = new SurfaceView(this);
+        surface.getHolder().addCallback(this);
+        screen.addView(surface, new FrameLayout.LayoutParams(-1, -1));
+        this.statusView = text("PS3 엔진을 시작하는 중…\n처음에는 셰이더와 코드를 준비하느라 오래 걸릴 수 있어요.", 13, Color.rgb(205, 214, 244), false);
+        this.statusView.setGravity(Gravity.CENTER);
+        this.statusView.setVisibility(this.statusHidden ? View.GONE : View.VISIBLE);
+        screen.addView(this.statusView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        LinearLayout menu = iconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", labelColor, v -> showPauseMenu());
+
+        if (wide) {
+            // Landscape: the screen between two control columns, SELECT/PS/START below it.
+            FrameLayout controls = new FrameLayout(this);
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            int heightDp = Math.round(metrics.heightPixels / metrics.density);
+            int widthDp = Math.round(metrics.widthPixels / metrics.density);
+            int screenW = Math.min(widthDp - 2 * 178, (heightDp - 70) * 16 / 9);
+            FrameLayout.LayoutParams screenParams = new FrameLayout.LayoutParams(dp(screenW), dp(screenW * 9 / 16), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            screenParams.topMargin = dp(10);
+            controls.addView(screen, screenParams);
+            buildPadLandscape(controls);
+            addAt(controls, menu, 14, 6, 48, 56, Gravity.TOP | Gravity.START);
+            root.addView(controls, new FrameLayout.LayoutParams(-1, -1));
+            shell.track(screen, controls);
+            setContentView(root);
+            return;
+        }
 
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(dp(12), dp(8), dp(12), dp(4));
-        top.addView(iconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", labelColor, v -> showExitDialog()));
+        top.addView(menu);
         TextView title = text(getIntent().getStringExtra(EXTRA_TITLE), 13, labelColor, true);
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -289,14 +351,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         column.addView(top, new LinearLayout.LayoutParams(-1, -2));
 
         // 16:9 screen, the width of the phone with a small margin.
-        FrameLayout screen = new FrameLayout(this);
-        screen.setBackgroundColor(Color.BLACK);
-        SurfaceView surface = new SurfaceView(this);
-        surface.getHolder().addCallback(this);
-        screen.addView(surface, new FrameLayout.LayoutParams(-1, -1));
-        this.statusView = text("PS3 엔진을 시작하는 중…\n처음에는 셰이더와 코드를 준비하느라 오래 걸릴 수 있어요.", 13, Color.rgb(205, 214, 244), false);
-        this.statusView.setGravity(Gravity.CENTER);
-        screen.addView(this.statusView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         int width = getResources().getDisplayMetrics().widthPixels - dp(16);
         LinearLayout.LayoutParams screenParams = new LinearLayout.LayoutParams(width, width * 9 / 16);
         screenParams.gravity = Gravity.CENTER_HORIZONTAL;
@@ -309,6 +363,49 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         root.addView(column, new FrameLayout.LayoutParams(-1, -1));
         shell.track(screen, pad);
         setContentView(root);
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        if (engineReady && this.gamePath != null && !this.leaving) {
+            // A new SurfaceView: the old surface goes away and the engine gets the new one.
+            buildGameScreen();
+        }
+    }
+
+    // Landscape: left column L2 L1, D-pad, left stick; right column R1 R2, face buttons, right
+    // stick; L3, SELECT, PS, START, R3 along the bottom under the screen.
+    private void buildPadLandscape(FrameLayout pad) {
+        TouchButton.Listener buttons = this::onButton;
+        addAt(pad, new TouchButton(this, "L2", D2_L2, buttons, TouchButton.STYLE_SHOULDER), 12, 68, 74, 38, Gravity.TOP | Gravity.START);
+        addAt(pad, new TouchButton(this, "L1", D2_L1, buttons, TouchButton.STYLE_SHOULDER), 92, 68, 74, 38, Gravity.TOP | Gravity.START);
+        addAt(pad, new TouchButton(this, "R1", D2_R1, buttons, TouchButton.STYLE_SHOULDER), 92, 68, 74, 38, Gravity.TOP | Gravity.END);
+        addAt(pad, new TouchButton(this, "R2", D2_R2, buttons, TouchButton.STYLE_SHOULDER), 12, 68, 74, 38, Gravity.TOP | Gravity.END);
+        addAt(pad, new DPadView(this, this::onDirections), 24, 116, 126, 126, Gravity.TOP | Gravity.START);
+        int[] bits = {D2_TRIANGLE, D2_CIRCLE, D2_CROSS, D2_SQUARE};
+        String[] labels = {"△", "○", "×", "□"};
+        int[] colors = {Color.rgb(47, 182, 122), Color.rgb(226, 71, 90), Color.rgb(77, 142, 240), Color.rgb(212, 107, 196)};
+        int[][] offsets = {{66, 114}, {20, 158}, {66, 202}, {112, 158}};
+        for (int k = 0; k < 4; k++) {
+            TouchButton face = new TouchButton(this, labels[k], bits[k], buttons, TouchButton.STYLE_ACTION);
+            face.setLabelColor(colors[k]);
+            addAt(pad, face, offsets[k][0], offsets[k][1], 46, 46, Gravity.TOP | Gravity.END);
+        }
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), 34, 12, 104, 104, Gravity.BOTTOM | Gravity.START);
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(false, x, y)), 34, 12, 104, 104, Gravity.BOTTOM | Gravity.END);
+        int[] xs = {-150, -76, 0, 76, 150};
+        String[] names = {"L3", "SELECT", "PS", "START", "R3"};
+        int[] ids = {D1_L3, D1_SELECT, D1_PS, D1_START, D1_R3};
+        for (int k = 0; k < 5; k++) {
+            boolean small = k == 0 || k == 2 || k == 4;
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(small ? 40 : 66), dp(small ? 40 : 30), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            params.bottomMargin = dp(small ? 12 : 17);
+            TouchButton button = small ? new TouchButton(this, names[k], ids[k] << D1_SHIFT, buttons, TouchButton.STYLE_DARK)
+                    : new TouchButton(this, names[k], ids[k] << D1_SHIFT, buttons);
+            button.setTranslationX(dp(xs[k]));
+            pad.addView(button, params);
+        }
     }
 
     private void buildPad(FrameLayout pad) {
@@ -437,7 +534,10 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             // "Compiling shaders" note meanwhile).
             for (int i = 0; i < 600 && !this.leaving; i++) {
                 if (RPCSX.instance.getState() == RPCSX.STATE_RUNNING || i >= 30) {
-                    main.post(() -> this.statusView.setVisibility(View.GONE));
+                    main.post(() -> {
+                        this.statusHidden = true;
+                        this.statusView.setVisibility(View.GONE);
+                    });
                     return;
                 }
                 try {
@@ -466,6 +566,323 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     @Override
     public void onBackPressed() {
         showExitDialog();
+    }
+
+    // ---- Pause menu ----
+
+    private void showPauseMenu() {
+        if (!engineReady) {
+            showExitDialog();
+            return;
+        }
+        RPCSX.instance.pause();
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        final boolean[] keepPaused = {false};
+        LinearLayout panel = card();
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(text("일시정지", 17, Color.rgb(31, 41, 51), true), new LinearLayout.LayoutParams(0, -2, 1));
+        TextView game = text(getIntent().getStringExtra(EXTRA_TITLE), 12, Color.rgb(122, 130, 140), false);
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        header.addView(game, new LinearLayout.LayoutParams(0, -2, 1.4f));
+        game.setGravity(Gravity.END);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        long saved = MainActivity.sharedSettings(this).getLong("ps3_state_time:" + this.gamePath, 0);
+        String savedText = saved == 0 ? "저장 없음" : new java.text.SimpleDateFormat("a h:mm", java.util.Locale.KOREA).format(new java.util.Date(saved));
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row1 = new LinearLayout(this);
+        LinearLayout row2 = new LinearLayout(this);
+        row1.addView(menuTile(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", "시험 기능", v -> {
+            keepPaused[0] = true;
+            dialog.dismiss();
+            quickSave();
+        }), tileParams(0));
+        row1.addView(menuTile(RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", savedText, v -> {
+            keepPaused[0] = true;
+            dialog.dismiss();
+            quickLoad();
+        }), tileParams(1));
+        row1.addView(menuTile(RoundIconView.PS_HOME, RoundIconView.COLOR_PS_HOME, "PS 홈 메뉴", "XMB", v -> {
+            dialog.dismiss();
+            RPCSX.instance.openHomeMenu();
+        }), tileParams(2));
+        row2.addView(menuTile(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null, v -> {
+            keepPaused[0] = true;
+            dialog.dismiss();
+            restartGame();
+        }), tileParams(0));
+        row2.addView(menuTile(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, landscape() ? "세로 화면" : "가로 화면", null, v -> {
+            dialog.dismiss();
+            MainActivity.sharedSettings(this).edit().putBoolean("ps3_landscape", !landscape()).commit();
+            buildGameScreen();
+        }), tileParams(1));
+        row2.addView(menuTile(RoundIconView.EXIT, RoundIconView.COLOR_EXIT, "나가기", null, v -> {
+            keepPaused[0] = true;
+            this.leaving = true;
+            dialog.dismiss();
+            leave();
+        }), tileParams(2));
+        grid.addView(row1, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
+        row2Params.setMargins(0, dp(10), 0, 0);
+        grid.addView(row2, row2Params);
+        LinearLayout.LayoutParams gridParams = new LinearLayout.LayoutParams(-1, -2);
+        gridParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(grid, gridParams);
+
+        panel.addView(menuRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "설정", "배경 · 진동", v -> {
+            dialog.dismiss();
+            showSettings();
+        }), rowParams(12));
+        panel.addView(menuRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", RES_NAMES[resIndex(this)], v -> {
+            dialog.dismiss();
+            showChoices(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", RES_NAMES, RES_NOTES, resIndex(this),
+                    "바로 적용돼요. 모든 PS3 게임에 같이 적용돼요.", choice -> {
+                MainActivity.sharedSettings(this).edit().putInt("ps3_res", RES_VALUES[choice]).commit();
+                applyEngineSettings(this);
+            });
+        }), rowParams(8));
+        panel.addView(menuRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시", perfOverlay(this) ? "켜짐" : "꺼짐", v -> {
+            dialog.dismiss();
+            showChoices(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시", new String[]{"꺼짐", "켜짐"},
+                    new String[]{"표시 없음 (기본)", "화면 구석에 FPS와 CPU·GPU 사용량"}, perfOverlay(this) ? 1 : 0,
+                    "엔진이 게임 화면 위에 직접 그려요.", choice -> {
+                MainActivity.sharedSettings(this).edit().putBoolean("ps3_perf", choice == 1).commit();
+                applyEngineSettings(this);
+            });
+        }), rowParams(8));
+        TextView resume = pill("▶  계속하기", INDIGO, Color.WHITE);
+        resume.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(50));
+        resumeParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(resume, resumeParams);
+        dialog.setContentView(scrollable(panel));
+        dialog.setOnDismissListener(d -> {
+            if (!keepPaused[0] && !this.leaving) {
+                RPCSX.instance.resume();
+            }
+        });
+        sizeDialog(dialog);
+        dialog.show();
+    }
+
+    private void quickSave() {
+        toast("저장 중… 잠깐 멈췄다가 이어져요");
+        new Thread(() -> {
+            boolean ok = RPCSX.instance.saveStateToSlot(1);
+            if (ok) {
+                MainActivity.sharedSettings(this).edit().putLong("ps3_state_time:" + this.gamePath, System.currentTimeMillis()).commit();
+            }
+            main.post(() -> {
+                RPCSX.instance.resume();
+                toast(ok ? "지금 장면을 저장했어요" : "이 게임은 빠른 저장이 안 돼요");
+            });
+        }, "ps3-save").start();
+    }
+
+    private void quickLoad() {
+        new Thread(() -> {
+            boolean has = RPCSX.instance.hasStateInSlot(1);
+            boolean ok = has && RPCSX.instance.loadStateFromSlot(1);
+            main.post(() -> {
+                if (!ok) {
+                    RPCSX.instance.resume();
+                }
+                toast(!has ? "저장한 장면이 없어요" : ok ? "저장한 장면을 불러오는 중…" : "불러오지 못했어요");
+            });
+        }, "ps3-load").start();
+    }
+
+    private void restartGame() {
+        toast("게임을 다시 시작해요");
+        new Thread(() -> {
+            RPCSX.instance.kill();
+            for (int i = 0; i < 80 && RPCSX.instance.getState() != RPCSX.STATE_STOPPED; i++) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+            main.post(() -> {
+                this.statusHidden = false;
+                if (this.statusView != null) {
+                    this.statusView.setVisibility(View.VISIBLE);
+                }
+                bootGame();
+            });
+        }, "ps3-restart").start();
+    }
+
+    private void showSettings() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout panel = card();
+        panel.addView(text("PS3 설정", 17, Color.rgb(31, 41, 51), true));
+        int style = MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_CLEAR);
+        panel.addView(menuRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES[Math.max(0, Math.min(ClearShellView.STYLE_NAMES.length - 1, style))], v -> {
+            dialog.dismiss();
+            showChoices(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES, ClearShellView.STYLE_NOTES, style,
+                    "모든 게임에 같이 적용돼요.", choice -> {
+                MainActivity.sharedSettings(this).edit().putInt("shell_style", choice).commit();
+                buildGameScreen();
+            });
+        }), rowParams(12));
+        String[] hapticNames = {"꺼짐", "약하게", "보통", "강하게"};
+        String[] hapticNotes = {"진동 없음 (기본)", "살짝 톡", "또렷하게 톡", "확실하게 툭"};
+        int haptic = Math.max(0, Math.min(3, MainActivity.sharedSettings(this).getInt("haptic_level", 0)));
+        panel.addView(menuRow(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", hapticNames[haptic], v -> {
+            dialog.dismiss();
+            showChoices(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", hapticNames, hapticNotes, haptic,
+                    "화면 버튼을 누를 때 짧게 진동해요.", choice -> {
+                MainActivity.sharedSettings(this).edit().putInt("haptic_level", choice).commit();
+                Haptics.setLevel(this, choice);
+                Haptics.tap();
+            });
+        }), rowParams(8));
+        TextView close = pill("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
+        closeParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.setContentView(scrollable(panel));
+        dialog.setOnDismissListener(d -> {
+            if (!this.leaving) {
+                RPCSX.instance.resume();
+            }
+        });
+        RPCSX.instance.pause();
+        sizeDialog(dialog);
+        dialog.show();
+    }
+
+    private interface Choice {
+        void picked(int index);
+    }
+
+    private void showChoices(int icon, int color, String title, String[] names, String[] notes, int current, String note, Choice onPick) {
+        RPCSX.instance.pause();
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout panel = card();
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        TextView titleView = text(title, 17, Color.rgb(31, 41, 51), true);
+        titleView.setPadding(dp(10), 0, 0, 0);
+        header.addView(titleView);
+        panel.addView(header);
+        for (int k = 0; k < names.length; k++) {
+            final int index = k;
+            LinearLayout option = new LinearLayout(this);
+            option.setOrientation(LinearLayout.VERTICAL);
+            option.setPadding(dp(14), dp(10), dp(14), dp(10));
+            option.setBackground(roundRect(k == current ? Color.argb(28, Color.red(color), Color.green(color), Color.blue(color)) : Color.rgb(246, 247, 249), 14));
+            option.addView(text((k == current ? "● " : "○ ") + names[k], 14.5f, Color.rgb(31, 41, 51), true));
+            if (notes != null) {
+                option.addView(text(notes[k], 11.5f, Color.rgb(122, 130, 140), false));
+            }
+            option.setOnClickListener(v -> {
+                dialog.dismiss();
+                onPick.picked(index);
+            });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, dp(8), 0, 0);
+            panel.addView(option, params);
+        }
+        TextView noteView = text(note, 12, Color.rgb(75, 85, 99), false);
+        noteView.setPadding(dp(4), dp(10), dp(4), 0);
+        panel.addView(noteView);
+        TextView close = pill("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
+        closeParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.setContentView(scrollable(panel));
+        dialog.setOnDismissListener(d -> {
+            if (!this.leaving) {
+                RPCSX.instance.resume();
+            }
+        });
+        sizeDialog(dialog);
+        dialog.show();
+    }
+
+    private LinearLayout menuTile(int icon, int color, String label, String detail, View.OnClickListener onClick) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER_HORIZONTAL);
+        tile.setPadding(dp(6), dp(14), dp(6), dp(12));
+        tile.setBackground(roundRect(Color.rgb(246, 247, 249), 16));
+        tile.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(44), dp(44)));
+        TextView name = text(label, 13, Color.rgb(31, 41, 51), true);
+        name.setGravity(Gravity.CENTER);
+        name.setPadding(0, dp(8), 0, 0);
+        tile.addView(name);
+        if (detail != null) {
+            TextView sub = text(detail, 10.5f, Color.rgb(122, 130, 140), false);
+            sub.setGravity(Gravity.CENTER);
+            tile.addView(sub);
+        }
+        tile.setClickable(true);
+        tile.setOnClickListener(onClick);
+        return tile;
+    }
+
+    private LinearLayout.LayoutParams tileParams(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1);
+        params.setMargins(column == 0 ? 0 : dp(5), 0, column == 2 ? 0 : dp(5), 0);
+        return params;
+    }
+
+    private LinearLayout menuRow(int icon, int color, String label, String value, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setBackground(roundRect(Color.rgb(246, 247, 249), 14));
+        row.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView name = text(label, 14, Color.rgb(31, 41, 51), true);
+        name.setPadding(dp(12), 0, 0, 0);
+        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(text(value + "  ›", 13.5f, Color.rgb(122, 130, 140), true));
+        row.setClickable(true);
+        row.setOnClickListener(onClick);
+        return row;
+    }
+
+    private LinearLayout.LayoutParams rowParams(int topDp) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+        params.setMargins(0, dp(topDp), 0, 0);
+        return params;
+    }
+
+    private GradientDrawable roundRect(int color, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(dp(radiusDp));
+        return drawable;
+    }
+
+    private View scrollable(View panel) {
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        return scroll;
+    }
+
+    private void sizeDialog(Dialog dialog) {
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380)), -2);
+        }
+    }
+
+    private void toast(String message) {
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     private void showExitDialog() {

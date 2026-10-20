@@ -46,4 +46,10 @@ public final class RPCSX {
     public native void setAppBackgrounded(boolean backgrounded);
     public native String getTitle();
     public native String getVersion();
+    public native void openHomeMenu();
+    public native boolean saveStateToSlot(int slot);
+    public native boolean loadStateFromSlot(int slot);
+    public native boolean hasStateInSlot(int slot);
+    // A config value by "@@"-joined path (e.g. "Video@@Resolution Scale"), as text.
+    public native boolean settingsSet(String path, String value);
 }

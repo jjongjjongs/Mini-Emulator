@@ -22,7 +22,6 @@
             android:name="com.example.minigba.Ps3Activity"
             android:process=":ps3"
             android:exported="false"
-            android:screenOrientation="portrait"
             android:configChanges="screenSize|orientation|keyboardHidden|keyboard"/>
         <activity
             android:name="com.example.minigba.MainActivity"
