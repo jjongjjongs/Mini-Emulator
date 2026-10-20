@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: PS3 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M5 33V23C5 15 13 11 24 11C35 11 43 15 43 23V33Z" android:fillColor="#FFF"/>
+    <path android:pathData="M6.5,33H41.5A1.5,1.5 0,0 1,43,34.5V35.5A1.5,1.5 0,0 1,41.5,37H6.5A1.5,1.5 0,0 1,5,35.5V34.5A1.5,1.5 0,0 1,6.5,33Z" android:fillColor="#FFF" android:fillAlpha="0.85"/>
+    <path android:pathData="M11 25H31" android:strokeColor="#4F46E5" android:strokeWidth="1.6"/>
+    <path android:pathData="M34.6,25a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#4F46E5"/>
+    <path android:pathData="M38.1,25a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#4F46E5"/>
+    <path android:pathData="M9 19.5C13 15.8 19 14.5 24 14.5" android:strokeColor="#4F46E5" android:strokeWidth="1.2" android:strokeAlpha="0.45"/>
+</vector>
