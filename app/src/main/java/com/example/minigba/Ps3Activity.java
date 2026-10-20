@@ -427,10 +427,10 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             addAt(pad, face, offsets[k][0], offsets[k][1], 52, 52, Gravity.TOP | Gravity.END);
         }
         // Sticks; a tap on the stick view itself is not L3/R3, those are small buttons beside them.
-        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), 24, 70, 116, 116, Gravity.BOTTOM | Gravity.START);
-        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(false, x, y)), 24, 70, 116, 116, Gravity.BOTTOM | Gravity.END);
-        addAt(pad, new TouchButton(this, "L3", D1_L3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 106, 40, 40, Gravity.BOTTOM | Gravity.START);
-        addAt(pad, new TouchButton(this, "R3", D1_R3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 106, 40, 40, Gravity.BOTTOM | Gravity.END);
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), 24, 110, 116, 116, Gravity.BOTTOM | Gravity.START);
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(false, x, y)), 24, 110, 116, 116, Gravity.BOTTOM | Gravity.END);
+        addAt(pad, new TouchButton(this, "L3", D1_L3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 146, 40, 40, Gravity.BOTTOM | Gravity.START);
+        addAt(pad, new TouchButton(this, "R3", D1_R3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 146, 40, 40, Gravity.BOTTOM | Gravity.END);
         // SELECT, PS, START along the middle.
         FrameLayout.LayoutParams select = new FrameLayout.LayoutParams(dp(70), dp(30), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         TouchButton selectButton = new TouchButton(this, "SELECT", D1_SELECT << D1_SHIFT, buttons);
@@ -443,7 +443,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         start.bottomMargin = dp(20);
         pad.addView(startButton, start);
         FrameLayout.LayoutParams ps = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        ps.bottomMargin = dp(66);
+        ps.bottomMargin = dp(106);
         pad.addView(new TouchButton(this, "PS", D1_PS << D1_SHIFT, buttons, TouchButton.STYLE_DARK), ps);
     }
 
