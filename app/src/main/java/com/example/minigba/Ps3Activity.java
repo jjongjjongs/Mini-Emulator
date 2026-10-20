@@ -330,8 +330,8 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             addAt(pad, face, offsets[k][0], offsets[k][1], 52, 52, Gravity.TOP | Gravity.END);
         }
         // Sticks; a tap on the stick view itself is not L3/R3, those are small buttons beside them.
-        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), 24, 18, 116, 116, Gravity.BOTTOM | Gravity.START);
-        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(false, x, y)), 24, 18, 116, 116, Gravity.BOTTOM | Gravity.END);
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), 24, 70, 116, 116, Gravity.BOTTOM | Gravity.START);
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(false, x, y)), 24, 70, 116, 116, Gravity.BOTTOM | Gravity.END);
         addAt(pad, new TouchButton(this, "L3", D1_L3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 106, 40, 40, Gravity.BOTTOM | Gravity.START);
         addAt(pad, new TouchButton(this, "R3", D1_R3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 106, 40, 40, Gravity.BOTTOM | Gravity.END);
         // SELECT, PS, START along the middle.
@@ -433,9 +433,10 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 main.post(() -> showMessage("게임을 시작하지 못했어요", bootError(result), true));
                 return;
             }
-            // Hide the starting note once the engine reports the game running.
+            // Hide the starting note once the game runs, or after 15 s (the engine shows its own
+            // "Compiling shaders" note meanwhile).
             for (int i = 0; i < 600 && !this.leaving; i++) {
-                if (RPCSX.instance.getState() == RPCSX.STATE_RUNNING) {
+                if (RPCSX.instance.getState() == RPCSX.STATE_RUNNING || i >= 30) {
                     main.post(() -> this.statusView.setVisibility(View.GONE));
                     return;
                 }
