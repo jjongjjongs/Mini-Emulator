@@ -173,9 +173,9 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         return MainActivity.sharedSettings(context).getBoolean("ps3_perf", false);
     }
 
-    // "속도 우선", per game: bigger SPU blocks, drawing before shaders are ready, relaxed ZCULL
-    // and at most 75% resolution. Off puts RPCS3's defaults back, as the config is shared.
-    // (Setting names and values are RPCS3's config.yml ones.)
+    // "속도 우선", per game: bigger SPU blocks, drawing before shaders are ready, relaxed ZCULL,
+    // no MSAA, low shader precision and at most 75% resolution. Off puts RPCS3's defaults back,
+    // as the config is shared. (Names and values as in the engine's config.yml.)
     private static boolean speedFirst(Context context, String gamePath) {
         return gamePath != null && MainActivity.sharedSettings(context).getBoolean("ps3_fast:" + gamePath, false);
     }
@@ -192,8 +192,11 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         android.content.SharedPreferences prefs = MainActivity.sharedSettings(context);
         if (fast || prefs.getBoolean("ps3_fast_applied", false)) {
             set(refused, "SPU 블록", "Core@@SPU Block Size", fast ? "Mega" : "Safe");
-            set(refused, "셰이더", "Video@@Shader Mode", fast ? "Async with Shader Interpreter" : "Async Shader Recompiler");
+            set(refused, "셰이더", "Video@@Shader Mode", fast ? "Async Recompiler with Shader Interpreter" : "Async Recompiler (multi-threaded)");
             set(refused, "ZCULL", "Video@@Relaxed ZCULL Sync", fast ? "true" : "false");
+            // GPU savings: no MSAA, lower shader precision.
+            set(refused, "안티에일리어싱", "Video@@MSAA", fast ? "Disabled" : "Auto");
+            set(refused, "셰이더 정밀도", "Video@@Shader Precision", fast ? "Low" : "Auto");
             prefs.edit().putBoolean("ps3_fast_applied", fast).commit();
         }
         return refused.toString();
@@ -687,7 +690,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             dialog.dismiss();
             showChoices(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", new String[]{"꺼짐", "켜짐"},
                     new String[]{"엔진 기본 설정 (정확도 우선)",
-                            "· SPU 코드를 크게 묶어 번역 (SPU 블록 Mega)\n· 셰이더를 기다리지 않고 먼저 그림 (끊김 감소)\n· 화면 깊이 계산 느슨하게 (ZCULL)\n· 화질 75%로 낮춤"},
+                            "· SPU 코드를 크게 묶어 번역 (SPU 블록 Mega)\n· 셰이더를 기다리지 않고 먼저 그림 (끊김 감소)\n· 화면 깊이 계산 느슨하게 (ZCULL)\n· 안티에일리어싱 끄고 셰이더 정밀도 낮춤\n· 화질 75%로 낮춤"},
                     fast ? 1 : 0,
                     getIntent().getStringExtra(EXTRA_TITLE) + " · 이 게임에만 적용돼요. 게임을 다시 켤 때 적용돼요. 그림자·효과가 잠깐 늦게 나오거나 어색할 수 있어요. "
                             + "처음 가는 장소는 코드를 만드느라 원래 잠깐씩 끊기고, 두 번째부터 나아져요.", choice -> {
