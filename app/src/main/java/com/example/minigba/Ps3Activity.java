@@ -199,7 +199,110 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             set(refused, "셰이더 정밀도", "Video@@Shader Precision", fast ? "Low" : "Auto");
             prefs.edit().putBoolean("ps3_fast_applied", fast).commit();
         }
+        // SPU threads, per game: 0 is the engine's automatic choice.
+        int spu = spuThreads(context, gamePath);
+        if (spu != 0 || prefs.getBoolean("ps3_spu_applied", false)) {
+            set(refused, "SPU 스레드", "Core@@Preferred SPU Threads", String.valueOf(spu));
+            prefs.edit().putBoolean("ps3_spu_applied", spu != 0).commit();
+        }
         return refused.toString();
+    }
+
+    private static int spuThreads(Context context, String gamePath) {
+        return gamePath == null ? 0 : Math.max(0, Math.min(6, MainActivity.sharedSettings(context).getInt("ps3_spu:" + gamePath, 0)));
+    }
+
+    // Android's performance hints (API 31+) for the engine's PPU, SPU and RSX threads: they are
+    // reported as always running a little late on a 60 Hz frame, so the system keeps their CPU
+    // clocks up instead of letting them drop between bursts of work. The thread list is
+    // refreshed as the game starts and stops SPU threads.
+    private boolean hintsStarted;
+
+    private void startPerformanceHintsOnce() {
+        if (!this.hintsStarted) {
+            this.hintsStarted = true;
+            startPerformanceHints();
+        }
+    }
+
+    private void startPerformanceHints() {
+        if (Build.VERSION.SDK_INT < 31) {
+            return;
+        }
+        final android.os.PerformanceHintManager manager = getSystemService(android.os.PerformanceHintManager.class);
+        if (manager == null) {
+            return;
+        }
+        new Thread(() -> {
+            final long target = 16_666_667L;
+            android.os.PerformanceHintManager.Session session = null;
+            String known = "";
+            long refreshed = 0;
+            while (!this.leaving) {
+                long now = System.currentTimeMillis();
+                if (now - refreshed > 5000) {
+                    refreshed = now;
+                    int[] tids = engineThreads();
+                    String key = java.util.Arrays.toString(tids);
+                    if (!key.equals(known)) {
+                        known = key;
+                        if (session != null) {
+                            session.close();
+                            session = null;
+                        }
+                        if (tids.length > 0) {
+                            try {
+                                session = manager.createHintSession(tids, target);
+                            } catch (Throwable ignored) {
+                                session = null;
+                            }
+                        }
+                    }
+                }
+                if (session != null && RPCSX.instance.getState() == RPCSX.STATE_RUNNING) {
+                    session.reportActualWorkDuration(target * 5 / 4);
+                }
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+            if (session != null) {
+                session.close();
+            }
+        }, "ps3-hints").start();
+    }
+
+    // Threads of this process named by the engine as PPU, SPU or RSX ones.
+    private static int[] engineThreads() {
+        File[] tasks = new File("/proc/self/task").listFiles();
+        java.util.ArrayList<Integer> found = new java.util.ArrayList<>();
+        if (tasks != null) {
+            for (File task : tasks) {
+                String name = "";
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(new File(task, "comm")))) {
+                    String line = reader.readLine();
+                    name = line == null ? "" : line.trim();
+                } catch (Exception ignored) {
+                    continue;
+                }
+                String upper = name.toUpperCase(java.util.Locale.ROOT);
+                if (upper.startsWith("PPU") || upper.startsWith("SPU") || upper.startsWith("RSX")) {
+                    try {
+                        found.add(Integer.parseInt(task.getName()));
+                    } catch (NumberFormatException ignored) {
+                        // Not a thread id.
+                    }
+                }
+            }
+        }
+        java.util.Collections.sort(found);
+        int[] tids = new int[found.size()];
+        for (int k = 0; k < tids.length; k++) {
+            tids[k] = found.get(k);
+        }
+        return tids;
     }
 
     private static void set(StringBuilder refused, String name, String path, String value) {
@@ -569,6 +672,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 main.post(() -> showMessage("게임을 시작하지 못했어요", bootError(result), true));
                 return;
             }
+            main.post(this::startPerformanceHintsOnce);
             // Hide the starting note once the game runs, or after 15 s (the engine shows its own
             // "Compiling shaders" note meanwhile).
             for (int i = 0; i < 600 && !this.leaving; i++) {
@@ -701,6 +805,19 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 } else if ((choice == 1) != fast) {
                     toast("재시작하거나 게임을 다시 켜면 적용돼요");
                 }
+            });
+        }), rowParams(8));
+        int spu = spuThreads(this, this.gamePath);
+        String[] spuNames = {"자동", "1개", "2개", "3개", "4개", "5개", "6개"};
+        panel.addView(menuRow(RoundIconView.MULTI, RoundIconView.COLOR_FILTER, "SPU 스레드", spuNames[spu], v -> {
+            dialog.dismiss();
+            showChoices(RoundIconView.MULTI, RoundIconView.COLOR_FILTER, "SPU 스레드", spuNames,
+                    new String[]{"엔진이 정해요 (기본)", "가장 적게 · 게임에 따라 빨라지기도 해요", "적게", "중간", "보통 많이", "많이", "최대 (PS3와 같은 수)"},
+                    spu, getIntent().getStringExtra(EXTRA_TITLE) + " · 이 게임에만 적용돼요. 재시작하거나 게임을 다시 켜면 적용돼요. "
+                            + "게임마다 맞는 값이 달라서, 바꿔 보고 성능 표시의 FPS로 비교해 보세요.", choice -> {
+                MainActivity.sharedSettings(this).edit().putInt("ps3_spu:" + this.gamePath, choice).commit();
+                String refused = applyEngineSettings(this, this.gamePath);
+                toast(refused.isEmpty() ? "재시작하거나 게임을 다시 켜면 적용돼요" : "엔진이 받지 않은 설정: " + refused);
             });
         }), rowParams(8));
         panel.addView(menuRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시", perfOverlay(this) ? "켜짐" : "꺼짐", v -> {
