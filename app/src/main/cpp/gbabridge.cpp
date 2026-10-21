@@ -1319,12 +1319,19 @@ const char* fixedVariable(const char* key) {
         // Effects (blur, bloom; heavy in Monster Hunter) at a lower resolution, plainer curves.
         if (strcmp(key, "ppsspp_lower_resolution_for_effects") == 0) return "Balanced";
         if (strcmp(key, "ppsspp_spline_quality") == 0) return "Low";
+        // No anisotropic filtering (16x by default).
+        if (strcmp(key, "ppsspp_texture_anisotropic_filtering") == 0) return "disabled";
         // PS2: the EE at 75% with mild cycle skipping, and the cheapest blending. GPU
         // read-backs stay accurate: quick saves read the picture back.
         if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return "-1";
         if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return "1";
         if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
+        // No dithering or hardware mipmapping (anisotropic filtering is already off).
+        if (strcmp(key, "pcsx2_dithering") == 0) return "0";
+        if (strcmp(key, "pcsx2_mipmapping") == 0) return "disabled";
     }
+    // PS2: VU1 on a thread of its own (the core's default, stated so it stays that way).
+    if (strcmp(key, "pcsx2_mtvu") == 0) return "enabled";
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
     // "Fit Screen" letterboxes games whose picture is smaller than the output (GTA San
