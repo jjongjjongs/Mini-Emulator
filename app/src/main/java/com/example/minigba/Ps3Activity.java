@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -15,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.view.Gravity;
+import android.view.PixelCopy;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -82,6 +84,17 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     private String gamePath;
     private TextView statusView;
     private boolean statusHidden;
+    // Live translation (see ScreenTranslator).
+    private SurfaceView surfaceView;
+    private TranslateOverlayView overlay;
+    private TextView translateBanner;
+    private LinearLayout translateButton;
+    private ScreenTranslator translator;
+    private boolean translatorJapanese;
+    private boolean translateBusy;
+    private boolean manualShown;
+    private boolean autoOn;
+    private final Runnable autoTick = this::autoTranslate;
 
     static File rootDir(Context context) {
         return new File(context.getFilesDir(), "ps3");
@@ -313,10 +326,25 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         SurfaceView surface = new SurfaceView(this);
         surface.getHolder().addCallback(this);
         screen.addView(surface, new FrameLayout.LayoutParams(-1, -1));
+        stopTranslate(false);
+        this.surfaceView = surface;
         this.statusView = text("PS3 엔진을 시작하는 중…\n처음에는 셰이더와 코드를 준비하느라 오래 걸릴 수 있어요.", 13, Color.rgb(205, 214, 244), false);
         this.statusView.setGravity(Gravity.CENTER);
         this.statusView.setVisibility(this.statusHidden ? View.GONE : View.VISIBLE);
         screen.addView(this.statusView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        this.overlay = new TranslateOverlayView(this);
+        this.overlay.setVisibility(View.GONE);
+        this.overlay.setOnClickListener(v -> {
+            if (this.manualShown) {
+                closeManual();
+            }
+        });
+        screen.addView(this.overlay, new FrameLayout.LayoutParams(-1, -1));
+        this.translateBanner = text("", 11.5f, Color.WHITE, true);
+        this.translateBanner.setGravity(Gravity.CENTER);
+        this.translateBanner.setBackground(roundRect(RoundIconView.COLOR_TRANSLATE, 8));
+        this.translateBanner.setVisibility(View.GONE);
+        this.translateButton = translateButton();
         LinearLayout menu = iconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", labelColor, v -> showPauseMenu());
 
         if (wide) {
@@ -331,6 +359,12 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             controls.addView(screen, screenParams);
             buildPadLandscape(controls);
             addAt(controls, menu, 14, 6, 48, 56, Gravity.TOP | Gravity.START);
+            FrameLayout.LayoutParams buttonParams = new FrameLayout.LayoutParams(-2, dp(34), Gravity.TOP | Gravity.END);
+            buttonParams.setMargins(0, dp(14), dp(14), 0);
+            controls.addView(this.translateButton, buttonParams);
+            FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(-1, dp(26), Gravity.TOP);
+            bannerParams.setMargins(dp(8), dp(6), dp(8), 0);
+            screen.addView(this.translateBanner, bannerParams);
             root.addView(controls, new FrameLayout.LayoutParams(-1, -1));
             shell.track(screen, controls);
             setContentView(root);
@@ -348,14 +382,21 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         title.setPadding(dp(10), 0, dp(10), 0);
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        top.addView(this.translateButton, new LinearLayout.LayoutParams(-2, dp(34)));
         column.addView(top, new LinearLayout.LayoutParams(-1, -2));
 
         // 16:9 screen, the width of the phone with a small margin.
         int width = getResources().getDisplayMetrics().widthPixels - dp(16);
         LinearLayout.LayoutParams screenParams = new LinearLayout.LayoutParams(width, width * 9 / 16);
         screenParams.gravity = Gravity.CENTER_HORIZONTAL;
-        screenParams.setMargins(0, dp(10), 0, dp(30));
+        screenParams.setMargins(0, dp(10), 0, 0);
         column.addView(screen, screenParams);
+        // The gap under the screen; the translation banner shows here.
+        FrameLayout gap = new FrameLayout(this);
+        FrameLayout.LayoutParams bannerParams = new FrameLayout.LayoutParams(-1, dp(26), Gravity.CENTER_VERTICAL);
+        bannerParams.setMargins(dp(8), 0, dp(8), 0);
+        gap.addView(this.translateBanner, bannerParams);
+        column.addView(gap, new LinearLayout.LayoutParams(-1, dp(30)));
 
         FrameLayout pad = new FrameLayout(this);
         buildPad(pad);
@@ -575,6 +616,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             showExitDialog();
             return;
         }
+        stopTranslate(false);
         RPCSX.instance.pause();
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -634,7 +676,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         gridParams.setMargins(0, dp(12), 0, 0);
         panel.addView(grid, gridParams);
 
-        panel.addView(menuRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "설정", "배경 · 진동", v -> {
+        panel.addView(menuRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "설정", "배경 · 진동 · 번역", v -> {
             dialog.dismiss();
             showSettings();
         }), rowParams(12));
@@ -744,6 +786,11 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 Haptics.tap();
             });
         }), rowParams(8));
+        panel.addView(menuRow(RoundIconView.TRANSLATE, RoundIconView.COLOR_TRANSLATE, "실시간 번역",
+                (translateAuto() ? "자동" : "버튼") + " · " + (translateJapanese() ? "일본어" : "영어"), v -> {
+            dialog.dismiss();
+            showTranslateSettings();
+        }), rowParams(8));
         TextView close = pill("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
         close.setOnClickListener(v -> dialog.dismiss());
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
@@ -758,6 +805,305 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         RPCSX.instance.pause();
         sizeDialog(dialog);
         dialog.show();
+    }
+
+    // ---- Live translation ----
+
+    private boolean translateAuto() {
+        return MainActivity.sharedSettings(this).getBoolean("tr_auto", false);
+    }
+
+    private boolean translateJapanese() {
+        return MainActivity.sharedSettings(this).getBoolean("tr_ja", false);
+    }
+
+    private LinearLayout translateButton() {
+        LinearLayout button = new LinearLayout(this);
+        button.setGravity(Gravity.CENTER_VERTICAL);
+        button.setPadding(dp(10), 0, dp(12), 0);
+        button.setBackground(roundRect(Color.rgb(58, 65, 80), 17));
+        RoundIconView icon = new RoundIconView(this, RoundIconView.TRANSLATE, RoundIconView.COLOR_TRANSLATE);
+        icon.setBare(true);
+        button.addView(icon, new LinearLayout.LayoutParams(dp(16), dp(16)));
+        TextView label = text("번역", 12.5f, Color.WHITE, true);
+        label.setPadding(dp(5), 0, 0, 0);
+        button.addView(label);
+        button.setClickable(true);
+        button.setOnClickListener(v -> onTranslatePressed());
+        return button;
+    }
+
+    private void setTranslateActive(boolean active) {
+        if (this.translateButton != null) {
+            this.translateButton.setBackground(roundRect(active ? RoundIconView.COLOR_TRANSLATE : Color.rgb(58, 65, 80), 17));
+        }
+    }
+
+    private void banner(String message) {
+        if (this.translateBanner == null) {
+            return;
+        }
+        this.translateBanner.setText(message == null ? "" : message);
+        this.translateBanner.setVisibility(message == null ? View.GONE : View.VISIBLE);
+    }
+
+    private ScreenTranslator translator() {
+        boolean japanese = translateJapanese();
+        if (this.translator == null || this.translatorJapanese != japanese) {
+            if (this.translator != null) {
+                // Its pending work is dropped, so it won't clear the busy flag.
+                this.translator.close();
+                this.translateBusy = false;
+            }
+            this.translator = new ScreenTranslator(this, japanese);
+            this.translatorJapanese = japanese;
+        }
+        return this.translator;
+    }
+
+    private void onTranslatePressed() {
+        if (!engineReady || !this.bootStarted || this.leaving) {
+            return;
+        }
+        if (translateAuto()) {
+            if (this.autoOn) {
+                stopTranslate(false);
+            } else {
+                this.autoOn = true;
+                setTranslateActive(true);
+                banner("자동 자막 번역 중 · [번역]을 누르면 꺼져요");
+                main.post(this.autoTick);
+            }
+            return;
+        }
+        if (this.manualShown) {
+            closeManual();
+            return;
+        }
+        if (this.translateBusy) {
+            return;
+        }
+        this.translateBusy = true;
+        capture(bitmap -> {
+            if (bitmap == null) {
+                this.translateBusy = false;
+                toast("게임 화면을 읽지 못했어요");
+                return;
+            }
+            RPCSX.instance.pause();
+            this.manualShown = true;
+            setTranslateActive(true);
+            banner("화면의 글자를 읽는 중…");
+            final int width = bitmap.getWidth();
+            final int height = bitmap.getHeight();
+            translator().translate(bitmap, 0, () -> banner("번역 데이터 받는 중… (처음 한 번, 약 30MB)"), (items, error) -> {
+                this.translateBusy = false;
+                if (!this.manualShown) {
+                    return;
+                }
+                if (error != null) {
+                    toast(error);
+                    closeManual();
+                    return;
+                }
+                this.overlay.setClickable(true);
+                this.overlay.show(items, width, height, true);
+                banner(items.isEmpty() ? "번역할 글자를 못 찾았어요 · 화면이나 [번역]을 누르면 계속"
+                        : "일시정지됨 · 화면이나 [번역]을 누르면 계속");
+            });
+        });
+    }
+
+    private void closeManual() {
+        this.manualShown = false;
+        this.overlay.clear();
+        banner(null);
+        setTranslateActive(false);
+        if (engineReady && !this.leaving) {
+            RPCSX.instance.resume();
+        }
+    }
+
+    // Every 2 s while on: the lower 40% of the frame (where subtitles are), the game keeps going.
+    private void autoTranslate() {
+        if (!this.autoOn || this.leaving) {
+            return;
+        }
+        main.postDelayed(this.autoTick, 2000);
+        if (this.translateBusy) {
+            return;
+        }
+        this.translateBusy = true;
+        capture(bitmap -> {
+            if (bitmap == null || !this.autoOn) {
+                this.translateBusy = false;
+                return;
+            }
+            final int width = bitmap.getWidth();
+            final int height = bitmap.getHeight();
+            final int top = height * 6 / 10;
+            Bitmap lower = Bitmap.createBitmap(bitmap, 0, top, width, height - top);
+            translator().translate(lower, top, () -> banner("번역 데이터 받는 중… (처음 한 번, 약 30MB)"), (items, error) -> {
+                this.translateBusy = false;
+                if (!this.autoOn) {
+                    return;
+                }
+                if (error != null) {
+                    toast(error);
+                    stopTranslate(false);
+                    return;
+                }
+                banner("자동 자막 번역 중 · [번역]을 누르면 꺼져요");
+                this.overlay.setClickable(false);
+                if (items.isEmpty()) {
+                    this.overlay.clear();
+                } else {
+                    this.overlay.show(items, width, height, false);
+                }
+            });
+        });
+    }
+
+    // Ends whichever translation is showing; resume also lets a paused game go on.
+    private void stopTranslate(boolean resume) {
+        main.removeCallbacks(this.autoTick);
+        boolean wasManual = this.manualShown;
+        this.autoOn = false;
+        this.manualShown = false;
+        if (this.overlay != null) {
+            this.overlay.clear();
+        }
+        banner(null);
+        setTranslateActive(false);
+        if (resume && wasManual && engineReady && !this.leaving) {
+            RPCSX.instance.resume();
+        }
+    }
+
+    private interface Frame {
+        void got(Bitmap bitmap);
+    }
+
+    // The frame on the game surface, at most 1600 px wide; null when it can't be read.
+    private void capture(final Frame frame) {
+        SurfaceView view = this.surfaceView;
+        if (view == null || view.getWidth() <= 0 || view.getHeight() <= 0 || !this.surfaceSeen) {
+            frame.got(null);
+            return;
+        }
+        float scale = Math.min(1f, 1600f / view.getWidth());
+        final Bitmap bitmap = Bitmap.createBitmap(Math.max(1, Math.round(view.getWidth() * scale)),
+                Math.max(1, Math.round(view.getHeight() * scale)), Bitmap.Config.ARGB_8888);
+        try {
+            PixelCopy.request(view, bitmap, result -> frame.got(result == PixelCopy.SUCCESS ? bitmap : null), main);
+        } catch (Throwable e) {
+            frame.got(null);
+        }
+    }
+
+    private void showTranslateSettings() {
+        RPCSX.instance.pause();
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout panel = card();
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(new RoundIconView(this, RoundIconView.TRANSLATE, RoundIconView.COLOR_TRANSLATE), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        TextView titleView = text("실시간 번역", 17, Color.rgb(31, 41, 51), true);
+        titleView.setPadding(dp(10), 0, 0, 0);
+        header.addView(titleView);
+        panel.addView(header);
+        TextView intro = text("게임 화면의 글자를 읽어 한국어로 겹쳐 보여줘요.", 12, Color.rgb(122, 130, 140), false);
+        intro.setPadding(dp(2), dp(6), 0, 0);
+        panel.addView(intro);
+        final boolean[] auto = {translateAuto()};
+        final boolean[] japanese = {translateJapanese()};
+        final TextView[] modes = new TextView[2];
+        final TextView[] languages = new TextView[2];
+        final Runnable refresh = () -> {
+            for (int k = 0; k < 2; k++) {
+                styleOption(modes[k], auto[0] == (k == 1));
+                styleOption(languages[k], japanese[0] == (k == 1));
+            }
+        };
+        panel.addView(section("번역 방식"));
+        String[][] modeText = {{"버튼 누를 때만", "[번역]을 누르면 멈추고 그 화면을 번역"}, {"자동 자막 (시험 기능)", "2초마다 화면 아래쪽 자막만 번역, 게임은 계속"}};
+        for (int k = 0; k < 2; k++) {
+            final boolean value = k == 1;
+            modes[k] = option(modeText[k][0], modeText[k][1]);
+            modes[k].setOnClickListener(v -> {
+                auto[0] = value;
+                refresh.run();
+            });
+            panel.addView(modes[k], optionParams());
+        }
+        panel.addView(section("게임 언어"));
+        String[][] languageText = {{"영어 → 한국어", "PS3 · PS2 · PSP 등 북미/유럽판"}, {"일본어 → 한국어", "일본판 게임"}};
+        for (int k = 0; k < 2; k++) {
+            final boolean value = k == 1;
+            languages[k] = option(languageText[k][0], languageText[k][1]);
+            languages[k].setOnClickListener(v -> {
+                japanese[0] = value;
+                refresh.run();
+            });
+            panel.addView(languages[k], optionParams());
+        }
+        refresh.run();
+        TextView note = text("처음 한 번 번역 데이터(언어당 약 30MB)를 받아요. 그다음부터는 인터넷 없이 휴대폰 안에서 번역돼요.",
+                11.5f, Color.rgb(154, 91, 0), false);
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(roundRect(Color.rgb(255, 247, 230), 12));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+        TextView ok = pill("확인", INDIGO, Color.WHITE);
+        ok.setOnClickListener(v -> {
+            MainActivity.sharedSettings(this).edit().putBoolean("tr_auto", auto[0]).putBoolean("tr_ja", japanese[0]).commit();
+            dialog.dismiss();
+        });
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(-1, dp(48));
+        okParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(ok, okParams);
+        dialog.setContentView(scrollable(panel));
+        dialog.setOnDismissListener(d -> {
+            if (!this.leaving) {
+                RPCSX.instance.resume();
+            }
+        });
+        sizeDialog(dialog);
+        dialog.show();
+    }
+
+    private TextView section(String label) {
+        TextView view = text(label, 12, Color.rgb(122, 130, 140), true);
+        view.setPadding(dp(2), dp(14), 0, 0);
+        return view;
+    }
+
+    private TextView option(String name, String note) {
+        TextView view = text("", 14, Color.rgb(31, 41, 51), false);
+        view.setTag(new String[]{name, note});
+        view.setPadding(dp(14), dp(10), dp(14), dp(10));
+        view.setClickable(true);
+        return view;
+    }
+
+    private void styleOption(TextView view, boolean selected) {
+        String[] parts = (String[]) view.getTag();
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder((selected ? "● " : "○ ") + parts[0] + "\n");
+        text.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, text.length(), 0);
+        int start = text.length();
+        text.append(parts[1]);
+        text.setSpan(new android.text.style.AbsoluteSizeSpan(dp(12)), start, text.length(), 0);
+        text.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(122, 130, 140)), start, text.length(), 0);
+        view.setText(text);
+        view.setBackground(roundRect(selected ? Color.rgb(238, 240, 255) : Color.rgb(246, 247, 249), 14));
+    }
+
+    private LinearLayout.LayoutParams optionParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(8), 0, 0);
+        return params;
     }
 
     private interface Choice {
@@ -886,6 +1232,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     }
 
     private void showExitDialog() {
+        stopTranslate(false);
         if (engineReady) {
             RPCSX.instance.pause();
         }
@@ -952,6 +1299,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     @Override
     protected void onPause() {
         super.onPause();
+        stopTranslate(false);
         if (engineReady && this.bootStarted && !this.leaving) {
             RPCSX.instance.pause();
             RPCSX.instance.setAppBackgrounded(true);
