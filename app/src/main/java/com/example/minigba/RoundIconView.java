@@ -40,6 +40,9 @@ final class RoundIconView extends View {
     static final int SWAP = 25;
     static final int BOLT = 26;
     static final int PALETTE = 27;
+    static final int PERF = 28;
+    static final int BATTERY = 29;
+    static final int PATCH = 30;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -61,6 +64,9 @@ final class RoundIconView extends View {
     static final int COLOR_CHEAT = Color.rgb(225, 29, 72);
     static final int COLOR_BOLT = Color.rgb(249, 115, 22);
     static final int COLOR_PALETTE = Color.rgb(225, 29, 72);
+    static final int COLOR_PERF = Color.rgb(13, 148, 136);
+    static final int COLOR_BATTERY = Color.rgb(22, 163, 74);
+    static final int COLOR_PATCH = Color.rgb(14, 165, 164);
 
     private final int icon;
     private final int color;
@@ -400,6 +406,44 @@ final class RoundIconView extends View {
                 bolt.setStyle(Paint.Style.FILL_AND_STROKE);
                 bolt.setStrokeWidth(1);
                 canvas.drawPath(path, bolt);
+                break;
+            case PERF:
+                // A line graph over a baseline.
+                path.moveTo(4, 18.5f);
+                path.lineTo(20, 18.5f);
+                path.moveTo(5.5f, 15);
+                path.lineTo(10, 9.5f);
+                path.lineTo(13.5f, 13);
+                path.lineTo(18.5f, 6.5f);
+                canvas.drawPath(path, line);
+                break;
+            case BATTERY: {
+                // A battery on its side, partly full.
+                path.addRoundRect(3, 7, 19, 17, 2, 2, Path.Direction.CW);
+                path.moveTo(21, 10.5f);
+                path.lineTo(21, 13.5f);
+                canvas.drawPath(path, line);
+                Paint level = new Paint(line);
+                level.setStyle(Paint.Style.FILL);
+                canvas.drawRect(6, 10, 13, 14, level);
+                break;
+            }
+            case PATCH:
+                // A page with a folded corner and a plus.
+                path.moveTo(7, 3);
+                path.lineTo(14, 3);
+                path.lineTo(19, 8);
+                path.lineTo(19, 21);
+                path.lineTo(7, 21);
+                path.close();
+                path.moveTo(14, 3);
+                path.lineTo(14, 8);
+                path.lineTo(19, 8);
+                path.moveTo(10, 14);
+                path.lineTo(16, 14);
+                path.moveTo(13, 11);
+                path.lineTo(13, 17);
+                canvas.drawPath(path, line);
                 break;
             case PALETTE:
                 // A paint palette: a round board with a thumb hole and three paint dabs.

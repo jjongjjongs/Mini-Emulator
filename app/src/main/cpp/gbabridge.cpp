@@ -364,6 +364,9 @@ struct Core {
     uint64_t resumeRetryAt = 0;
     // Frames the core has shown a picture in (software video), counted from the start.
     std::atomic<uint64_t> picturesShown{0};
+    // Frames run and pictures put on screen, for the FPS readout.
+    std::atomic<uint64_t> framesCounted{0};
+    std::atomic<uint64_t> picturesPresented{0};
     // PCEE2 (patched): whether its GS has presented a game picture yet.
     bool (*pcee2HasPicture)() = nullptr;
     // While a restored quick save is still on trial, the frame its marker comes off at.
@@ -1250,6 +1253,9 @@ std::string gPspLanguage = "Korean";
 std::atomic<int> gPspScale{2};
 // "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
+// "전원 모드" per game: 0 성능 (fast cores and performance hints), 1 균형 (the system picks
+// clocks and cores), 2 절전 (as 균형, and every other picture is left out).
+std::atomic<int> gPowerMode{0};
 // PSP, Dreamcast and PS2 (PCSX2) draw with Vulkan where the device has it, unless Java
 // turned it off for the core (after a crash on it).
 std::atomic<bool> gVulkanAllowed{true};
@@ -1297,7 +1303,7 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_use_bios") == 0) return "ON";
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
-    if (strcmp(key, "mgba_frameskip") == 0) return "0";
+    if (strcmp(key, "mgba_frameskip") == 0) return gPowerMode.load() == 2 ? "1" : "0";
     // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
     if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
     // PSP: Vulkan where available, else OpenGL ES; render at the scale picked per game (2x by default).
@@ -1310,6 +1316,8 @@ const char* fixedVariable(const char* key) {
     // text and the kr0.pgf system font from it. Games without Korean that still follow it
     // (Call of Duty: Roads to Victory's name keyboard) are set to English per game.
     if (strcmp(key, "ppsspp_language") == 0) return gPspLanguage.c_str();
+    // 절전: PSP draws every other frame.
+    if (gPowerMode.load() == 2 && strcmp(key, "ppsspp_frameskip") == 0) return "1";
     if (gSpeedFirst.load()) {
         // PSP: cheaper texture checks, no GPU readbacks, up to one frame skipped when behind.
         if (strcmp(key, "ppsspp_lazy_texture_caching") == 0) return "enabled";
@@ -1701,6 +1709,7 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
             return;
         }
         presentHwFrame(core);
+        core->picturesPresented.fetch_add(1);
         return;
     }
     if (data == nullptr || data == RETRO_HW_FRAME_BUFFER_VALID || core == nullptr || width == 0 || height == 0) {
@@ -1710,6 +1719,11 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
     if (core->hidePicture.load()) {
         return;
     }
+    // 절전: the picture of every other frame is not copied or shown; the game runs the same.
+    if (gPowerMode.load() == 2 && (core->framesCounted.load() & 1) != 0) {
+        return;
+    }
+    core->picturesPresented.fetch_add(1);
     bool wide = core->pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888;
     int format = wide ? WINDOW_FORMAT_RGBX_8888 : WINDOW_FORMAT_RGB_565;
     size_t rowBytes = static_cast<size_t>(width) * (wide ? 4 : 2);
@@ -2283,9 +2297,15 @@ void runLoop(Core* core) {
     // and the game ran a few percent slow (the audio queue drained, the music dragged).
     // Above the app's other threads, as audio and video depend on this one keeping time.
     setpriority(PRIO_PROCESS, 0, -10);
-    pinToFastCores();
+    // 균형 and 절전 leave the cores and clocks to the system.
+    bool performance = gPowerMode.load() == 0;
+    if (performance) {
+        pinToFastCores();
+    }
     PerformanceHint hint;
-    hint.open(static_cast<int64_t>(1e9 / core->fps));
+    if (performance) {
+        hint.open(static_cast<int64_t>(1e9 / core->fps));
+    }
     auto deadline = std::chrono::steady_clock::now();
     while (core->running.load()) {
         auto workStart = std::chrono::steady_clock::now();
@@ -2312,6 +2332,7 @@ void runLoop(Core* core) {
             bool rewound = held && rewindStep(core);
             core->retroRun();
             core->framesRun++;
+            core->framesCounted.fetch_add(1);
             if (rewound) {
                 // Backwards sound is noise; and the frame shouldn't count toward the audio clock.
                 core->audioPending.clear();
@@ -2940,6 +2961,26 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirst(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {
     gSpeedFirst.store(fast == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPowerMode(JNIEnv* /*env*/, jclass /*cls*/, jint mode) {
+    gPowerMode.store(mode < 0 || mode > 2 ? 0 : mode);
+}
+
+// {frames run, pictures shown, the game's own frames per second}.
+JNIEXPORT jdoubleArray JNICALL Java_com_example_minigba_NativeGba_frameStats(JNIEnv* env, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    jdouble values[3] = {0, 0, 60};
+    if (core != nullptr) {
+        values[0] = static_cast<jdouble>(core->framesCounted.load());
+        values[1] = static_cast<jdouble>(core->picturesPresented.load());
+        values[2] = core->fps;
+    }
+    jdoubleArray out = env->NewDoubleArray(3);
+    if (out != nullptr) {
+        env->SetDoubleArrayRegion(out, 0, 3, values);
+    }
+    return out;
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean allowed) {

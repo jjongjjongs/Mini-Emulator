@@ -43,6 +43,12 @@ final class NativeGba {
     // "속도 우선" (speed hacks) for the next PSP or PS2 (PCSX2) game created.
     static native void setSpeedFirst(boolean fast);
 
+    // "전원 모드" for the next game created: 0 성능, 1 균형, 2 절전.
+    static native void setPowerMode(int mode);
+
+    // {frames run, pictures shown, the game's own frame rate}, for the FPS readout.
+    static native double[] frameStats(long handle);
+
     // Vulkan (where the device has it) for the next PSP, Dreamcast or PS2 game created;
     // false keeps OpenGL ES.
     static native void setVulkan(boolean allowed);

@@ -182,6 +182,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_IMPORT_PCE_BIOS = 1021;
     private static final int REQUEST_IMPORT_DC_BIOS = 1026;
     private static final int REQUEST_PICK_COVER = 1027;
+    private static final int REQUEST_PICK_PATCH = 1050;
     private TextView dcBiosStatusView;
     private TextView mcdBiosStatusView;
     private TextView saturnBiosStatusView;
@@ -1300,6 +1301,10 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri data = intent.getData();
+        if (i == REQUEST_PICK_PATCH) {
+            onPatchPicked(data);
+            return;
+        }
         if (i == REQUEST_OPEN_ROM_FOLDER) {
             String mode = this.pendingFolderMode;
             this.pendingFolderMode = null;
@@ -2753,7 +2758,15 @@ public final class MainActivity extends Activity {
         linearLayout2.setOrientation(0);
         linearLayout2.setGravity(16);
         TextView textView = new TextView(this);
-        textView.setText((isFavorite(file) ? "★ " : "") + displayGameNameFor);
+        String patchedFrom = patchedFrom(file);
+        android.text.SpannableStringBuilder title = new android.text.SpannableStringBuilder((isFavorite(file) ? "★ " : "") + displayGameNameFor);
+        if (patchedFrom != null) {
+            int start = title.length();
+            title.append("  패치");
+            title.setSpan(new android.text.style.ForegroundColorSpan(RoundIconView.COLOR_PATCH), start, title.length(), 0);
+            title.setSpan(new android.text.style.RelativeSizeSpan(0.75f), start, title.length(), 0);
+        }
+        textView.setText(title);
         textView.setTextColor(Color.rgb(45, 53, 64));
         textView.setTextSize(16.0f);
         textView.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2783,6 +2796,9 @@ public final class MainActivity extends Activity {
         }
         sb.append(str);
         sb.append("  |  게임: ").append(displayGameNameFor);
+        if (patchedFrom != null) {
+            sb.append("  |  원본: ").append(patchedFrom);
+        }
         long max = Math.max(saveFileFor.exists() ? saveFileFor.lastModified() : 0L, stateFileFor.exists() ? stateFileFor.lastModified() : 0L);
         if (max > 0) {
             sb.append("\n세이브 수정: ").append(formatTimestamp(max));
@@ -3117,6 +3133,11 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(9), 0, 0);
         panel.addView(row2, row2Params);
+        if (patchable(file)) {
+            LinearLayout.LayoutParams patchParams = new LinearLayout.LayoutParams(-1, dp(52));
+            patchParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createPatchRow(dialog, file), patchParams);
+        }
 
         LinearLayout deletes = new LinearLayout(this);
         deletes.addView(createOutlineButton(dialog, RoundIconView.TRASH, "ROM 삭제", () -> confirmDeleteRom(file)), actionGridParams(0));
@@ -3134,6 +3155,412 @@ public final class MainActivity extends Activity {
             window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
         }
         dialog.show();
+    }
+
+    // ---- 한글 패치 적용 ----
+    // A patch file (IPS, UPS, BPS, xdelta) is applied to a copy of the ROM; the copy is added
+    // to the list under a new name with saves of its own, and the original stays as it is.
+
+    private File patchRom;
+
+    private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP};
+
+    // Cartridge games in one file; disc images and arcade sets are not patched here.
+    private boolean patchable(File file) {
+        String mode = modeForFile(file);
+        if (!Arrays.asList(PATCHABLE_MODES).contains(mode)) {
+            return false;
+        }
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        return !(name.endsWith(".cue") || name.endsWith(".chd") || name.endsWith(".iso") || name.endsWith(".m3u") || name.endsWith(".7z"));
+    }
+
+    private LinearLayout createPatchRow(Dialog dialog, File file) {
+        boolean fresh = !romPrefs().getBoolean("patch_seen", false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        GradientDrawable background = rounded(fresh ? Color.rgb(255, 247, 230) : Color.rgb(246, 247, 249), dp(14));
+        if (fresh) {
+            background.setStroke(dp(2), Color.rgb(245, 158, 11));
+        }
+        row.setBackground(background);
+        row.addView(new RoundIconView(this, RoundIconView.PATCH, RoundIconView.COLOR_PATCH), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText("한글 패치 적용");
+        label.setTextSize(14.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        if (fresh) {
+            TextView badge = new TextView(this);
+            badge.setText("NEW");
+            badge.setTextSize(10.5f);
+            badge.setTypeface(Typeface.DEFAULT_BOLD);
+            badge.setTextColor(-1);
+            badge.setPadding(dp(7), dp(1), dp(7), dp(1));
+            badge.setBackground(rounded(Color.rgb(245, 158, 11), dp(8)));
+            LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, -2);
+            badgeParams.setMargins(dp(6), 0, 0, 0);
+            row.addView(badge, badgeParams);
+        }
+        row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1.0f));
+        TextView value = new TextView(this);
+        value.setText("IPS·BPS·xdelta  ›");
+        value.setTextSize(12.5f);
+        value.setTypeface(Typeface.DEFAULT_BOLD);
+        value.setTextColor(Color.rgb(122, 130, 140));
+        row.addView(value);
+        row.setClickable(true);
+        row.setOnClickListener(view -> {
+            dialog.dismiss();
+            romPrefs().edit().putBoolean("patch_seen", true).apply();
+            pickPatch(file);
+        });
+        return row;
+    }
+
+    private void pickPatch(File file) {
+        this.patchRom = file;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_PICK_PATCH);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    // A ZIP ROM is patched as the game file inside it (the largest entry).
+    private static final class PatchSource {
+        File rom;
+        String extension;
+        boolean temporary;
+    }
+
+    private PatchSource patchSourceFor(File file) throws IOException {
+        PatchSource source = new PatchSource();
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        source.extension = dot >= 0 ? name.substring(dot) : "";
+        source.rom = file;
+        if (!".zip".equalsIgnoreCase(source.extension)) {
+            return source;
+        }
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(file)) {
+            java.util.zip.ZipEntry best = null;
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                if (!entry.isDirectory() && (best == null || entry.getSize() > best.getSize())) {
+                    best = entry;
+                }
+            }
+            if (best == null) {
+                throw new IOException("ZIP 안에 게임 파일이 없어요.");
+            }
+            String inner = new File(best.getName()).getName();
+            int innerDot = inner.lastIndexOf('.');
+            source.extension = innerDot >= 0 ? inner.substring(innerDot) : "";
+            File temp = new File(getCacheDir(), "patch_source" + source.extension);
+            try (InputStream in = zip.getInputStream(best); OutputStream out = new FileOutputStream(temp)) {
+                byte[] buffer = new byte[1 << 16];
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, n);
+                }
+            }
+            source.rom = temp;
+            source.temporary = true;
+        }
+        return source;
+    }
+
+    private void onPatchPicked(final Uri uri) {
+        final File file = this.patchRom;
+        if (file == null || uri == null) {
+            return;
+        }
+        final String patchName = displayNameFor(uri);
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("패치 파일을 확인하는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            byte[] patch = null;
+            PatchSource source = null;
+            RomPatcher.Check check = null;
+            String error = null;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) {
+                    throw new IOException("패치 파일을 열 수 없어요.");
+                }
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                byte[] buffer = new byte[1 << 16];
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    bytes.write(buffer, 0, n);
+                    if (bytes.size() > 256 * 1024 * 1024) {
+                        throw new IOException("패치 파일이 너무 커요 (256MB 넘음).");
+                    }
+                }
+                patch = bytes.toByteArray();
+                RomPatcher.detect(patch);
+                source = patchSourceFor(file);
+                check = RomPatcher.check(patch, source.rom);
+            } catch (IOException e) {
+                error = e.getMessage();
+            } catch (OutOfMemoryError e) {
+                error = "패치 파일이 너무 커서 열 수 없어요.";
+            }
+            final byte[] patchBytes = patch;
+            final PatchSource patchSource = source;
+            final RomPatcher.Check result = check;
+            final String why = error;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                showPatchDialog(file, patchName == null ? "패치 파일" : patchName, patchBytes, patchSource, result);
+            });
+        }, "patch-check").start();
+    }
+
+    private LinearLayout patchStep(int number, boolean done, boolean bad, String title, CharSequence body) {
+        LinearLayout step = new LinearLayout(this);
+        step.setOrientation(0);
+        TextView mark = new TextView(this);
+        mark.setText(bad ? "!" : done ? "✓" : String.valueOf(number));
+        mark.setTextSize(12.0f);
+        mark.setTypeface(Typeface.DEFAULT_BOLD);
+        mark.setTextColor(-1);
+        mark.setGravity(17);
+        mark.setBackground(rounded(bad ? Color.rgb(229, 72, 77) : done ? Color.rgb(22, 163, 74) : RoundIconView.COLOR_PATCH, dp(11)));
+        step.addView(mark, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView head = new TextView(this);
+        head.setText(title);
+        head.setTextSize(13.5f);
+        head.setTypeface(Typeface.DEFAULT_BOLD);
+        head.setTextColor(Color.rgb(31, 41, 51));
+        texts.addView(head);
+        if (body != null) {
+            TextView text = new TextView(this);
+            text.setText(body);
+            text.setTextSize(11.5f);
+            text.setTextColor(bad ? Color.rgb(217, 61, 66) : Color.rgb(122, 130, 140));
+            text.setLineSpacing(0, 1.15f);
+            texts.addView(text);
+        }
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, 0, 0);
+        step.addView(texts, textsParams);
+        return step;
+    }
+
+    private void showPatchDialog(final File file, String patchName, final byte[] patch, final PatchSource source, final RomPatcher.Check check) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.PATCH, RoundIconView.COLOR_PATCH), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        TextView title = new TextView(this);
+        title.setText("패치 적용");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setPadding(dp(10), 0, 0, 0);
+        header.addView(title);
+        panel.addView(header);
+        final String gameName = displayGameNameFor(file);
+        TextView intro = new TextView(this);
+        intro.setText(gameName + " · 원본 롬에 한글 패치 같은 패치 파일을 입혀요.");
+        intro.setTextSize(12.0f);
+        intro.setTextColor(Color.rgb(122, 130, 140));
+        intro.setPadding(0, dp(6), 0, 0);
+        panel.addView(intro);
+
+        android.text.SpannableStringBuilder fileText = new android.text.SpannableStringBuilder(patchName);
+        fileText.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, fileText.length(), 0);
+        fileText.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(31, 41, 51)), 0, fileText.length(), 0);
+        fileText.append(" · ").append(formatSize(patch.length)).append(" · ").append(RomPatcher.formatName(check.format)).append("\n");
+        int linkStart = fileText.length();
+        fileText.append("다른 파일 고르기");
+        fileText.setSpan(new android.text.style.ForegroundColorSpan(RoundIconView.COLOR_PATCH), linkStart, fileText.length(), 0);
+        fileText.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), linkStart, fileText.length(), 0);
+        LinearLayout step1 = patchStep(1, true, false, "패치 파일", fileText);
+        step1.setOnClickListener(view -> {
+            dialog.dismiss();
+            pickPatch(file);
+        });
+        LinearLayout.LayoutParams stepParams = new LinearLayout.LayoutParams(-1, -2);
+        stepParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(step1, stepParams);
+
+        boolean bad = check.sourceMatches < 0;
+        String verdict;
+        if (check.sourceMatches > 0) {
+            verdict = "이 패치가 만들어진 원본과 같은 롬이에요 (CRC32 일치)" + (check.skip > 0 ? "\n롬 앞의 512바이트 헤더는 빼고 적용해요." : "");
+        } else if (bad) {
+            verdict = "이 패치는 다른 원본 롬용이에요. 패치 설명에 적힌 원본 롬(버전·지역)이 필요해요.";
+        } else if (check.format == RomPatcher.XDELTA) {
+            verdict = "적용하면서 원본이 맞는지 확인해요.";
+        } else {
+            verdict = "IPS 패치는 원본 확인 정보가 없어요. 패치 설명의 원본 롬이 맞는지 확인해 주세요.";
+        }
+        LinearLayout.LayoutParams step2Params = new LinearLayout.LayoutParams(-1, -2);
+        step2Params.setMargins(0, dp(12), 0, 0);
+        panel.addView(patchStep(2, check.sourceMatches > 0, bad, "원본 롬 확인", verdict), step2Params);
+
+        LinearLayout.LayoutParams step3Params = new LinearLayout.LayoutParams(-1, -2);
+        step3Params.setMargins(0, dp(12), 0, 0);
+        panel.addView(patchStep(3, false, false, "새 게임 이름", null), step3Params);
+        final EditText nameField = new EditText(this);
+        nameField.setSingleLine(true);
+        nameField.setText(gameName + " (한글)");
+        nameField.setTextSize(14.0f);
+        nameField.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable fieldBackground = rounded(-1, dp(10));
+        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Color.rgb(212, 215, 220));
+        nameField.setBackground(fieldBackground);
+        nameField.setPadding(dp(10), dp(8), dp(10), dp(8));
+        LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(-1, -2);
+        fieldParams.setMargins(dp(32), dp(6), 0, 0);
+        panel.addView(nameField, fieldParams);
+
+        TextView note = new TextView(this);
+        note.setText("원본 롬은 그대로 두고, 패치한 롬을 목록에 새로 추가해요. 세이브는 원본과 따로 저장돼요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(14, 95, 107));
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(236, 254, 255), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView apply = new TextView(this);
+        apply.setText("패치 적용");
+        apply.setTextSize(15.0f);
+        apply.setTypeface(Typeface.DEFAULT_BOLD);
+        apply.setTextColor(-1);
+        apply.setGravity(17);
+        apply.setBackground(rounded(bad ? Color.rgb(203, 213, 225) : RoundIconView.COLOR_PATCH, dp(14)));
+        apply.setOnClickListener(view -> {
+            if (bad) {
+                showError("이 롬에는 적용할 수 없는 패치예요. 맞는 원본 롬을 가져와서 다시 해 주세요.");
+                return;
+            }
+            String newName = nameField.getText().toString().trim();
+            if (newName.isEmpty()) {
+                showError("이름을 비워둘 수 없습니다.");
+                return;
+            }
+            this.patchRunning = true;
+            dialog.dismiss();
+            runPatch(file, gameName, newName, patch, source, check);
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        dialog.setOnDismissListener(d -> {
+            if (source.temporary && !this.patchRunning) {
+                source.rom.delete();
+            }
+        });
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        dialog.show();
+    }
+
+    private boolean patchRunning;
+
+    private void runPatch(File file, String originalName, String newName, byte[] patch, PatchSource source, RomPatcher.Check check) {
+        File dir = file.getParentFile();
+        String base = sanitizeSaveBaseName(newName);
+        File target = new File(dir, base + source.extension);
+        for (int k = 2; target.exists(); k++) {
+            target = new File(dir, base + " " + k + source.extension);
+        }
+        final File out = target;
+        final File temp = new File(dir, "." + out.getName() + ".patching");
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("패치를 적용하는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        this.patchRunning = true;
+        new Thread(() -> {
+            String error = null;
+            try {
+                RomPatcher.apply(patch, source.rom, check, temp);
+                if (!temp.renameTo(out)) {
+                    throw new IOException("패치한 롬을 저장하지 못했어요.");
+                }
+            } catch (IOException e) {
+                error = e.getMessage();
+            } catch (OutOfMemoryError e) {
+                error = "메모리가 부족해서 패치하지 못했어요.";
+            } finally {
+                temp.delete();
+                if (source.temporary) {
+                    source.rom.delete();
+                }
+            }
+            final String why = error;
+            runOnUiThread(() -> {
+                this.patchRunning = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (why != null) {
+                    out.delete();
+                    showError(why);
+                    return;
+                }
+                romPrefs().edit().putString("title:" + out.getName(), newName).putString("patched:" + out.getName(), originalName).apply();
+                Toast.makeText(this, "패치를 적용했어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
+                refreshLibrary();
+            });
+        }, "patch").start();
+    }
+
+    private String patchedFrom(File file) {
+        return romPrefs().getString("patched:" + file.getName(), null);
     }
 
     private LinearLayout.LayoutParams actionGridParams(int column) {

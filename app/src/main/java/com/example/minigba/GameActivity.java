@@ -1909,6 +1909,90 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenFilters.add(filter);
         parent.addView(filter, new FrameLayout.LayoutParams(-1, -1));
         updateScreenFilters();
+        if (this.perfOverlay != null) {
+            this.perfOverlay.removeCallbacks(this.perfPoll);
+        }
+        this.perfOverlay = new PerfOverlayView(this, this.surfaceView);
+        parent.addView(this.perfOverlay, new FrameLayout.LayoutParams(-1, -1));
+        updatePerfOverlay();
+    }
+
+    // ---- 성능 표시 (all games) and 전원 모드 (per game) ----
+
+    private PerfOverlayView perfOverlay;
+    private final Runnable perfPoll = new Runnable() {
+        @Override
+        public void run() {
+            PerfOverlayView view = GameActivity.this.perfOverlay;
+            if (view == null || !perfOverlayOn()) {
+                return;
+            }
+            long handle = GameActivity.this.nativeHandle;
+            view.update(handle != 0 ? NativeGba.frameStats(handle) : null);
+            view.postDelayed(this, 1000);
+        }
+    };
+
+    private boolean perfOverlayOn() {
+        return MainActivity.sharedSettings(this).getBoolean("perf_overlay", false);
+    }
+
+    private void updatePerfOverlay() {
+        PerfOverlayView view = this.perfOverlay;
+        if (view == null) {
+            return;
+        }
+        view.removeCallbacks(this.perfPoll);
+        boolean on = perfOverlayOn();
+        view.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (on) {
+            view.restart();
+            view.post(this.perfPoll);
+        }
+    }
+
+    private static final String[] POWER_NAMES = {"성능 (기본)", "균형", "절전"};
+    private static final String[] POWER_SHORT = {"성능", "균형", "절전"};
+    private static final String[] POWER_NOTES = {
+            "지금처럼. 고성능 코어에 붙이고 CPU 속도를 높게 유지",
+            "CPU 속도를 휴대폰에 맡겨요. 가벼운 게임은 이걸로 충분하고 발열이 줄어요",
+            "균형 + 화면을 한 장씩 건너뛰어 그려요 (게임 속도는 그대로). 무거운 게임의 발열·배터리용"};
+
+    private String powerKey() {
+        return "power:" + this.saveBaseName;
+    }
+
+    private int powerMode() {
+        int value = MainActivity.sharedSettings(this).getInt(powerKey(), 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private LinearLayout createPerfRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시", perfOverlayOn() ? "켜짐" : "꺼짐", null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시",
+                new String[]{"꺼짐", "켜짐"}, new String[]{"표시 없음 (기본)", "게임 화면 왼쪽 위에 FPS·속도, 온도, 배터리"},
+                perfOverlayOn() ? 1 : 0, "모든 게임에 같이 적용돼요. 온도는 CPU 센서를 못 읽는 폰에선 배터리 온도로 보여요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putBoolean("perf_overlay", choice == 1).commit();
+            value.setText((choice == 1 ? "켜짐" : "꺼짐") + "  ›");
+            updatePerfOverlay();
+        }));
+        return row;
+    }
+
+    private LinearLayout createPowerRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", POWER_SHORT[powerMode()],
+                view -> showChoiceDialog(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", POWER_NAMES, POWER_NOTES,
+                        powerMode(), "이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).\n성능 표시를 켜 두면 온도와 배터리 소모가 어떻게 달라지는지 바로 볼 수 있어요.",
+                        Color.rgb(236, 253, 243), Color.rgb(22, 101, 52), "적용하고 이어하기", choice -> {
+                    if (choice == powerMode()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt(powerKey(), choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
     }
 
     // Lines follow the game's picture size, which can change (menus, resolution switches),
@@ -2300,6 +2384,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setWonderSwanTall(wonderSwanTall());
                     }
                     NativeGba.setSpeedFirst(speedFirstSupported() && speedFirst());
+                    NativeGba.setPowerMode(powerMode());
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
                     NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
@@ -3169,6 +3254,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // Its value ("2개 켜짐") follows changes made in the cheat sheet over it.
         this.cheatRowValue = (TextView) cheatRow.getChildAt(cheatRow.getChildCount() - 1);
         panel.addView(cheatRow, cheatParams);
+        LinearLayout.LayoutParams perfParams = new LinearLayout.LayoutParams(-1, dp(52));
+        perfParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createPerfRow(), perfParams);
+        LinearLayout.LayoutParams powerParams = new LinearLayout.LayoutParams(-1, dp(52));
+        powerParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createPowerRow(dialog), powerParams);
         if (isPadScreen()) {
             LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(-1, dp(52));
             speedParams.setMargins(0, dp(12), 0, 0);
@@ -3337,8 +3428,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private LinearLayout createFastRow(android.app.Dialog menu) {
         String changes = isPsp()
-                ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임씩 건너뛰어요\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
-                : "· PS2 CPU를 75%로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
+                ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임씩 건너뛰어요\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n· 텍스처 비등방성 필터를 꺼요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
+                : "· PS2 CPU를 75%로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
         LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", speedFirst() ? "켜짐" : "꺼짐",
                 view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", FAST_NAMES, FAST_NOTES,
                         speedFirst() ? 1 : 0, "켜면 이렇게 바뀌어요\n" + changes + "\n이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).",
