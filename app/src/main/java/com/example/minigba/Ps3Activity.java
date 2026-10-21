@@ -145,7 +145,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             // posted to its "main thread" (save data, state saves) and PPU/SPU compilation.
             startDaemon("ps3-main-thread", () -> RPCSX.instance.startMainThreadProcessor());
             startDaemon("ps3-compile", () -> RPCSX.instance.processCompilationQueue());
-            applyEngineSettings(context);
+            applyEngineSettings(context, null);
             engineReady = true;
             return true;
         } catch (Throwable t) {
@@ -173,9 +173,42 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         return MainActivity.sharedSettings(context).getBoolean("ps3_perf", false);
     }
 
-    private static void applyEngineSettings(Context context) {
-        RPCSX.instance.settingsSet("Video@@Resolution Scale", String.valueOf(RES_VALUES[resIndex(context)]));
-        RPCSX.instance.settingsSet("Video@@Performance Overlay@@Enabled", perfOverlay(context) ? "true" : "false");
+    // "속도 우선", per game: bigger SPU blocks, drawing before shaders are ready, relaxed ZCULL
+    // and at most 75% resolution. Off puts RPCS3's defaults back, as the config is shared.
+    // (Setting names and values are RPCS3's config.yml ones.)
+    private static boolean speedFirst(Context context, String gamePath) {
+        return gamePath != null && MainActivity.sharedSettings(context).getBoolean("ps3_fast:" + gamePath, false);
+    }
+
+    // Hands our settings to the engine; the SPU and shader ones take effect at the next boot.
+    // Returns the names of the settings the engine refused.
+    private static String applyEngineSettings(Context context, String gamePath) {
+        boolean fast = speedFirst(context, gamePath);
+        int scale = RES_VALUES[resIndex(context)];
+        StringBuilder refused = new StringBuilder();
+        set(refused, "화질", "Video@@Resolution Scale", String.valueOf(fast ? Math.min(75, scale) : scale));
+        set(refused, "성능 표시", "Video@@Performance Overlay@@Enabled", perfOverlay(context) ? "true" : "false");
+        // The engine's own values stay unless we changed them for a speed-first game earlier.
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(context);
+        if (fast || prefs.getBoolean("ps3_fast_applied", false)) {
+            set(refused, "SPU 블록", "Core@@SPU Block Size", fast ? "Mega" : "Safe");
+            set(refused, "셰이더", "Video@@Shader Mode", fast ? "Async with Shader Interpreter" : "Async Shader Recompiler");
+            set(refused, "ZCULL", "Video@@Relaxed ZCULL Sync", fast ? "true" : "false");
+            prefs.edit().putBoolean("ps3_fast_applied", fast).commit();
+        }
+        return refused.toString();
+    }
+
+    private static void set(StringBuilder refused, String name, String path, String value) {
+        boolean ok;
+        try {
+            ok = RPCSX.instance.settingsSet(path, value);
+        } catch (Throwable t) {
+            ok = false;
+        }
+        if (!ok) {
+            refused.append(refused.length() == 0 ? "" : ", ").append(name);
+        }
     }
 
     private static void startDaemon(String name, Runnable body) {
@@ -525,6 +558,9 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     private void bootGame() {
         final String path = this.gamePath;
         new Thread(() -> {
+            if (path != null) {
+                applyEngineSettings(this, path);
+            }
             int result = path == null ? 2 : RPCSX.instance.boot(path);
             if (result != RPCSX.BOOT_OK && result != RPCSX.BOOT_ALREADY_ADDED) {
                 main.post(() -> showMessage("게임을 시작하지 못했어요", bootError(result), true));
@@ -643,7 +679,25 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             showChoices(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", RES_NAMES, RES_NOTES, resIndex(this),
                     "바로 적용돼요. 모든 PS3 게임에 같이 적용돼요.", choice -> {
                 MainActivity.sharedSettings(this).edit().putInt("ps3_res", RES_VALUES[choice]).commit();
-                applyEngineSettings(this);
+                applyEngineSettings(this, this.gamePath);
+            });
+        }), rowParams(8));
+        boolean fast = speedFirst(this, this.gamePath);
+        panel.addView(menuRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", fast ? "켜짐" : "꺼짐", v -> {
+            dialog.dismiss();
+            showChoices(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", new String[]{"꺼짐", "켜짐"},
+                    new String[]{"엔진 기본 설정 (정확도 우선)",
+                            "· SPU 코드를 크게 묶어 번역 (SPU 블록 Mega)\n· 셰이더를 기다리지 않고 먼저 그림 (끊김 감소)\n· 화면 깊이 계산 느슨하게 (ZCULL)\n· 화질 75%로 낮춤"},
+                    fast ? 1 : 0,
+                    getIntent().getStringExtra(EXTRA_TITLE) + " · 이 게임에만 적용돼요. 게임을 다시 켤 때 적용돼요. 그림자·효과가 잠깐 늦게 나오거나 어색할 수 있어요. "
+                            + "처음 가는 장소는 코드를 만드느라 원래 잠깐씩 끊기고, 두 번째부터 나아져요.", choice -> {
+                MainActivity.sharedSettings(this).edit().putBoolean("ps3_fast:" + this.gamePath, choice == 1).commit();
+                String refused = applyEngineSettings(this, this.gamePath);
+                if (!refused.isEmpty()) {
+                    toast("엔진이 받지 않은 설정: " + refused);
+                } else if ((choice == 1) != fast) {
+                    toast("재시작하거나 게임을 다시 켜면 적용돼요");
+                }
             });
         }), rowParams(8));
         panel.addView(menuRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시", perfOverlay(this) ? "켜짐" : "꺼짐", v -> {
@@ -652,7 +706,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                     new String[]{"표시 없음 (기본)", "화면 구석에 FPS와 CPU·GPU 사용량"}, perfOverlay(this) ? 1 : 0,
                     "엔진이 게임 화면 위에 직접 그려요.", choice -> {
                 MainActivity.sharedSettings(this).edit().putBoolean("ps3_perf", choice == 1).commit();
-                applyEngineSettings(this);
+                applyEngineSettings(this, this.gamePath);
             });
         }), rowParams(8));
         TextView resume = pill("▶  계속하기", INDIGO, Color.WHITE);
