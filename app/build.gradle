@@ -19,8 +19,8 @@ android {
         applicationId 'com.example.minigba.gbaonly'
         minSdk 24
         targetSdk 34
-        versionCode 140
-        versionName '0.0.140'
+        versionCode 141
+        versionName '0.0.141'
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -71,11 +71,4 @@ android {
             useLegacyPackaging true
         }
     }
-}
-
-dependencies {
-    // Live translation of game text (ScreenTranslator): on-device text recognition and translation.
-    implementation 'com.google.mlkit:text-recognition:16.0.1'
-    implementation 'com.google.mlkit:text-recognition-japanese:16.0.1'
-    implementation 'com.google.mlkit:translate:17.0.3'
 }

@@ -42,7 +42,6 @@ final class RoundIconView extends View {
     static final int PALETTE = 27;
     static final int PS_HOME = 28;
     static final int PERF = 29;
-    static final int TRANSLATE = 30;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -66,7 +65,6 @@ final class RoundIconView extends View {
     static final int COLOR_PALETTE = Color.rgb(225, 29, 72);
     static final int COLOR_PS_HOME = Color.rgb(79, 70, 229);
     static final int COLOR_PERF = Color.rgb(13, 148, 136);
-    static final int COLOR_TRANSLATE = Color.rgb(245, 158, 11);
 
     private final int icon;
     private final int color;
@@ -74,7 +72,6 @@ final class RoundIconView extends View {
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private boolean pressedLook;
-    private boolean bare;
 
     RoundIconView(Context context, int icon, int color) {
         super(context);
@@ -84,12 +81,6 @@ final class RoundIconView extends View {
         line.setStyle(Paint.Style.STROKE);
         line.setStrokeCap(Paint.Cap.ROUND);
         line.setStrokeJoin(Paint.Join.ROUND);
-    }
-
-    // Only the white glyph, no circle: for icons inside a pill button.
-    void setBare(boolean bare) {
-        this.bare = bare;
-        invalidate();
     }
 
     void setPressedLook(boolean pressed) {
@@ -106,15 +97,13 @@ final class RoundIconView extends View {
         float cx = getWidth() / 2.0f;
         float cy = getHeight() / 2.0f;
         float radius = size / 2.0f - size * 0.04f;
-        if (!bare) {
-            // A slightly darker rim below the circle gives it a pressable edge.
-            fill.setColor(Color.argb(60, 0, 0, 0));
-            canvas.drawCircle(cx, cy + size * 0.04f, radius, fill);
-            fill.setColor(pressedLook ? darker(color) : color);
-            canvas.drawCircle(cx, cy, radius, fill);
-        }
+        // A slightly darker rim below the circle gives it a pressable edge.
+        fill.setColor(Color.argb(60, 0, 0, 0));
+        canvas.drawCircle(cx, cy + size * 0.04f, radius, fill);
+        fill.setColor(pressedLook ? darker(color) : color);
+        canvas.drawCircle(cx, cy, radius, fill);
 
-        float unit = size * (bare ? 0.9f : 0.55f) / 24.0f;
+        float unit = size * 0.55f / 24.0f;
         canvas.save();
         canvas.translate(cx - 12 * unit, cy - 12 * unit);
         canvas.scale(unit, unit);
@@ -434,23 +423,6 @@ final class RoundIconView extends View {
                 path.lineTo(10, 9.5f);
                 path.lineTo(13.5f, 13);
                 path.lineTo(18.5f, 6.5f);
-                canvas.drawPath(path, line);
-                break;
-            case TRANSLATE:
-                // The usual translate glyph: a CJK-ish character and a Latin A.
-                path.moveTo(4, 5);
-                path.lineTo(13, 5);
-                path.moveTo(8.5f, 3);
-                path.lineTo(8.5f, 5);
-                path.moveTo(6, 5);
-                path.cubicTo(7, 9, 10, 12, 13, 13);
-                path.moveTo(11, 5);
-                path.cubicTo(10, 9, 7, 12, 4, 13);
-                path.moveTo(13, 21);
-                path.lineTo(17, 11);
-                path.lineTo(21, 21);
-                path.moveTo(14.5f, 17.5f);
-                path.lineTo(19.5f, 17.5f);
                 canvas.drawPath(path, line);
                 break;
             case PALETTE:
