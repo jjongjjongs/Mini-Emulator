@@ -3133,7 +3133,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(9), 0, 0);
         panel.addView(row2, row2Params);
-        if (patchable(file)) {
+        if (patchable(file) || (unpatchableReason(file) != null && Arrays.asList(PATCHABLE_MODES).contains(mode))) {
             LinearLayout.LayoutParams patchParams = new LinearLayout.LayoutParams(-1, dp(52));
             patchParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createPatchRow(dialog, file), patchParams);
@@ -3163,16 +3163,31 @@ public final class MainActivity extends Activity {
 
     private File patchRom;
 
-    private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP};
+    private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP,
+            MODE_PS1, MODE_PSP, MODE_PS2};
 
-    // Cartridge games in one file; disc images and arcade sets are not patched here.
+    // Cartridge games, and PS1 (BIN/CUE, ISO), PSP and PS2 (ISO) discs. Compressed images
+    // (CHD, CSO, PBP) would have to be unpacked first; arcade sets are not patched here.
     private boolean patchable(File file) {
         String mode = modeForFile(file);
         if (!Arrays.asList(PATCHABLE_MODES).contains(mode)) {
             return false;
         }
         String name = file.getName().toLowerCase(Locale.ROOT);
-        return !(name.endsWith(".cue") || name.endsWith(".chd") || name.endsWith(".iso") || name.endsWith(".m3u") || name.endsWith(".7z"));
+        if (name.endsWith(".cue")) {
+            return MODE_PS1.equals(mode);
+        }
+        return !(name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp") || name.endsWith(".m3u") || name.endsWith(".7z"));
+    }
+
+    // Why this game can't be patched, for the formats that look patchable but aren't.
+    private String unpatchableReason(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp")) {
+            return "압축된 디스크(" + name.substring(name.lastIndexOf('.') + 1).toUpperCase(Locale.ROOT)
+                    + ")는 패치할 수 없어요. 패치는 보통 BIN/CUE나 ISO용이라, 그 형식의 원본이 필요해요.";
+        }
+        return null;
     }
 
     private LinearLayout createPatchRow(Dialog dialog, File file) {
@@ -3209,7 +3224,9 @@ public final class MainActivity extends Activity {
         }
         row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1.0f));
         TextView value = new TextView(this);
-        value.setText("IPS·BPS·xdelta  ›");
+        String mode = modeForFile(file);
+        boolean disc = MODE_PS1.equals(mode) || MODE_PSP.equals(mode) || MODE_PS2.equals(mode);
+        value.setText(disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
         value.setTextColor(Color.rgb(122, 130, 140));
@@ -3218,6 +3235,11 @@ public final class MainActivity extends Activity {
         row.setOnClickListener(view -> {
             dialog.dismiss();
             romPrefs().edit().putBoolean("patch_seen", true).apply();
+            String why = unpatchableReason(file);
+            if (why != null) {
+                showError(why);
+                return;
+            }
             pickPatch(file);
         });
         return row;
@@ -3235,12 +3257,20 @@ public final class MainActivity extends Activity {
         }
     }
 
-    // A ZIP ROM is patched as the game file inside it (the largest entry).
+    // What gets patched: the ROM itself, the game file inside a ZIP (the largest entry), or
+    // the first (data) track of a CUE sheet.
     private static final class PatchSource {
         File rom;
         String extension;
         boolean temporary;
+        // A CUE sheet: its lines, and for each FILE line its index and file.
+        File cue;
+        List<String> cueLines;
+        List<Integer> cueFileLines = new ArrayList<>();
+        List<File> tracks = new ArrayList<>();
     }
+
+    private static final java.util.regex.Pattern CUE_FILE = java.util.regex.Pattern.compile("^(\\s*FILE\\s+)(\"([^\"]+)\"|(\\S+))(\\s+.*)$", java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private PatchSource patchSourceFor(File file) throws IOException {
         PatchSource source = new PatchSource();
@@ -3248,6 +3278,49 @@ public final class MainActivity extends Activity {
         int dot = name.lastIndexOf('.');
         source.extension = dot >= 0 ? name.substring(dot) : "";
         source.rom = file;
+        if (".cue".equalsIgnoreCase(source.extension)) {
+            source.cue = file;
+            source.cueLines = new ArrayList<>();
+            // Read byte for byte (Latin-1): track names may be in UTF-8, CP949 or Shift-JIS.
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(file), "ISO-8859-1"))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (source.cueLines.isEmpty() && line.startsWith("\u00EF\u00BB\u00BF")) {
+                        line = line.substring(3);  // UTF-8 byte order mark.
+                    }
+                    java.util.regex.Matcher match = CUE_FILE.matcher(line);
+                    if (match.matches()) {
+                        String raw = match.group(3) != null ? match.group(3) : match.group(4);
+                        byte[] bytes = raw.getBytes("ISO-8859-1");
+                        File trackFile = null;
+                        for (String charset : new String[]{"UTF-8", "x-windows-949", "EUC-KR", "Shift_JIS"}) {
+                            if (!java.nio.charset.Charset.isSupported(charset)) {
+                                continue;
+                            }
+                            File candidate = new File(file.getParentFile(), new File(new String(bytes, charset)).getName());
+                            if (candidate.isFile()) {
+                                trackFile = candidate;
+                                break;
+                            }
+                        }
+                        if (trackFile == null) {
+                            throw new IOException("CUE에 적힌 트랙 파일(" + new String(bytes, "UTF-8") + ")이 없어요.");
+                        }
+                        source.cueFileLines.add(source.cueLines.size());
+                        source.tracks.add(trackFile);
+                    }
+                    source.cueLines.add(line);
+                }
+            }
+            if (source.tracks.isEmpty()) {
+                throw new IOException("CUE 파일에 트랙이 없어요.");
+            }
+            source.rom = source.tracks.get(0);
+            String track = source.rom.getName();
+            int trackDot = track.lastIndexOf('.');
+            source.extension = trackDot >= 0 ? track.substring(trackDot) : ".bin";
+            return source;
+        }
         if (!".zip".equalsIgnoreCase(source.extension)) {
             return source;
         }
@@ -3291,24 +3364,24 @@ public final class MainActivity extends Activity {
         progress.setCancelable(false);
         progress.show();
         new Thread(() -> {
-            byte[] patch = null;
+            RomPatcher.Big patch = null;
             PatchSource source = null;
             RomPatcher.Check check = null;
             String error = null;
+            // The patch is copied to a file and mapped from there, so a big one needs no heap.
+            File patchFile = new File(getCacheDir(), "patch_input");
             try (InputStream in = getContentResolver().openInputStream(uri)) {
                 if (in == null) {
                     throw new IOException("패치 파일을 열 수 없어요.");
                 }
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                byte[] buffer = new byte[1 << 16];
-                int n;
-                while ((n = in.read(buffer)) > 0) {
-                    bytes.write(buffer, 0, n);
-                    if (bytes.size() > 256 * 1024 * 1024) {
-                        throw new IOException("패치 파일이 너무 커요 (256MB 넘음).");
+                try (OutputStream out = new FileOutputStream(patchFile)) {
+                    byte[] buffer = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        out.write(buffer, 0, n);
                     }
                 }
-                patch = bytes.toByteArray();
+                patch = RomPatcher.Big.map(patchFile, 0, patchFile.length(), false);
                 RomPatcher.detect(patch);
                 source = patchSourceFor(file);
                 check = RomPatcher.check(patch, source.rom);
@@ -3317,7 +3390,10 @@ public final class MainActivity extends Activity {
             } catch (OutOfMemoryError e) {
                 error = "패치 파일이 너무 커서 열 수 없어요.";
             }
-            final byte[] patchBytes = patch;
+            if (error != null) {
+                patchFile.delete();
+            }
+            final RomPatcher.Big patchBytes = patch;
             final PatchSource patchSource = source;
             final RomPatcher.Check result = check;
             final String why = error;
@@ -3368,7 +3444,7 @@ public final class MainActivity extends Activity {
         return step;
     }
 
-    private void showPatchDialog(final File file, String patchName, final byte[] patch, final PatchSource source, final RomPatcher.Check check) {
+    private void showPatchDialog(final File file, String patchName, final RomPatcher.Big patch, final PatchSource source, final RomPatcher.Check check) {
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(1);
         LinearLayout panel = new LinearLayout(this);
@@ -3397,7 +3473,7 @@ public final class MainActivity extends Activity {
         android.text.SpannableStringBuilder fileText = new android.text.SpannableStringBuilder(patchName);
         fileText.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, fileText.length(), 0);
         fileText.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(31, 41, 51)), 0, fileText.length(), 0);
-        fileText.append(" · ").append(formatSize(patch.length)).append(" · ").append(RomPatcher.formatName(check.format)).append("\n");
+        fileText.append(" · ").append(formatSize(patch.size)).append(" · ").append(RomPatcher.formatName(check.format)).append("\n");
         int linkStart = fileText.length();
         fileText.append("다른 파일 고르기");
         fileText.setSpan(new android.text.style.ForegroundColorSpan(RoundIconView.COLOR_PATCH), linkStart, fileText.length(), 0);
@@ -3420,7 +3496,7 @@ public final class MainActivity extends Activity {
         } else if (check.format == RomPatcher.XDELTA) {
             verdict = "적용하면서 원본이 맞는지 확인해요.";
         } else {
-            verdict = "IPS 패치는 원본 확인 정보가 없어요. 패치 설명의 원본 롬이 맞는지 확인해 주세요.";
+            verdict = RomPatcher.formatName(check.format) + " 패치에는 원본 확인 정보가 없어요. 패치 설명에 적힌 원본이 맞는지 확인해 주세요.";
         }
         LinearLayout.LayoutParams step2Params = new LinearLayout.LayoutParams(-1, -2);
         step2Params.setMargins(0, dp(12), 0, 0);
@@ -3495,8 +3571,11 @@ public final class MainActivity extends Activity {
         scroll.addView(panel);
         dialog.setContentView(scroll);
         dialog.setOnDismissListener(d -> {
-            if (source.temporary && !this.patchRunning) {
-                source.rom.delete();
+            if (!this.patchRunning) {
+                new File(getCacheDir(), "patch_input").delete();
+                if (source.temporary) {
+                    source.rom.delete();
+                }
             }
         });
         Window window = dialog.getWindow();
@@ -3509,26 +3588,78 @@ public final class MainActivity extends Activity {
 
     private boolean patchRunning;
 
-    private void runPatch(File file, String originalName, String newName, byte[] patch, PatchSource source, RomPatcher.Check check) {
+    private void runPatch(File file, String originalName, String newName, RomPatcher.Big patch, PatchSource source, RomPatcher.Check check) {
         File dir = file.getParentFile();
         String base = sanitizeSaveBaseName(newName);
-        File target = new File(dir, base + source.extension);
-        for (int k = 2; target.exists(); k++) {
-            target = new File(dir, base + " " + k + source.extension);
+        boolean cue = source.cue != null;
+        boolean multi = cue && source.tracks.size() > 1;
+        // A name none of the new files (the game, and a CUE's tracks) already has.
+        String chosen = base;
+        for (int k = 2; patchTargetsExist(dir, chosen, source, cue, multi); k++) {
+            chosen = base + " " + k;
         }
-        final File out = target;
-        final File temp = new File(dir, "." + out.getName() + ".patching");
+        final String name = chosen;
+        final File out = new File(dir, name + (cue ? ".cue" : source.extension));
+        final File dataOut = cue ? new File(dir, trackName(name, 0, source, multi)) : out;
+        final File temp = new File(dir, "." + dataOut.getName() + ".patching");
+        long needed = source.rom.length();
+        if (cue) {
+            for (int k = 1; k < source.tracks.size(); k++) {
+                needed += source.tracks.get(k).length();
+            }
+        }
+        long free = new android.os.StatFs(dir.getAbsolutePath()).getAvailableBytes();
+        if (free < needed + 64L * 1024 * 1024) {
+            new File(getCacheDir(), "patch_input").delete();
+            if (source.temporary) {
+                source.rom.delete();
+            }
+            showError("저장 공간이 부족해요. 패치한 복사본을 만들려면 " + formatSize(needed) + " 정도가 필요한데, 남은 공간은 " + formatSize(free) + "예요.");
+            return;
+        }
         final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
-        progress.setMessage("패치를 적용하는 중…");
+        progress.setMessage(needed > 512L * 1024 * 1024 ? "패치를 적용하는 중… 디스크가 커서 몇 분 걸릴 수 있어요" : "패치를 적용하는 중…");
         progress.setCancelable(false);
         progress.show();
         this.patchRunning = true;
         new Thread(() -> {
             String error = null;
+            java.util.List<File> written = new ArrayList<>();
             try {
                 RomPatcher.apply(patch, source.rom, check, temp);
-                if (!temp.renameTo(out)) {
+                if (!temp.renameTo(dataOut)) {
                     throw new IOException("패치한 롬을 저장하지 못했어요.");
+                }
+                written.add(dataOut);
+                if (cue) {
+                    // The other tracks (music) are copied too, so deleting the original game later
+                    // doesn't take them from this one; the CUE names the new files.
+                    List<String> lines = new ArrayList<>(source.cueLines);
+                    java.util.Set<Integer> renamed = new java.util.HashSet<>();
+                    for (int k = 0; k < source.tracks.size(); k++) {
+                        String track = trackName(name, k, source, multi);
+                        if (k > 0) {
+                            File copy = new File(dir, track);
+                            if (!copyFile(source.tracks.get(k), copy)) {
+                                throw new IOException("트랙 파일을 복사하지 못했어요.");
+                            }
+                            written.add(copy);
+                        }
+                        int index = source.cueFileLines.get(k);
+                        java.util.regex.Matcher match = CUE_FILE.matcher(lines.get(index));
+                        if (match.matches()) {
+                            lines.set(index, match.group(1) + "\"" + track + "\"" + match.group(5));
+                            renamed.add(index);
+                        }
+                    }
+                    // Lines as they were (bytes kept), the new FILE lines in UTF-8 like the file names.
+                    try (OutputStream writer = new FileOutputStream(out)) {
+                        for (int k = 0; k < lines.size(); k++) {
+                            writer.write(lines.get(k).getBytes(renamed.contains(k) ? "UTF-8" : "ISO-8859-1"));
+                            writer.write(new byte[]{'\r', '\n'});
+                        }
+                    }
+                    written.add(out);
                 }
             } catch (IOException e) {
                 error = e.getMessage();
@@ -3536,8 +3667,14 @@ public final class MainActivity extends Activity {
                 error = "메모리가 부족해서 패치하지 못했어요.";
             } finally {
                 temp.delete();
+                new File(getCacheDir(), "patch_input").delete();
                 if (source.temporary) {
                     source.rom.delete();
+                }
+            }
+            if (error != null) {
+                for (File f : written) {
+                    f.delete();
                 }
             }
             final String why = error;
@@ -3548,7 +3685,6 @@ public final class MainActivity extends Activity {
                 }
                 progress.dismiss();
                 if (why != null) {
-                    out.delete();
                     showError(why);
                     return;
                 }
@@ -3557,6 +3693,29 @@ public final class MainActivity extends Activity {
                 refreshLibrary();
             });
         }, "patch").start();
+    }
+
+    // The file name of track k of a patched CUE game ("이름.bin", or "이름 (Track 01).bin").
+    private static String trackName(String name, int k, PatchSource source, boolean multi) {
+        String track = source.tracks.get(k).getName();
+        int dot = track.lastIndexOf('.');
+        String extension = dot >= 0 ? track.substring(dot) : ".bin";
+        return multi ? String.format(Locale.ROOT, "%s (Track %02d)%s", name, k + 1, extension) : name + extension;
+    }
+
+    private static boolean patchTargetsExist(File dir, String name, PatchSource source, boolean cue, boolean multi) {
+        if (!cue) {
+            return new File(dir, name + source.extension).exists();
+        }
+        if (new File(dir, name + ".cue").exists()) {
+            return true;
+        }
+        for (int k = 0; k < source.tracks.size(); k++) {
+            if (new File(dir, trackName(name, k, source, multi)).exists()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String patchedFrom(File file) {
