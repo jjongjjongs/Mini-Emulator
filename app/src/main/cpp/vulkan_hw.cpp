@@ -86,6 +86,22 @@ const uint32_t kBlitFrag[] = {
 const uint32_t kFsrFrag[] = {
 #include "fsr_frag.inc"
 };
+// Then AMD FSR 1.0's RCAS sharpens EASU's output (drawn into an image of the window's size)
+// onto the window, from
+//   #version 450
+//   layout(location = 0) out vec4 color;
+//   layout(set = 0, binding = 0) uniform sampler2D upscaled;
+//   ivec2 size;
+//   vec3 at(ivec2 p) { return texelFetch(upscaled, clamp(p, ivec2(0), size - 1), 0).rgb; }
+//   <the body in fsr_rcas.glsl.inc>
+//   void main() {
+//       size = textureSize(upscaled, 0);
+//       color = vec4(rcas(ivec2(gl_FragCoord.xy)), 1.0);
+//   }
+// compiled with glslangValidator -V.
+const uint32_t kRcasFrag[] = {
+#include "rcas_frag.inc"
+};
 
 std::atomic<bool> gFsr{false};
 
@@ -112,7 +128,9 @@ constexpr uint32_t kSlots = 3;
     X(vkCmdBindDescriptorSets) X(vkCmdSetViewport) X(vkCmdSetScissor) X(vkCmdDraw)                \
     X(vkCmdPipelineBarrier) X(vkCreateFence) X(vkWaitForFences) X(vkResetFences)                  \
     X(vkCreateSemaphore) X(vkDestroySemaphore) X(vkCreateBuffer) X(vkGetBufferMemoryRequirements)  \
-    X(vkAllocateMemory) X(vkBindBufferMemory) X(vkMapMemory) X(vkCmdCopyImageToBuffer)
+    X(vkAllocateMemory) X(vkBindBufferMemory) X(vkMapMemory) X(vkCmdCopyImageToBuffer)                \
+    X(vkCreateImage) X(vkDestroyImage) X(vkGetImageMemoryRequirements) X(vkBindImageMemory)        \
+    X(vkFreeMemory)
 
 #define VK_DECLARE(name) PFN_##name name = nullptr;
 VK_GLOBAL(VK_DECLARE)
@@ -359,6 +377,16 @@ public:
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipeline fsrPipeline = VK_NULL_HANDLE;
+    // FSR's sharpening pass: EASU draws into fsrImage (fsrPass, easuPipeline), RCAS from it
+    // onto the window.
+    VkPipeline rcasPipeline = VK_NULL_HANDLE;
+    VkPipeline easuPipeline = VK_NULL_HANDLE;
+    VkRenderPass fsrPass = VK_NULL_HANDLE;
+    VkImage fsrImage = VK_NULL_HANDLE;
+    VkDeviceMemory fsrMemory = VK_NULL_HANDLE;
+    VkImageView fsrView = VK_NULL_HANDLE;
+    VkFramebuffer fsrFramebuffer = VK_NULL_HANDLE;
+    VkDescriptorSet fsrSet = VK_NULL_HANDLE;
     VkFormat pipelineFormat = VK_FORMAT_UNDEFINED;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
@@ -480,6 +508,18 @@ bool makePipeline(Host* h) {
             vkDestroyPipeline(h->device, h->fsrPipeline, nullptr);
             h->fsrPipeline = VK_NULL_HANDLE;
         }
+        if (h->rcasPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(h->device, h->rcasPipeline, nullptr);
+            h->rcasPipeline = VK_NULL_HANDLE;
+        }
+        if (h->easuPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(h->device, h->easuPipeline, nullptr);
+            h->easuPipeline = VK_NULL_HANDLE;
+        }
+        if (h->fsrPass != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(h->device, h->fsrPass, nullptr);
+            h->fsrPass = VK_NULL_HANDLE;
+        }
         vkDestroyRenderPass(h->device, h->renderPass, nullptr);
         h->pipeline = VK_NULL_HANDLE;
         h->renderPass = VK_NULL_HANDLE;
@@ -577,6 +617,53 @@ bool makePipeline(Host* h) {
         }
         vkDestroyShaderModule(h->device, fsr, nullptr);
     }
+    VkShaderModule rcas = h->fsrPipeline != VK_NULL_HANDLE ? shaderModule(h->device, kRcasFrag, sizeof(kRcasFrag)) : VK_NULL_HANDLE;
+    if (rcas != VK_NULL_HANDLE) {
+        stages[1].module = rcas;
+        if (vkCreateGraphicsPipelines(h->device, VK_NULL_HANDLE, 1, &info, nullptr, &h->rcasPipeline) != VK_SUCCESS) {
+            h->rcasPipeline = VK_NULL_HANDLE;
+            VLOGE("could not make the RCAS pipeline");
+        }
+        vkDestroyShaderModule(h->device, rcas, nullptr);
+    }
+    if (h->rcasPipeline != VK_NULL_HANDLE) {
+        // EASU's own pass: the same format (so the same pipelines fit it), kept for sampling.
+        VkAttachmentDescription target = color;
+        target.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        target.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkSubpassDependency deps[2] = {};
+        // The last frame's RCAS read of the image is done before EASU writes it again...
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        // ...and EASU's writes are there before RCAS reads them.
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        VkRenderPassCreateInfo fsrInfo = rp;
+        fsrInfo.pAttachments = &target;
+        fsrInfo.dependencyCount = 2;
+        fsrInfo.pDependencies = deps;
+        if (vkCreateRenderPass(h->device, &fsrInfo, nullptr, &h->fsrPass) != VK_SUCCESS) {
+            h->fsrPass = VK_NULL_HANDLE;
+        }
+    }
+    // EASU into that pass needs a pipeline made for it (its dependencies differ).
+    VkShaderModule easu = h->fsrPass != VK_NULL_HANDLE ? shaderModule(h->device, kFsrFrag, sizeof(kFsrFrag)) : VK_NULL_HANDLE;
+    if (easu != VK_NULL_HANDLE) {
+        stages[1].module = easu;
+        info.renderPass = h->fsrPass;
+        if (vkCreateGraphicsPipelines(h->device, VK_NULL_HANDLE, 1, &info, nullptr, &h->easuPipeline) != VK_SUCCESS) {
+            h->easuPipeline = VK_NULL_HANDLE;
+        }
+        info.renderPass = h->renderPass;
+        vkDestroyShaderModule(h->device, easu, nullptr);
+    }
     if (vert != VK_NULL_HANDLE) vkDestroyShaderModule(h->device, vert, nullptr);
     if (frag != VK_NULL_HANDLE) vkDestroyShaderModule(h->device, frag, nullptr);
     if (result != VK_SUCCESS) {
@@ -587,6 +674,90 @@ bool makePipeline(Host* h) {
     return true;
 }
 
+void destroyFsrTarget(Host* h) {
+    if (h->fsrFramebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(h->device, h->fsrFramebuffer, nullptr);
+    if (h->fsrView != VK_NULL_HANDLE) vkDestroyImageView(h->device, h->fsrView, nullptr);
+    if (h->fsrImage != VK_NULL_HANDLE) vkDestroyImage(h->device, h->fsrImage, nullptr);
+    if (h->fsrMemory != VK_NULL_HANDLE) vkFreeMemory(h->device, h->fsrMemory, nullptr);
+    h->fsrFramebuffer = VK_NULL_HANDLE;
+    h->fsrView = VK_NULL_HANDLE;
+    h->fsrImage = VK_NULL_HANDLE;
+    h->fsrMemory = VK_NULL_HANDLE;
+}
+
+// The image EASU draws into for RCAS, the window's size. Without it FSR draws EASU straight
+// onto the window, unsharpened.
+void makeFsrTarget(Host* h) {
+    if (h->fsrPass == VK_NULL_HANDLE || h->easuPipeline == VK_NULL_HANDLE || h->rcasPipeline == VK_NULL_HANDLE ||
+        h->fsrSet == VK_NULL_HANDLE) {
+        return;
+    }
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = h->format;
+    info.extent = {h->extent.width, h->extent.height, 1};
+    info.mipLevels = 1;
+    info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(h->device, &info, nullptr, &h->fsrImage) != VK_SUCCESS) {
+        h->fsrImage = VK_NULL_HANDLE;
+        return;
+    }
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(h->device, h->fsrImage, &req);
+    VkPhysicalDeviceMemoryProperties mem;
+    vkGetPhysicalDeviceMemoryProperties(h->gpu, &mem);
+    VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = req.size;
+    alloc.memoryTypeIndex = UINT32_MAX;
+    for (uint32_t i = 0; i < mem.memoryTypeCount; ++i) {
+        if ((req.memoryTypeBits & (1u << i)) != 0 &&
+            (mem.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0) {
+            alloc.memoryTypeIndex = i;
+            break;
+        }
+    }
+    if (alloc.memoryTypeIndex == UINT32_MAX || vkAllocateMemory(h->device, &alloc, nullptr, &h->fsrMemory) != VK_SUCCESS ||
+        vkBindImageMemory(h->device, h->fsrImage, h->fsrMemory, 0) != VK_SUCCESS) {
+        destroyFsrTarget(h);
+        return;
+    }
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = h->fsrImage;
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = h->format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkFramebufferCreateInfo fb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+    fb.renderPass = h->fsrPass;
+    fb.attachmentCount = 1;
+    fb.width = h->extent.width;
+    fb.height = h->extent.height;
+    fb.layers = 1;
+    if (vkCreateImageView(h->device, &view, nullptr, &h->fsrView) != VK_SUCCESS) {
+        h->fsrView = VK_NULL_HANDLE;
+        destroyFsrTarget(h);
+        return;
+    }
+    fb.pAttachments = &h->fsrView;
+    if (vkCreateFramebuffer(h->device, &fb, nullptr, &h->fsrFramebuffer) != VK_SUCCESS) {
+        h->fsrFramebuffer = VK_NULL_HANDLE;
+        destroyFsrTarget(h);
+        return;
+    }
+    VkDescriptorImageInfo imageInfo{h->sampler, h->fsrView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = h->fsrSet;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(h->device, 1, &write, 0, nullptr);
+}
+
 void destroySwapchain(Host* h) {
     if (h->swapchain == VK_NULL_HANDLE) {
         return;
@@ -595,6 +766,7 @@ void destroySwapchain(Host* h) {
         std::lock_guard<std::mutex> lock(h->queueMutex);
         vkDeviceWaitIdle(h->device);
     }
+    destroyFsrTarget(h);
     for (VkFramebuffer fb : h->framebuffers) vkDestroyFramebuffer(h->device, fb, nullptr);
     for (VkImageView view : h->chainViews) vkDestroyImageView(h->device, view, nullptr);
     for (VkSemaphore s : h->rendered) vkDestroySemaphore(h->device, s, nullptr);
@@ -724,6 +896,7 @@ bool makeSwapchain(Host* h) {
         vkCreateSemaphore(h->device, &sem, nullptr, &semaphore);
         h->rendered.push_back(semaphore);
     }
+    makeFsrTarget(h);
     VLOGI("swapchain %ux%u, %u images, format %d, %s", extent.width, extent.height, count, h->format,
           mode == VK_PRESENT_MODE_MAILBOX_KHR ? "mailbox" : "fifo");
     return true;
@@ -812,9 +985,10 @@ bool makeResources(Host* h) {
     if (vkCreatePipelineLayout(h->device, &layoutInfo, nullptr, &h->layout) != VK_SUCCESS) {
         return false;
     }
-    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSlots};
+    // One set per slot for the core's image, and one for FSR's upscaled image.
+    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSlots + 1};
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    poolInfo.maxSets = kSlots;
+    poolInfo.maxSets = kSlots + 1;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &size;
     if (vkCreateDescriptorPool(h->device, &poolInfo, nullptr, &h->pool) != VK_SUCCESS) {
@@ -828,6 +1002,10 @@ bool makeResources(Host* h) {
     allocInfo.pSetLayouts = layouts;
     if (vkAllocateDescriptorSets(h->device, &allocInfo, h->sets) != VK_SUCCESS) {
         return false;
+    }
+    allocInfo.descriptorSetCount = 1;
+    if (vkAllocateDescriptorSets(h->device, &allocInfo, &h->fsrSet) != VK_SUCCESS) {
+        h->fsrSet = VK_NULL_HANDLE;
     }
     VkCommandPoolCreateInfo poolCreate{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     poolCreate.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -1019,6 +1197,24 @@ void present(Host* h) {
     }
     VkClearValue clear{};
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    VkViewport viewport{0.0f, 0.0f, static_cast<float>(h->extent.width), static_cast<float>(h->extent.height), 0.0f, 1.0f};
+    VkRect2D scissor{{0, 0}, h->extent};
+    bool fsr = haveImage && gFsr.load() && h->fsrPipeline != VK_NULL_HANDLE;
+    bool sharpen = fsr && h->fsrFramebuffer != VK_NULL_HANDLE;
+    if (sharpen) {
+        // FSR in two passes: EASU into fsrImage here, RCAS onto the window below.
+        VkRenderPassBeginInfo easu{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        easu.renderPass = h->fsrPass;
+        easu.framebuffer = h->fsrFramebuffer;
+        easu.renderArea = {{0, 0}, h->extent};
+        vkCmdBeginRenderPass(cmd, &easu, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->easuPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, &h->sets[slot], 0, nullptr);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     pass.renderPass = h->renderPass;
     pass.framebuffer = h->framebuffers[chainIndex];
@@ -1027,13 +1223,10 @@ void present(Host* h) {
     pass.pClearValues = &clear;
     vkCmdBeginRenderPass(cmd, &pass, VK_SUBPASS_CONTENTS_INLINE);
     if (haveImage) {
-        VkViewport viewport{0.0f, 0.0f, static_cast<float>(h->extent.width), static_cast<float>(h->extent.height), 0.0f, 1.0f};
-        VkRect2D scissor{{0, 0}, h->extent};
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
-        bool fsr = gFsr.load() && h->fsrPipeline != VK_NULL_HANDLE;
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fsr ? h->fsrPipeline : h->pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, &h->sets[slot], 0, nullptr);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sharpen ? h->rcasPipeline : fsr ? h->fsrPipeline : h->pipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, sharpen ? &h->fsrSet : &h->sets[slot], 0, nullptr);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
     vkCmdEndRenderPass(cmd);

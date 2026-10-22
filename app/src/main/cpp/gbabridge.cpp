@@ -152,6 +152,7 @@ struct Api {
     void (*LinkProgram)(GLuint) = nullptr;
     void (*GetProgramiv)(GLuint, GLenum, GLint*) = nullptr;
     void (*UseProgram)(GLuint) = nullptr;
+    void (*DeleteProgram)(GLuint) = nullptr;
     GLint (*GetUniformLocation)(GLuint, const char*) = nullptr;
     void (*Uniform1i)(GLint, GLint) = nullptr;
     void (*Uniform1f)(GLint, float) = nullptr;
@@ -210,6 +211,7 @@ bool load(Api& a) {
                 bind(gles, a.DeleteShader, "glDeleteShader") && bind(gles, a.CreateProgram, "glCreateProgram") &&
                 bind(gles, a.AttachShader, "glAttachShader") && bind(gles, a.LinkProgram, "glLinkProgram") &&
                 bind(gles, a.GetProgramiv, "glGetProgramiv") && bind(gles, a.UseProgram, "glUseProgram") &&
+                bind(gles, a.DeleteProgram, "glDeleteProgram") &&
                 bind(gles, a.GetUniformLocation, "glGetUniformLocation") && bind(gles, a.Uniform1i, "glUniform1i") &&
                 bind(gles, a.Uniform1f, "glUniform1f") && bind(gles, a.Uniform2f, "glUniform2f") &&
                 bind(gles, a.ActiveTexture, "glActiveTexture") && bind(gles, a.GenVertexArrays, "glGenVertexArrays") &&
@@ -440,6 +442,10 @@ struct Core {
     gl::GLuint fsrProgram = 0, fsrVao = 0;
     gl::GLint fsrRegion = -1, fsrBottomLeft = -1, fsrFrame = -1;
     bool fsrFailed = false;
+    // RCAS: EASU draws into fsrTexture (the window's size), RCAS from it onto the window.
+    gl::GLuint rcasProgram = 0, fsrTarget = 0, fsrTexture = 0;
+    gl::GLint rcasImage = -1;
+    int fsrTargetWidth = 0, fsrTargetHeight = 0;
     int fboWidth = 0, fboHeight = 0;
     unsigned maxWidth = 0, maxHeight = 0;
     unsigned lastWidth = 0, lastHeight = 0;
@@ -1632,6 +1638,26 @@ const char* const kFsrBody =
 #include "fsr_easu.glsl.inc"
     ;
 
+const char* const kRcasFragmentHead = R"GLSL(#version 300 es
+precision highp float;
+precision highp int;
+out vec4 outColor;
+uniform sampler2D uImage;
+ivec2 size;
+vec3 at(ivec2 p) { return texelFetch(uImage, clamp(p, ivec2(0), size - 1), 0).rgb; }
+)GLSL";
+
+const char* const kRcasBody =
+#include "fsr_rcas.glsl.inc"
+    ;
+
+const char* const kRcasFragmentMain = R"GLSL(
+void main() {
+    size = textureSize(uImage, 0);
+    outColor = vec4(rcas(ivec2(gl_FragCoord.xy)), 1.0);
+}
+)GLSL";
+
 const char* const kFsrFragmentMain = R"GLSL(
 void main() {
     regionSize = ivec2(uRegion);
@@ -1686,6 +1712,59 @@ bool makeFsrProgram(Core* core) {
     core->fsrFrame = gGl.GetUniformLocation(program, "uFrame");
     gGl.GenVertexArrays(1, &core->fsrVao);
     core->fsrFailed = false;
+    // The sharpening pass; without it EASU draws straight onto the window.
+    const char* rcasParts[] = {kRcasFragmentHead, kRcasBody, kRcasFragmentMain};
+    gl::GLuint rcasVertex = compileShader(gl::GL_VERTEX_SHADER, vertexParts, 1);
+    gl::GLuint rcasFragment = compileShader(gl::GL_FRAGMENT_SHADER, rcasParts, 3);
+    if (rcasVertex != 0 && rcasFragment != 0) {
+        gl::GLuint rcas = gGl.CreateProgram();
+        gGl.AttachShader(rcas, rcasVertex);
+        gGl.AttachShader(rcas, rcasFragment);
+        gGl.LinkProgram(rcas);
+        gl::GLint rcasLinked = 0;
+        gGl.GetProgramiv(rcas, gl::GL_LINK_STATUS, &rcasLinked);
+        if (rcasLinked) {
+            core->rcasProgram = rcas;
+            core->rcasImage = gGl.GetUniformLocation(rcas, "uImage");
+        } else {
+            LOGE("RCAS program did not link");
+        }
+    }
+    if (rcasVertex != 0) gGl.DeleteShader(rcasVertex);
+    if (rcasFragment != 0) gGl.DeleteShader(rcasFragment);
+    return true;
+}
+
+// The texture EASU draws into for RCAS, kept at the window's size; false if it can't be.
+bool fsrTargetFor(Core* core, int width, int height) {
+    if (core->rcasProgram == 0) {
+        return false;
+    }
+    if (core->fsrTarget != 0 && core->fsrTargetWidth == width && core->fsrTargetHeight == height) {
+        return true;
+    }
+    if (core->fsrTexture == 0) {
+        gGl.GenTextures(1, &core->fsrTexture);
+        gGl.GenFramebuffers(1, &core->fsrTarget);
+    }
+    gGl.BindTexture(gl::GL_TEXTURE_2D, core->fsrTexture);
+    gGl.TexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR);
+    gGl.TexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+    gGl.TexImage2D(gl::GL_TEXTURE_2D, 0, gl::GL_RGBA8, width, height, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, nullptr);
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, core->fsrTarget);
+    gGl.FramebufferTexture2D(gl::GL_DRAW_FRAMEBUFFER, gl::GL_COLOR_ATTACHMENT0, gl::GL_TEXTURE_2D, core->fsrTexture, 0);
+    bool complete = gGl.CheckFramebufferStatus(gl::GL_DRAW_FRAMEBUFFER) == gl::GL_FRAMEBUFFER_COMPLETE;
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
+    if (!complete) {
+        gGl.DeleteFramebuffers(1, &core->fsrTarget);
+        gGl.DeleteTextures(1, &core->fsrTexture);
+        core->fsrTarget = core->fsrTexture = 0;
+        gGl.DeleteProgram(core->rcasProgram);
+        core->rcasProgram = 0;
+        return false;
+    }
+    core->fsrTargetWidth = width;
+    core->fsrTargetHeight = height;
     return true;
 }
 
@@ -1711,6 +1790,10 @@ bool drawFsr(Core* core, int width, int height) {
     }
     gGl.ColorMask(1, 1, 1, 1);
     gGl.Viewport(0, 0, width, height);
+    bool sharpen = fsrTargetFor(core, width, height);
+    if (sharpen) {
+        gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, core->fsrTarget);
+    }
     gGl.UseProgram(core->fsrProgram);
     gGl.BindTexture(gl::GL_TEXTURE_2D, core->fboTexture);
     gGl.Uniform1i(core->fsrFrame, 0);
@@ -1718,6 +1801,13 @@ bool drawFsr(Core* core, int width, int height) {
     gGl.Uniform1f(core->fsrBottomLeft, core->hw.bottom_left_origin ? 1.0f : 0.0f);
     gGl.BindVertexArray(core->fsrVao);
     gGl.DrawArrays(gl::GL_TRIANGLES, 0, 3);
+    if (sharpen) {
+        gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
+        gGl.UseProgram(core->rcasProgram);
+        gGl.BindTexture(gl::GL_TEXTURE_2D, core->fsrTexture);
+        gGl.Uniform1i(core->rcasImage, 0);
+        gGl.DrawArrays(gl::GL_TRIANGLES, 0, 3);
+    }
     gGl.BindVertexArray(static_cast<gl::GLuint>(vao));
     gGl.UseProgram(static_cast<gl::GLuint>(program));
     gGl.BindTexture(gl::GL_TEXTURE_2D, static_cast<gl::GLuint>(texture));
