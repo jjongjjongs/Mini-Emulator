@@ -88,10 +88,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         MainActivity.sharedSettings(this).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
         this.coreId = stringExtra;
         Haptics.setLevel(this, hapticLevel());
-        NativeGba.setSharpScaling(screenFilter() != 0);
         if (stringExtra == null) {
             this.coreId = "gba";
         }
+        applyScreenFilterToNative(screenFilter());
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
             this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
@@ -1883,6 +1883,21 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // ---- 설정: screen filter, button vibration, combo zones (all games) ----
     private static final String[] FILTER_NAMES = {"기본", "선명하게", "스캔라인", "LCD 격자"};
     private static final String[] FILTER_NOTES = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자"};
+    // 3D engines also get "FSR 업스케일" (filter 4).
+    private static final String[] FILTER_NAMES_3D = {"기본", "선명하게", "스캔라인", "LCD 격자", "FSR 업스케일"};
+    private static final String[] FILTER_NOTES_3D = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자",
+            "낮은 해상도 3D 화면을 또렷하게 키워요 (AMD FSR 1.0)"};
+
+    // Engines that draw with the GPU, where FSR can enlarge the picture.
+    private boolean is3d() {
+        return "ppsspp".equals(this.coreId) || "pcee2".equals(this.coreId) || "play".equals(this.coreId)
+                || "mupen64plus_next".equals(this.coreId) || "flycast".equals(this.coreId) || "yabasanshiro".equals(this.coreId);
+    }
+
+    private void applyScreenFilterToNative(int filter) {
+        NativeGba.setSharpScaling(filter >= 1 && filter <= 3);
+        NativeGba.setFsr(filter == 4);
+    }
     private static final String[] HAPTIC_NAMES = {"꺼짐", "약하게", "보통", "강하게"};
     private static final String[] HAPTIC_NOTES = {"진동 없음 (기본)", "살짝 톡", "또렷하게 톡", "확실하게 툭"};
     private final java.util.List<ScreenFilterView> screenFilters = new java.util.ArrayList<>();
@@ -1895,7 +1910,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private int screenFilter() {
         int value = MainActivity.sharedSettings(this).getInt("screen_filter", 0);
-        return value >= 0 && value <= 3 ? value : 0;
+        return value >= 0 && value <= (is3d() ? 4 : 3) ? value : 0;
     }
 
     private int hapticLevel() {
@@ -2000,14 +2015,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void updateScreenFilters() {
         int filter = screenFilter();
         long handle = this.nativeHandle;
-        int[] size = handle != 0 && filter >= 2 ? NativeGba.frameSize(handle) : null;
+        int[] size = handle != 0 && filter >= 2 && filter <= 3 ? NativeGba.frameSize(handle) : null;
         for (ScreenFilterView view : this.screenFilters) {
             view.setFilter(filter);
             if (size != null && size.length == 2) {
                 view.setGameSize(size[0], size[1]);
             }
             view.removeCallbacks(this.screenFilterPoll);
-            if (filter >= 2 && !this.destroyed) {
+            if (filter >= 2 && filter <= 3 && !this.destroyed) {
                 view.postDelayed(this.screenFilterPoll, 500);
             }
         }
@@ -2055,12 +2070,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         };
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
         filterParams.setMargins(0, dp(14), 0, 0);
-        panel.addView(createSettingRow(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", FILTER_NAMES[screenFilter()],
-                view -> showChoiceDialog(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", FILTER_NAMES, FILTER_NOTES,
-                        screenFilter(), "모든 게임에 바로 적용돼요.\nPSP·PS2·N64·드림캐스트 같은 3D 게임은 '기본'이 가장 깔끔해요.",
+        boolean threeD = is3d();
+        panel.addView(createSettingRow(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", (threeD ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
+                view -> showChoiceDialog(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", threeD ? FILTER_NAMES_3D : FILTER_NAMES,
+                        threeD ? FILTER_NOTES_3D : FILTER_NOTES, screenFilter(),
+                        threeD ? "모든 게임에 바로 적용돼요.\nFSR은 3D 기기(PSP·PS2·N64·드림캐스트·새턴)에서만 보여요. 2D 게임에선 '기본'으로 보여요."
+                                : "모든 게임에 바로 적용돼요.\nPSP·PS2·N64·드림캐스트 같은 3D 게임은 'FSR 업스케일'도 고를 수 있어요.",
                         Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
                     MainActivity.sharedSettings(this).edit().putInt("screen_filter", choice).apply();
-                    NativeGba.setSharpScaling(choice != 0);
+                    applyScreenFilterToNative(choice);
                     updateScreenFilters();
                     reopen.run();
                 })), filterParams);
@@ -3397,7 +3415,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private LinearLayout createScaleRow(android.app.Dialog menu) {
         return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", PSP_SCALE_SHORT[pspScale() - 1],
                 view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", PSP_SCALE_NAMES, PSP_SCALE_NOTES,
-                        pspScale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요 (2~3초).",
+                        pspScale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요 (2~3초).\n추천 조합: 렉이 걸리는 게임은 1배 + 설정 › 화면 필터 'FSR 업스케일'.\n빠르면서도 2배에 가깝게 또렷해 보여요.",
                         Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
                     if (choice + 1 == pspScale()) {
                         return;

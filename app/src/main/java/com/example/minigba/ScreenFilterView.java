@@ -50,7 +50,7 @@ final class ScreenFilterView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
-        if (this.filter < 2 || this.gameWidth <= 0 || this.gameHeight <= 0 || this.target.getVisibility() != VISIBLE) {
+        if (this.filter < 2 || this.filter > 3 || this.gameWidth <= 0 || this.gameHeight <= 0 || this.target.getVisibility() != VISIBLE) {
             return;
         }
         float left = this.target.getLeft();

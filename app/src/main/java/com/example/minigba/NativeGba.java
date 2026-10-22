@@ -43,6 +43,10 @@ final class NativeGba {
     // "속도 우선" (speed hacks) for the next PSP or PS2 (PCSX2) game created.
     static native void setSpeedFirst(boolean fast);
 
+    // "FSR 업스케일" screen filter: 3D engines enlarge the picture with AMD FSR 1.0. Takes effect
+    // at once.
+    static native void setFsr(boolean on);
+
     // "전원 모드" for the next game created: 0 성능, 1 균형, 2 절전.
     static native void setPowerMode(int mode);
 

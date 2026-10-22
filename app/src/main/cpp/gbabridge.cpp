@@ -96,7 +96,12 @@ constexpr GLenum GL_FRAMEBUFFER = 0x8D40, GL_READ_FRAMEBUFFER = 0x8CA8, GL_DRAW_
                  GL_UNSIGNED_BYTE = 0x1401, GL_TEXTURE_MIN_FILTER = 0x2801, GL_TEXTURE_MAG_FILTER = 0x2800,
                  GL_LINEAR = 0x2601, GL_COLOR_ATTACHMENT0 = 0x8CE0, GL_DEPTH24_STENCIL8 = 0x88F0,
                  GL_DEPTH_STENCIL_ATTACHMENT = 0x821A, GL_FRAMEBUFFER_COMPLETE = 0x8CD5, GL_COLOR_BUFFER_BIT = 0x4000,
-                 GL_SCISSOR_TEST = 0x0C11, GL_DRAW_FRAMEBUFFER_BINDING = 0x8CA6, GL_READ_FRAMEBUFFER_BINDING = 0x8CAA;
+                 GL_SCISSOR_TEST = 0x0C11, GL_DRAW_FRAMEBUFFER_BINDING = 0x8CA6, GL_READ_FRAMEBUFFER_BINDING = 0x8CAA,
+                 GL_FRAGMENT_SHADER = 0x8B30, GL_VERTEX_SHADER = 0x8B31, GL_COMPILE_STATUS = 0x8B81,
+                 GL_LINK_STATUS = 0x8B82, GL_CURRENT_PROGRAM = 0x8B8D, GL_VERTEX_ARRAY_BINDING = 0x85B5,
+                 GL_ACTIVE_TEXTURE = 0x84E0, GL_TEXTURE0 = 0x84C0, GL_TEXTURE_BINDING_2D = 0x8069, GL_VIEWPORT = 0x0BA2,
+                 GL_BLEND = 0x0BE2, GL_DEPTH_TEST = 0x0B71, GL_CULL_FACE = 0x0B44, GL_STENCIL_TEST = 0x0B90,
+                 GL_TRIANGLES = 0x0004, GL_COLOR_WRITEMASK = 0x0C23;
 
 struct Api {
     void* egl = nullptr;
@@ -135,6 +140,29 @@ struct Api {
     GLboolean (*IsEnabled)(GLenum) = nullptr;
     void (*Enable)(GLenum) = nullptr;
     void (*Disable)(GLenum) = nullptr;
+    // For the FSR pass; when any is missing the picture is blitted as before.
+    bool shaders = false;
+    GLuint (*CreateShader)(GLenum) = nullptr;
+    void (*ShaderSource)(GLuint, GLsizei, const char* const*, const GLint*) = nullptr;
+    void (*CompileShader)(GLuint) = nullptr;
+    void (*GetShaderiv)(GLuint, GLenum, GLint*) = nullptr;
+    void (*DeleteShader)(GLuint) = nullptr;
+    GLuint (*CreateProgram)() = nullptr;
+    void (*AttachShader)(GLuint, GLuint) = nullptr;
+    void (*LinkProgram)(GLuint) = nullptr;
+    void (*GetProgramiv)(GLuint, GLenum, GLint*) = nullptr;
+    void (*UseProgram)(GLuint) = nullptr;
+    GLint (*GetUniformLocation)(GLuint, const char*) = nullptr;
+    void (*Uniform1i)(GLint, GLint) = nullptr;
+    void (*Uniform1f)(GLint, float) = nullptr;
+    void (*Uniform2f)(GLint, float, float) = nullptr;
+    void (*ActiveTexture)(GLenum) = nullptr;
+    void (*GenVertexArrays)(GLsizei, GLuint*) = nullptr;
+    void (*BindVertexArray)(GLuint) = nullptr;
+    void (*DrawArrays)(GLenum, GLint, GLsizei) = nullptr;
+    void (*Viewport)(GLint, GLint, GLsizei, GLsizei) = nullptr;
+    void (*GetBooleanv)(GLenum, GLboolean*) = nullptr;
+    void (*ColorMask)(GLboolean, GLboolean, GLboolean, GLboolean) = nullptr;
 };
 
 template <typename T>
@@ -177,6 +205,17 @@ bool load(Api& a) {
     if (!ok) {
         return false;
     }
+    a.shaders = bind(gles, a.CreateShader, "glCreateShader") && bind(gles, a.ShaderSource, "glShaderSource") &&
+                bind(gles, a.CompileShader, "glCompileShader") && bind(gles, a.GetShaderiv, "glGetShaderiv") &&
+                bind(gles, a.DeleteShader, "glDeleteShader") && bind(gles, a.CreateProgram, "glCreateProgram") &&
+                bind(gles, a.AttachShader, "glAttachShader") && bind(gles, a.LinkProgram, "glLinkProgram") &&
+                bind(gles, a.GetProgramiv, "glGetProgramiv") && bind(gles, a.UseProgram, "glUseProgram") &&
+                bind(gles, a.GetUniformLocation, "glGetUniformLocation") && bind(gles, a.Uniform1i, "glUniform1i") &&
+                bind(gles, a.Uniform1f, "glUniform1f") && bind(gles, a.Uniform2f, "glUniform2f") &&
+                bind(gles, a.ActiveTexture, "glActiveTexture") && bind(gles, a.GenVertexArrays, "glGenVertexArrays") &&
+                bind(gles, a.BindVertexArray, "glBindVertexArray") && bind(gles, a.DrawArrays, "glDrawArrays") &&
+                bind(gles, a.Viewport, "glViewport") && bind(gles, a.GetBooleanv, "glGetBooleanv") &&
+                bind(gles, a.ColorMask, "glColorMask");
     a.egl = egl;
     a.gles = gles;
     return true;
@@ -397,6 +436,10 @@ struct Core {
     gl::EGLSurface eglWindowSurface = nullptr;
     ANativeWindow* eglWindow = nullptr;
     gl::GLuint fbo = 0, fboTexture = 0, fboDepth = 0;
+    // The OpenGL FSR pass, made on first use in this context; fsrFailed when it can't be.
+    gl::GLuint fsrProgram = 0, fsrVao = 0;
+    gl::GLint fsrRegion = -1, fsrBottomLeft = -1, fsrFrame = -1;
+    bool fsrFailed = false;
     int fboWidth = 0, fboHeight = 0;
     unsigned maxWidth = 0, maxHeight = 0;
     unsigned lastWidth = 0, lastHeight = 0;
@@ -1556,6 +1599,137 @@ private:
     Core* core_;
 };
 
+// "FSR 업스케일" (screen filter 4) for the 3D cores: Vulkan's presentation pipeline (vkhw)
+// and the OpenGL pass below enlarge the picture with AMD FSR 1.0's EASU.
+std::atomic<bool> gFsr{false};
+
+const char* const kFsrVertex = R"GLSL(#version 300 es
+out vec2 vUv;
+void main() {
+    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    vUv = vec2(p.x, 1.0 - p.y);  // 0 at the top of the window
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+)GLSL";
+
+const char* const kFsrFragmentHead = R"GLSL(#version 300 es
+precision highp float;
+precision highp int;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uFrame;
+uniform vec2 uRegion;       // the picture's size inside the frame texture
+uniform float uBottomLeft;  // 1 when the texture's first row is the picture's bottom
+ivec2 regionSize;
+vec3 fetch(ivec2 p) {
+    p = clamp(p, ivec2(0), regionSize - 1);
+    if (uBottomLeft > 0.5) p.y = regionSize.y - 1 - p.y;
+    return texelFetch(uFrame, p, 0).rgb;
+}
+)GLSL";
+
+const char* const kFsrBody =
+#include "fsr_easu.glsl.inc"
+    ;
+
+const char* const kFsrFragmentMain = R"GLSL(
+void main() {
+    regionSize = ivec2(uRegion);
+    outColor = vec4(easu(vUv * uRegion), 1.0);
+}
+)GLSL";
+
+gl::GLuint compileShader(gl::GLenum type, const char* const* parts, int count) {
+    gl::GLuint shader = gGl.CreateShader(type);
+    gGl.ShaderSource(shader, count, parts, nullptr);
+    gGl.CompileShader(shader);
+    gl::GLint ok = 0;
+    gGl.GetShaderiv(shader, gl::GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        gGl.DeleteShader(shader);
+        return 0;
+    }
+    return shader;
+}
+
+bool makeFsrProgram(Core* core) {
+    if (core->fsrProgram != 0) {
+        return true;
+    }
+    if (core->fsrFailed || !gGl.shaders) {
+        return false;
+    }
+    core->fsrFailed = true;
+    const char* vertexParts[] = {kFsrVertex};
+    const char* fragmentParts[] = {kFsrFragmentHead, kFsrBody, kFsrFragmentMain};
+    gl::GLuint vertex = compileShader(gl::GL_VERTEX_SHADER, vertexParts, 1);
+    gl::GLuint fragment = compileShader(gl::GL_FRAGMENT_SHADER, fragmentParts, 3);
+    if (vertex == 0 || fragment == 0) {
+        LOGE("FSR shaders did not compile");
+        return false;
+    }
+    gl::GLuint program = gGl.CreateProgram();
+    gGl.AttachShader(program, vertex);
+    gGl.AttachShader(program, fragment);
+    gGl.LinkProgram(program);
+    gGl.DeleteShader(vertex);
+    gGl.DeleteShader(fragment);
+    gl::GLint linked = 0;
+    gGl.GetProgramiv(program, gl::GL_LINK_STATUS, &linked);
+    if (!linked) {
+        LOGE("FSR program did not link");
+        return false;
+    }
+    core->fsrProgram = program;
+    core->fsrRegion = gGl.GetUniformLocation(program, "uRegion");
+    core->fsrBottomLeft = gGl.GetUniformLocation(program, "uBottomLeft");
+    core->fsrFrame = gGl.GetUniformLocation(program, "uFrame");
+    gGl.GenVertexArrays(1, &core->fsrVao);
+    core->fsrFailed = false;
+    return true;
+}
+
+// Draws the frame onto the window (bound) through FSR, leaving the core's GL state as it was.
+bool drawFsr(Core* core, int width, int height) {
+    if (!makeFsrProgram(core)) {
+        return false;
+    }
+    gl::GLint program = 0, vao = 0, active = 0, texture = 0, viewport[4] = {0, 0, 0, 0};
+    gl::GLboolean mask[4] = {1, 1, 1, 1};
+    gGl.GetIntegerv(gl::GL_CURRENT_PROGRAM, &program);
+    gGl.GetIntegerv(gl::GL_VERTEX_ARRAY_BINDING, &vao);
+    gGl.GetIntegerv(gl::GL_ACTIVE_TEXTURE, &active);
+    gGl.ActiveTexture(gl::GL_TEXTURE0);
+    gGl.GetIntegerv(gl::GL_TEXTURE_BINDING_2D, &texture);
+    gGl.GetIntegerv(gl::GL_VIEWPORT, viewport);
+    gGl.GetBooleanv(gl::GL_COLOR_WRITEMASK, mask);
+    const gl::GLenum caps[] = {gl::GL_BLEND, gl::GL_DEPTH_TEST, gl::GL_CULL_FACE, gl::GL_STENCIL_TEST};
+    bool enabled[4];
+    for (int k = 0; k < 4; ++k) {
+        enabled[k] = gGl.IsEnabled(caps[k]) != 0;
+        if (enabled[k]) gGl.Disable(caps[k]);
+    }
+    gGl.ColorMask(1, 1, 1, 1);
+    gGl.Viewport(0, 0, width, height);
+    gGl.UseProgram(core->fsrProgram);
+    gGl.BindTexture(gl::GL_TEXTURE_2D, core->fboTexture);
+    gGl.Uniform1i(core->fsrFrame, 0);
+    gGl.Uniform2f(core->fsrRegion, static_cast<float>(core->lastWidth), static_cast<float>(core->lastHeight));
+    gGl.Uniform1f(core->fsrBottomLeft, core->hw.bottom_left_origin ? 1.0f : 0.0f);
+    gGl.BindVertexArray(core->fsrVao);
+    gGl.DrawArrays(gl::GL_TRIANGLES, 0, 3);
+    gGl.BindVertexArray(static_cast<gl::GLuint>(vao));
+    gGl.UseProgram(static_cast<gl::GLuint>(program));
+    gGl.BindTexture(gl::GL_TEXTURE_2D, static_cast<gl::GLuint>(texture));
+    gGl.ActiveTexture(static_cast<gl::GLenum>(active));
+    gGl.Viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    gGl.ColorMask(mask[0], mask[1], mask[2], mask[3]);
+    for (int k = 0; k < 4; ++k) {
+        if (enabled[k]) gGl.Enable(caps[k]);
+    }
+    return true;
+}
+
 // Stretches the core's last frame from fbo onto the window and shows it. Runs on
 // the emulation thread with the context current.
 void presentHwFrame(Core* core) {
@@ -1581,11 +1755,13 @@ void presentHwFrame(Core* core) {
     gGl.BindFramebuffer(gl::GL_READ_FRAMEBUFFER, core->fbo);
     gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
     int w = static_cast<int>(core->lastWidth), h = static_cast<int>(core->lastHeight);
+    // FSR only when the picture is made bigger; the same size or smaller is blitted.
+    bool fsr = gFsr.load() && (width * 20 > w * 21 || height * 20 > h * 21) && drawFsr(core, width, height);
     // Without bottom_left_origin the frame's first row is its top, so it is flipped
     // onto the window, whose first row is the bottom.
-    if (core->hw.bottom_left_origin) {
+    if (!fsr && core->hw.bottom_left_origin) {
         gGl.BlitFramebuffer(0, 0, w, h, 0, 0, width, height, gl::GL_COLOR_BUFFER_BIT, gl::GL_LINEAR);
-    } else {
+    } else if (!fsr) {
         gGl.BlitFramebuffer(0, 0, w, h, 0, height, width, 0, gl::GL_COLOR_BUFFER_BIT, gl::GL_LINEAR);
     }
     gGl.SwapBuffers(core->eglDisplay, core->eglWindowSurface);
@@ -2961,6 +3137,11 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirst(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {
     gSpeedFirst.store(fast == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFsr(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    gFsr.store(on == JNI_TRUE);
+    vkhw::setFsr(on == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPowerMode(JNIEnv* /*env*/, jclass /*cls*/, jint mode) {

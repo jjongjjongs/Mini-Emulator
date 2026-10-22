@@ -64,6 +64,30 @@ const uint32_t kBlitVert[] = {
 const uint32_t kBlitFrag[] = {
 #include "blit_frag.inc"
 };
+// "FSR 업스케일" (screen filter 4): the same triangle through AMD FSR 1.0's EASU, from
+//   #version 450
+//   layout(location = 0) in vec2 uv;
+//   layout(location = 0) out vec4 color;
+//   layout(set = 0, binding = 0) uniform sampler2D frame;
+//   ivec2 frameSize;
+//   vec3 fetch(ivec2 p) { return texelFetch(frame, clamp(p, ivec2(0), frameSize - 1), 0).rgb; }
+//   <the body in fsr_easu.glsl.inc>
+//   void main() {
+//       frameSize = textureSize(frame, 0);
+//       // Source texels per output pixel; FSR only helps when the picture is made bigger.
+//       float scale = abs(dFdx(uv.x)) * float(frameSize.x);
+//       if (scale >= 0.95) {
+//           color = vec4(texture(frame, uv).rgb, 1.0);
+//           return;
+//       }
+//       color = vec4(easu(uv * vec2(frameSize)), 1.0);
+//   }
+// compiled with glslangValidator -V.
+const uint32_t kFsrFrag[] = {
+#include "fsr_frag.inc"
+};
+
+std::atomic<bool> gFsr{false};
 
 constexpr uint32_t kSlots = 3;
 
@@ -334,6 +358,7 @@ public:
     bool rebuild = false;
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
+    VkPipeline fsrPipeline = VK_NULL_HANDLE;
     VkFormat pipelineFormat = VK_FORMAT_UNDEFINED;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
@@ -451,6 +476,10 @@ bool makePipeline(Host* h) {
     }
     if (h->pipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(h->device, h->pipeline, nullptr);
+        if (h->fsrPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(h->device, h->fsrPipeline, nullptr);
+            h->fsrPipeline = VK_NULL_HANDLE;
+        }
         vkDestroyRenderPass(h->device, h->renderPass, nullptr);
         h->pipeline = VK_NULL_HANDLE;
         h->renderPass = VK_NULL_HANDLE;
@@ -538,6 +567,16 @@ bool makePipeline(Host* h) {
     VkResult result = vert != VK_NULL_HANDLE && frag != VK_NULL_HANDLE
             ? vkCreateGraphicsPipelines(h->device, VK_NULL_HANDLE, 1, &info, nullptr, &h->pipeline)
             : VK_ERROR_INITIALIZATION_FAILED;
+    // The FSR pipeline differs only in its fragment shader; without it the plain one is used.
+    VkShaderModule fsr = result == VK_SUCCESS ? shaderModule(h->device, kFsrFrag, sizeof(kFsrFrag)) : VK_NULL_HANDLE;
+    if (fsr != VK_NULL_HANDLE) {
+        stages[1].module = fsr;
+        if (vkCreateGraphicsPipelines(h->device, VK_NULL_HANDLE, 1, &info, nullptr, &h->fsrPipeline) != VK_SUCCESS) {
+            h->fsrPipeline = VK_NULL_HANDLE;
+            VLOGE("could not make the FSR pipeline");
+        }
+        vkDestroyShaderModule(h->device, fsr, nullptr);
+    }
     if (vert != VK_NULL_HANDLE) vkDestroyShaderModule(h->device, vert, nullptr);
     if (frag != VK_NULL_HANDLE) vkDestroyShaderModule(h->device, frag, nullptr);
     if (result != VK_SUCCESS) {
@@ -992,7 +1031,8 @@ void present(Host* h) {
         VkRect2D scissor{{0, 0}, h->extent};
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->pipeline);
+        bool fsr = gFsr.load() && h->fsrPipeline != VK_NULL_HANDLE;
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fsr ? h->fsrPipeline : h->pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, &h->sets[slot], 0, nullptr);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
@@ -1092,6 +1132,10 @@ void shutdown(Host* h) {
         ANativeWindow_release(h->window);
         h->window = nullptr;
     }
+}
+
+void setFsr(bool on) {
+    gFsr.store(on);
 }
 
 }  // namespace vkhw

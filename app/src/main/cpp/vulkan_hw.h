@@ -29,6 +29,8 @@ const retro_hw_render_interface* renderInterface(Host* host);
 void setWindow(Host* host, ANativeWindow* window);
 // Shows the image last passed to set_image, stretched over the window. Emulation thread.
 void present(Host* host);
+// "FSR 업스케일": the picture is enlarged with AMD FSR 1.0 (EASU) instead of bilinear.
+void setFsr(bool on);
 // Waits for the GPU and frees the swapchain and surfaces. The device stays: the core
 // created it and the game process ends right after.
 void shutdown(Host* host);
