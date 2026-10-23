@@ -1,0 +1,78 @@
+diff --git a/src/mame/video/cps_tilemap.c b/src/mame/video/cps_tilemap.c
+index 6add17d..18a0b1f 100644
+--- a/src/mame/video/cps_tilemap.c
++++ b/src/mame/video/cps_tilemap.c
+@@ -354,6 +354,27 @@ static void cps_tm_scanline_masked(uint16_t *dest, const uint16_t *source, const
+ 	}
+ }
+ 
++/* NULL destination: only the priority bitmap is written, as tilemap_draw does
++   for a priority-only pass (CPS1's high layer). */
++static void cps_tm_pri_opaque(int count, uint8_t *pri, uint32_t pcode)
++{
++	int i;
++	if ((pcode & 0xffff) == 0xff00)
++		return;
++	for (i = 0; i < count; i++)
++		pri[i] = (pri[i] & (pcode >> 8)) | pcode;
++}
++
++static void cps_tm_pri_masked(const uint8_t *maskptr, int mask, int value, int count, uint8_t *pri, uint32_t pcode)
++{
++	int i;
++	if ((pcode & 0xffff) == 0xff00)
++		return;
++	for (i = 0; i < count; i++)
++		if ((maskptr[i] & mask) == value)
++			pri[i] = (pri[i] & (pcode >> 8)) | pcode;
++}
++
+ /*-------------------------------------------------
+     cps_tm_draw_instance - run-length composite of
+     one tilemap instance at (xpos,ypos)
+@@ -379,9 +400,18 @@ static void cps_tm_draw_instance(cps_tm *t, running_machine *machine, bitmap_t *
+ 		return;
+ 
+ 	priority_baseaddr = BITMAP_ADDR8(prio, y1, xpos);
+-	dest_bytespp = dest->bpp / 8;
+-	dest_line_pitch_bytes = dest->rowpixels * dest_bytespp;
+-	dest_baseaddr = (uint8_t *)dest->base + (y1 * dest->rowpixels + xpos) * dest_bytespp;
++	if (dest != NULL)
++	{
++		dest_bytespp = dest->bpp / 8;
++		dest_line_pitch_bytes = dest->rowpixels * dest_bytespp;
++		dest_baseaddr = (uint8_t *)dest->base + (y1 * dest->rowpixels + xpos) * dest_bytespp;
++	}
++	else
++	{
++		dest_bytespp = 0;
++		dest_line_pitch_bytes = 0;
++		dest_baseaddr = NULL;
++	}
+ 
+ 	x1 -= xpos;
+ 	y1 -= ypos;
+@@ -443,7 +473,10 @@ static void cps_tm_draw_instance(cps_tm *t, running_machine *machine, bitmap_t *
+ 				{
+ 					for (cury = y; cury < nexty; cury++)
+ 					{
+-						cps_tm_scanline_opaque((uint16_t *)dest0, source0, x_end - x_start, pmap0, pcode);
++						if (dest == NULL)
++							cps_tm_pri_opaque(x_end - x_start, pmap0, pcode);
++						else
++							cps_tm_scanline_opaque((uint16_t *)dest0, source0, x_end - x_start, pmap0, pcode);
+ 						dest0 = (uint8_t *)dest0 + dest_line_pitch_bytes;
+ 						source0 += t->pixmap->rowpixels;
+ 						pmap0 += prio->rowpixels;
+@@ -454,7 +487,10 @@ static void cps_tm_draw_instance(cps_tm *t, running_machine *machine, bitmap_t *
+ 					const uint8_t *mask0 = mask_baseaddr + x_start;
+ 					for (cury = y; cury < nexty; cury++)
+ 					{
+-						cps_tm_scanline_masked((uint16_t *)dest0, source0, mask0, mask, value, x_end - x_start, pmap0, pcode);
++						if (dest == NULL)
++							cps_tm_pri_masked(mask0, mask, value, x_end - x_start, pmap0, pcode);
++						else
++							cps_tm_scanline_masked((uint16_t *)dest0, source0, mask0, mask, value, x_end - x_start, pmap0, pcode);
+ 						dest0 = (uint8_t *)dest0 + dest_line_pitch_bytes;
+ 						source0 += t->pixmap->rowpixels;
+ 						mask0 += t->flagsmap->rowpixels;

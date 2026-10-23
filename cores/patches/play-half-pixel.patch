@@ -1,0 +1,16 @@
+diff --git a/Source/gs/GSH_OpenGL/GSH_OpenGL.cpp b/Source/gs/GSH_OpenGL/GSH_OpenGL.cpp
+index 7eb9460..a7277e3 100644
+--- a/Source/gs/GSH_OpenGL/GSH_OpenGL.cpp
++++ b/Source/gs/GSH_OpenGL/GSH_OpenGL.cpp
+@@ -1059,7 +1059,10 @@ void CGSH_OpenGL::SetupFramebuffer(uint64 frameReg, uint64 zbufReg, uint64 sciss
+ 	float projWidth = static_cast<float>(framebuffer->m_width);
+ 	float projHeight = static_cast<float>(framebuffer->m_height);
+ 
+-	MakeLinearZOrtho(m_vertexParams.projMatrix, 0, projWidth, 0, projHeight);
++	//The GS samples pixel (x, y) at coordinate (x, y), OpenGL at (x + 0.5, y + 0.5). Shift
++	//by half a pixel so primitives cover and texture the same pixels as on the GS; without
++	//it, 2D pictures drawn in strips of sprites showed a dark line at every strip edge.
++	MakeLinearZOrtho(m_vertexParams.projMatrix, -0.5f, projWidth - 0.5f, -0.5f, projHeight - 0.5f);
+ 	m_validGlState &= ~GLSTATE_VERTEX_PARAMS;
+ 
+ 	m_renderState.scissorX = scissor.scax0;

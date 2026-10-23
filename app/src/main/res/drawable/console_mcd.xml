@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: MCD -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M7,29H41A3,3 0,0 1,44,32V38A3,3 0,0 1,41,41H7A3,3 0,0 1,4,38V32A3,3 0,0 1,7,29Z" android:fillColor="#FFF"/>
+    <path android:pathData="M9.5,20a14.5,14.5 0,1 0,29,0a14.5,14.5 0,1 0,-29,0Z" android:fillColor="#9F1239"/>
+    <path android:pathData="M11,20a13,13 0,1 0,26,0a13,13 0,1 0,-26,0Z" android:fillColor="#FFF"/>
+    <path android:pathData="M17,20a7,7 0,1 0,14,0a7,7 0,1 0,-14,0Z" android:strokeColor="#9F1239" android:strokeWidth="1.2" android:strokeAlpha="0.55"/>
+    <path android:pathData="M20.8,20a3.2,3.2 0,1 0,6.4,0a3.2,3.2 0,1 0,-6.4,0Z" android:fillColor="#9F1239"/>
+    <path android:pathData="M9,35.5H15A1,1 0,0 1,16,36.5V36.5A1,1 0,0 1,15,37.5H9A1,1 0,0 1,8,36.5V36.5A1,1 0,0 1,9,35.5Z" android:fillColor="#9F1239"/>
+</vector>

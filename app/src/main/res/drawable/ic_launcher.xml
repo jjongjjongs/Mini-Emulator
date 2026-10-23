@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mini Emulator: a game pad under an M in the mode colours. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:height="108dp"
+    android:width="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M20.00,6.00 L88.00,6.00 A14.00,14.00 0 0 1 102.00,20.00 L102.00,88.00 A14.00,14.00 0 0 1 88.00,102.00 L20.00,102.00 A14.00,14.00 0 0 1 6.00,88.00 L6.00,20.00 A14.00,14.00 0 0 1 20.00,6.00 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="108" android:endY="108">
+                    <item android:offset="0" android:color="#FF2B3445"/>
+                    <item android:offset="1" android:color="#FF11151D"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M41.90,35.00 L41.90,13.00 L47.18,13.00 L54.00,24.00 L60.82,13.00 L66.10,13.00 L66.10,35.00 L60.82,35.00 L60.82,22.24 L55.85,31.92 L52.15,31.92 L47.18,22.24 L47.18,35.00 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="42" android:startY="13" android:endX="66" android:endY="35">
+                    <item android:offset="0" android:color="#FFFF8A3D"/>
+                    <item android:offset="0.5" android:color="#FFDB2777"/>
+                    <item android:offset="1" android:color="#FF7C3AED"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#EEF1F5"
+        android:pathData="M30,48 L78,48 C90,48 97,58 99,72 C101,86 96,94 88,94 C82,94 78,89 74,84 L34,84 C30,89 26,94 20,94 C12,94 7,86 9,72 C11,58 18,48 30,48 Z"/>
+    <path
+        android:fillColor="#2B3445"
+        android:pathData="M28.25,57.50 L31.75,57.50 A1.75,1.75 0 0 1 33.50,59.25 L33.50,76.75 A1.75,1.75 0 0 1 31.75,78.50 L28.25,78.50 A1.75,1.75 0 0 1 26.50,76.75 L26.50,59.25 A1.75,1.75 0 0 1 28.25,57.50 Z M21.25,64.50 L38.75,64.50 A1.75,1.75 0 0 1 40.50,66.25 L40.50,69.75 A1.75,1.75 0 0 1 38.75,71.50 L21.25,71.50 A1.75,1.75 0 0 1 19.50,69.75 L19.50,66.25 A1.75,1.75 0 0 1 21.25,64.50 Z"/>
+    <path
+        android:fillColor="#16B9CF"
+        android:pathData="M73.00,61.00 A5,5 0 1 1 83.00,61.00 A5,5 0 1 1 73.00,61.00 Z"/>
+    <path
+        android:fillColor="#DB2777"
+        android:pathData="M82.00,68.00 A5,5 0 1 1 92.00,68.00 A5,5 0 1 1 82.00,68.00 Z"/>
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M64.00,68.00 A5,5 0 1 1 74.00,68.00 A5,5 0 1 1 64.00,68.00 Z"/>
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M73.00,75.00 A5,5 0 1 1 83.00,75.00 A5,5 0 1 1 73.00,75.00 Z"/>
+    <path
+        android:fillColor="#9AA3AF"
+        android:pathData="M48.50,65.00 L52.50,65.00 A1.50,1.50 0 0 1 54.00,66.50 L54.00,66.50 A1.50,1.50 0 0 1 52.50,68.00 L48.50,68.00 A1.50,1.50 0 0 1 47.00,66.50 L47.00,66.50 A1.50,1.50 0 0 1 48.50,65.00 Z M57.50,65.00 L61.50,65.00 A1.50,1.50 0 0 1 63.00,66.50 L63.00,66.50 A1.50,1.50 0 0 1 61.50,68.00 L57.50,68.00 A1.50,1.50 0 0 1 56.00,66.50 L56.00,66.50 A1.50,1.50 0 0 1 57.50,65.00 Z"/>
+</vector>
