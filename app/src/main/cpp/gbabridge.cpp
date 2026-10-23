@@ -1302,11 +1302,11 @@ std::string gPspLanguage = "Korean";
 std::atomic<int> gPspScale{2};
 // "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
-// "속도 우선 · 강하게": PS2's EE down to 60% with moderate cycle skipping; PSP's CPU held at
-// its 222 MHz base (games such as Monster Hunter ask for 333) and up to two frames skipped.
+// "속도 우선 · 강하게" (PS2 only): the EE down to 60% with moderate cycle skipping.
 std::atomic<bool> gSpeedFirstStrong{false};
 // "전원 모드" per game: 0 성능 (fast cores and performance hints), 1 균형 (the system picks
-// clocks and cores), 2 절전 (as 균형, and every other picture is left out).
+// clocks and cores), 2 절전 (as 균형, and every other software-drawn picture is left out;
+// PPSSPP's own frame skipping is not used, as it halves the speed under the bridge's pacing).
 std::atomic<int> gPowerMode{0};
 // PSP, Dreamcast and PS2 (PCSX2) draw with Vulkan where the device has it, unless Java
 // turned it off for the core (after a crash on it).
@@ -1368,16 +1368,11 @@ const char* fixedVariable(const char* key) {
     // text and the kr0.pgf system font from it. Games without Korean that still follow it
     // (Call of Duty: Roads to Victory's name keyboard) are set to English per game.
     if (strcmp(key, "ppsspp_language") == 0) return gPspLanguage.c_str();
-    // 절전: PSP draws every other frame.
-    if (gPowerMode.load() == 2 && strcmp(key, "ppsspp_frameskip") == 0) return "1";
     if (gSpeedFirst.load()) {
-        bool strong = gSpeedFirstStrong.load();
-        // PSP: cheaper texture checks, no GPU readbacks, up to one frame skipped when behind.
+        // PSP: cheaper texture checks, no GPU readbacks. No frame skipping: the core's
+        // skipping fought the bridge's pacing and held Monster Hunter at exactly half speed.
         if (strcmp(key, "ppsspp_lazy_texture_caching") == 0) return "enabled";
         if (strcmp(key, "ppsspp_skip_gpu_readbacks") == 0) return "enabled";
-        if (strcmp(key, "ppsspp_frameskip") == 0) return strong ? "2" : "1";
-        if (strong && strcmp(key, "ppsspp_locked_cpu_speed") == 0) return "222MHz";
-        if (strcmp(key, "ppsspp_auto_frameskip") == 0) return "enabled";
         // Effects (blur, bloom; heavy in Monster Hunter) at a lower resolution, plainer curves.
         if (strcmp(key, "ppsspp_lower_resolution_for_effects") == 0) return "Balanced";
         if (strcmp(key, "ppsspp_spline_quality") == 0) return "Low";
@@ -1385,6 +1380,7 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "ppsspp_texture_anisotropic_filtering") == 0) return "disabled";
         // PS2: the EE at 75% with mild cycle skipping, and the cheapest blending. GPU
         // read-backs stay accurate: quick saves read the picture back.
+        bool strong = gSpeedFirstStrong.load();
         if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return strong ? "-2" : "-1";
         if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return strong ? "2" : "1";
         if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
