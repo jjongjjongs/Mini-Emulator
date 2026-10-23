@@ -25,9 +25,9 @@ final class AudioSink {
     // A longer pause than this between writes is the game standing still (the menu, a
     // quick save), not a hitch.
     private static final long PAUSE_NS = 500_000_000L;
-    // Longest a frame's audio is stretched; more than this drags the music audibly, so a
-    // game that slow gets short gaps instead.
-    private static final double MAX_STRETCH = 1.05;
+    // Longest a frame's audio is stretched; more than this drags the music audibly (5% was
+    // heard as sagging on PS2's Rogue Galaxy), so a game that slow gets short gaps instead.
+    private static final double MAX_STRETCH = 1.02;
     // Largest speed nudge for following the speaker's clock, in parts per million (0.5%).
     private static final double PACE_PPM = 5000;
 
