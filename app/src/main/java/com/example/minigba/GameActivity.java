@@ -2406,7 +2406,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setWonderSwanTall(wonderSwanTall());
                     }
                     NativeGba.setSpeedFirst(speedFirstSupported() && speedFirst());
-                    NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
+                    NativeGba.setSpeedFirstStrong(speedFirstLevel() == 2);
                     NativeGba.setPowerMode(powerMode());
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
                     NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
@@ -3433,20 +3433,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // "속도 우선", per game (PSP, and PS2 on PCSX2): speed hacks that can drop some effects,
     // off by default.
-    private static final String[] FAST_NAMES = {"끔 · 정확하게", "켬 · 빠르게"};
-    private static final String[] FAST_NOTES = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. 프레임마다 하는 일을 줄여요"};
-    // PS2 has a third level.
-    private static final String[] FAST_NAMES_PS2 = {"끔 · 정확하게", "켬 · 빠르게", "강하게"};
+    // PS2 and PSP have a third level.
+    private static final String[] FAST_NAMES_3 = {"끔 · 정확하게", "켬 · 빠르게", "강하게"};
     private static final String[] FAST_NOTES_PS2 = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. PS2 CPU 75%",
             "켬으로도 속도가 출렁이는 게임용. PS2 CPU 60% · 게임 속도가 고르지 않아질 수 있어요"};
-    private static final String[] FAST_SHORT_PS2 = {"꺼짐", "켜짐", "강하게"};
+    private static final String[] FAST_NOTES_PSP = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. 프레임마다 하는 일을 줄여요",
+            "켬으로도 느린 게임용 (몬스터 헌터). PSP CPU를 222MHz로 고정 · 느려질 때 2프레임까지 건너뛰어요"};
+    private static final String[] FAST_SHORT_3 = {"꺼짐", "켜짐", "강하게"};
 
-    // 0 off, 1 on, 2 strong (PS2 only).
+    // 0 off, 1 on, 2 strong (PS2 and PSP).
     private int speedFirstLevel() {
         if (!speedFirst()) {
             return 0;
         }
-        return "pcee2".equals(this.coreId) && MainActivity.sharedSettings(this).getBoolean("fast_strong:" + this.saveBaseName, false) ? 2 : 1;
+        return MainActivity.sharedSettings(this).getBoolean("fast_strong:" + this.saveBaseName, false) ? 2 : 1;
     }
 
     private boolean speedFirstSupported() {
@@ -3464,12 +3464,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private LinearLayout createFastRow(android.app.Dialog menu) {
         String changes = isPsp()
-                ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임씩 건너뛰어요\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n· 텍스처 비등방성 필터를 꺼요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
+                ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 많이 느려지는 순간엔 1프레임(강하게는 2프레임)씩 건너뛰어요\n· 강하게: PSP CPU를 222MHz로 고정해요 (333MHz 게임이 가벼워져요)\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n· 텍스처 비등방성 필터를 꺼요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
                 : "· PS2 CPU를 75%(강하게는 60%)로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
-        boolean ps2 = "pcee2".equals(this.coreId);
         int level = speedFirstLevel();
-        LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", ps2 ? FAST_SHORT_PS2[level] : speedFirst() ? "켜짐" : "꺼짐",
-                view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", ps2 ? FAST_NAMES_PS2 : FAST_NAMES, ps2 ? FAST_NOTES_PS2 : FAST_NOTES,
+        LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", FAST_SHORT_3[level],
+                view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", FAST_NAMES_3, isPsp() ? FAST_NOTES_PSP : FAST_NOTES_PS2,
                         level, "켜면 이렇게 바뀌어요\n" + changes + "\n이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).",
                         Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 이어하기", choice -> {
                     if (choice == level) {
