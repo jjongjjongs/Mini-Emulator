@@ -45,8 +45,17 @@ final class AudioSink {
     private short[] silence = new short[0];
     private int targetMs = TARGET_MS;
     private long lastGapNs;
+    // The least kept queued; raised for engines whose speed wobbles (PS2), where the
+    // default's first few hitches would each be heard before the target grew.
+    private int floorMs = TARGET_MS;
 
     AudioSink() {
+    }
+
+    // Sets the least kept queued, in milliseconds (TARGET_MS..MAX_TARGET_MS); applies from
+    // the next configure().
+    synchronized void setFloorMs(int ms) {
+        this.floorMs = Math.max(TARGET_MS, Math.min(MAX_TARGET_MS, ms));
     }
 
     synchronized void configure(int i) {
@@ -55,7 +64,7 @@ final class AudioSink {
         this.framesWritten = 0;
         this.smoothedQueued = -1;
         this.lastWriteNs = 0;
-        this.targetMs = TARGET_MS;
+        this.targetMs = this.floorMs;
         this.lastGapNs = 0;
         // AudioTrack wants whole stereo 16-bit frames (4 bytes); a rate such as the DS's
         // 32768 Hz gives a byte count that is not.
@@ -84,8 +93,8 @@ final class AudioSink {
             this.targetMs = Math.min(MAX_TARGET_MS, this.targetMs + TARGET_STEP_MS);
             this.lastGapNs = now;
             target = (double) this.sampleRate * this.targetMs / 1000;
-        } else if (this.targetMs > TARGET_MS && now - this.lastGapNs > CALM_NS) {
-            this.targetMs = Math.max(TARGET_MS, this.targetMs - 10);
+        } else if (this.targetMs > this.floorMs && now - this.lastGapNs > CALM_NS) {
+            this.targetMs = Math.max(this.floorMs, this.targetMs - 10);
             this.lastGapNs = now;
             target = (double) this.sampleRate * this.targetMs / 1000;
         }

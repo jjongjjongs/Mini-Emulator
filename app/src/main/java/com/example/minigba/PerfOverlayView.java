@@ -80,8 +80,11 @@ final class PerfOverlayView extends View {
                 best = milli;
             }
         }
-        if (best != Integer.MIN_VALUE && best > 0) {
-            return "CPU " + Math.round(best >= 1000 ? best / 1000f : best) + "°C";
+        // Some phones (Samsung) keep the real sensors private and answer with a fixed junk
+        // value instead; only a plausible reading is shown.
+        float celsius = best == Integer.MIN_VALUE ? -1 : best >= 1000 ? best / 1000f : best;
+        if (celsius >= 10 && celsius <= 95) {
+            return "CPU " + Math.round(celsius) + "°C";
         }
         // Many phones keep CPU sensors private; the battery's is always there.
         Intent battery = getContext().registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));

@@ -1302,6 +1302,8 @@ std::string gPspLanguage = "Korean";
 std::atomic<int> gPspScale{2};
 // "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
+// "속도 우선 · 강하게" (PS2 only): the EE down to 60% with moderate cycle skipping.
+std::atomic<bool> gSpeedFirstStrong{false};
 // "전원 모드" per game: 0 성능 (fast cores and performance hints), 1 균형 (the system picks
 // clocks and cores), 2 절전 (as 균형, and every other picture is left out).
 std::atomic<int> gPowerMode{0};
@@ -1380,8 +1382,9 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "ppsspp_texture_anisotropic_filtering") == 0) return "disabled";
         // PS2: the EE at 75% with mild cycle skipping, and the cheapest blending. GPU
         // read-backs stay accurate: quick saves read the picture back.
-        if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return "-1";
-        if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return "1";
+        bool strong = gSpeedFirstStrong.load();
+        if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return strong ? "-2" : "-1";
+        if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return strong ? "2" : "1";
         if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
         // No dithering or hardware mipmapping (anisotropic filtering is already off).
         if (strcmp(key, "pcsx2_dithering") == 0) return "0";
@@ -3227,6 +3230,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirst(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {
     gSpeedFirst.store(fast == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirstStrong(JNIEnv* /*env*/, jclass /*cls*/, jboolean strong) {
+    gSpeedFirstStrong.store(strong == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFsr(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {

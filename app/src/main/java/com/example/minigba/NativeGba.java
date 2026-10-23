@@ -43,6 +43,10 @@ final class NativeGba {
     // "속도 우선" (speed hacks) for the next PSP or PS2 (PCSX2) game created.
     static native void setSpeedFirst(boolean fast);
 
+    // "속도 우선 · 강하게" for the next PS2 (PCSX2) game created: the EE at 60% with moderate
+    // cycle skipping, on top of setSpeedFirst(true).
+    static native void setSpeedFirstStrong(boolean strong);
+
     // "FSR 업스케일" screen filter: 3D engines enlarge the picture with AMD FSR 1.0. Takes effect
     // at once.
     static native void setFsr(boolean on);
