@@ -962,8 +962,21 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 return;
             }
             releaseController();
+            // The picture is wide: the screen turns landscape while it is open, then goes back.
+            final int previous = getRequestedOrientation();
+            setRequestedOrientation(6);
             PadMappingDialog.show(this, padTargets(), padDefaults(), this.saveBaseName, this.gameMode, consoleName(), this.gameTitle,
-                    padSheetStyle(), now, this::invalidatePadMaps);
+                    padSheetStyle(), now, new PadMappingDialog.Listener() {
+                        @Override
+                        public void onChanged() {
+                            invalidatePadMaps();
+                        }
+
+                        @Override
+                        public void onClosed() {
+                            setRequestedOrientation(previous);
+                        }
+                    });
         });
     }
 

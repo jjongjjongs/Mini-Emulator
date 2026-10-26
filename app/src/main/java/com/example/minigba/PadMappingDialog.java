@@ -32,6 +32,9 @@ import java.util.List;
 final class PadMappingDialog {
     interface Listener {
         void onChanged();
+
+        // The screen was closed; the activity puts its orientation back.
+        void onClosed();
     }
 
     private static final int ACCENT = Color.rgb(14, 165, 183);
@@ -189,6 +192,7 @@ final class PadMappingDialog {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         }
+        dialog.setOnDismissListener(d -> this.listener.onClosed());
         refresh();
         dialog.show();
     }
@@ -398,7 +402,7 @@ final class PadMappingDialog {
         private void fit() {
             int width = getWidth();
             int height = getHeight();
-            this.rotated = height > width * 1.15f;
+            this.rotated = false;
             float boxW = this.rotated ? height : width;
             float boxH = this.rotated ? width : height;
             this.scale = Math.min(boxW / PadSheet.W, boxH / PadSheet.H);
