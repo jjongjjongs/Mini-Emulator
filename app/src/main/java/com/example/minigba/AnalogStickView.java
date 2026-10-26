@@ -20,11 +20,18 @@ final class AnalogStickView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private float knobX;
     private float knobY;
+    // "스틱 감도": how far a finger travel of 36% of the pad counts as full tilt; 2 means half
+    // that travel already tilts it fully.
+    private float sensitivity = 1.0f;
 
     AnalogStickView(Context context, Listener listener) {
         super(context);
         this.listener = listener;
         setFocusable(false);
+    }
+
+    void setSensitivity(float value) {
+        this.sensitivity = Math.max(0.25f, Math.min(4.0f, value));
     }
 
     @Override
@@ -56,7 +63,7 @@ final class AnalogStickView extends View {
             update(0, 0);
             return true;
         }
-        float max = Math.max(1.0f, Math.min(getWidth(), getHeight()) * 0.36f);
+        float max = Math.max(1.0f, Math.min(getWidth(), getHeight()) * 0.36f / this.sensitivity);
         float x = (event.getX() - getWidth() / 2.0f) / max;
         float y = (event.getY() - getHeight() / 2.0f) / max;
         float length = (float) Math.hypot(x, y);

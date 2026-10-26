@@ -2114,6 +2114,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
             comboParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createComboRow(reopen), comboParams);
+            if (isDualShock()) {
+                LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(-1, dp(52));
+                rightParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(createStickRow(true, reopen), rightParams);
+            }
+            if (hasLeftStick()) {
+                LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(-1, dp(52));
+                leftParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(createStickRow(false, reopen), leftParams);
+            }
             LinearLayout.LayoutParams rewindParams = new LinearLayout.LayoutParams(-1, dp(52));
             rewindParams.setMargins(0, dp(8), 0, 0);
             boolean supported = rewindSupported();
@@ -3048,18 +3058,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
             stickParams.gravity = 8388691;
             stickParams.setMargins(dp(40), 0, 0, dp(112));
-            frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+            frameLayout.addView(leftStick(), stickParams);
         }
         if (isDualShock()) {
             // Both sticks in the bottom corners, SELECT/START between them as on a DualShock.
             FrameLayout.LayoutParams leftStick = new FrameLayout.LayoutParams(dp(84), dp(84));
             leftStick.gravity = 8388691;
             leftStick.setMargins(dp(26), 0, 0, dp(54));
-            frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), leftStick);
+            frameLayout.addView(leftStick(), leftStick);
             FrameLayout.LayoutParams rightStick = new FrameLayout.LayoutParams(dp(84), dp(84));
             rightStick.gravity = 8388693;
             rightStick.setMargins(0, 0, dp(26), dp(54));
-            frameLayout.addView(new AnalogStickView(this, this::onAnalogRightChanged), rightStick);
+            frameLayout.addView(rightStick(), rightStick);
             // L2 L1 on the left and R1 R2 on the right, either side of the speed button.
             int shoulderStyle = isPs1() ? TouchButton.STYLE_LIGHT : 2;
             addButton(frameLayout, "L2", kL2, 8388659, dp(14), dp(34), dp(54), dp(42), shoulderStyle);
@@ -3131,6 +3141,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 keyParams.setMargins(0, 0, 0, dp(81));
                 key.setTranslationX(dp(k == 0 ? -34 : 34));
                 frameLayout.addView(key, keyParams);
+                // The stick clicks, L3 over SELECT and R3 over START (a tap on the stick itself
+                // is a tilt, not a click).
+                TouchButton click = new TouchButton(this, k == 0 ? "L3" : "R3", k == 0 ? kL3 : kR3, this::setButtonPressed, TouchButton.STYLE_DARK);
+                FrameLayout.LayoutParams clickParams = new FrameLayout.LayoutParams(dp(40), dp(40));
+                clickParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                clickParams.setMargins(0, 0, 0, dp(120));
+                click.setTranslationX(dp(k == 0 ? -34 : 34));
+                frameLayout.addView(click, clickParams);
             }
             return;
         }
@@ -4226,7 +4244,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addButton(frameLayout, "R", kR2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
         FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(112), dp(112), Gravity.BOTTOM | Gravity.START);
         stickParams.setMargins(dp(24), 0, 0, dp(186));
-        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        frameLayout.addView(leftStick(), stickParams);
         FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(104), dp(104), Gravity.BOTTOM | Gravity.START);
         padParams.setMargins(dp(28), 0, 0, dp(66));
         frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
@@ -4247,7 +4265,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // The stick a little lower and the D-pad a little higher, closer together.
         FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.TOP | Gravity.START);
         stickParams.setMargins(dp(40), dp(118), 0, 0);
-        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        frameLayout.addView(leftStick(), stickParams);
         FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.BOTTOM | Gravity.START);
         padParams.setMargins(dp(42), 0, 0, dp(74));
         frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
@@ -4297,7 +4315,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(new TouchButton(this, "Z", N64_Z, this::setButtonPressed, 2), zParams);
         FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(116), dp(116), Gravity.BOTTOM | Gravity.START);
         stickParams.setMargins(dp(22), 0, 0, dp(170));
-        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        frameLayout.addView(leftStick(), stickParams);
         FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(84), dp(84), Gravity.BOTTOM | Gravity.START);
         padParams.setMargins(dp(38), 0, 0, dp(70));
         frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
@@ -4322,7 +4340,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(new TouchButton(this, "R", N64_R, this::setButtonPressed, 2), rParams);
         FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(110), dp(110), Gravity.TOP | Gravity.START);
         stickParams.setMargins(dp(26), dp(104), 0, 0);
-        frameLayout.addView(new AnalogStickView(this, this::onAnalogChanged), stickParams);
+        frameLayout.addView(leftStick(), stickParams);
         FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.BOTTOM | Gravity.START);
         padParams.setMargins(dp(45), 0, 0, dp(56));
         frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
@@ -4374,6 +4392,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Button bits the bridge reads as libretro L2 and R2.
     private static final int kL2 = 16384;
     private static final int kR2 = 32768;
+    private static final int kL3 = 65536;
+    private static final int kR3 = 131072;
 
     // Face buttons: light grey on the PS1 pad, dark on the PSP and PS2.
     private int faceStyle() {
@@ -4396,7 +4416,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         views[0] = new TouchButton(this, dual ? "L1" : "L", 512, this::setButtonPressed, shoulderStyle);
         views[1] = new TouchButton(this, dual ? "R1" : "R", 256, this::setButtonPressed, shoulderStyle);
         views[2] = dpad;
-        views[3] = new AnalogStickView(this, this::onAnalogChanged);
+        views[3] = leftStick();
         for (int k = 0; k < 4; k++) {
             TouchButton button = new TouchButton(this, PSP_LABELS[k], PSP_BITS[k], this::setButtonPressed, faceStyle());
             button.setLabelColor(PSP_COLORS[k]);
@@ -4405,19 +4425,32 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (dual) {
             views[8] = new TouchButton(this, "L2", kL2, this::setButtonPressed, shoulderStyle);
             views[9] = new TouchButton(this, "R2", kR2, this::setButtonPressed, shoulderStyle);
-            views[10] = new AnalogStickView(this, this::onAnalogRightChanged);
+            views[10] = rightStick();
         }
         for (View view : views) {
             frameLayout.addView(view, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.START));
         }
         this.pspSideViews = views;
+        // The bottom row, out from the middle: the speed button (with rewind beside it on
+        // PS1), SELECT and START, then L3 and R3 on PS1/PS2.
+        int middleHalf = rewindOn() ? 76 : 40;
+        int keyCentre = middleHalf + 8 + 39;
         for (int k = 0; k < 2; k++) {
             TouchButton key = new TouchButton(this, k == 0 ? "SELECT" : "START", k == 0 ? 4 : 8, this::setButtonPressed);
             FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(78), dp(30));
             keyParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
             keyParams.setMargins(0, 0, 0, dp(9));
-            key.setTranslationX(dp(k == 0 ? -120 : 120));
+            key.setTranslationX(dp(k == 0 ? -keyCentre : keyCentre));
             frameLayout.addView(key, keyParams);
+            if (dual) {
+                TouchButton click = new TouchButton(this, k == 0 ? "L3" : "R3", k == 0 ? kL3 : kR3, this::setButtonPressed, TouchButton.STYLE_DARK);
+                FrameLayout.LayoutParams clickParams = new FrameLayout.LayoutParams(dp(36), dp(36));
+                clickParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                clickParams.setMargins(0, 0, 0, dp(6));
+                int clickCentre = keyCentre + 39 + 8 + 18;
+                click.setTranslationX(dp(k == 0 ? -clickCentre : clickCentre));
+                frameLayout.addView(click, clickParams);
+            }
         }
     }
 
@@ -4517,6 +4550,46 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             params.setMargins(0, 0, dp(margins[k][0]), dp(margins[k][1] + lift));
             frameLayout.addView(button, params);
         }
+    }
+
+    // ---- 스틱 감도 ----
+    // Each stick's touch sensitivity (0.5x..2x, StickSensitivityDialog), kept per side for
+    // every game; the sticks on screen follow a change at once.
+    private final java.util.List<AnalogStickView> leftSticks = new java.util.ArrayList<>();
+    private final java.util.List<AnalogStickView> rightSticks = new java.util.ArrayList<>();
+
+    private float stickSensitivity(boolean right) {
+        return StickSensitivityDialog.clamp(MainActivity.sharedSettings(this).getFloat(right ? "stick_sens_right" : "stick_sens_left", 1.0f));
+    }
+
+    private AnalogStickView leftStick() {
+        AnalogStickView stick = new AnalogStickView(this, this::onAnalogChanged);
+        stick.setSensitivity(stickSensitivity(false));
+        this.leftSticks.add(stick);
+        return stick;
+    }
+
+    private AnalogStickView rightStick() {
+        AnalogStickView stick = new AnalogStickView(this, this::onAnalogRightChanged);
+        stick.setSensitivity(stickSensitivity(true));
+        this.rightSticks.add(stick);
+        return stick;
+    }
+
+    private boolean hasLeftStick() {
+        return isSonyPad() || isN64() || isDreamcast();
+    }
+
+    private LinearLayout createStickRow(boolean right, Runnable reopen) {
+        String name = right ? "오른쪽 스틱 감도" : isDualShock() ? "왼쪽 스틱 감도" : "스틱 감도";
+        return createSettingRow(RoundIconView.STICK, RoundIconView.COLOR_STICK, name, StickSensitivityDialog.format(stickSensitivity(right)),
+                view -> StickSensitivityDialog.show(this, name, stickSensitivity(right), value -> {
+                    MainActivity.sharedSettings(this).edit().putFloat(right ? "stick_sens_right" : "stick_sens_left", value).apply();
+                    for (AnalogStickView stick : right ? this.rightSticks : this.leftSticks) {
+                        stick.setSensitivity(value);
+                    }
+                    reopen.run();
+                }));
     }
 
     private void onAnalogRightChanged(float x, float y) {

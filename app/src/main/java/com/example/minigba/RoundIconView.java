@@ -43,6 +43,7 @@ final class RoundIconView extends View {
     static final int PERF = 28;
     static final int BATTERY = 29;
     static final int PATCH = 30;
+    static final int STICK = 31;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -67,6 +68,7 @@ final class RoundIconView extends View {
     static final int COLOR_PERF = Color.rgb(13, 148, 136);
     static final int COLOR_BATTERY = Color.rgb(22, 163, 74);
     static final int COLOR_PATCH = Color.rgb(14, 165, 164);
+    static final int COLOR_STICK = Color.rgb(99, 102, 241);
 
     private final int icon;
     private final int color;
@@ -426,6 +428,15 @@ final class RoundIconView extends View {
                 Paint level = new Paint(line);
                 level.setStyle(Paint.Style.FILL);
                 canvas.drawRect(6, 10, 13, 14, level);
+                break;
+            }
+            case STICK: {
+                // A stick seen from above: the ring and the cap pushed up-right.
+                path.addCircle(12, 12, 8.5f, Path.Direction.CW);
+                canvas.drawPath(path, line);
+                Paint cap = new Paint(line);
+                cap.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(14, 10, 3.4f, cap);
                 break;
             }
             case PATCH:
