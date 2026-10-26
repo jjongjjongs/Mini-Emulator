@@ -408,6 +408,8 @@ struct Core {
     // Frames run and pictures put on screen, for the FPS readout.
     std::atomic<uint64_t> framesCounted{0};
     std::atomic<uint64_t> picturesPresented{0};
+    // The rate frames are being paced at (the audio clock's where it is used), for the readout.
+    std::atomic<double> pacedFps{0};
     // PCEE2 (patched): whether its GS has presented a game picture yet.
     bool (*pcee2HasPicture)() = nullptr;
     // While a restored quick save is still on trial, the frame its marker comes off at.
@@ -2609,6 +2611,7 @@ void runLoop(Core* core) {
                 // fast with its sound breaking up - so they are paced by the audio they make.
                 if (core->coreId == "mupen64plus_next" || core->coreId == "flycast" || core->coreId == "ppsspp") {
                     fps = audioClockFps(core, core->audioPending.size() / 2);
+                    core->pacedFps.store(fps);
                 }
                 if (core->hidePicture.load()) {
                     // The boot behind a hidden picture is not heard either.
@@ -3243,14 +3246,15 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPowerMode(JNIEnv* /
     gPowerMode.store(mode < 0 || mode > 2 ? 0 : mode);
 }
 
-// {frames run, pictures shown, the game's own frames per second}.
+// {frames run, pictures shown, the frame rate the game is paced at}.
 JNIEXPORT jdoubleArray JNICALL Java_com_example_minigba_NativeGba_frameStats(JNIEnv* env, jclass /*cls*/, jlong handle) {
     Core* core = fromHandle(handle);
     jdouble values[3] = {0, 0, 60};
     if (core != nullptr) {
         values[0] = static_cast<jdouble>(core->framesCounted.load());
         values[1] = static_cast<jdouble>(core->picturesPresented.load());
-        values[2] = core->fps;
+        double paced = core->pacedFps.load();
+        values[2] = paced > 0 ? paced : core->fps;
     }
     jdoubleArray out = env->NewDoubleArray(3);
     if (out != nullptr) {

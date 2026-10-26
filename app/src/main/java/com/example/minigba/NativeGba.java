@@ -54,7 +54,7 @@ final class NativeGba {
     // "전원 모드" for the next game created: 0 성능, 1 균형, 2 절전.
     static native void setPowerMode(int mode);
 
-    // {frames run, pictures shown, the game's own frame rate}, for the FPS readout.
+    // {frames run, pictures shown, the frame rate the game is paced at}, for the FPS readout.
     static native double[] frameStats(long handle);
 
     // Vulkan (where the device has it) for the next PSP, Dreamcast or PS2 game created;
