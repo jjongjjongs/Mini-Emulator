@@ -6,7 +6,6 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -52,7 +51,7 @@ final class PadMappingDialog {
     private final String consoleName;
     private final String gameName;
     private final Listener listener;
-    private final int sticks;
+    private final String style;
     private String descriptor;
     private String deviceName;
     private boolean thisGame = true;
@@ -62,9 +61,9 @@ final class PadMappingDialog {
     private final TextView[] scopes = new TextView[2];
 
     private PadMappingDialog(Context context, List<PadMapping.Target> targets, int[][] defaults, String gameScope, String modeScope,
-                             String consoleName, String gameName, int sticks, InputDevice device, Listener listener) {
+                             String consoleName, String gameName, String style, InputDevice device, Listener listener) {
         this.context = context;
-        this.sticks = sticks;
+        this.style = style;
         this.prefs = MainActivity.sharedSettings(context);
         this.density = context.getResources().getDisplayMetrics().density;
         this.targets = targets;
@@ -79,8 +78,8 @@ final class PadMappingDialog {
     }
 
     static void show(Context context, List<PadMapping.Target> targets, int[][] defaults, String gameScope, String modeScope,
-                     String consoleName, String gameName, int sticks, InputDevice device, Listener listener) {
-        new PadMappingDialog(context, targets, defaults, gameScope, modeScope, consoleName, gameName, sticks, device, listener).open();
+                     String consoleName, String gameName, String style, InputDevice device, Listener listener) {
+        new PadMappingDialog(context, targets, defaults, gameScope, modeScope, consoleName, gameName, style, device, listener).open();
     }
 
     // The console (or game) table for the controller, as it is in force: the console's
@@ -370,21 +369,22 @@ final class PadMappingDialog {
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path body = new Path();
+        private final PadSheet sheet;
+        private final PadSheet.Spot[] spots;
         private SparseIntArray custom = new SparseIntArray();
-        // Where each target sits, in picture pixels, and how big its tap area is.
-        private final float[] cx;
-        private final float[] cy;
-        private final float[] radius;
-        private final int[] kind;
+        // Design space to view: scale, offset, and a quarter turn when the view is portrait.
+        private float scale = 1;
+        private float offsetX;
+        private float offsetY;
+        private boolean rotated;
 
         PictureView(Context context) {
             super(context);
-            int n = PadMappingDialog.this.targets.size();
-            this.cx = new float[n];
-            this.cy = new float[n];
-            this.radius = new float[n];
-            this.kind = new int[n];
+            this.sheet = new PadSheet(PadMappingDialog.this.style, PadMappingDialog.this.targets);
+            this.spots = new PadSheet.Spot[PadMappingDialog.this.targets.size()];
+            for (int k = 0; k < this.spots.length; k++) {
+                this.spots[k] = this.sheet.spot(PadMappingDialog.this.targets.get(k));
+            }
             this.stroke.setStyle(Paint.Style.STROKE);
             this.label.setTypeface(Typeface.DEFAULT_BOLD);
             this.label.setTextAlign(Paint.Align.CENTER);
@@ -395,206 +395,111 @@ final class PadMappingDialog {
             invalidate();
         }
 
-        @Override
-        protected void onDraw(Canvas canvas) {
+        private void fit() {
             int width = getWidth();
             int height = getHeight();
-            if (width <= 0 || height <= 0) {
+            this.rotated = height > width * 1.15f;
+            float boxW = this.rotated ? height : width;
+            float boxH = this.rotated ? width : height;
+            this.scale = Math.min(boxW / PadSheet.W, boxH / PadSheet.H);
+            this.offsetX = (boxW - PadSheet.W * this.scale) / 2;
+            this.offsetY = (boxH - PadSheet.H * this.scale) / 2;
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            if (getWidth() <= 0 || getHeight() <= 0) {
                 return;
             }
-            // The pad body is twice as wide as tall, fitted into the view with room for labels.
-            float bodyWidth = Math.min(width - dp(24), (height - dp(44)) * 2f);
-            float bodyHeight = bodyWidth / 2f;
-            float left = (width - bodyWidth) / 2f;
-            float top = (height - bodyHeight) / 2f + dp(8);
-            float u = bodyHeight;
-            layout(left, top, bodyWidth, bodyHeight);
-
-            // Body: a rounded slab with two grips.
-            this.body.reset();
-            RectF slab = new RectF(left + 0.1f * bodyWidth, top + 0.12f * u, left + 0.9f * bodyWidth, top + 0.72f * u);
-            this.body.addRoundRect(slab, 0.18f * u, 0.18f * u, Path.Direction.CW);
-            this.body.addRoundRect(new RectF(left + 0.1f * bodyWidth, top + 0.3f * u, left + 0.36f * bodyWidth, top + u), 0.14f * u, 0.14f * u, Path.Direction.CW);
-            this.body.addRoundRect(new RectF(left + 0.64f * bodyWidth, top + 0.3f * u, left + 0.9f * bodyWidth, top + u), 0.14f * u, 0.14f * u, Path.Direction.CW);
-            this.fill.setColor(BODY);
-            canvas.drawPath(this.body, this.fill);
-            this.stroke.setColor(BODY_EDGE);
-            this.stroke.setStrokeWidth(dp(1.5f));
-            canvas.drawPath(this.body, this.stroke);
-
-            // Sticks under the face and D-pad, when the console has them.
-            if (PadMappingDialog.this.sticks >= 1) {
-                drawStick(canvas, left + 0.37f * bodyWidth, top + 0.74f * u, 0.12f * u);
+            fit();
+            canvas.save();
+            if (this.rotated) {
+                // Portrait phone: the pad lies along the long side; turn the phone to read it.
+                canvas.translate(getWidth(), 0);
+                canvas.rotate(90);
             }
-            if (PadMappingDialog.this.sticks >= 2) {
-                drawStick(canvas, left + 0.63f * bodyWidth, top + 0.74f * u, 0.12f * u);
-            }
-
-            this.label.setTextSize(dp(10.5f));
-            for (int k = 0; k < this.cx.length; k++) {
+            canvas.translate(this.offsetX, this.offsetY);
+            canvas.scale(this.scale, this.scale);
+            this.sheet.drawBody(canvas);
+            for (int k = 0; k < this.spots.length; k++) {
                 PadMapping.Target target = PadMappingDialog.this.targets.get(k);
+                PadSheet.Spot spot = this.spots[k];
                 int source = PadMapping.shownSource(PadMappingDialog.this.defaults, this.custom, target.bit);
                 boolean changed = this.custom.indexOfKey(target.bit) >= 0;
                 boolean empty = source == PadMapping.SOURCE_NONE;
-                int edge = empty ? WARN : changed ? ACCENT : BODY_EDGE;
-                float x = this.cx[k];
-                float y = this.cy[k];
-                float r = this.radius[k];
-                this.fill.setColor(BUTTON);
+                int edge = empty ? WARN : changed ? ACCENT : spot.edge;
+                this.fill.setColor(spot.fill);
                 this.stroke.setColor(edge);
-                this.stroke.setStrokeWidth(dp(changed || empty ? 2.5f : 1.2f));
-                switch (this.kind[k]) {
-                    case 1: // shoulder pill
-                        canvas.drawRoundRect(new RectF(x - r * 1.6f, y - r * 0.55f, x + r * 1.6f, y + r * 0.55f), r * 0.4f, r * 0.4f, this.fill);
-                        canvas.drawRoundRect(new RectF(x - r * 1.6f, y - r * 0.55f, x + r * 1.6f, y + r * 0.55f), r * 0.4f, r * 0.4f, this.stroke);
-                        break;
-                    case 2: // middle pill
-                        canvas.drawRoundRect(new RectF(x - r * 1.3f, y - r * 0.5f, x + r * 1.3f, y + r * 0.5f), r * 0.4f, r * 0.4f, this.fill);
-                        canvas.drawRoundRect(new RectF(x - r * 1.3f, y - r * 0.5f, x + r * 1.3f, y + r * 0.5f), r * 0.4f, r * 0.4f, this.stroke);
-                        break;
-                    case 3: // D-pad arm
-                        canvas.drawRoundRect(new RectF(x - r * 0.75f, y - r * 0.75f, x + r * 0.75f, y + r * 0.75f), r * 0.2f, r * 0.2f, this.fill);
-                        canvas.drawRoundRect(new RectF(x - r * 0.75f, y - r * 0.75f, x + r * 0.75f, y + r * 0.75f), r * 0.2f, r * 0.2f, this.stroke);
-                        break;
-                    case 4: // stick press: ring on the stick
-                        canvas.drawCircle(x, y, r, this.stroke);
-                        break;
-                    default:
-                        canvas.drawCircle(x, y, r, this.fill);
-                        canvas.drawCircle(x, y, r, this.stroke);
+                this.stroke.setStrokeWidth(changed || empty ? 2.4f : 1.1f);
+                // A soft shadow under each button.
+                this.fill.setColor(Color.argb(90, 0, 0, 0));
+                drawShape(canvas, spot, 0, 1.6f, this.fill, null);
+                this.fill.setColor(spot.fill);
+                drawShape(canvas, spot, 0, 0, this.fill, this.stroke);
+                // The console's own label inside.
+                this.label.setColor(spot.ink);
+                this.label.setTextSize(spot.textSize);
+                String inside = spot.glyph != null ? spot.glyph : target.label;
+                if (spot.kind == PadSheet.KIND_PILL && spot.rotation != 0) {
+                    canvas.save();
+                    canvas.rotate(spot.rotation, spot.x, spot.y);
+                    canvas.drawText(inside, spot.x, spot.y + spot.textSize * 0.36f, this.label);
+                    canvas.restore();
+                } else {
+                    canvas.drawText(inside, spot.x, spot.y + spot.textSize * 0.36f, this.label);
                 }
-                // The console's own label inside, the controller input in a chip below.
-                this.label.setColor(Color.rgb(229, 231, 235));
-                this.label.setTextSize(Math.max(dp(9), Math.min(dp(13), r * 0.75f)));
-                if (this.kind[k] != 4) {
-                    canvas.drawText(target.label, x, y + this.label.getTextSize() * 0.36f, this.label);
+                // The controller input in a chip beside it.
+                String chip = PadMapping.sourceName(source);
+                this.label.setTextSize(8);
+                float chipW = this.label.measureText(chip) + 10;
+                float chipH = 11;
+                float cx = spot.x;
+                float cy = spot.y;
+                float reachX = spot.kind == PadSheet.KIND_PILL ? spot.w / 2 : spot.r;
+                float reachY = spot.kind == PadSheet.KIND_PILL ? spot.h / 2 : spot.r;
+                switch (spot.tag) {
+                    case PadSheet.TAG_RIGHT: cx = spot.x + reachX + 3 + chipW / 2; break;
+                    case PadSheet.TAG_LEFT: cx = spot.x - reachX - 3 - chipW / 2; break;
+                    case PadSheet.TAG_ABOVE: cy = spot.y - reachY - 3 - chipH / 2; break;
+                    default: cy = spot.y + reachY + 3 + chipH / 2; break;
                 }
-                String chip = (this.kind[k] == 4 ? target.label + " · " : "") + PadMapping.sourceName(source);
-                this.label.setTextSize(dp(10));
-                float chipWidth = this.label.measureText(chip) + dp(12);
-                float chipTop = y + (this.kind[k] == 1 || this.kind[k] == 2 ? r * 0.7f : r * 1.05f) + dp(2);
-                RectF chipRect = new RectF(x - chipWidth / 2, chipTop, x + chipWidth / 2, chipTop + dp(16));
-                this.fill.setColor(empty ? WARN : changed ? ACCENT : Color.rgb(16, 18, 24));
-                canvas.drawRoundRect(chipRect, dp(8), dp(8), this.fill);
+                RectF chipRect = new RectF(cx - chipW / 2, cy - chipH / 2, cx + chipW / 2, cy + chipH / 2);
+                this.fill.setColor(empty ? WARN : changed ? ACCENT : this.sheet.chipBackground());
+                canvas.drawRoundRect(chipRect, 5.5f, 5.5f, this.fill);
                 this.label.setColor(empty || changed ? Color.WHITE : MUTED);
-                canvas.drawText(chip, x, chipTop + dp(11.5f), this.label);
+                canvas.drawText(chip, cx, cy + 3, this.label);
             }
+            canvas.restore();
         }
 
-        private void drawStick(Canvas canvas, float x, float y, float r) {
-            this.fill.setColor(BUTTON);
-            canvas.drawCircle(x, y, r, this.fill);
-            this.stroke.setColor(BODY_EDGE);
-            this.stroke.setStrokeWidth(dp(1.2f));
-            canvas.drawCircle(x, y, r, this.stroke);
-            this.fill.setColor(Color.rgb(60, 65, 78));
-            canvas.drawCircle(x, y, r * 0.62f, this.fill);
-        }
-
-        // Places every target: shoulders along the top, D-pad left, face right, middle pair in
-        // the centre, stick presses on the sticks.
-        private void layout(float left, float top, float width, float u) {
-            List<PadMapping.Target> targets = PadMappingDialog.this.targets;
-            int face = 0;
-            int shoulderLeft = 0;
-            int shoulderRight = 0;
-            int middle = 0;
-            int c = 0;
-            for (PadMapping.Target target : targets) {
-                if (target.group == PadMapping.GROUP_FACE) face++;
-                else if (target.group == PadMapping.GROUP_SHOULDER_LEFT) shoulderLeft++;
-                else if (target.group == PadMapping.GROUP_SHOULDER_RIGHT) shoulderRight++;
-                else if (target.group == PadMapping.GROUP_MIDDLE) middle++;
-                else if (target.group == PadMapping.GROUP_C) c++;
-            }
-            float faceX = left + (c > 0 ? 0.72f : 0.78f) * width;
-            float faceY = top + 0.42f * u;
-            float small = 0.085f * u;
-            int faceIndex = 0;
-            int leftIndex = 0;
-            int rightIndex = 0;
-            int middleIndex = 0;
-            int cIndex = 0;
-            for (int k = 0; k < targets.size(); k++) {
-                PadMapping.Target target = targets.get(k);
-                this.kind[k] = 0;
-                switch (target.group) {
-                    case PadMapping.GROUP_FACE: {
-                        float gap = 0.16f * u;
-                        if (face <= 2) {
-                            // Right-upper, then left-lower, like A/B on the GBA.
-                            this.cx[k] = faceX + (faceIndex == 0 ? gap * 0.55f : -gap * 0.55f);
-                            this.cy[k] = faceY + (faceIndex == 0 ? -gap * 0.4f : gap * 0.4f);
-                            this.radius[k] = 0.1f * u;
-                        } else if (face <= 4) {
-                            int[][] diamond = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
-                            this.cx[k] = faceX + diamond[faceIndex][0] * gap;
-                            this.cy[k] = faceY + diamond[faceIndex][1] * gap;
-                            this.radius[k] = small;
-                        } else {
-                            int column = faceIndex % 3;
-                            boolean topRow = faceIndex >= 3;
-                            this.cx[k] = faceX + (column - 1) * 0.17f * u;
-                            this.cy[k] = faceY + (topRow ? -0.1f : 0.1f) * u - column * 0.03f * u;
-                            this.radius[k] = 0.072f * u;
-                        }
-                        faceIndex++;
-                        break;
+        private void drawShape(Canvas canvas, PadSheet.Spot spot, float dx, float dy, Paint fillPaint, Paint edgePaint) {
+            float x = spot.x + dx;
+            float y = spot.y + dy;
+            switch (spot.kind) {
+                case PadSheet.KIND_PILL: {
+                    canvas.save();
+                    canvas.rotate(spot.rotation, x, y);
+                    RectF rect = new RectF(x - spot.w / 2, y - spot.h / 2, x + spot.w / 2, y + spot.h / 2);
+                    canvas.drawRoundRect(rect, spot.h / 2, spot.h / 2, fillPaint);
+                    if (edgePaint != null) {
+                        canvas.drawRoundRect(rect, spot.h / 2, spot.h / 2, edgePaint);
                     }
-                    case PadMapping.GROUP_C: {
-                        int[][] diamond = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
-                        float gap = 0.1f * u;
-                        this.cx[k] = left + 0.9f * width + diamond[cIndex][0] * gap;
-                        this.cy[k] = top + 0.3f * u + diamond[cIndex][1] * gap;
-                        this.radius[k] = 0.05f * u;
-                        cIndex++;
-                        break;
-                    }
-                    case PadMapping.GROUP_SHOULDER_LEFT:
-                        this.kind[k] = 1;
-                        this.cx[k] = left + 0.2f * width;
-                        this.cy[k] = top + (0.12f - leftIndex * 0.12f) * u;
-                        this.radius[k] = 0.07f * u;
-                        leftIndex++;
-                        break;
-                    case PadMapping.GROUP_SHOULDER_RIGHT:
-                        this.kind[k] = 1;
-                        this.cx[k] = left + 0.8f * width;
-                        this.cy[k] = top + (0.12f - rightIndex * 0.12f) * u;
-                        this.radius[k] = 0.07f * u;
-                        rightIndex++;
-                        break;
-                    case PadMapping.GROUP_MIDDLE:
-                        this.kind[k] = 2;
-                        this.cx[k] = left + (middle <= 1 ? 0.5f : middleIndex == 0 ? 0.43f : 0.57f) * width;
-                        this.cy[k] = top + 0.4f * u;
-                        this.radius[k] = 0.065f * u;
-                        middleIndex++;
-                        break;
-                    case PadMapping.GROUP_DPAD: {
-                        this.kind[k] = 3;
-                        float dx = target.bit == PadMapping.DPAD_LEFT ? -1 : target.bit == PadMapping.DPAD_RIGHT ? 1 : 0;
-                        float dy = target.bit == PadMapping.DPAD_UP ? -1 : target.bit == PadMapping.DPAD_DOWN ? 1 : 0;
-                        this.cx[k] = left + 0.22f * width + dx * 0.15f * u;
-                        this.cy[k] = top + 0.42f * u + dy * 0.15f * u;
-                        this.radius[k] = 0.08f * u;
-                        break;
-                    }
-                    case PadMapping.GROUP_STICK_LEFT:
-                        this.kind[k] = 4;
-                        this.cx[k] = left + 0.37f * width;
-                        this.cy[k] = top + 0.74f * u;
-                        this.radius[k] = 0.12f * u;
-                        break;
-                    case PadMapping.GROUP_STICK_RIGHT:
-                        this.kind[k] = 4;
-                        this.cx[k] = left + 0.63f * width;
-                        this.cy[k] = top + 0.74f * u;
-                        this.radius[k] = 0.12f * u;
-                        break;
-                    default:
-                        break;
+                    canvas.restore();
+                    break;
                 }
+                case PadSheet.KIND_ARM: {
+                    RectF rect = new RectF(x - spot.w / 2, y - spot.h / 2, x + spot.w / 2, y + spot.h / 2);
+                    canvas.drawRoundRect(rect, 3, 3, fillPaint);
+                    if (edgePaint != null) {
+                        canvas.drawRoundRect(rect, 3, 3, edgePaint);
+                    }
+                    break;
+                }
+                default:
+                    canvas.drawCircle(x, y, spot.r, fillPaint);
+                    if (edgePaint != null) {
+                        canvas.drawCircle(x, y, spot.r, edgePaint);
+                    }
             }
         }
 
@@ -603,13 +508,26 @@ final class PadMappingDialog {
             if (event.getActionMasked() != MotionEvent.ACTION_UP) {
                 return true;
             }
+            fit();
+            // Back from view pixels to design units.
+            float vx = event.getX();
+            float vy = event.getY();
+            if (this.rotated) {
+                float tx = vy;
+                float ty = getWidth() - vx;
+                vx = tx;
+                vy = ty;
+            }
+            float x = (vx - this.offsetX) / this.scale;
+            float y = (vy - this.offsetY) / this.scale;
             int best = -1;
             float bestDistance = Float.MAX_VALUE;
-            for (int k = 0; k < this.cx.length; k++) {
-                float dx = event.getX() - this.cx[k];
-                float dy = event.getY() - this.cy[k];
+            for (int k = 0; k < this.spots.length; k++) {
+                PadSheet.Spot spot = this.spots[k];
+                float dx = x - spot.x;
+                float dy = y - spot.y;
                 float distance = (float) Math.sqrt(dx * dx + dy * dy);
-                float reach = Math.max(this.radius[k] * 1.5f, dp(22));
+                float reach = Math.max(spot.r * 1.4f, 16 / this.scale * getResources().getDisplayMetrics().density);
                 if (distance <= reach && distance < bestDistance) {
                     best = k;
                     bestDistance = distance;

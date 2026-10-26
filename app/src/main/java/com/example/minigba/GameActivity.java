@@ -910,6 +910,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return targets;
     }
 
+    // Which pad picture the button-setting screen draws.
+    private String padSheetStyle() {
+        if (isSonyPad()) return "ps";
+        if (isSnes()) return "sfc";
+        if (isN64()) return "n64";
+        if (isMegaDrive()) return "md";
+        if (isSaturn()) return "ss";
+        if (isDreamcast()) return "dc";
+        if (this.coreId.equals("gba") || isNds() || isWonderSwan() || isNeoGeoPocket()) return "gba";
+        if (isPadLayout()) return "fc";
+        return "arcade";
+    }
+
     private String consoleName() {
         switch (this.gameMode) {
             case "gba": return isGameBoy() ? "게임보이" : "GBA";
@@ -950,7 +963,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             releaseController();
             PadMappingDialog.show(this, padTargets(), padDefaults(), this.saveBaseName, this.gameMode, consoleName(), this.gameTitle,
-                    isDualShock() || isPsp() ? 2 : isN64() || isDreamcast() ? 1 : 0, now, this::invalidatePadMaps);
+                    padSheetStyle(), now, this::invalidatePadMaps);
         });
     }
 
