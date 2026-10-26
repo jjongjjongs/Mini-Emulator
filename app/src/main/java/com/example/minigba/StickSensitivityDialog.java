@@ -20,7 +20,8 @@ import java.util.Locale;
 // with -/+ beside it, a ruler to drag, chips for the usual values, and 1x로 / 취소 / 적용.
 final class StickSensitivityDialog {
     interface Listener {
-        void onApplied(float value);
+        // thisGame: the value is for this game only; otherwise it is the default for all.
+        void onApplied(float value, boolean thisGame);
     }
 
     static final float MIN = 0.5f;
@@ -32,18 +33,26 @@ final class StickSensitivityDialog {
     private final Context context;
     private final float density;
     private float value;
+    private boolean thisGame = true;
+    private final String gameName;
+    private final float allValue;
     private TextView valueView;
+    private TextView scopeNote;
+    private final TextView[] scopes = new TextView[2];
     private RulerView ruler;
     private final TextView[] chips = new TextView[CHIPS.length];
 
-    private StickSensitivityDialog(Context context, float value) {
+    private StickSensitivityDialog(Context context, float value, float allValue, String gameName) {
         this.context = context;
         this.density = context.getResources().getDisplayMetrics().density;
         this.value = clamp(value);
+        this.allValue = clamp(allValue);
+        this.gameName = gameName;
     }
 
-    static void show(Context context, String title, float current, Listener listener) {
-        new StickSensitivityDialog(context, current).open(title, listener);
+    // current: the value in force for this game; allValue: the default for all games.
+    static void show(Context context, String title, float current, float allValue, String gameName, Listener listener) {
+        new StickSensitivityDialog(context, current, allValue, gameName).open(title, listener);
     }
 
     static float clamp(float value) {
@@ -93,9 +102,31 @@ final class StickSensitivityDialog {
         rowParams.setMargins(0, dp(8), 0, 0);
         panel.addView(valueRow, rowParams);
 
-        TextView scope = text("모든 게임에 적용 · 바로 반영", 12, Color.rgb(156, 163, 175), false);
-        scope.setGravity(Gravity.CENTER);
-        panel.addView(scope);
+        // Where the value goes: this game only (the default), or every game.
+        LinearLayout scopeRow = new LinearLayout(this.context);
+        GradientDrawable scopeFrame = new GradientDrawable();
+        scopeFrame.setCornerRadius(dp(20));
+        scopeFrame.setStroke(dp(1.5f), Color.rgb(75, 85, 99));
+        scopeRow.setBackground(scopeFrame);
+        String[] scopeNames = {"이 게임만", "모든 게임"};
+        for (int k = 0; k < 2; k++) {
+            final boolean forThisGame = k == 0;
+            TextView option = text(scopeNames[k], 13, Color.WHITE, true);
+            option.setGravity(Gravity.CENTER);
+            option.setOnClickListener(v -> {
+                this.thisGame = forThisGame;
+                refresh();
+            });
+            this.scopes[k] = option;
+            scopeRow.addView(option, new LinearLayout.LayoutParams(0, dp(36), 1));
+        }
+        LinearLayout.LayoutParams scopeParams = new LinearLayout.LayoutParams(-1, -2);
+        scopeParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(scopeRow, scopeParams);
+        this.scopeNote = text("", 11.5f, Color.rgb(156, 163, 175), false);
+        this.scopeNote.setGravity(Gravity.CENTER);
+        this.scopeNote.setPadding(0, dp(6), 0, 0);
+        panel.addView(this.scopeNote);
 
         this.ruler = new RulerView(this.context);
         LinearLayout.LayoutParams rulerParams = new LinearLayout.LayoutParams(-1, dp(66));
@@ -136,7 +167,7 @@ final class StickSensitivityDialog {
         TextView apply = pill("적용", ACCENT, Color.rgb(11, 26, 30), false);
         apply.setOnClickListener(v -> {
             dialog.dismiss();
-            listener.onApplied(this.value);
+            listener.onApplied(this.value, this.thisGame);
         });
         LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(-2, dp(44));
         applyParams.setMargins(dp(8), 0, 0, 0);
@@ -164,6 +195,17 @@ final class StickSensitivityDialog {
 
     private void refresh() {
         this.valueView.setText(format(this.value));
+        for (int k = 0; k < 2; k++) {
+            boolean on = (k == 0) == this.thisGame;
+            GradientDrawable shape = new GradientDrawable();
+            shape.setCornerRadius(dp(20));
+            shape.setColor(on ? ACCENT : Color.TRANSPARENT);
+            this.scopes[k].setBackground(shape);
+            this.scopes[k].setTextColor(on ? Color.rgb(11, 26, 30) : Color.rgb(229, 231, 235));
+        }
+        this.scopeNote.setText(this.thisGame
+                ? this.gameName + "에만 적용 · 다른 게임은 모든 게임 값(" + format(this.allValue) + ")을 써요"
+                : "모든 게임의 기본값이 돼요 · 이 게임의 개별 값은 지워져요");
         this.ruler.invalidate();
         for (int k = 0; k < CHIPS.length; k++) {
             boolean on = Math.abs(CHIPS[k] - this.value) < STEP / 2;

@@ -4558,8 +4558,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private final java.util.List<AnalogStickView> leftSticks = new java.util.ArrayList<>();
     private final java.util.List<AnalogStickView> rightSticks = new java.util.ArrayList<>();
 
+    private String stickKey(boolean right) {
+        return right ? "stick_sens_right" : "stick_sens_left";
+    }
+
+    // The default for all games.
+    private float stickSensitivityAll(boolean right) {
+        return StickSensitivityDialog.clamp(MainActivity.sharedSettings(this).getFloat(stickKey(right), 1.0f));
+    }
+
+    // Whether this game has a value of its own.
+    private boolean stickSensitivityOwn(boolean right) {
+        return MainActivity.sharedSettings(this).contains(stickKey(right) + ":" + this.saveBaseName);
+    }
+
+    // The value in force for this game: its own, else the default.
     private float stickSensitivity(boolean right) {
-        return StickSensitivityDialog.clamp(MainActivity.sharedSettings(this).getFloat(right ? "stick_sens_right" : "stick_sens_left", 1.0f));
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        return StickSensitivityDialog.clamp(prefs.getFloat(stickKey(right) + ":" + this.saveBaseName, stickSensitivityAll(right)));
     }
 
     private AnalogStickView leftStick() {
@@ -4582,9 +4598,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private LinearLayout createStickRow(boolean right, Runnable reopen) {
         String name = right ? "오른쪽 스틱 감도" : isDualShock() ? "왼쪽 스틱 감도" : "스틱 감도";
-        return createSettingRow(RoundIconView.STICK, RoundIconView.COLOR_STICK, name, StickSensitivityDialog.format(stickSensitivity(right)),
-                view -> StickSensitivityDialog.show(this, name, stickSensitivity(right), value -> {
-                    MainActivity.sharedSettings(this).edit().putFloat(right ? "stick_sens_right" : "stick_sens_left", value).apply();
+        String shown = StickSensitivityDialog.format(stickSensitivity(right)) + (stickSensitivityOwn(right) ? " · 이 게임" : "");
+        return createSettingRow(RoundIconView.STICK, RoundIconView.COLOR_STICK, name, shown,
+                view -> StickSensitivityDialog.show(this, name, stickSensitivity(right), stickSensitivityAll(right), this.gameTitle, (value, thisGame) -> {
+                    android.content.SharedPreferences.Editor edit = MainActivity.sharedSettings(this).edit();
+                    if (thisGame) {
+                        edit.putFloat(stickKey(right) + ":" + this.saveBaseName, value);
+                    } else {
+                        edit.putFloat(stickKey(right), value).remove(stickKey(right) + ":" + this.saveBaseName);
+                    }
+                    edit.apply();
                     for (AnalogStickView stick : right ? this.rightSticks : this.leftSticks) {
                         stick.setSensitivity(value);
                     }
