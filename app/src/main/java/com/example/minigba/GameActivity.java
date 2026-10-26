@@ -650,13 +650,28 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             return true;
         }
-        int direction = padDirectionBit(keyCode);
+        int direction;
+        int bit;
+        android.util.SparseIntArray table = padMapFor(event.getDevice());
+        if (table != null) {
+            // The player's own table for this controller.
+            int bits = table.get(keyCode);
+            if (bits == 0) {
+                return PadMapping.isMappableKey(keyCode) || super.dispatchKeyEvent(event);
+            }
+            direction = bits & PadMapping.DPAD_BITS;
+            bit = bits & ~PadMapping.DPAD_BITS;
+        } else {
+            direction = padDirectionBit(keyCode);
+            bit = padButtonBit(keyCode);
+        }
         if (direction != 0) {
             this.padKeyDirection = down ? this.padKeyDirection | direction : this.padKeyDirection & ~direction;
             applyDirections();
-            return true;
+            if (bit == 0) {
+                return true;
+            }
         }
-        int bit = padButtonBit(keyCode);
         if (bit == 0) {
             return super.dispatchKeyEvent(event);
         }
@@ -695,6 +710,250 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // ---- "게임패드 버튼 설정": the player's own table for a controller ----
+    // Effective tables by controller descriptor; null when the controller keeps the defaults.
+    private final java.util.Map<String, android.util.SparseIntArray> padMaps = new java.util.HashMap<>();
+    private final java.util.Set<String> padMapDefaults = new java.util.HashSet<>();
+    // Axis sources (triggers, stick directions) held right now, by source.
+    private final android.util.SparseBooleanArray padAxisHeld = new android.util.SparseBooleanArray();
+
+    private void invalidatePadMaps() {
+        this.padMaps.clear();
+        this.padMapDefaults.clear();
+        this.padAxisHeld.clear();
+        releaseController();
+    }
+
+    private android.util.SparseIntArray padMapFor(android.view.InputDevice device) {
+        String descriptor = PadMapping.descriptor(device);
+        android.util.SparseIntArray table = this.padMaps.get(descriptor);
+        if (table != null) {
+            return table;
+        }
+        if (this.padMapDefaults.contains(descriptor)) {
+            return null;
+        }
+        android.util.SparseIntArray custom = PadMappingDialog.customFor(MainActivity.sharedSettings(this), this.saveBaseName, this.gameMode, descriptor);
+        if (custom.size() == 0) {
+            this.padMapDefaults.add(descriptor);
+            return null;
+        }
+        table = PadMapping.effective(padDefaults(), custom);
+        this.padMaps.put(descriptor, table);
+        return table;
+    }
+
+    // Axis inputs through the player's table: each mapped axis direction is a button that is
+    // down past 0.6. Sticks still move the console's sticks where it has them.
+    private void applyMappedAxes(android.view.MotionEvent event, android.util.SparseIntArray table, float x, float y) {
+        if (hasLeftStick()) {
+            onAnalogChanged(x, y);
+            onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+        }
+        int directions = 0;
+        for (int k = 0; k < table.size(); k++) {
+            int source = table.keyAt(k);
+            if (!PadMapping.isAxisSource(source)) {
+                continue;
+            }
+            int axis = PadMapping.axisOf(source);
+            float value = event.getAxisValue(axis);
+            if (axis == android.view.MotionEvent.AXIS_LTRIGGER) {
+                value = Math.max(value, event.getAxisValue(android.view.MotionEvent.AXIS_BRAKE));
+            } else if (axis == android.view.MotionEvent.AXIS_RTRIGGER) {
+                value = Math.max(value, event.getAxisValue(android.view.MotionEvent.AXIS_GAS));
+            }
+            boolean pressed = PadMapping.axisNegative(source) ? value < -0.6f : value > 0.6f;
+            int bits = table.valueAt(k);
+            if (pressed) {
+                directions |= bits & PadMapping.DPAD_BITS;
+            }
+            int buttons = bits & ~PadMapping.DPAD_BITS;
+            if (buttons != 0 && this.padAxisHeld.get(source) != pressed) {
+                this.padAxisHeld.put(source, pressed);
+                setButtonPressed(buttons, pressed);
+            }
+        }
+        if (directions != this.padHatDirection || this.padStickDirection != 0) {
+            this.padHatDirection = directions;
+            this.padStickDirection = 0;
+            applyDirections();
+        }
+    }
+
+    // {source, bit} pairs the console uses with no changes: the key table above, the hat and
+    // trigger axes, and the left stick as a D-pad where the console has no stick.
+    private int[][] padDefaults() {
+        java.util.List<int[]> pairs = new java.util.ArrayList<>();
+        int[] keys = {KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_Y,
+                KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_L2, KeyEvent.KEYCODE_BUTTON_R2,
+                KeyEvent.KEYCODE_BUTTON_THUMBL, KeyEvent.KEYCODE_BUTTON_THUMBR, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_START,
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT};
+        for (int key : keys) {
+            int bit = padButtonBit(key) | padDirectionBit(key);
+            if (bit != 0) {
+                pairs.add(new int[]{key, bit});
+            }
+        }
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_LTRIGGER, false), kL2});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_RTRIGGER, false), kR2});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_X, false), PadMapping.DPAD_RIGHT});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_X, true), PadMapping.DPAD_LEFT});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_Y, false), PadMapping.DPAD_DOWN});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_Y, true), PadMapping.DPAD_UP});
+        if (!hasLeftStick()) {
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_X, false), PadMapping.DPAD_RIGHT});
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_X, true), PadMapping.DPAD_LEFT});
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_Y, false), PadMapping.DPAD_DOWN});
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_Y, true), PadMapping.DPAD_UP});
+        }
+        return pairs.toArray(new int[0][]);
+    }
+
+    // The console's buttons as the picture shows them, with the bits the core reads.
+    private java.util.List<PadMapping.Target> padTargets() {
+        java.util.List<PadMapping.Target> targets = new java.util.ArrayList<>();
+        int face = PadMapping.GROUP_FACE;
+        int shoulderLeft = PadMapping.GROUP_SHOULDER_LEFT;
+        int shoulderRight = PadMapping.GROUP_SHOULDER_RIGHT;
+        int middle = PadMapping.GROUP_MIDDLE;
+        if (isSonyPad()) {
+            targets.add(new PadMapping.Target(1024, "△", face));
+            targets.add(new PadMapping.Target(1, "○", face));
+            targets.add(new PadMapping.Target(2, "×", face));
+            targets.add(new PadMapping.Target(2048, "□", face));
+            targets.add(new PadMapping.Target(512, isDualShock() ? "L1" : "L", shoulderLeft));
+            targets.add(new PadMapping.Target(256, isDualShock() ? "R1" : "R", shoulderRight));
+            if (isDualShock()) {
+                targets.add(new PadMapping.Target(kL2, "L2", shoulderLeft));
+                targets.add(new PadMapping.Target(kR2, "R2", shoulderRight));
+                targets.add(new PadMapping.Target(kL3, "L3", PadMapping.GROUP_STICK_LEFT));
+                targets.add(new PadMapping.Target(kR3, "R3", PadMapping.GROUP_STICK_RIGHT));
+            }
+            targets.add(new PadMapping.Target(4, "SELECT", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isN64()) {
+            targets.add(new PadMapping.Target(N64_A, "A", face));
+            targets.add(new PadMapping.Target(N64_B, "B", face));
+            targets.add(new PadMapping.Target(N64_C_UP, "C▲", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_C_RIGHT, "C▶", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_C_DOWN, "C▼", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_C_LEFT, "C◀", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_L, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(N64_Z, "Z", shoulderLeft));
+            targets.add(new PadMapping.Target(N64_R, "R", shoulderRight));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isSaturn()) {
+            for (int k = 0; k < SATURN_LABELS.length; k++) {
+                targets.add(new PadMapping.Target(SATURN_BITS[k], SATURN_LABELS[k], face));
+            }
+            targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isDreamcast()) {
+            targets.add(new PadMapping.Target(1024, "Y", face));
+            targets.add(new PadMapping.Target(1, "B", face));
+            targets.add(new PadMapping.Target(2, "A", face));
+            targets.add(new PadMapping.Target(2048, "X", face));
+            targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isMegaDrive()) {
+            String[] labels = {"A", "B", "C", "X", "Y", "Z"};
+            int[] bits = {2048, 2, 1, 512, 1024, 256};
+            for (int k = 0; k < 6; k++) {
+                targets.add(new PadMapping.Target(bits[k], labels[k], face));
+            }
+            targets.add(new PadMapping.Target(4, "MODE", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isSnes() || isNds()) {
+            targets.add(new PadMapping.Target(1024, "X", face));
+            targets.add(new PadMapping.Target(1, "A", face));
+            targets.add(new PadMapping.Target(2, "B", face));
+            targets.add(new PadMapping.Target(2048, "Y", face));
+            targets.add(new PadMapping.Target(512, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(256, "R", shoulderRight));
+            targets.add(new PadMapping.Target(4, "SELECT", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isPadLayout()) {
+            // GBA, NES, Master System, PC Engine: two face buttons, shoulders on the GBA.
+            boolean sms = isMasterSystem();
+            String[] pair = turboLabels();
+            targets.add(new PadMapping.Target(1, sms ? "2" : pair[0], face));
+            targets.add(new PadMapping.Target(2, sms ? "1" : pair[1], face));
+            if (hasShoulders()) {
+                targets.add(new PadMapping.Target(512, "L", shoulderLeft));
+                targets.add(new PadMapping.Target(256, "R", shoulderRight));
+            }
+            if (!sms) {
+                targets.add(new PadMapping.Target(4, selectLabel(), middle));
+            }
+            targets.add(new PadMapping.Target(8, startLabel(), middle));
+        } else if (isWonderSwan() || isNeoGeoPocket()) {
+            targets.add(new PadMapping.Target(1, "A", face));
+            targets.add(new PadMapping.Target(2, "B", face));
+            targets.add(new PadMapping.Target(8, isWonderSwan() ? "START" : "OPTION", middle));
+        } else {
+            // Neo Geo and arcade sets: A B C D, with E F on the six-button games.
+            String[] labels = {"A", "B", "C", "D", "E", "F"};
+            int[] bits = {1, 2, 1024, 2048, 4096, 8192};
+            for (int k = 0; k < (isNeoGeoMode() ? 4 : 6); k++) {
+                targets.add(new PadMapping.Target(bits[k], labels[k], face));
+            }
+            targets.add(new PadMapping.Target(4, selectLabel(), middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        }
+        targets.add(new PadMapping.Target(PadMapping.DPAD_UP, "▲", PadMapping.GROUP_DPAD));
+        targets.add(new PadMapping.Target(PadMapping.DPAD_RIGHT, "▶", PadMapping.GROUP_DPAD));
+        targets.add(new PadMapping.Target(PadMapping.DPAD_DOWN, "▼", PadMapping.GROUP_DPAD));
+        targets.add(new PadMapping.Target(PadMapping.DPAD_LEFT, "◀", PadMapping.GROUP_DPAD));
+        return targets;
+    }
+
+    private String consoleName() {
+        switch (this.gameMode) {
+            case "gba": return isGameBoy() ? "게임보이" : "GBA";
+            case "nds": return "닌텐도 DS";
+            case "snes": return "슈퍼패미컴";
+            case "nes": return "패미컴";
+            case "md": return "메가드라이브";
+            case "mcd": return "메가CD";
+            case "sms": return "마스터시스템";
+            case "pce": return "PC엔진";
+            case "n64": return "닌텐도 64";
+            case "psp": return "PSP";
+            case "ps1": return "PS1";
+            case "ps2": return "PS2";
+            case "ss": return "새턴";
+            case "dc": return "드림캐스트";
+            case "ws": return "원더스완";
+            case "ngp": return "네오지오 포켓";
+            case "neogeo": return "Neo Geo";
+            default: return "아케이드";
+        }
+    }
+
+    private LinearLayout createPadMappingRow(Runnable reopen) {
+        android.view.InputDevice device = PadMapping.firstController();
+        String shown;
+        if (device == null) {
+            shown = "게임패드 없음";
+        } else {
+            boolean custom = PadMappingDialog.hasCustom(MainActivity.sharedSettings(this), this.saveBaseName, this.gameMode, PadMapping.descriptor(device));
+            shown = (custom ? "바꾼 설정" : "기본") + " · " + device.getName();
+        }
+        return createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_PAD, "게임패드 버튼 설정", shown, view -> {
+            android.view.InputDevice now = PadMapping.firstController();
+            if (now == null) {
+                Toast.makeText(this, "블루투스나 USB 게임패드를 먼저 연결해 주세요.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            releaseController();
+            PadMappingDialog.show(this, padTargets(), padDefaults(), this.saveBaseName, this.gameMode, consoleName(), this.gameTitle,
+                    isDualShock() || isPsp() ? 2 : isN64() || isDreamcast() ? 1 : 0, now, this::invalidatePadMaps);
+        });
+    }
+
     private static float padAxis(android.view.MotionEvent event, int axis) {
         android.view.InputDevice device = event.getDevice();
         float value = event.getAxisValue(axis);
@@ -723,6 +982,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         float x = padAxis(event, android.view.MotionEvent.AXIS_X);
         float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
+        android.util.SparseIntArray table = padMapFor(event.getDevice());
+        if (table != null) {
+            applyMappedAxes(event, table, x, y);
+            return true;
+        }
         int hat = directionsFor(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X), event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y), 0.5f);
         int stick = 0;
         if (isSonyPad() || isN64() || isDreamcast()) {
@@ -2154,6 +2418,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         startLayoutEditor();
                     }), editParams);
         }
+
+        LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));
+        padParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createPadMappingRow(reopen), padParams);
 
         TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
         close.setOnClickListener(view -> dialog.dismiss());

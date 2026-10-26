@@ -44,6 +44,7 @@ final class RoundIconView extends View {
     static final int BATTERY = 29;
     static final int PATCH = 30;
     static final int STICK = 31;
+    static final int PAD = 32;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -69,6 +70,7 @@ final class RoundIconView extends View {
     static final int COLOR_BATTERY = Color.rgb(22, 163, 74);
     static final int COLOR_PATCH = Color.rgb(14, 165, 164);
     static final int COLOR_STICK = Color.rgb(99, 102, 241);
+    static final int COLOR_PAD = Color.rgb(245, 158, 11);
 
     private final int icon;
     private final int color;
@@ -428,6 +430,22 @@ final class RoundIconView extends View {
                 Paint level = new Paint(line);
                 level.setStyle(Paint.Style.FILL);
                 canvas.drawRect(6, 10, 13, 14, level);
+                break;
+            }
+            case PAD: {
+                // A gamepad: the body, a D-pad cross on the left and two dots on the right.
+                path.addRoundRect(new android.graphics.RectF(3, 8, 21, 17), 4, 4, Path.Direction.CW);
+                canvas.drawPath(path, line);
+                path.reset();
+                path.moveTo(8, 10.5f);
+                path.lineTo(8, 14.5f);
+                path.moveTo(6, 12.5f);
+                path.lineTo(10, 12.5f);
+                canvas.drawPath(path, line);
+                Paint dot = new Paint(line);
+                dot.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(15.5f, 11.5f, 1.3f, dot);
+                canvas.drawCircle(18, 13.8f, 1.3f, dot);
                 break;
             }
             case STICK: {
