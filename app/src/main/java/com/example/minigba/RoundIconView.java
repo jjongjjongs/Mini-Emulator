@@ -47,6 +47,7 @@ final class RoundIconView extends View {
     static final int PAD = 32;
     static final int WIFI = 33;
     static final int DS = 34;
+    static final int DLC = 35;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -75,6 +76,7 @@ final class RoundIconView extends View {
     static final int COLOR_PAD = Color.rgb(245, 158, 11);
     static final int COLOR_WIFI = Color.rgb(13, 148, 136);
     static final int COLOR_DS = Color.rgb(219, 39, 119);
+    static final int COLOR_DLC = Color.rgb(14, 116, 144);
 
     private final int icon;
     private final int color;
@@ -434,6 +436,22 @@ final class RoundIconView extends View {
                 Paint level = new Paint(line);
                 level.setStyle(Paint.Style.FILL);
                 canvas.drawRect(6, 10, 13, 14, level);
+                break;
+            }
+            case DLC: {
+                // A box with a plus: content added to a game.
+                path.addRoundRect(new android.graphics.RectF(4, 7, 20, 20), 2, 2, Path.Direction.CW);
+                path.moveTo(4, 11);
+                path.lineTo(20, 11);
+                path.moveTo(12, 13);
+                path.lineTo(12, 18);
+                path.moveTo(9.5f, 15.5f);
+                path.lineTo(14.5f, 15.5f);
+                path.moveTo(8, 7);
+                path.lineTo(10, 4);
+                path.lineTo(14, 4);
+                path.lineTo(16, 7);
+                canvas.drawPath(path, line);
                 break;
             }
             case DS: {
