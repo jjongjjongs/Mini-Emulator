@@ -1302,6 +1302,11 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 std::string gPspLanguage = "Korean";
 // PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
 std::atomic<int> gPspScale{2};
+// "와이파이 멀티": PSP ad-hoc over the LAN. 0 off, 1 host (runs the built-in PRO ad-hoc
+// server), 2 guest; gPspAdhocServer is the server's address (the host's own LAN address
+// when hosting, so peers learn a reachable address). Set before the game starts.
+std::atomic<int> gPspAdhocMode{0};
+std::string gPspAdhocServer = "127.0.0.1";
 // "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
 // "속도 우선 · 강하게" (PS2 only): the EE down to 60% with moderate cycle skipping.
@@ -1370,6 +1375,12 @@ const char* fixedVariable(const char* key) {
     // text and the kr0.pgf system font from it. Games without Korean that still follow it
     // (Call of Duty: Roads to Victory's name keyboard) are set to English per game.
     if (strcmp(key, "ppsspp_language") == 0) return gPspLanguage.c_str();
+    // PSP ad-hoc multiplayer over the LAN ("와이파이 멀티").
+    if (strcmp(key, "ppsspp_enable_wlan") == 0) return gPspAdhocMode.load() != 0 ? "enabled" : "disabled";
+    if (strcmp(key, "ppsspp_enable_builtin_pro_ad_hoc_server") == 0) return gPspAdhocMode.load() == 1 ? "enabled" : "disabled";
+    if (strcmp(key, "ppsspp_change_pro_ad_hoc_server_address") == 0) return gPspAdhocServer.c_str();
+    if (strcmp(key, "ppsspp_enable_upnp") == 0) return "disabled";
+    if (strcmp(key, "ppsspp_port_offset") == 0) return "0";
     if (gSpeedFirst.load()) {
         // PSP: cheaper texture checks, no GPU readbacks. No frame skipping: the core's
         // skipping fought the bridge's pacing and held Monster Hunter at exactly half speed.
@@ -3227,6 +3238,13 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIE
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspAdhoc(JNIEnv* env, jclass /*cls*/, jint mode, jstring server) {
+    gPspAdhocMode.store(mode >= 0 && mode <= 2 ? mode : 0);
+    const char* text = server ? env->GetStringUTFChars(server, nullptr) : nullptr;
+    gPspAdhocServer = text && *text ? text : "127.0.0.1";
+    if (text) env->ReleaseStringUTFChars(server, text);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirst(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {

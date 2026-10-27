@@ -59,6 +59,7 @@ final class ClearShellView extends View {
     private View screenView;
     private boolean thinBezel;
     private boolean compactBezel;
+    private boolean labelHidden;
     private View plateView;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -93,6 +94,12 @@ final class ClearShellView extends View {
 
     // Grey bezel as wide below the screen as at its sides, without the engraved name
     // (PS1/PS2 in landscape, whose 4:3 screen takes that height instead).
+    // The performance readout sits where the engraved name goes.
+    void setLabelHidden(boolean hidden) {
+        this.labelHidden = hidden;
+        invalidate();
+    }
+
     void setCompactBezel(boolean compact) {
         this.compactBezel = compact;
         invalidate();
@@ -262,7 +269,7 @@ final class ClearShellView extends View {
         paint.setColor(Color.argb(128, 255, 255, 255));
         canvas.drawPath(path, paint);
         paint.setStyle(Paint.Style.FILL);
-        if (label != null && !compactBezel) {
+        if (label != null && !compactBezel && !labelHidden) {
             text.setTextSize(dp(landscape ? 8 : 9));
             canvas.drawText(label, bezel.centerX(), screen.bottom + bottom * 0.62f, text);
         }

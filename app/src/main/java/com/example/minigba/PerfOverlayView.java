@@ -14,11 +14,16 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 
-// "성능 표시": FPS and game speed, temperature and battery, in a small box at the top left of
-// the game screen. It covers its parent and draws only over the target view; touches pass
-// through. GameActivity feeds it frame counts once a second.
+// "성능 표시": FPS and game speed, temperature and battery, in one line. It covers the whole
+// game window and draws the line on the case just under the game picture, so nothing of the
+// game is hidden; where the picture fills the window (full-screen and controller styles) it
+// draws the bare text along the top edge instead. Touches pass through. GameActivity feeds
+// it frame counts once a second.
 final class PerfOverlayView extends View {
     private final View target;
+    private final boolean flat;
+    private final int[] mine = new int[2];
+    private final int[] theirs = new int[2];
     private final Paint box = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float density;
@@ -31,16 +36,20 @@ final class PerfOverlayView extends View {
     private double lastPictures;
     private long lastTime;
 
-    PerfOverlayView(Context context, View target) {
+    PerfOverlayView(Context context, View target, boolean flat) {
         super(context);
         this.target = target;
+        this.flat = flat;
         this.density = context.getResources().getDisplayMetrics().density;
         setWillNotDraw(false);
         setClickable(false);
         setFocusable(false);
         box.setColor(Color.argb(158, 0, 0, 0));
         text.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
-        text.setTextSize(10.5f * this.density);
+        text.setTextSize(9.5f * this.density);
+        if (flat) {
+            text.setShadowLayer(2 * this.density, 0, this.density, Color.argb(220, 0, 0, 0));
+        }
         this.cpuZones = findCpuZones();
         target.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> invalidate());
     }
@@ -123,24 +132,40 @@ final class PerfOverlayView extends View {
         if (this.target.getVisibility() != VISIBLE || this.target.getWidth() <= 0 || this.line1.isEmpty()) {
             return;
         }
-        float pad = 6 * this.density;
-        float lineHeight = 14 * this.density;
-        String second = this.drain.isEmpty() ? this.line2 : this.line2 + " ";
-        float width = Math.max(text.measureText(this.line1), text.measureText(second) + text.measureText(this.drain)) + 2 * pad;
-        float left = this.target.getLeft() + pad;
-        float top = this.target.getTop() + pad;
-        RectF rect = new RectF(left, top, left + width, top + 2 * lineHeight + pad);
-        canvas.drawRoundRect(rect, 8 * this.density, 8 * this.density, box);
-        float x = left + pad;
-        float y = top + pad / 2 + lineHeight - 3 * this.density;
+        getLocationInWindow(this.mine);
+        this.target.getLocationInWindow(this.theirs);
+        float left = this.theirs[0] - this.mine[0];
+        float top = this.theirs[1] - this.mine[1];
+        float bottom = top + this.target.getHeight();
+        float pad = 5 * this.density;
+        String tail = this.drain.isEmpty() ? this.line2 : this.line2 + " ";
+        String head = this.line1 + "   ";
+        float baseline = text.getTextSize() * 0.95f;
+        float lineHeight = text.getTextSize() + 4 * this.density;
+        float x;
+        float y;
+        if (this.flat) {
+            // Along the top edge of the picture, bare text with a shadow.
+            x = left + pad + 2 * this.density;
+            y = top + 2 * this.density + baseline;
+        } else {
+            // On the case just under the picture.
+            float width = text.measureText(head) + text.measureText(tail) + text.measureText(this.drain) + 2 * pad;
+            float boxTop = bottom + 3 * this.density;
+            float boxLeft = Math.max(2 * this.density, left + 2 * this.density);
+            RectF rect = new RectF(boxLeft, boxTop, boxLeft + width, boxTop + lineHeight + 2 * this.density);
+            canvas.drawRoundRect(rect, 6 * this.density, 6 * this.density, box);
+            x = boxLeft + pad;
+            y = boxTop + this.density + baseline;
+        }
         text.setColor(this.fpsColor);
-        canvas.drawText(this.line1, x, y, text);
-        y += lineHeight;
+        canvas.drawText(head, x, y, text);
+        x += text.measureText(head);
         text.setColor(Color.rgb(229, 231, 235));
-        canvas.drawText(second, x, y, text);
+        canvas.drawText(tail, x, y, text);
         if (!this.drain.isEmpty()) {
             text.setColor(Color.rgb(251, 191, 36));
-            canvas.drawText(this.drain, x + text.measureText(second), y, text);
+            canvas.drawText(this.drain, x + text.measureText(tail), y, text);
         }
     }
 

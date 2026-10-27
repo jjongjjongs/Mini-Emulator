@@ -45,6 +45,7 @@ final class RoundIconView extends View {
     static final int PATCH = 30;
     static final int STICK = 31;
     static final int PAD = 32;
+    static final int WIFI = 33;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -71,6 +72,7 @@ final class RoundIconView extends View {
     static final int COLOR_PATCH = Color.rgb(14, 165, 164);
     static final int COLOR_STICK = Color.rgb(99, 102, 241);
     static final int COLOR_PAD = Color.rgb(245, 158, 11);
+    static final int COLOR_WIFI = Color.rgb(13, 148, 136);
 
     private final int icon;
     private final int color;
@@ -430,6 +432,21 @@ final class RoundIconView extends View {
                 Paint level = new Paint(line);
                 level.setStyle(Paint.Style.FILL);
                 canvas.drawRect(6, 10, 13, 14, level);
+                break;
+            }
+            case WIFI: {
+                // Two arrows passing each other: one phone to the other and back.
+                path.moveTo(5, 9.5f);
+                path.lineTo(18, 9.5f);
+                path.moveTo(14.5f, 6);
+                path.lineTo(18, 9.5f);
+                path.lineTo(14.5f, 13);
+                path.moveTo(19, 15.5f);
+                path.lineTo(6, 15.5f);
+                path.moveTo(9.5f, 12);
+                path.lineTo(6, 15.5f);
+                path.lineTo(9.5f, 19);
+                canvas.drawPath(path, line);
                 break;
             }
             case PAD: {

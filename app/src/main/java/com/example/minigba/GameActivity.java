@@ -169,10 +169,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         linearLayout.addView(frameLayout2, controlsParams);
         FrameLayout root = new FrameLayout(this);
         ClearShellView shell = createShell(false);
+        this.shell = shell;
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
         shell.track(frameLayout, frameLayout2);
+        addPerfOverlay(root, false);
         setContentView(root);
         installComboZones(root);
         applyLayoutEdits(root);
@@ -207,11 +209,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         linearLayout.addView(frameLayout, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         FrameLayout root = new FrameLayout(this);
         ClearShellView shell = createShell(true);
+        this.shell = shell;
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
         shell.setCompactBezel(!full && (isDualShock() || isNds()));
         shell.track(isNds() ? null : frameLayout2, frameLayout);
+        // No case under the picture in full-screen style or the DS's edge-to-edge screens.
+        addPerfOverlay(root, full || isNds());
         setContentView(root);
         installComboZones(root);
         applyLayoutEdits(root);
@@ -261,6 +266,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         attachTouchScreen(surfaceView);
         root.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         addScreenFilter(root);
+        this.shell = null;
+        addPerfOverlay(root, true);
         root.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitPadScreen(surfaceView, r - l, b - t));
         RoundIconView menu = new RoundIconView(this, RoundIconView.MENU, RoundIconView.COLOR_MENU);
         menu.setAlpha(0.8f);
@@ -2218,13 +2225,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenFilters.add(filter);
         parent.addView(filter, new FrameLayout.LayoutParams(-1, -1));
         updateScreenFilters();
+    }
+
+    // The readout goes on the window root so it can sit on the case under the picture.
+    // flat: the picture fills the window, so the text goes along its top edge instead.
+    private void addPerfOverlay(FrameLayout root, boolean flat) {
         if (this.perfOverlay != null) {
             this.perfOverlay.removeCallbacks(this.perfPoll);
         }
-        this.perfOverlay = new PerfOverlayView(this, this.surfaceView);
-        parent.addView(this.perfOverlay, new FrameLayout.LayoutParams(-1, -1));
+        this.perfOverlay = new PerfOverlayView(this, this.surfaceView, flat);
+        root.addView(this.perfOverlay, new FrameLayout.LayoutParams(-1, -1));
         updatePerfOverlay();
     }
+
+    private ClearShellView shell;
 
     // ---- 성능 표시 (all games) and 전원 모드 (per game) ----
 
@@ -2254,6 +2268,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         view.removeCallbacks(this.perfPoll);
         boolean on = perfOverlayOn();
         view.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (this.shell != null) {
+            // The readout takes the engraved name's place under the picture.
+            this.shell.setLabelHidden(on);
+        }
         if (on) {
             view.restart();
             view.post(this.perfPoll);
@@ -2522,6 +2540,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     protected void onDestroy() {
+        this.adhocBeacon.stop();
         this.destroyed = true;
         final boolean finishing = isFinishing();
         if (isMame139() && finishing) {
@@ -2705,6 +2724,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isPsp()) {
                         NativeGba.setPspLanguage(0, pspLanguage());
                         NativeGba.setPspScale(pspScale());
+                        int wifi = wifiMultiMode();
+                        String server = wifi == 1 ? AdhocBeacon.localAddress() : wifi == 2 ? wifiMultiHost() : null;
+                        NativeGba.setPspAdhoc(server == null ? 0 : wifi, server);
                     }
                     if (isWonderSwan()) {
                         NativeGba.setWonderSwanTall(wonderSwanTall());
@@ -2746,6 +2768,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         this.nativeHandle = handle;
+        startAdhocBeaconIfHosting();
         NativeGba.setInput(handle, this.buttonMask);
         NativeGba.setSpeedPercent(handle, this.speedPercent);
         NativeGba.setRewindEnabled(handle, rewindOn());
@@ -3610,6 +3633,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
             fastParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createFastRow(dialog), fastParams);
+            LinearLayout.LayoutParams wifiParams = new LinearLayout.LayoutParams(-1, dp(52));
+            wifiParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createWifiRow(dialog), wifiParams);
         }
         if ("pcee2".equals(this.coreId)) {
             LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -3772,6 +3798,240 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean speedFirst() {
         return MainActivity.sharedSettings(this).getBoolean(speedFirstKey(), false);
+    }
+
+    // ---- "와이파이 멀티": PSP ad-hoc play between phones on one Wi-Fi ----
+    private static final String[] WIFI_NAMES = {"꺼짐", "방 만들기 (방장)", "참가"};
+    private static final String[] WIFI_NOTES = {"혼자 플레이 (기본)", "이 휴대폰이 서버가 돼요. 친구는 '참가'로 들어와요", "같은 와이파이의 방장을 찾아서 연결해요"};
+    private final AdhocBeacon adhocBeacon = new AdhocBeacon();
+
+    // 0 off, 1 host, 2 guest; shared by all PSP games.
+    private int wifiMultiMode() {
+        int value = MainActivity.sharedSettings(this).getInt("wifi_multi", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private String wifiMultiHost() {
+        String value = MainActivity.sharedSettings(this).getString("wifi_multi_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setWifiMulti(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("wifi_multi", mode).putString("wifi_multi_host", host == null ? "" : host).commit();
+    }
+
+    private String wifiMultiShown() {
+        switch (wifiMultiMode()) {
+            case 1: {
+                String address = AdhocBeacon.localAddress();
+                return "방장 · " + (address == null ? "와이파이 없음" : address);
+            }
+            case 2: return "참가 · " + (wifiMultiHost() == null ? "?" : wifiMultiHost());
+            default: return "꺼짐";
+        }
+    }
+
+    // Hosting answers guests looking for a room while this game runs.
+    private void startAdhocBeaconIfHosting() {
+        if (isPsp() && wifiMultiMode() == 1) {
+            this.adhocBeacon.startHost(this, this.gameTitle);
+        } else {
+            this.adhocBeacon.stop();
+        }
+    }
+
+    private LinearLayout createWifiRow(android.app.Dialog menu) {
+        int mode = wifiMultiMode();
+        LinearLayout row = createSettingRow(RoundIconView.WIFI, RoundIconView.COLOR_WIFI, "와이파이 멀티", wifiMultiShown(),
+                view -> showChoiceDialog(RoundIconView.WIFI, RoundIconView.COLOR_WIFI, "와이파이 멀티", WIFI_NAMES, WIFI_NOTES, mode,
+                        "같은 와이파이에 있는 Mini Emulator끼리 PSP 애드혹 통신으로 놀아요 (몬스터 헌터 · 철권 6 등).\n"
+                                + "연결된 뒤에는 게임 안에서 PSP처럼 애드혹 방을 만들고 들어가면 돼요. 두 대 모두 같은 게임(같은 지역판)이어야 해요.\n"
+                                + "두 대 모두 게임이 제 속도로 돌아야 끊기지 않아요. 핫스팟을 켜고 다른 휴대폰을 거기 붙여도 돼요.\n"
+                                + "PSP 게임 공통 · 저장하고 그 장면에서 이어져요 (2~3초).",
+                        Color.rgb(236, 253, 250), Color.rgb(15, 118, 110), "적용", choice -> {
+                    if (choice == 2) {
+                        showHostFinder(menu);
+                        return;
+                    }
+                    if (choice == 1 && AdhocBeacon.localAddress() == null) {
+                        Toast.makeText(this, "와이파이(또는 핫스팟)에 먼저 연결해 주세요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (choice == mode) {
+                        return;
+                    }
+                    setWifiMulti(choice, wifiMultiHost());
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (mode == 0) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
+    }
+
+    // "방장 찾기": hosts on this Wi-Fi as they answer, and a box to type an address.
+    private void showHostFinder(android.app.Dialog menu) {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.WIFI, RoundIconView.COLOR_WIFI), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("방장 찾기");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        final TextView status = new TextView(this);
+        status.setText("같은 와이파이에서 찾는 중…");
+        status.setTextSize(12.0f);
+        status.setTextColor(Color.rgb(122, 130, 140));
+        titles.addView(status);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, -2);
+        listParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(list, listParams);
+
+        final TextView waiting = new TextView(this);
+        waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
+        waiting.setTextSize(12.5f);
+        waiting.setGravity(17);
+        waiting.setTextColor(Color.rgb(122, 130, 140));
+        waiting.setPadding(0, dp(14), 0, dp(14));
+        panel.addView(waiting, new LinearLayout.LayoutParams(-1, -2));
+
+        // Typing the address shown on the host's menu row.
+        LinearLayout manual = new LinearLayout(this);
+        manual.setGravity(16);
+        android.graphics.drawable.GradientDrawable manualBackground = new android.graphics.drawable.GradientDrawable();
+        manualBackground.setColor(Color.rgb(246, 247, 249));
+        manualBackground.setCornerRadius(dp(14));
+        manual.setBackground(manualBackground);
+        manual.setPadding(dp(14), dp(4), dp(8), dp(4));
+        final android.widget.EditText address = new android.widget.EditText(this);
+        address.setHint("IP 직접 입력 (예: 192.168.0.12)");
+        address.setText(wifiMultiHost() == null ? "" : wifiMultiHost());
+        address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        address.setSingleLine(true);
+        address.setTextSize(14.0f);
+        address.setBackground(null);
+        manual.addView(address, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView connect = dialogButton("연결", RoundIconView.COLOR_WIFI, Color.WHITE);
+        connect.setPadding(dp(14), 0, dp(14), 0);
+        connect.setOnClickListener(view -> {
+            String typed = address.getText().toString().trim();
+            if (!typed.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                Toast.makeText(this, "IP 주소 모양이 아니에요 (예: 192.168.0.12)", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            setWifiMulti(2, typed);
+            dialog.dismiss();
+            menu.dismiss();
+            relaunchGame();
+        });
+        manual.addView(connect, new LinearLayout.LayoutParams(-2, dp(36)));
+        LinearLayout.LayoutParams manualParams = new LinearLayout.LayoutParams(-1, dp(52));
+        panel.addView(manual, manualParams);
+
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(48));
+        cancelParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(cancel, cancelParams);
+
+        final Thread[] search = new Thread[1];
+        final Runnable[] again = new Runnable[1];
+        again[0] = () -> search[0] = AdhocBeacon.discover((hosts, finished) -> {
+            if (!dialog.isShowing()) {
+                return;
+            }
+            list.removeAllViews();
+            for (AdhocBeacon.Host host : hosts) {
+                boolean sameGame = host.game.isEmpty() || host.game.equals(this.gameTitle);
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(16);
+                android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+                rowBackground.setColor(Color.rgb(246, 247, 249));
+                rowBackground.setCornerRadius(dp(14));
+                row.setBackground(rowBackground);
+                row.setPadding(dp(14), dp(10), dp(10), dp(10));
+                LinearLayout words = new LinearLayout(this);
+                words.setOrientation(1);
+                TextView name = new TextView(this);
+                name.setText(host.name.isEmpty() ? host.address : host.name);
+                name.setTextSize(14.5f);
+                name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                name.setTextColor(Color.rgb(31, 41, 51));
+                words.addView(name);
+                TextView detail = new TextView(this);
+                detail.setText((host.game.isEmpty() ? "" : host.game + " · ") + host.address + (sameGame ? "" : " · 같은 게임이 아니에요"));
+                detail.setTextSize(12.0f);
+                detail.setTextColor(Color.rgb(122, 130, 140));
+                words.addView(detail);
+                row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                if (sameGame) {
+                    TextView go = dialogButton("연결", RoundIconView.COLOR_WIFI, Color.WHITE);
+                    go.setPadding(dp(14), 0, dp(14), 0);
+                    go.setOnClickListener(view -> {
+                        setWifiMulti(2, host.address);
+                        dialog.dismiss();
+                        menu.dismiss();
+                        relaunchGame();
+                    });
+                    row.addView(go, new LinearLayout.LayoutParams(-2, dp(34)));
+                } else {
+                    row.setAlpha(0.55f);
+                }
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, 0, 0, dp(8));
+                list.addView(row, rowParams);
+            }
+            if (finished) {
+                status.setText(hosts.isEmpty() ? "방장을 못 찾았어요" : hosts.size() + "곳 찾음");
+                waiting.setText(hosts.isEmpty() ? "방장이 '방 만들기'를 켰는지, 같은 와이파이인지 확인하고 다시 찾기를 눌러 주세요" : "다시 찾기");
+                waiting.setTextColor(RoundIconView.COLOR_WIFI);
+                waiting.setOnClickListener(view -> {
+                    status.setText("같은 와이파이에서 찾는 중…");
+                    waiting.setText("찾는 중…");
+                    waiting.setTextColor(Color.rgb(122, 130, 140));
+                    waiting.setOnClickListener(null);
+                    again[0].run();
+                });
+            }
+        });
+        again[0].run();
+        dialog.setOnDismissListener(d -> {
+            if (search[0] != null) {
+                search[0].interrupt();
+            }
+        });
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
     }
 
     private LinearLayout createFastRow(android.app.Dialog menu) {
