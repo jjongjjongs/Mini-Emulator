@@ -46,6 +46,7 @@ final class RoundIconView extends View {
     static final int STICK = 31;
     static final int PAD = 32;
     static final int WIFI = 33;
+    static final int DS = 34;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -73,6 +74,7 @@ final class RoundIconView extends View {
     static final int COLOR_STICK = Color.rgb(99, 102, 241);
     static final int COLOR_PAD = Color.rgb(245, 158, 11);
     static final int COLOR_WIFI = Color.rgb(13, 148, 136);
+    static final int COLOR_DS = Color.rgb(219, 39, 119);
 
     private final int icon;
     private final int color;
@@ -432,6 +434,17 @@ final class RoundIconView extends View {
                 Paint level = new Paint(line);
                 level.setStyle(Paint.Style.FILL);
                 canvas.drawRect(6, 10, 13, 14, level);
+                break;
+            }
+            case DS: {
+                // The DS's two screens, one above the other, with a signal arc beside them.
+                path.addRoundRect(new android.graphics.RectF(5, 4, 15, 11), 1.5f, 1.5f, Path.Direction.CW);
+                path.addRoundRect(new android.graphics.RectF(5, 13, 15, 20), 1.5f, 1.5f, Path.Direction.CW);
+                canvas.drawPath(path, line);
+                path.reset();
+                path.addArc(new android.graphics.RectF(13, 7, 23, 17), -50, 100);
+                path.addArc(new android.graphics.RectF(16, 9.5f, 20, 14.5f), -60, 120);
+                canvas.drawPath(path, line);
                 break;
             }
             case WIFI: {

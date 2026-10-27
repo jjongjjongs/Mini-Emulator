@@ -39,6 +39,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "dsnet.h"
 #include "libretro.h"
 #include "vulkan_hw.h"
 
@@ -1306,6 +1307,10 @@ std::atomic<int> gPspScale{2};
 // server), 2 guest; gPspAdhocServer is the server's address (the host's own LAN address
 // when hosting, so peers learn a reachable address). Set before the game starts.
 std::atomic<int> gPspAdhocMode{0};
+// "DS 통신": 0 off, 1 local host, 2 local guest, 3 Wiimmfi, 4 Kaeru WFC (internet). The local
+// modes run the relay in dsnet.cpp; the internet ones point the emulated access point's DNS at
+// the replacement Nintendo Wi-Fi Connection server.
+std::atomic<int> gDsNetMode{0};
 std::string gPspAdhocServer = "127.0.0.1";
 // "속도 우선" per game (PSP, PS2 on PCSX2): speed hacks that can drop some effects.
 std::atomic<bool> gSpeedFirst{false};
@@ -1440,6 +1445,12 @@ const char* fixedVariable(const char* key) {
         return bios ? "disabled" : "enabled";
     }
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
+    // DS online play through a replacement Nintendo Wi-Fi Connection server.
+    if (strcmp(key, "melonds_network_mode") == 0) return "indirect";
+    if (strcmp(key, "melonds_firmware_wfc_dns") == 0) {
+        int mode = gDsNetMode.load();
+        return mode == 3 ? "95.217.77.181" : mode == 4 ? "178.62.43.212" : "0.0.0.0";
+    }
     // WonderSwan: upright or sideways as the player chose for the game; the pad follows.
     if (strcmp(key, "wswan_rotate_display") == 0) return gWsTall.load() ? "portrait" : "landscape";
     if (strcmp(key, "wswan_rotate_keymap") == 0) return "auto";
@@ -1534,6 +1545,11 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
             if (data == nullptr) return false;
             *static_cast<bool*>(data) = gVariablesUpdated.exchange(false);
+            return true;
+        case RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE:
+            // DS local wireless between phones; only taken up when the player turned it on.
+            if (dsnet::mode() == 0) return false;
+            dsnet::setCallback(static_cast<const retro_netpacket_callback*>(data));
             return true;
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
             if (data == nullptr) return false;
@@ -2610,6 +2626,7 @@ void runLoop(Core* core) {
             }
             bool held = canRewind && core->rewindHeld.load();
             bool rewound = held && rewindStep(core);
+            if (core->coreId == "melonds") dsnet::tick();
             core->retroRun();
             core->framesRun++;
             core->framesCounted.fetch_add(1);
@@ -2721,6 +2738,9 @@ void destroyCore(Core* core) {
     if (core->threadStarted) {
         pthread_join(core->thread, nullptr);
         core->threadStarted = false;
+    }
+    if (core->coreId == "melonds") {
+        dsnet::end();
     }
     stopPresenter(core);
     if (core->window != nullptr) {
@@ -2967,6 +2987,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         throwIllegalState(env, "ROM load failure: could not start the emulation thread");
         return 0;
     }
+    if (core->coreId == "melonds") dsnet::begin();
     return reinterpret_cast<jlong>(core);
 }
 
@@ -3238,6 +3259,13 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIE
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDsNet(JNIEnv* env, jclass /*cls*/, jint mode, jstring host) {
+    gDsNetMode.store(mode >= 0 && mode <= 4 ? mode : 0);
+    const char* text = host ? env->GetStringUTFChars(host, nullptr) : nullptr;
+    dsnet::configure(mode == 1 || mode == 2 ? mode : 0, text);
+    if (text) env->ReleaseStringUTFChars(host, text);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspAdhoc(JNIEnv* env, jclass /*cls*/, jint mode, jstring server) {

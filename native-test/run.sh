@@ -40,7 +40,7 @@ JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)
 SANITIZE="${SANITIZE:-}"
 clang++ -std=c++17 -O1 -g -Wall -Wextra -fPIC -shared $SANITIZE \
     -I"$HERE/include" -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
-    -DVKHW_HEADLESS "$REPO/app/src/main/cpp/gbabridge.cpp" "$REPO/app/src/main/cpp/vulkan_hw.cpp" "$HERE/stubs.cpp" \
+    -DVKHW_HEADLESS "$REPO/app/src/main/cpp/gbabridge.cpp" "$REPO/app/src/main/cpp/vulkan_hw.cpp" "$REPO/app/src/main/cpp/dsnet.cpp" "$HERE/stubs.cpp" \
     -o "$WORK/lib/libgbabridge.so" -ldl -lpthread
 
 # 4. JNI harness. NativeGba is copied from the app with its methods made public.

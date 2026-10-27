@@ -43,6 +43,9 @@ final class NativeGba {
     // PSP ad-hoc over the LAN: 0 off, 1 host (built-in server), 2 guest; server is the address to join.
     static native void setPspAdhoc(int mode, String server);
 
+    // DS 통신: 0 off, 1 local host, 2 local guest (host is its address), 3 Wiimmfi, 4 Kaeru WFC.
+    static native void setDsNet(int mode, String host);
+
     // "속도 우선" (speed hacks) for the next PSP or PS2 (PCSX2) game created.
     static native void setSpeedFirst(boolean fast);
 

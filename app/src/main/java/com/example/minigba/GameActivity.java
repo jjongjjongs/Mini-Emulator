@@ -2731,6 +2731,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isWonderSwan()) {
                         NativeGba.setWonderSwanTall(wonderSwanTall());
                     }
+                    if (isNds()) {
+                        int ds = dsNetMode();
+                        NativeGba.setDsNet(ds == 2 && dsNetHost() == null ? 0 : ds, ds == 2 ? dsNetHost() : null);
+                    }
                     NativeGba.setSpeedFirst(speedFirstSupported() && speedFirst());
                     NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
                     NativeGba.setPowerMode(powerMode());
@@ -3642,6 +3646,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             fastParams.setMargins(0, dp(12), 0, 0);
             panel.addView(createFastRow(dialog), fastParams);
         }
+        if (isNds()) {
+            LinearLayout.LayoutParams dsParams = new LinearLayout.LayoutParams(-1, dp(52));
+            dsParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(createDsNetRow(dialog), dsParams);
+        }
         if (isWonderSwan()) {
             LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
             tallParams.setMargins(0, dp(8), 0, 0);
@@ -3833,11 +3842,75 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Hosting answers guests looking for a room while this game runs.
     private void startAdhocBeaconIfHosting() {
-        if (isPsp() && wifiMultiMode() == 1) {
+        if ((isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1)) {
             this.adhocBeacon.startHost(this, this.gameTitle);
         } else {
             this.adhocBeacon.stop();
         }
+    }
+
+    // ---- "DS 통신": the DS's local wireless between phones, or the replacement online servers ----
+    private static final String[] DSNET_NAMES = {"꺼짐", "방 만들기 (방장)", "참가", "인터넷 · Wiimmfi", "인터넷 · Kaeru WFC"};
+    private static final String[] DSNET_NOTES = {"혼자 플레이 (기본)",
+            "같은 와이파이의 휴대폰끼리 · 옆 사람 마을 놀러가기 · 로컬 대전 · 다운로드 플레이",
+            "같은 와이파이의 방장을 찾아서 연결해요",
+            "옛 닌텐도 Wi-Fi 커넥션 대체 서버 · 마리오 카트 DS · 동물의 숲 등 (게임마다 지원 여부가 달라요)",
+            "다른 대체 서버 · Wiimmfi에서 안 되면 시도"};
+
+    private int dsNetMode() {
+        int value = MainActivity.sharedSettings(this).getInt("ds_net", 0);
+        return value >= 0 && value <= 4 ? value : 0;
+    }
+
+    private String dsNetHost() {
+        String value = MainActivity.sharedSettings(this).getString("ds_net_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setDsNet(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("ds_net", mode).putString("ds_net_host", host == null ? "" : host).commit();
+    }
+
+    private String dsNetShown() {
+        switch (dsNetMode()) {
+            case 1: {
+                String address = AdhocBeacon.localAddress();
+                return "로컬 · 방장 · " + (address == null ? "와이파이 없음" : address);
+            }
+            case 2: return "로컬 · 참가 · " + (dsNetHost() == null ? "?" : dsNetHost());
+            case 3: return "인터넷 · Wiimmfi";
+            case 4: return "인터넷 · Kaeru WFC";
+            default: return "꺼짐";
+        }
+    }
+
+    private LinearLayout createDsNetRow(android.app.Dialog menu) {
+        int mode = dsNetMode();
+        LinearLayout row = createSettingRow(RoundIconView.DS, RoundIconView.COLOR_DS, "DS 통신", dsNetShown(),
+                view -> showChoiceDialog(RoundIconView.DS, RoundIconView.COLOR_DS, "DS 통신", DSNET_NAMES, DSNET_NOTES, mode,
+                        "로컬(방장 · 참가): 같은 와이파이에 있는 Mini Emulator끼리 DS 무선 통신으로 놀아요. 연결된 뒤 게임 안의 통신 메뉴를 그대로 쓰면 돼요. 두 대 모두 같은 게임이어야 하고, 와이파이가 느리면 끊길 수 있어요.\n"
+                                + "인터넷: 게임 안 Wi-Fi 설정에서 접속하면 대체 서버로 가요. 친구 코드 같은 절차는 원래대로예요.\n"
+                                + "DS 게임 공통 · 저장하고 그 장면에서 이어져요 (2~3초).",
+                        Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
+                    if (choice == 2) {
+                        showHostFinder(menu, RoundIconView.DS, RoundIconView.COLOR_DS, address -> setDsNet(2, address));
+                        return;
+                    }
+                    if (choice == 1 && AdhocBeacon.localAddress() == null) {
+                        Toast.makeText(this, "와이파이(또는 핫스팟)에 먼저 연결해 주세요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (choice == mode) {
+                        return;
+                    }
+                    setDsNet(choice, dsNetHost());
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (mode == 0) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
     }
 
     private LinearLayout createWifiRow(android.app.Dialog menu) {
@@ -3871,7 +3944,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // "방장 찾기": hosts on this Wi-Fi as they answer, and a box to type an address.
+    private interface HostPicked {
+        void onPicked(String address);
+    }
+
     private void showHostFinder(android.app.Dialog menu) {
+        showHostFinder(menu, RoundIconView.WIFI, RoundIconView.COLOR_WIFI, address -> setWifiMulti(2, address));
+    }
+
+    private void showHostFinder(android.app.Dialog menu, int icon, int color, HostPicked picked) {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
         LinearLayout panel = new LinearLayout(this);
@@ -3883,7 +3964,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setBackground(background);
         LinearLayout header = new LinearLayout(this);
         header.setGravity(16);
-        header.addView(new RoundIconView(this, RoundIconView.WIFI, RoundIconView.COLOR_WIFI), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(1);
         TextView title = new TextView(this);
@@ -3926,13 +4007,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         manual.setPadding(dp(14), dp(4), dp(8), dp(4));
         final android.widget.EditText address = new android.widget.EditText(this);
         address.setHint("IP 직접 입력 (예: 192.168.0.12)");
-        address.setText(wifiMultiHost() == null ? "" : wifiMultiHost());
+        String last = isNds() ? dsNetHost() : wifiMultiHost();
+        address.setText(last == null ? "" : last);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         address.setSingleLine(true);
         address.setTextSize(14.0f);
         address.setBackground(null);
         manual.addView(address, new LinearLayout.LayoutParams(0, -2, 1.0f));
-        TextView connect = dialogButton("연결", RoundIconView.COLOR_WIFI, Color.WHITE);
+        TextView connect = dialogButton("연결", color, Color.WHITE);
         connect.setPadding(dp(14), 0, dp(14), 0);
         connect.setOnClickListener(view -> {
             String typed = address.getText().toString().trim();
@@ -3940,7 +4022,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Toast.makeText(this, "IP 주소 모양이 아니에요 (예: 192.168.0.12)", Toast.LENGTH_SHORT).show();
                 return;
             }
-            setWifiMulti(2, typed);
+            picked.onPicked(typed);
             dialog.dismiss();
             menu.dismiss();
             relaunchGame();
@@ -3986,10 +4068,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 words.addView(detail);
                 row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
                 if (sameGame) {
-                    TextView go = dialogButton("연결", RoundIconView.COLOR_WIFI, Color.WHITE);
+                    TextView go = dialogButton("연결", color, Color.WHITE);
                     go.setPadding(dp(14), 0, dp(14), 0);
                     go.setOnClickListener(view -> {
-                        setWifiMulti(2, host.address);
+                        picked.onPicked(host.address);
                         dialog.dismiss();
                         menu.dismiss();
                         relaunchGame();
@@ -4005,7 +4087,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (finished) {
                 status.setText(hosts.isEmpty() ? "방장을 못 찾았어요" : hosts.size() + "곳 찾음");
                 waiting.setText(hosts.isEmpty() ? "방장이 '방 만들기'를 켰는지, 같은 와이파이인지 확인하고 다시 찾기를 눌러 주세요" : "다시 찾기");
-                waiting.setTextColor(RoundIconView.COLOR_WIFI);
+                waiting.setTextColor(color);
                 waiting.setOnClickListener(view -> {
                     status.setText("같은 와이파이에서 찾는 중…");
                     waiting.setText("찾는 중…");
