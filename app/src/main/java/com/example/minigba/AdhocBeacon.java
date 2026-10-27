@@ -62,6 +62,9 @@ final class AdhocBeacon {
                         continue;
                     }
                     String name = iface.getName();
+                    if (name.startsWith("p2p")) {
+                        return address.getHostAddress();
+                    }
                     if (name.startsWith("wlan") || name.startsWith("ap") || name.startsWith("swlan")) {
                         return address.getHostAddress();
                     }

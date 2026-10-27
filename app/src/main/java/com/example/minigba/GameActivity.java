@@ -2541,6 +2541,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     @Override
     protected void onDestroy() {
         this.adhocBeacon.stop();
+        if (this.directLink != null) {
+            if (this.menuExiting) {
+                this.directLink.detach();
+            } else {
+                this.directLink.release();
+            }
+        }
         this.destroyed = true;
         final boolean finishing = isFinishing();
         if (isMame139() && finishing) {
@@ -2725,7 +2732,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setPspLanguage(0, pspLanguage());
                         NativeGba.setPspScale(pspScale());
                         int wifi = wifiMultiMode();
-                        String server = wifi == 1 ? AdhocBeacon.localAddress() : wifi == 2 ? wifiMultiHost() : null;
+                        String server = wifi == 1 ? (linkDirect() ? DirectLink.OWNER_ADDRESS : AdhocBeacon.localAddress()) : wifi == 2 ? wifiMultiHost() : null;
                         NativeGba.setPspAdhoc(server == null ? 0 : wifi, server);
                     }
                     if (isWonderSwan()) {
@@ -3809,6 +3816,66 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return MainActivity.sharedSettings(this).getBoolean(speedFirstKey(), false);
     }
 
+    // ---- Wi-Fi Direct: the link between phones when there is no router ----
+    private DirectLink directLink;
+
+    private DirectLink directLink() {
+        if (this.directLink == null) {
+            this.directLink = new DirectLink(this);
+        }
+        return this.directLink;
+    }
+
+    // Whether the host links through Wi-Fi Direct instead of a shared Wi-Fi (PSP and DS alike).
+    private boolean linkDirect() {
+        return MainActivity.sharedSettings(this).getBoolean("link_direct", false);
+    }
+
+    private void setLinkDirect(boolean direct) {
+        MainActivity.sharedSettings(this).edit().putBoolean("link_direct", direct).commit();
+    }
+
+    private static final String[] LINK_NAMES = {"같은 와이파이", "Wi-Fi Direct"};
+    private static final String[] LINK_NOTES = {"공유기나 핫스팟에 같이 붙어 있을 때 (기본)", "공유기 없이 휴대폰끼리 직접 · 속도는 와이파이와 같고 데이터 요금은 안 들어요"};
+
+    // Asks the host how guests will reach it, then saves and relaunches.
+    private void chooseLinkThen(android.app.Dialog menu, int icon, int color, Runnable save) {
+        showChoiceDialog(icon, color, "연결 방법", LINK_NAMES, LINK_NOTES, linkDirect() ? 1 : 0,
+                "Wi-Fi Direct는 처음 한 번 상대 휴대폰에서 '연결 허용'을 눌러야 해요. 근처 기기를 찾기 위한 권한을 한 번 물어봐요.",
+                Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
+            boolean direct = choice == 1;
+            if (direct && !directLink().available()) {
+                Toast.makeText(this, "이 휴대폰은 Wi-Fi Direct를 지원하지 않아요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (direct && !DirectLink.permitted(this)) {
+                DirectLink.ask(this);
+                Toast.makeText(this, "권한을 허용한 뒤 다시 골라 주세요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (!direct && AdhocBeacon.localAddress() == null) {
+                Toast.makeText(this, "와이파이(또는 핫스팟)에 먼저 연결해 주세요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            setLinkDirect(direct);
+            if (!direct) {
+                directLink().release();
+            }
+            save.run();
+            menu.dismiss();
+            relaunchGame();
+        });
+    }
+
+    private String linkShown() {
+        if (!linkDirect()) {
+            String address = AdhocBeacon.localAddress();
+            return address == null ? "와이파이 없음" : address;
+        }
+        int guests = directLink().clientCount();
+        return "Wi-Fi Direct" + (guests > 0 ? " · 참가 " + guests + "명" : "");
+    }
+
     // ---- "와이파이 멀티": PSP ad-hoc play between phones on one Wi-Fi ----
     private static final String[] WIFI_NAMES = {"꺼짐", "방 만들기 (방장)", "참가"};
     private static final String[] WIFI_NOTES = {"혼자 플레이 (기본)", "이 휴대폰이 서버가 돼요. 친구는 '참가'로 들어와요", "같은 와이파이의 방장을 찾아서 연결해요"};
@@ -3831,10 +3898,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private String wifiMultiShown() {
         switch (wifiMultiMode()) {
-            case 1: {
-                String address = AdhocBeacon.localAddress();
-                return "방장 · " + (address == null ? "와이파이 없음" : address);
-            }
+            case 1: return "방장 · " + linkShown();
             case 2: return "참가 · " + (wifiMultiHost() == null ? "?" : wifiMultiHost());
             default: return "꺼짐";
         }
@@ -3842,8 +3906,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Hosting answers guests looking for a room while this game runs.
     private void startAdhocBeaconIfHosting() {
-        if ((isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1)) {
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1);
+        if (hosting) {
             this.adhocBeacon.startHost(this, this.gameTitle);
+            if (linkDirect()) {
+                directLink().host(this.gameTitle, AdhocBeacon.deviceName(this));
+            }
         } else {
             this.adhocBeacon.stop();
         }
@@ -3873,10 +3941,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private String dsNetShown() {
         switch (dsNetMode()) {
-            case 1: {
-                String address = AdhocBeacon.localAddress();
-                return "로컬 · 방장 · " + (address == null ? "와이파이 없음" : address);
-            }
+            case 1: return "로컬 · 방장 · " + linkShown();
             case 2: return "로컬 · 참가 · " + (dsNetHost() == null ? "?" : dsNetHost());
             case 3: return "인터넷 · Wiimmfi";
             case 4: return "인터넷 · Kaeru WFC";
@@ -3896,14 +3961,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         showHostFinder(menu, RoundIconView.DS, RoundIconView.COLOR_DS, address -> setDsNet(2, address));
                         return;
                     }
-                    if (choice == 1 && AdhocBeacon.localAddress() == null) {
-                        Toast.makeText(this, "와이파이(또는 핫스팟)에 먼저 연결해 주세요.", Toast.LENGTH_LONG).show();
+                    if (choice == 1) {
+                        chooseLinkThen(menu, RoundIconView.DS, RoundIconView.COLOR_DS, () -> setDsNet(1, dsNetHost()));
                         return;
                     }
                     if (choice == mode) {
                         return;
                     }
                     setDsNet(choice, dsNetHost());
+                    directLink().release();
                     menu.dismiss();
                     relaunchGame();
                 }));
@@ -3926,14 +3992,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         showHostFinder(menu);
                         return;
                     }
-                    if (choice == 1 && AdhocBeacon.localAddress() == null) {
-                        Toast.makeText(this, "와이파이(또는 핫스팟)에 먼저 연결해 주세요.", Toast.LENGTH_LONG).show();
+                    if (choice == 1) {
+                        chooseLinkThen(menu, RoundIconView.WIFI, RoundIconView.COLOR_WIFI, () -> setWifiMulti(1, wifiMultiHost()));
                         return;
                     }
                     if (choice == mode) {
                         return;
                     }
                     setWifiMulti(choice, wifiMultiHost());
+                    directLink().release();
                     menu.dismiss();
                     relaunchGame();
                 }));
@@ -3982,6 +4049,38 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         titlesParams.setMargins(dp(10), 0, 0, 0);
         header.addView(titles, titlesParams);
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        // Same Wi-Fi (the beacon) or Wi-Fi Direct (the phone's own search).
+        final boolean[] direct = {linkDirect()};
+        final TextView[] tabs = new TextView[2];
+        LinearLayout tabRow = new LinearLayout(this);
+        android.graphics.drawable.GradientDrawable tabBackground = new android.graphics.drawable.GradientDrawable();
+        tabBackground.setColor(Color.rgb(233, 235, 240));
+        tabBackground.setCornerRadius(dp(12));
+        tabRow.setBackground(tabBackground);
+        tabRow.setPadding(dp(3), dp(3), dp(3), dp(3));
+        for (int k = 0; k < 2; k++) {
+            TextView tab = new TextView(this);
+            tab.setText(LINK_NAMES[k]);
+            tab.setTextSize(13.0f);
+            tab.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tab.setGravity(17);
+            tabs[k] = tab;
+            tabRow.addView(tab, new LinearLayout.LayoutParams(0, dp(34), 1.0f));
+        }
+        LinearLayout.LayoutParams tabParams = new LinearLayout.LayoutParams(-1, -2);
+        tabParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(tabRow, tabParams);
+        final Runnable paintTabs = () -> {
+            for (int k = 0; k < 2; k++) {
+                boolean on = (k == 1) == direct[0];
+                android.graphics.drawable.GradientDrawable tabFill = new android.graphics.drawable.GradientDrawable();
+                tabFill.setColor(on ? Color.WHITE : Color.TRANSPARENT);
+                tabFill.setCornerRadius(dp(10));
+                tabs[k].setBackground(tabFill);
+                tabs[k].setTextColor(on ? color : Color.rgb(102, 112, 128));
+            }
+        };
 
         final LinearLayout list = new LinearLayout(this);
         list.setOrientation(1);
@@ -4039,8 +4138,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
         final Thread[] search = new Thread[1];
         final Runnable[] again = new Runnable[1];
+        final Runnable[] searchDirect = new Runnable[1];
         again[0] = () -> search[0] = AdhocBeacon.discover((hosts, finished) -> {
-            if (!dialog.isShowing()) {
+            if (!dialog.isShowing() || direct[0]) {
                 return;
             }
             list.removeAllViews();
@@ -4097,11 +4197,125 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 });
             }
         });
-        again[0].run();
+        // Wi-Fi Direct: rooms the phone's own search finds; connecting waits for the owner's acceptance.
+        searchDirect[0] = () -> {
+            if (!directLink().available()) {
+                status.setText("이 휴대폰은 Wi-Fi Direct를 지원하지 않아요");
+                waiting.setText("");
+                return;
+            }
+            if (!DirectLink.permitted(this)) {
+                status.setText("근처 기기를 찾을 권한이 필요해요");
+                waiting.setText("권한 허용하기");
+                waiting.setTextColor(color);
+                waiting.setOnClickListener(view -> DirectLink.ask(this));
+                return;
+            }
+            status.setText("근처 휴대폰을 찾는 중…");
+            waiting.setText("방장이 '방 만들기 · Wi-Fi Direct'를 켜 두면 여기에 보여요");
+            waiting.setTextColor(Color.rgb(122, 130, 140));
+            waiting.setOnClickListener(null);
+            directLink().discover(rooms -> {
+                if (!dialog.isShowing() || !direct[0]) {
+                    return;
+                }
+                list.removeAllViews();
+                for (DirectLink.Room room : rooms) {
+                    boolean sameGame = room.game.isEmpty() || room.game.equals(this.gameTitle);
+                    LinearLayout row = new LinearLayout(this);
+                    row.setGravity(16);
+                    android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+                    rowBackground.setColor(Color.rgb(246, 247, 249));
+                    rowBackground.setCornerRadius(dp(14));
+                    row.setBackground(rowBackground);
+                    row.setPadding(dp(14), dp(10), dp(10), dp(10));
+                    LinearLayout words = new LinearLayout(this);
+                    words.setOrientation(1);
+                    TextView name = new TextView(this);
+                    name.setText(room.name);
+                    name.setTextSize(14.5f);
+                    name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                    name.setTextColor(Color.rgb(31, 41, 51));
+                    words.addView(name);
+                    TextView detail = new TextView(this);
+                    detail.setText("Mini Emulator" + (room.game.isEmpty() ? "" : " · " + room.game) + (sameGame ? "" : " · 같은 게임이 아니에요"));
+                    detail.setTextSize(12.0f);
+                    detail.setTextColor(Color.rgb(122, 130, 140));
+                    words.addView(detail);
+                    row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                    if (sameGame) {
+                        TextView go = dialogButton("연결", color, Color.WHITE);
+                        go.setPadding(dp(14), 0, dp(14), 0);
+                        go.setOnClickListener(view -> {
+                            status.setText("방장의 연결 허용을 기다리는 중…");
+                            go.setEnabled(false);
+                            go.setAlpha(0.5f);
+                            directLink().connect(room, new DirectLink.Connected() {
+                                @Override
+                                public void onConnected(String hostAddress) {
+                                    if (!dialog.isShowing()) {
+                                        return;
+                                    }
+                                    setLinkDirect(true);
+                                    picked.onPicked(hostAddress);
+                                    dialog.dismiss();
+                                    menu.dismiss();
+                                    relaunchGame();
+                                }
+
+                                @Override
+                                public void onFailed(String why) {
+                                    status.setText(why);
+                                    go.setEnabled(true);
+                                    go.setAlpha(1f);
+                                }
+                            });
+                        });
+                        row.addView(go, new LinearLayout.LayoutParams(-2, dp(34)));
+                    } else {
+                        row.setAlpha(0.55f);
+                    }
+                    LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                    rowParams.setMargins(0, 0, 0, dp(8));
+                    list.addView(row, rowParams);
+                }
+            });
+        };
+        final Runnable switchTab = () -> {
+            paintTabs.run();
+            list.removeAllViews();
+            if (direct[0]) {
+                if (search[0] != null) {
+                    search[0].interrupt();
+                }
+                searchDirect[0].run();
+            } else {
+                directLink().stopDiscovery();
+                status.setText("같은 와이파이에서 찾는 중…");
+                waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
+                waiting.setTextColor(Color.rgb(122, 130, 140));
+                waiting.setOnClickListener(null);
+                again[0].run();
+            }
+        };
+        tabs[0].setOnClickListener(view -> {
+            if (direct[0]) {
+                direct[0] = false;
+                switchTab.run();
+            }
+        });
+        tabs[1].setOnClickListener(view -> {
+            if (!direct[0]) {
+                direct[0] = true;
+                switchTab.run();
+            }
+        });
+        switchTab.run();
         dialog.setOnDismissListener(d -> {
             if (search[0] != null) {
                 search[0].interrupt();
             }
+            directLink().stopDiscovery();
         });
 
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
