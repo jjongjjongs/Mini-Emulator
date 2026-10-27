@@ -3314,7 +3314,12 @@ public final class MainActivity extends Activity {
         }
         String note = discId.isEmpty() ? "이 게임의 ID를 읽지 못해서 (CSO 등) 어느 게임용인지 확인 없이 넣어요."
                 : "게임 ID " + discId + " · PSP 메모리스틱의 PSP/GAME 과 PSP/SAVEDATA 에 복사해요. 게임 세이브는 건드리지 않아요.";
-        new AlertDialog.Builder(this).setTitle("DLC 가져오기 · " + displayGameNameFor(file)).setMessage(note)
+        // A message would hide the list in a stock dialog, so the note goes in a view of its own.
+        TextView noteView = new TextView(this);
+        noteView.setText(note);
+        noteView.setTextSize(13.0f);
+        noteView.setPadding(dp(24), dp(10), dp(24), dp(4));
+        new AlertDialog.Builder(this).setTitle("DLC 가져오기 · " + displayGameNameFor(file)).setView(noteView)
                 .setItems(names.toArray(new String[0]), (d, which) -> {
                     this.dlcRom = file;
                     if (which == 0) {
