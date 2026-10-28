@@ -322,7 +322,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         float aspect = screenAspect();
-        int tallest = height - dp(64) - screenTop - dp(20) - dp(268) - padding;
+        // The 3DS controls are taller: the circle pad sits above the D-pad.
+        int tallest = height - dp(64) - screenTop - dp(20) - dp(isN3ds() ? 352 : 268) - padding;
         int screenWidth = Math.max(dp(200), Math.min(width - minSide * 2, Math.round(tallest * aspect)));
         int side = (width - screenWidth) / 2;
         int screenHeight = Math.round(screenWidth / aspect) + padding;
@@ -5172,9 +5173,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // bottom; on the right R above the diamond, which sits low and in from the edge.
     // SELECT and START go in the middle under the screens.
     private void addN3dsLandscapeControls(FrameLayout frameLayout) {
-        addButton(frameLayout, "L", 512, 8388659, dp(14), dp(14), dp(104), dp(38), 2);
+        // L sits under the save/restart buttons in the top-left corner.
+        addButton(frameLayout, "L", 512, 8388659, dp(14), dp(62), dp(104), dp(38), 2);
         FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.TOP | Gravity.START);
-        stickParams.setMargins(dp(18), dp(62), 0, 0);
+        stickParams.setMargins(dp(18), dp(106), 0, 0);
         frameLayout.addView(leftStick(), stickParams);
         FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(128), dp(128), Gravity.BOTTOM | Gravity.START);
         padParams.setMargins(dp(14), 0, 0, dp(40));

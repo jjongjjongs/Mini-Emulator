@@ -1435,7 +1435,12 @@ const char* fixedVariable(const char* key) {
         int scale = gN3dsScale.load();
         return scale >= 3 ? "3x" : scale == 2 ? "2x" : "1x (Native)";
     }
-    if (strcmp(key, "citra_layout_option") == 0) return gNdsLayout.load() == 2 ? "Side by Side" : "Default Top-Bottom Screen";
+    if (strcmp(key, "citra_layout_option") == 0) {
+        // 0 stacked (portrait), 1 the upper screen large with the lower one small beside it
+        // (landscape with touch buttons), 2 side by side (landscape with a controller).
+        int layout = gNdsLayout.load();
+        return layout == 2 ? "Side by Side" : layout == 1 ? "Large Screen, Small Screen" : "Default Top-Bottom Screen";
+    }
     if (strcmp(key, "citra_swap_screen") == 0) return "Top";
     if (strcmp(key, "citra_use_hw_shaders") == 0) return "enabled";
     if (strcmp(key, "citra_use_shader_jit") == 0) return "enabled";
