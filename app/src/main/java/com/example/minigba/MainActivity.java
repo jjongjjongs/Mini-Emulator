@@ -7473,6 +7473,16 @@ public final class MainActivity extends Activity {
                 panel.addView(line, new LinearLayout.LayoutParams(-1, -2));
             }
         }
+        if (!games.isEmpty()) {
+            TextView relink = sheetButton("설치된 게임을 목록에 다시 넣기", Color.rgb(255, 241, 242), COLOR_N3DS);
+            relink.setOnClickListener(v -> {
+                dialog.dismiss();
+                showMessage(relinkInstalledCiaGames());
+            });
+            LinearLayout.LayoutParams relinkParams = new LinearLayout.LayoutParams(-1, dp(44));
+            relinkParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(relink, relinkParams);
+        }
         LinearLayout buttons = new LinearLayout(this);
         TextView close = sheetButton("닫기", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -7746,12 +7756,11 @@ public final class MainActivity extends Activity {
                 results[i] = status;
                 String line = ciaStatusText(status);
                 if (status == 0 && info.isGame()) {
-                    String linked = linkInstalledCiaGame(info);
-                    if (linked != null) {
-                        installedGames.add(linked);
+                    try {
+                        installedGames.add(linkInstalledCiaGame(info.titleId, info.name));
                         line = "설치됨 · 목록에 추가";
-                    } else {
-                        line = "설치됐지만 목록에 넣지 못했어요";
+                    } catch (IOException e) {
+                        line = "설치됐지만 목록에 넣지 못했어요 · " + e.getMessage();
                     }
                 } else if (status == 0 && info.isUpdate()) {
                     line = "설치됨 · 업데이트 " + N3dsCia.versionName(info.version);
@@ -7782,18 +7791,28 @@ public final class MainActivity extends Activity {
         }).start();
     }
 
-    /** Puts a link to an installed game's executable in the ROM folder; returns the entry name or null. */
-    private String linkInstalledCiaGame(N3dsCia.Info info) {
-        File app = N3dsCia.contentApp(N3dsCia.titleDir(n3dsUserDir(), info.titleId));
+    /** Puts a link to an installed game's executable in the ROM folder and returns the entry name. */
+    private String linkInstalledCiaGame(long titleId, String name) throws IOException {
+        File titleDir = N3dsCia.titleDir(n3dsUserDir(), titleId);
+        File content = new File(titleDir, "content");
+        if (!titleDir.isDirectory()) {
+            throw new IOException("가상 SD에 타이틀 폴더가 없어요 (" + N3dsCia.hex(titleId) + ")");
+        }
+        if (!content.isDirectory()) {
+            throw new IOException("타이틀에 content 폴더가 없어요");
+        }
+        File app = N3dsCia.contentApp(titleDir);
         if (app == null) {
-            return null;
+            String[] names = content.list();
+            throw new IOException("실행 파일(.app)이 없어요 · content 안: " + (names == null || names.length == 0 ? "비어 있음" : android.text.TextUtils.join(", ", names)));
         }
         File romDir = romDirFor(MODE_N3DS);
         if (!romDir.isDirectory() && !romDir.mkdirs()) {
-            return null;
+            throw new IOException("ROM 폴더를 만들 수 없어요");
         }
-        String base = info.name.toLowerCase(Locale.US).endsWith(".cia") ? info.name.substring(0, info.name.length() - 4) : info.name;
-        if (base.trim().isEmpty()) base = N3dsCia.hex(info.titleId);
+        String base = name.toLowerCase(Locale.US).endsWith(".cia") ? name.substring(0, name.length() - 4) : name;
+        base = base.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        if (base.isEmpty()) base = "3DS " + N3dsCia.hex(titleId);
         File link = new File(romDir, base + ".app");
         // An entry for the same title (whatever it was called) is replaced.
         File[] existing = romDir.listFiles();
@@ -7801,7 +7820,7 @@ public final class MainActivity extends Activity {
             for (File file : existing) {
                 if (isInstalledCiaGame(file)) {
                     File dir = installedCiaTitleDir(file);
-                    if (dir != null && dir.equals(N3dsCia.titleDir(n3dsUserDir(), info.titleId))) {
+                    if (dir != null && dir.equals(titleDir)) {
                         //noinspection ResultOfMethodCallIgnored
                         file.delete();
                     }
@@ -7813,9 +7832,46 @@ public final class MainActivity extends Activity {
         try {
             android.system.Os.symlink(app.getAbsolutePath(), link.getAbsolutePath());
         } catch (android.system.ErrnoException e) {
-            return null;
+            throw new IOException("링크를 만들지 못했어요 (" + e.getMessage() + ")");
+        }
+        if (!link.isFile()) {
+            throw new IOException("링크가 파일로 읽히지 않아요");
         }
         return link.getName();
+    }
+
+    /** Links every game in the virtual SD that has no list entry yet; returns what happened. */
+    private String relinkInstalledCiaGames() {
+        List<File> games = N3dsCia.installedGames(n3dsUserDir());
+        if (games.isEmpty()) {
+            return "가상 SD에 설치된 게임이 없어요";
+        }
+        java.util.Set<File> linked = new java.util.HashSet<>();
+        File[] entries = romDirFor(MODE_N3DS).listFiles();
+        if (entries != null) {
+            for (File file : entries) {
+                if (isInstalledCiaGame(file)) {
+                    File dir = installedCiaTitleDir(file);
+                    if (dir != null) linked.add(dir);
+                }
+            }
+        }
+        int added = 0;
+        StringBuilder problems = new StringBuilder();
+        for (File game : games) {
+            if (linked.contains(game)) {
+                continue;
+            }
+            long titleId = (N3dsCia.HIGH_GAME << 32) | Long.parseLong(game.getName(), 16);
+            try {
+                linkInstalledCiaGame(titleId, "3DS " + game.getName().toUpperCase(Locale.US));
+                added++;
+            } catch (IOException | NumberFormatException e) {
+                problems.append("\n").append(game.getName()).append(": ").append(e.getMessage());
+            }
+        }
+        refreshLibrary();
+        return (added > 0 ? added + "개를 목록에 넣었어요" : "목록에 없는 게임이 없어요 (설치된 " + games.size() + "개 모두 목록에 있음)") + problems;
     }
 
     private LinearLayout createN3dsTitleRow(Dialog dialog, File file) {
