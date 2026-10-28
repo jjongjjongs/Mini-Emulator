@@ -55,7 +55,7 @@ echo "== building citra"
         -DENABLE_TESTS=OFF -DENABLE_LTO=OFF -DENABLE_COMPATIBILITY_LIST_DOWNLOAD=OFF \
         -DCITRA_USE_PRECOMPILED_HEADERS=OFF -DCITRA_WARNINGS_AS_ERRORS=OFF -DENABLE_OPT=OFF \
         "-DCMAKE_CXX_FLAGS=-Wno-deprecated-declarations -Wno-unknown-attributes" \
-        "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384" &&
+        "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384 -llog" &&
     cmake --build "$BUILD" --target citra_libretro -j"$JOBS"
 } > "$WORK/citra.log" 2>&1 || {
     grep -n "error:\|Error [0-9]\|CMake Error" "$WORK/citra.log" | head -n 60 || true
