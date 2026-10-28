@@ -31,6 +31,7 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1 --jobs 8
 
 # Local fixes, applied once (skipped when already in the tree):
 #   bionic-strerror: Android's strerror_r is the GNU (char*) flavour, like glibc's.
+#   no-gamemode-android: Feral GameMode is a desktop Linux thing; keep it out of Android.
 for PATCH in "$HERE"/patches/citra-*.patch; do
     [ -e "$PATCH" ] || continue
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
