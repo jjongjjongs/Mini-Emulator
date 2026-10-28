@@ -2883,7 +2883,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isN3ds()) {
             // Above START at the bottom of the right column.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
-            speedParams.setMargins(0, 0, dp(157), dp(62));
+            speedParams.setMargins(0, 0, dp(127), dp(62));
         } else if (isDualScreen()) {
             // The DS screens run the full height, so the button sits beside START instead.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
@@ -5181,20 +5181,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // lower right, SELECT at the bottom.
         addButton(frameLayout, "L", 512, 8388659, dp(14), dp(62), dp(104), dp(38), 2);
         FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.TOP | Gravity.START);
-        stickParams.setMargins(dp(50), dp(124), 0, 0);
+        stickParams.setMargins(dp(18), dp(124), 0, 0);
         frameLayout.addView(leftStick(), stickParams);
         FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(120), dp(120), Gravity.TOP | Gravity.START);
-        padParams.setMargins(dp(122), dp(232), 0, 0);
+        padParams.setMargins(dp(76), dp(232), 0, 0);
         frameLayout.addView(createDirectionControl(), padParams);
-        addButton(frameLayout, selectLabel(), 4, 8388691, dp(150), dp(14), dp(94), dp(34));
+        addButton(frameLayout, selectLabel(), 4, 8388691, dp(100), dp(14), dp(94), dp(34));
         // Right column: R, the diamond level with the circle pad and well in from the edge,
         // START at the bottom (the speed button sits above it).
         addButton(frameLayout, "R", 256, 8388661, dp(14), dp(62), dp(104), dp(38), 2);
-        addButton(frameLayout, "X", 1024, 8388661, dp(121), dp(120), dp(46), dp(46), TouchButton.STYLE_DARK);
-        addButton(frameLayout, "A", 1, 8388661, dp(74), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
-        addButton(frameLayout, "Y", 2048, 8388661, dp(168), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
-        addButton(frameLayout, "B", 2, 8388661, dp(121), dp(200), dp(46), dp(46), TouchButton.STYLE_DARK);
-        addButton(frameLayout, startLabel(), 8, 8388693, dp(150), dp(14), dp(94), dp(34));
+        addButton(frameLayout, "X", 1024, 8388661, dp(101), dp(120), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, 8388661, dp(54), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, 8388661, dp(148), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, 8388661, dp(101), dp(200), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, startLabel(), 8, 8388693, dp(120), dp(14), dp(94), dp(34));
     }
 
     // Landscape: the same groups in the columns beside the screen; START under the D-pad,
