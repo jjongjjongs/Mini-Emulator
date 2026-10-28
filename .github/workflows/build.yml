@@ -287,6 +287,12 @@ jobs:
           path: app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so
           key: flycast-${{ hashFiles('cores/build-flycast.sh', 'cores/patches/flycast-*.patch') }}
 
+      - name: Restore Citra core
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
+          key: citra-${{ hashFiles('cores/build-citra.sh', 'cores/patches/citra-*.patch') }}
+
       - name: Report PCEE2 core
         run: |
           if [ -f app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so ]; then
@@ -308,6 +314,11 @@ jobs:
             ls -lh app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so
           else
             echo "::warning::Dreamcast core not in the cache; Dreamcast games cannot run in this APK"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
+          else
+            echo "::warning::Citra core not in the cache; 3DS games cannot run in this APK"
           fi
 
       - name: Build debug APK

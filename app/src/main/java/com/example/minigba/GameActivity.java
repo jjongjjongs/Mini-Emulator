@@ -94,7 +94,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         applyScreenFilterToNative(screenFilter());
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isNds() ? "nds" : "arcade";
         }
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -158,7 +158,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
         // The controls start where the frame style puts them, whatever the style.
         controlsParams.topMargin = full ? Math.max(dp(10), dp(18) + frame[1] + dp(36) - dp(6) - screen[1]) : dp(36);
-        if (isNds()) {
+        if (isDualScreen()) {
             // The DS screens grow into whatever the controls leave, so the bezel under them is short.
             controlsParams.topMargin = dp(20);
             final int screenTop = layoutParams2.topMargin;
@@ -192,7 +192,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final boolean full = isFullScreenStyle();
         final int i = full ? 1 : 0;
         // The DS screens run from the top edge to the bottom edge, without a bezel.
-        int dp = full || isNds() ? 0 : dp(2);
+        int dp = full || isDualScreen() ? 0 : dp(2);
         final FrameLayout frameLayout2 = new FrameLayout(this);
         frameLayout2.setBackgroundColor(Color.rgb(18, 22, 32));
         frameLayout2.setPadding(dp, dp, dp, dp);
@@ -213,10 +213,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
-        shell.setCompactBezel(!full && (isDualShock() || isNds()));
-        shell.track(isNds() ? null : frameLayout2, frameLayout);
+        shell.setCompactBezel(!full && (isDualShock() || isDualScreen()));
+        shell.track(isDualScreen() ? null : frameLayout2, frameLayout);
         // No case under the picture in full-screen style or the DS's edge-to-edge screens.
-        addPerfOverlay(root, full || isNds());
+        addPerfOverlay(root, full || isDualScreen());
         setContentView(root);
         installComboZones(root);
         applyLayoutEdits(root);
@@ -241,7 +241,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private int ndsLayout;
 
     private void setNdsLayout(int layout) {
-        if (isNds()) {
+        if (isDualScreen()) {
             this.ndsLayout = layout;
             NativeGba.setNdsLayout(this.nativeHandle, layout);
         }
@@ -346,13 +346,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 screenWidth = widest;
             }
         }
-        if (isNds()) {
+        if (isDualScreen()) {
             // The tall stacked DS screens would push the D-pad and face buttons off the
             // bottom, so they stop where the controls need dp(272) under the bezel.
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             int statusId = getResources().getIdentifier("status_bar_height", "dimen", "android");
             int statusBar = statusId > 0 ? getResources().getDimensionPixelSize(statusId) : dp(24);
-            int tallest = metrics.heightPixels - statusBar - dp(64) - dp(18) - dp(36) - dp(272) - padding;
+            int tallest = metrics.heightPixels - statusBar - dp(64) - dp(18) - dp(36) - dp(isN3ds() ? 352 : 272) - padding;
             int widest = Math.max(dp(200), Math.round(tallest * screenAspect()));
             if (screenWidth > widest) {
                 side += (screenWidth - widest) / 2;
@@ -372,6 +372,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private int[] shellColors() {
         if (this.coreId.equals("gba")) return new int[]{Color.rgb(22, 185, 207), Color.rgb(91, 79, 168)};
         if (isSnes()) return new int[]{Color.rgb(84, 92, 168), Color.rgb(200, 201, 207)};
+        if (isN3ds()) return new int[]{Color.rgb(225, 29, 72), Color.rgb(52, 56, 66)};
         if (isNds()) return new int[]{Color.rgb(219, 39, 119), Color.rgb(52, 56, 66)};
         if (isNes()) return new int[]{Color.rgb(196, 42, 52), Color.rgb(170, 34, 42)};
         if (isN64()) return new int[]{Color.rgb(22, 163, 74), Color.rgb(45, 47, 52)};
@@ -405,6 +406,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isSnes()) {
             tint = ClearShellView.TINT_GRAY;
             name = "SUPER FAMICOM";
+        } else if (isN3ds()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "NINTENDO 3DS";
         } else if (isNds()) {
             tint = ClearShellView.TINT_WHITE;
             name = "NINTENDO DS";
@@ -463,7 +467,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // GBA keeps the speed button below the screen, so its screen sits at the top.
         // The bezel takes dp(10) above the screen and dp(26) below it; full style has none.
         int maxHeight;
-        if (isNds()) {
+        if (isDualScreen()) {
             // Stacked DS screens take the full height, edge to edge.
             maxHeight = Math.max(dp(150), height);
         } else if (full) {
@@ -476,7 +480,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        int topMargin = isNds() ? 0 : isGba ? dp(full ? 13 : 18) : 0;
+        int topMargin = isDualScreen() ? 0 : isGba ? dp(full ? 13 : 18) : 0;
         // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
         int bottomMargin = isGba || full ? 0 : dp(16);
         if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
@@ -510,6 +514,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addDreamcastLandscapeControls(frameLayout);
             return;
         }
+        if (isN3ds()) {
+            addN3dsLandscapeControls(frameLayout);
+            return;
+        }
         View createDirectionControl = createDirectionControl();
         boolean isGba = isPadLayout();
         // GBA in full-screen style moves its D-pad and A/B a little outward so the wide
@@ -541,9 +549,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addLandscapeArcadeButton(frameLayout, labels[3], 2048, 101, -42, 42, style);
             } else if (isMegaDrive()) {
                 addMegaDriveButtons(frameLayout, true);
-            } else if (isSnes() || isNds()) {
+            } else if (isSnes() || isDualScreen()) {
                 // X on top, A right, B bottom, Y left, in the Super Famicom colours (DS: dark).
-                boolean ds = isNds();
+                boolean ds = isDualScreen();
                 addLandscapeArcadeButton(frameLayout, "X", 1024, 66, -48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_SNES_BLUE);
                 addLandscapeArcadeButton(frameLayout, "A", 1, 18, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_RED);
                 addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
@@ -873,7 +881,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             targets.add(new PadMapping.Target(4, "MODE", middle));
             targets.add(new PadMapping.Target(8, "START", middle));
-        } else if (isSnes() || isNds()) {
+        } else if (isSnes() || isDualScreen()) {
             targets.add(new PadMapping.Target(1024, "X", face));
             targets.add(new PadMapping.Target(1, "A", face));
             targets.add(new PadMapping.Target(2, "B", face));
@@ -925,7 +933,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isMegaDrive()) return "md";
         if (isSaturn()) return "ss";
         if (isDreamcast()) return "dc";
-        if (this.coreId.equals("gba") || isNds() || isWonderSwan() || isNeoGeoPocket()) return "gba";
+        if (this.coreId.equals("gba") || isDualScreen() || isWonderSwan() || isNeoGeoPocket()) return "gba";
         if (isPadLayout()) return "fc";
         return "arcade";
     }
@@ -934,6 +942,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         switch (this.gameMode) {
             case "gba": return isGameBoy() ? "게임보이" : "GBA";
             case "nds": return "닌텐도 DS";
+            case "3ds": return "닌텐도 3DS";
             case "snes": return "슈퍼패미컴";
             case "nes": return "패미컴";
             case "md": return "메가드라이브";
@@ -1204,7 +1213,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
     private boolean rewindSupported() {
-        return !isPs2() && !isDreamcast() && !isSaturn() && !isMame139();
+        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isMame139();
     }
 
     private boolean rewindOn() {
@@ -2731,6 +2740,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isPsp()) {
                         NativeGba.setPspLanguage(0, pspLanguage());
                         NativeGba.setPspScale(pspScale());
+                        NativeGba.setN3dsScale(n3dsScale());
                         int wifi = wifiMultiMode();
                         String server = wifi == 1 ? (linkDirect() ? DirectLink.OWNER_ADDRESS : AdhocBeacon.localAddress()) : wifi == 2 ? wifiMultiHost() : null;
                         NativeGba.setPspAdhoc(server == null ? 0 : wifi, server);
@@ -2869,7 +2879,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         speedButtonView.setPercent(this.speedPercent);
         speedButtonView.setContentDescription("배속");
         FrameLayout.LayoutParams speedParams = new FrameLayout.LayoutParams(dp(80), dp(36));
-        if (isNds()) {
+        if (isDualScreen()) {
             // The DS screens run the full height, so the button sits beside START instead.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(146), dp(17));
@@ -2897,7 +2907,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             speedParams.setMargins(0, dp(62), dp(14), 0);
         }
         frameLayout.addView(speedButtonView, speedParams);
-        if (isNds()) {
+        if (isDualScreen()) {
             // The screens fill the middle: the left column, mirroring the speed button.
             addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_MIRROR, 72, false);
         } else if (isN64() || isDreamcast() || isMasterSystem()) {
@@ -3368,19 +3378,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         View createDirectionControl = createDirectionControl();
         boolean isGba = isPadLayout();
         // The Super Famicom's four face buttons need more room, so its D-pad is a little smaller.
-        boolean compactPad = isSnes() || isNds() || isMegaDrive();
+        boolean compactPad = isSnes() || isDualScreen() || isMegaDrive();
         int i = isSonyPad() ? 140 : compactPad ? 150 : isGba ? 166 : 156;
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(i), dp(i));
         layoutParams.gravity = 8388691;
         // The PSP's D-pad sits higher to leave room for the analog stick below it.
         // The PS1/PS2 pads keep both sticks along the bottom, so their D-pad sits lower still.
-        if (isNds()) {
-            // The DS packs its controls into the shorter space under the two screens.
-            i = 136;
+        if (isDualScreen()) {
+            // The DS packs its controls into the shorter space under the two screens
+            // (the 3DS a little tighter still, with the circle pad above).
+            i = isN3ds() ? 128 : 136;
             layoutParams.width = dp(i);
             layoutParams.height = dp(i);
         }
-        layoutParams.setMargins(dp(compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isNds() ? 60 : isDualShock() ? 160 : isSonyPad() ? 214 : isGba ? 154 : 144));
+        layoutParams.setMargins(dp(compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isN3ds() ? 56 : isDualScreen() ? 60 : isDualShock() ? 160 : isSonyPad() ? 214 : isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
         if (isPsp()) {
             FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
@@ -3406,17 +3417,32 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addButton(frameLayout, "R2", kR2, 8388661, dp(14), dp(34), dp(54), dp(42), shoulderStyle);
         }
         if (hasShoulders()) {
-            int shoulderTop = isNds() ? 8 : 34;
+            int shoulderTop = isDualScreen() ? 8 : 34;
             addButton(frameLayout, "L", 512, 8388659, dp(24), dp(shoulderTop), dp(112), dp(46), 2);
             addButton(frameLayout, "R", 256, 8388661, dp(24), dp(shoulderTop), dp(112), dp(46), 2);
         }
         addFastForwardButton(frameLayout);
         if (isSonyPad()) {
             addPspFace(frameLayout);
-        } else if (isSnes() || isNds()) {
+        } else if (isSnes() || isDualScreen()) {
             // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left
             // (Super Famicom colours; the DS's are plain dark).
-            boolean ds = isNds();
+            boolean ds = isDualScreen();
+            if (isN3ds()) {
+                // The circle pad above the D-pad; the diamond (moved in from the edge) centred
+                // between them, as on the 3DS's lower half.
+                FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(88), dp(88));
+                stickParams.gravity = 8388691;
+                stickParams.setMargins(dp(36), 0, 0, dp(186));
+                frameLayout.addView(leftStick(), stickParams);
+                addButton(frameLayout, "X", 1024, 8388693, dp(82), dp(202), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "A", 1, 8388693, dp(34), dp(152), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "B", 2, 8388693, dp(82), dp(102), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "Y", 2048, 8388693, dp(130), dp(152), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
+                addCenterButton(frameLayout, startLabel(), 8, 66, 14);
+                return;
+            }
             if (ds) {
                 // Smaller diamond centred on the DS's lower D-pad.
                 addButton(frameLayout, "X", 1024, 8388693, dp(68), dp(154), dp(52), dp(52), TouchButton.STYLE_DARK);
@@ -3507,7 +3533,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         speedButtonView.setPercent(this.speedPercent);
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(42));
         layoutParams.gravity = 49;
-        layoutParams.setMargins(0, dp(isNds() ? 10 : 37), 0, 0);
+        layoutParams.setMargins(0, dp(isDualScreen() ? 10 : 37), 0, 0);
         frameLayout.addView(this.fastForwardButton, layoutParams);
         // The speed button keeps its place between L and R; rewind goes in the gap below it.
         addRewindButton(frameLayout, speedButtonView, layoutParams, REWIND_BELOW, 72, false);
@@ -3658,6 +3684,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             dsParams.setMargins(0, dp(12), 0, 0);
             panel.addView(createDsNetRow(dialog), dsParams);
         }
+        if (isN3ds()) {
+            LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
+            scaleParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(createN3dsScaleRow(dialog), scaleParams);
+        }
         if (isWonderSwan()) {
             LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
             tallParams.setMargins(0, dp(8), 0, 0);
@@ -3780,6 +3811,31 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         return;
                     }
                     MainActivity.sharedSettings(this).edit().putInt("psp_scale:" + this.saveBaseName, choice + 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // 3DS rendering scale, per game: Citra draws the 400x240 and 320x240 screens at 1-3
+    // times their size. Native by default; the core is heavy enough on phones as it is.
+    private static final String[] N3DS_SCALE_NAMES = {"1배 · 400×240", "2배 · 800×480", "3배 · 1200×720"};
+    private static final String[] N3DS_SCALE_SHORT = {"1배 · 기본", "2배 · 선명", "3배 · 가장 선명"};
+    private static final String[] N3DS_SCALE_NOTES = {"3DS 원래 해상도. 가장 빠름 (기본)", "선명. 성능 좋은 폰·가벼운 게임용", "가장 선명. 무거운 게임은 느려질 수 있어요"};
+
+    private int n3dsScale() {
+        int scale = MainActivity.sharedSettings(this).getInt("n3ds_scale:" + this.saveBaseName, 1);
+        return scale >= 1 && scale <= 3 ? scale : 1;
+    }
+
+    private LinearLayout createN3dsScaleRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", N3DS_SCALE_SHORT[n3dsScale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", N3DS_SCALE_NAMES, N3DS_SCALE_NOTES,
+                        n3dsScale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.\n3DS는 1배로도 무거운 게임이 많아요. 끊기면 1배로 돌려 주세요.",
+                        Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
+                    if (choice + 1 == n3dsScale()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("n3ds_scale:" + this.saveBaseName, choice + 1).commit();
                     menu.dismiss();
                     relaunchGame();
                 }));
@@ -4868,10 +4924,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "melonds".equals(this.coreId);
     }
 
+    private boolean isN3ds() {
+        return "citra".equals(this.coreId);
+    }
+
+    // DS and 3DS: two screens stacked in portrait, the lower one touched with a finger.
+    private boolean isDualScreen() {
+        return isNds() || isN3ds();
+    }
+
     // DS: a finger on the game screen is the stylus. Positions go to the core in libretro
     // pointer units across the whole screen view; melonDS DS maps them onto the lower screen.
     private void attachTouchScreen(View screen) {
-        if (!isNds()) {
+        if (!isDualScreen()) {
             return;
         }
         screen.setOnTouchListener((view, event) -> {
@@ -5101,6 +5166,26 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addDreamcastFace(frameLayout, Gravity.BOTTOM | Gravity.END, 100, 176, 50, 56);
         addFastForwardButton(frameLayout);
         addCenterButton(frameLayout, startLabel(), 8, 0, 18);
+    }
+
+    // 3DS in landscape: L at the top left, the circle pad under it and the D-pad at the
+    // bottom; on the right R above the diamond, which sits low and in from the edge.
+    // SELECT and START go in the middle under the screens.
+    private void addN3dsLandscapeControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "L", 512, 8388659, dp(14), dp(14), dp(104), dp(38), 2);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.TOP | Gravity.START);
+        stickParams.setMargins(dp(18), dp(62), 0, 0);
+        frameLayout.addView(leftStick(), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(128), dp(128), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(14), 0, 0, dp(40));
+        frameLayout.addView(createDirectionControl(), padParams);
+        addButton(frameLayout, "R", 256, 8388693, dp(34), dp(166), dp(104), dp(38), 2);
+        addButton(frameLayout, "X", 1024, 8388693, dp(86), dp(114), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, 8388693, dp(42), dp(70), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, 8388693, dp(86), dp(26), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, 8388693, dp(130), dp(70), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
+        addCenterButton(frameLayout, startLabel(), 8, 66, 14);
     }
 
     // Landscape: the same groups in the columns beside the screen; START under the D-pad,
@@ -5443,7 +5528,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean hasLeftStick() {
-        return isSonyPad() || isN64() || isDreamcast();
+        return isSonyPad() || isN64() || isDreamcast() || isN3ds();
     }
 
     private LinearLayout createStickRow(boolean right, Runnable reopen) {
@@ -5486,11 +5571,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Consoles with a D-pad and SELECT/START, laid out like the GBA.
     private boolean isPadLayout() {
-        return this.coreId.equals("gba") || isSnes() || isNds() || isNes() || isMegaDrive() || isMasterSystem() || isPcEngine() || isSonyPad();
+        return this.coreId.equals("gba") || isSnes() || isDualScreen() || isNes() || isMegaDrive() || isMasterSystem() || isPcEngine() || isSonyPad();
     }
 
     private boolean hasShoulders() {
-        return (this.coreId.equals("gba") && !isGameBoy()) || isSnes() || isNds() || isPsp();
+        return (this.coreId.equals("gba") && !isGameBoy()) || isSnes() || isDualScreen() || isPsp();
     }
 
     private String selectLabel() {
@@ -5527,6 +5612,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private float screenAspect() {
+        if (isN3ds()) {
+            // 400x240 over 320x240 as Citra lays them out: stacked (the lower one centred),
+            // the upper one large with the lower one small beside it (2:1), or side by side.
+            return this.ndsLayout == 2 ? 720.0f / 240.0f : this.ndsLayout == 1 ? 2.0f : 400.0f / 480.0f;
+        }
         if (isNds()) {
             // Both 256x192 screens as the bridge asks melonDS DS to lay them out: stacked
             // with a 4-row gap, stacked and touching, or side by side.
@@ -5560,6 +5650,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "play":
             case "pcee2":
             case "melonds":
+            case "citra":
             case "mupen64plus_next":
             case "flycast":
             case "wswan":

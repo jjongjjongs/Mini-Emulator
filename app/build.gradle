@@ -19,7 +19,7 @@ android {
         applicationId 'com.example.minigba.gbaonly'
         minSdk 24
         targetSdk 34
-        versionCode 166
+        versionCode 167
         versionName '0.0.166'
 
         ndk {

@@ -86,6 +86,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_PS1 = "ps1";
     private static final String MODE_PS2 = "ps2";
     private static final String MODE_NDS = "nds";
+    private static final String MODE_N3DS = "3ds";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
     private static final String[][] CONSOLES = {
@@ -104,6 +105,8 @@ public final class MainActivity extends Activity {
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
             {MODE_DC, "flycast", ".chd,.cdi", ".chd / .cdi", "roms_dc", "1025"},
             {MODE_NDS, "melonds", ".nds", ".nds / .zip", "roms_nds", "1022"},
+            // 3DS cartridge dumps (NCSD) and decrypted/encrypted executables (NCCH) on Citra.
+            {MODE_N3DS, "citra", ".3ds,.cci,.cxi", ".3ds / .cci / .cxi", "roms_3ds", "1034"},
             // Mega CD discs and 32X cartridges on PicoDrive.
             {MODE_MCD, "picodrive", ".cue,.chd,.iso,.bin,.32x", ".cue+.bin / .chd / .32x", "roms_mcd", "1030"},
             {MODE_WS, "wswan", ".ws,.wsc,.pc2", ".ws / .wsc / .zip", "roms_ws", "1028"},
@@ -158,13 +161,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_SS, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_SS, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -182,12 +185,15 @@ public final class MainActivity extends Activity {
     private TextView pceBiosBanner;
     private static final int REQUEST_IMPORT_PCE_BIOS = 1021;
     private static final int REQUEST_IMPORT_DC_BIOS = 1026;
+    private static final int REQUEST_IMPORT_N3DS_KEYS = 1035;
     private static final int REQUEST_PICK_COVER = 1027;
     private static final int REQUEST_PICK_PATCH = 1050;
     private static final int REQUEST_PICK_DLC_ZIP = 1051;
     private static final int REQUEST_PICK_DLC_FOLDER = 1052;
     private File dlcRom;
     private TextView dcBiosStatusView;
+    private TextView n3dsKeysStatusView;
+    private TextView n3dsKeysBanner;
     private TextView mcdBiosStatusView;
     private TextView saturnBiosStatusView;
     private static final int REQUEST_IMPORT_SATURN_BIOS = 1033;
@@ -386,6 +392,8 @@ public final class MainActivity extends Activity {
         this.romList = null;
         this.noteView = null;
         this.dcBiosStatusView = null;
+        this.n3dsKeysStatusView = null;
+        this.n3dsKeysBanner = null;
     }
 
     private void showModePicker() {
@@ -568,6 +576,11 @@ public final class MainActivity extends Activity {
                 this.dcBiosStatusView = (TextView) dcBiosTile.getTag();
                 actionRow.addView(dcBiosTile, actionTileParams());
             }
+            if (MODE_N3DS.equals(this.currentMode)) {
+                LinearLayout keysTile = createActionCard("3DS 키 파일", n3dsKeysStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showN3dsKeysSheet());
+                this.n3dsKeysStatusView = (TextView) keysTile.getTag();
+                actionRow.addView(keysTile, actionTileParams());
+            }
             if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
                 LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
                 this.ps2BiosStatusView = (TextView) ps2BiosTile.getTag();
@@ -596,6 +609,16 @@ public final class MainActivity extends Activity {
             banner.setLineSpacing(0.0f, 1.2f);
             banner.setPadding(dp(12), dp(10), dp(12), dp(10));
             this.pceBiosBanner = banner;
+            LinearLayout.LayoutParams bannerParams = new LinearLayout.LayoutParams(-1, -2);
+            bannerParams.setMargins(0, dp(4), 0, 0);
+            linearLayout3.addView(banner, bannerParams);
+        }
+        if (MODE_N3DS.equals(this.currentMode)) {
+            TextView banner = new TextView(this);
+            banner.setTextSize(12.0f);
+            banner.setLineSpacing(0.0f, 1.2f);
+            banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+            this.n3dsKeysBanner = banner;
             LinearLayout.LayoutParams bannerParams = new LinearLayout.LayoutParams(-1, -2);
             bannerParams.setMargins(0, dp(4), 0, 0);
             linearLayout3.addView(banner, bannerParams);
@@ -1009,6 +1032,21 @@ public final class MainActivity extends Activity {
                 this.pceBiosBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
             }
         }
+        if (this.n3dsKeysStatusView != null) {
+            this.n3dsKeysStatusView.setText(n3dsKeysStatusText());
+            this.n3dsKeysStatusView.setTextColor(n3dsKeysFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        }
+        if (this.n3dsKeysBanner != null) {
+            if (n3dsKeysFile().isFile()) {
+                this.n3dsKeysBanner.setText(android.text.Html.fromHtml("<b>✓ 키 파일이 등록돼 암호화된 게임도 실행할 수 있어요.</b> 시험판: 무거운 게임은 느릴 수 있어요.", 0));
+                this.n3dsKeysBanner.setTextColor(Color.rgb(22, 101, 52));
+                this.n3dsKeysBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
+            } else {
+                this.n3dsKeysBanner.setText(android.text.Html.fromHtml("<b>암호화된 3DS 게임은 키 파일(aes_keys.txt)이 필요해요.</b><br>복호화된(decrypted) 게임은 키 없이 실행됩니다. 시험판: 무거운 게임은 느릴 수 있어요.", 0));
+                this.n3dsKeysBanner.setTextColor(Color.rgb(154, 52, 18));
+                this.n3dsKeysBanner.setBackground(rounded(Color.rgb(255, 241, 232), dp(12)));
+            }
+        }
         if (this.dcBiosStatusView != null) {
             this.dcBiosStatusView.setText(dcBiosStatusText());
             this.dcBiosStatusView.setTextColor(dcBiosFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
@@ -1377,6 +1415,10 @@ public final class MainActivity extends Activity {
         } else if (i == REQUEST_IMPORT_DC_BIOS) {
             if (data != null) {
                 importDcBios(data);
+            }
+        } else if (i == REQUEST_IMPORT_N3DS_KEYS) {
+            if (data != null) {
+                importN3dsKeys(data);
             }
         } else if (i == REQUEST_PICK_COVER) {
             File rom = this.pendingCoverRom;
@@ -5898,6 +5940,9 @@ public final class MainActivity extends Activity {
             String title = new String(head, 0, 12, StandardCharsets.ISO_8859_1).trim();
             return logoCrc == 0xCF56 ? new RomCheck(true, "DS 헤더 정상" + (title.isEmpty() ? "" : " · " + title)) : new RomCheck(false, "DS 헤더가 아님");
         }
+        if (MODE_N3DS.equals(mode)) {
+            return checkN3dsRom(file);
+        }
         if (MODE_PCE.equals(mode) && isPceCd(file)) {
             return checkPs1Image(file);
         }
@@ -7321,6 +7366,198 @@ public final class MainActivity extends Activity {
     private static final int DC_BOOT_SIZE = 2 * 1024 * 1024;
     private static final int DC_FLASH_SIZE = 128 * 1024;
 
+    // ---- 3DS key file ----
+    // Citra reads its AES keys from <save dir>/Citra/sysdata/aes_keys.txt; the save dir the
+    // bridge gives it is files/saves/citra. Retail cartridges are encrypted, so without the
+    // keys only decrypted dumps start.
+    private File n3dsKeysFile() {
+        return new File(new File(new File(new File(saveDir(), "citra"), "Citra"), "sysdata"), "aes_keys.txt");
+    }
+
+    private String n3dsKeysStatusText() {
+        return n3dsKeysFile().isFile() ? "등록됨" : "없음 · 복호화 게임만";
+    }
+
+    private void showN3dsKeysSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        boolean present = n3dsKeysFile().isFile();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView icon = new TextView(this);
+        icon.setText("KEY");
+        icon.setTextColor(-1);
+        icon.setTextSize(13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(225, 29, 72), dp(13)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("3DS 키 파일");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView state = new TextView(this);
+        state.setText(present ? "aes_keys.txt 등록됨" : "등록된 키 없음 · 복호화된 게임만 실행");
+        state.setTextSize(12.0f);
+        state.setTextColor(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        titles.addView(state);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout kinds = new LinearLayout(this);
+        kinds.setOrientation(0);
+        kinds.addView(engineCard("키 없이", "복호화 게임", "decrypted 덤프만", !present), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        secondParams.setMargins(dp(8), 0, 0, 0);
+        kinds.addView(engineCard("키 파일", "aes_keys.txt", "암호화 게임도 실행", present), secondParams);
+        LinearLayout.LayoutParams kindsParams = new LinearLayout.LayoutParams(-1, -2);
+        kindsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(kinds, kindsParams);
+
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("직접 가진 3DS에서 추출한 <b>aes_keys.txt</b>를 골라 주세요.<br>글자 파일이에요 (slot0x…KeyX=… 같은 줄들). 시스템 폰트·NAND 없이도 카트리지 게임은 이 키만 있으면 돼요.<br>CIA 설치·업데이트·DLC는 다음 버전에서 추가할 예정이에요.", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        TextView choose = sheetButton(present ? "다른 키 파일로 바꾸기" : "키 파일 선택", MODE_COLORS[modeIndex(MODE_N3DS)], -1);
+        choose.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_IMPORT_N3DS_KEYS);
+        });
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+        chooseParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(choose, chooseParams);
+        if (present) {
+            TextView delete = sheetButton("키 파일 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
+            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("3DS 키 파일 삭제").setMessage("키를 지우면 복호화된 게임만 실행돼요. 세이브는 그대로 남아요.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+                dialog.dismiss();
+                n3dsKeysFile().delete();
+                showMessage("3DS 키 파일을 삭제했습니다.");
+                updateHomeStatusCards();
+            }).show());
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+            deleteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(delete, deleteParams);
+        }
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    private void importN3dsKeys(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("선택한 파일을 열 수 없습니다");
+            }
+            byte[] data = readLimited(in, 256 * 1024);
+            String text = new String(data, StandardCharsets.UTF_8);
+            // The file is lines of "slot0x25KeyX=..." / "generator=..."; anything else is
+            // the wrong file (a .3ds dump, a zip).
+            if (!text.contains("slot0x") && !text.contains("generator") && !text.contains("common0")) {
+                throw new IOException("aes_keys.txt가 아니에요 (slot0x… 줄이 없음)");
+            }
+            File target = n3dsKeysFile();
+            File dir = target.getParentFile();
+            if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("키 폴더를 만들 수 없습니다");
+            }
+            try (FileOutputStream out = new FileOutputStream(target)) {
+                out.write(data);
+            }
+            showMessage("3DS 키 파일을 등록했습니다.");
+        } catch (IOException e) {
+            showMessage("키 파일 가져오기 실패: " + e.getMessage());
+        }
+        updateHomeStatusCards();
+    }
+
+    // .3ds/.cci dumps are NCSD images ("NCSD" at 0x100) whose first partition is an NCCH;
+    // .cxi is a bare NCCH ("NCCH" at 0x100). Bit 2 of the NCCH flags byte at 0x18F means
+    // the contents are not encrypted; otherwise the keys are needed.
+    private RomCheck checkN3dsRom(File file) {
+        byte[] head = readHead(file, 0x200);
+        if (head == null) {
+            return new RomCheck(false, "3DS 헤더를 읽을 수 없음");
+        }
+        String magic = new String(head, 0x100, 4, StandardCharsets.ISO_8859_1);
+        long ncch = -1;
+        if (magic.equals("NCSD")) {
+            long units = (head[0x120] & 0xFFL) | (head[0x121] & 0xFFL) << 8 | (head[0x122] & 0xFFL) << 16 | (head[0x123] & 0xFFL) << 24;
+            ncch = units * 0x200;
+        } else if (magic.equals("NCCH")) {
+            ncch = 0;
+        } else {
+            return new RomCheck(false, "3DS 이미지가 아님");
+        }
+        byte[] header = ncch == 0 ? head : readAt(file, ncch, 0x200);
+        if (header == null || !new String(header, 0x100, 4, StandardCharsets.ISO_8859_1).equals("NCCH")) {
+            return new RomCheck(false, "NCCH 파티션 없음");
+        }
+        String product = new String(header, 0x150, 16, StandardCharsets.ISO_8859_1).trim();
+        int end = product.indexOf('\0');
+        if (end >= 0) product = product.substring(0, end);
+        boolean plain = (header[0x18F] & 0x04) != 0;
+        String name = product.isEmpty() ? "" : " · " + product;
+        if (plain) {
+            return new RomCheck(true, "복호화된 3DS 게임" + name);
+        }
+        return n3dsKeysFile().isFile() ? new RomCheck(true, "암호화된 3DS 게임 · 키 있음" + name) : new RomCheck(false, "암호화됨 · 키 파일 필요" + name);
+    }
+
+    private static byte[] readAt(File file, long offset, int length) {
+        try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(file, "r")) {
+            if (offset < 0 || offset + length > in.length()) {
+                return null;
+            }
+            in.seek(offset);
+            byte[] data = new byte[length];
+            in.readFully(data);
+            return data;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     private File dcBiosDir() {
         return new File(systemDir(), "dc");
     }
@@ -7874,6 +8111,9 @@ public final class MainActivity extends Activity {
         }
         if ("melonds".equals(str)) {
             return "melonDS DS";
+        }
+        if ("citra".equals(str)) {
+            return "Citra";
         }
         return "Game Boy Advance";
     }

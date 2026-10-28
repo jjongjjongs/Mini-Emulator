@@ -605,6 +605,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "play") return "libplay_libretro_android.so";
     if (coreId == "pcee2") return "libpcee2_libretro_android.so";
     if (coreId == "melonds") return "libmelondsds_libretro_android.so";
+    if (coreId == "citra") return "libcitra_libretro_android.so";
     if (coreId == "mupen64plus_next") return "libmupen64plus_next_libretro_android.so";
     if (coreId == "flycast") return "libflycast_libretro_android.so";
     if (coreId == "wswan") return "libmednafen_wswan_libretro_android.so";
@@ -1332,6 +1333,9 @@ std::atomic<bool> gVariablesUpdated{false};
 // DS screen layout: 0 stacked 4 rows apart (portrait), 1 stacked and touching
 // (landscape), 2 side by side (landscape with a physical controller, no touch buttons).
 std::atomic<int> gNdsLayout{0};
+// 3DS rendering scale (1-3) for the next game created; Citra sizes its buffers when the
+// game starts, so a change takes a restart.
+std::atomic<int> gN3dsScale{1};
 // WonderSwan games made to be held upright: the core turns the picture (and the pad) for
 // them. Set per game before it starts.
 std::atomic<bool> gWsTall{false};
@@ -1424,6 +1428,28 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "melonds_screen_layout1") == 0) return gNdsLayout.load() == 2 ? "left-right" : "top-bottom";
     if (strcmp(key, "melonds_screen_gap") == 0) return gNdsLayout.load() == 0 ? "4" : "0";
     if (strcmp(key, "melonds_touch_mode") == 0) return "touch";
+    // 3DS (Citra): OpenGL ES with hardware shaders, both screens stacked or side by side
+    // (the same choice as the DS), touched with a finger (no pointer drawn, the right
+    // stick is only the C stick), saves under <save dir>/Citra/, Korean system language.
+    if (strcmp(key, "citra_resolution_factor") == 0) {
+        int scale = gN3dsScale.load();
+        return scale >= 3 ? "3x" : scale == 2 ? "2x" : "1x (Native)";
+    }
+    if (strcmp(key, "citra_layout_option") == 0) return gNdsLayout.load() == 2 ? "Side by Side" : "Default Top-Bottom Screen";
+    if (strcmp(key, "citra_swap_screen") == 0) return "Top";
+    if (strcmp(key, "citra_use_hw_shaders") == 0) return "enabled";
+    if (strcmp(key, "citra_use_shader_jit") == 0) return "enabled";
+    if (strcmp(key, "citra_use_hw_shader_cache") == 0) return "enabled";
+    if (strcmp(key, "citra_touch_touchscreen") == 0) return "enabled";
+    if (strcmp(key, "citra_mouse_touchscreen") == 0) return "disabled";
+    if (strcmp(key, "citra_render_touchscreen") == 0) return "disabled";
+    if (strcmp(key, "citra_analog_function") == 0) return "C-Stick";
+    if (strcmp(key, "citra_use_libretro_save_path") == 0) return "LibRetro Default";
+    if (strcmp(key, "citra_use_virtual_sd") == 0) return "enabled";
+    if (strcmp(key, "citra_is_new_3ds") == 0) return "Old 3DS";
+    if (strcmp(key, "citra_language") == 0) return "Korean";
+    if (strcmp(key, "citra_dump_textures") == 0) return "disabled";
+    if (strcmp(key, "citra_custom_textures") == 0) return "disabled";
     // Nintendo 64: GLideN64 on OpenGL ES at 640x480 with the HLE RSP and the dynarec, and
     // the C buttons as buttons of their own (A=B, B=Y, C-up/down/left/right = X/A/L/R,
     // Z=L2, R=R2, L=SELECT), which the touch pad and controllers press directly.
@@ -2180,7 +2206,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
-                       core->coreId == "yabasanshiro";
+                       core->coreId == "yabasanshiro" || core->coreId == "citra";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -2617,7 +2643,8 @@ void runLoop(Core* core) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
-            if (core->coreId == "play" || core->coreId == "pcee2" || core->coreId == "melonds" || core->coreId == "flycast") {
+            if (core->coreId == "play" || core->coreId == "pcee2" || core->coreId == "melonds" || core->coreId == "flycast" ||
+                core->coreId == "citra") {
                 crash::wrapForeignSegvHandler();
             }
             bool canRewind = core->rewind && !core->resumePending && core->framesRun > 0;
@@ -3259,6 +3286,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIE
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
+    gN3dsScale.store(scale >= 1 && scale <= 3 ? scale : 1);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDsNet(JNIEnv* env, jclass /*cls*/, jint mode, jstring host) {

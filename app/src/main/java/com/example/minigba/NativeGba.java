@@ -40,6 +40,8 @@ final class NativeGba {
     // PSP rendering scale (1x, 2x or 3x the PSP's 480x272) for the next game created.
     static native void setPspScale(int scale);
 
+    static native void setN3dsScale(int scale);
+
     // PSP ad-hoc over the LAN: 0 off, 1 host (built-in server), 2 guest; server is the address to join.
     static native void setPspAdhoc(int mode, String server);
 
