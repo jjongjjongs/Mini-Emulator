@@ -3301,68 +3301,243 @@ public final class MainActivity extends Activity {
         return row;
     }
 
-    // Where to get the DLC from, and what is already in.
+    // ---- Card dialogs in the app's own look (white, rounded, icon header) ----
+
+    private Dialog cardDialog(LinearLayout panel) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(Color.WHITE, dp(22)));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        return dialog;
+    }
+
+    private void cardHeader(LinearLayout panel, int icon, int color, String title, String subtitle) {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextSize(17.0f);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(titleView);
+        if (subtitle != null) {
+            TextView sub = new TextView(this);
+            sub.setText(subtitle);
+            sub.setTextSize(12.0f);
+            sub.setTextColor(Color.rgb(122, 130, 140));
+            titles.addView(sub);
+        }
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private TextView noteBox(String text, int background, int color) {
+        TextView note = new TextView(this);
+        note.setText(text);
+        note.setTextSize(12.0f);
+        note.setTextColor(color);
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(rounded(background, dp(12)));
+        return note;
+    }
+
+    private TextView sectionLabel(String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(11.5f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(154, 163, 178));
+        label.setPadding(dp(2), dp(12), 0, dp(4));
+        return label;
+    }
+
+    private LinearLayout.LayoutParams spaced(int topDp) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(topDp), 0, 0);
+        return params;
+    }
+
+    // A small card with a title and a changing line, for work that takes a moment.
+    private Dialog progressCard(int icon, int color, String title, String message) {
+        LinearLayout panel = new LinearLayout(this);
+        Dialog dialog = cardDialog(panel);
+        cardHeader(panel, icon, color, title, message);
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(true);
+        panel.addView(bar, spaced(12));
+        dialog.setCancelable(false);
+        dialog.show();
+        return dialog;
+    }
+
+    // ---- The DLC card: where to get it from, and what is already in ----
+
     private void showDlcMenu(final File file) {
         final String discId = PspDlc.discId(file);
         final List<File> installed = PspDlc.installed(pspMemstick(), discId);
         romPrefs().edit().putInt("dlc:" + file.getName(), installed.size()).apply();
-        List<String> names = new ArrayList<>();
-        names.add("zip 파일 고르기");
-        names.add("폴더 고르기");
-        for (File folder : installed) {
-            names.add("지우기 · " + folder.getParentFile().getName() + "/" + folder.getName() + " (" + formatSize(PspDlc.sizeOf(folder)) + ")");
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.DLC, RoundIconView.COLOR_DLC, "DLC 가져오기",
+                displayGameNameFor(file) + (discId.isEmpty() ? " · 게임 ID를 읽지 못함" : " · 게임 ID " + discId));
+
+        LinearLayout tiles = new LinearLayout(this);
+        tiles.setOrientation(0);
+        tiles.addView(createActionTile(dialog, RoundIconView.IMPORT, Color.rgb(14, 165, 183), "zip 파일 고르기", "DLC가 압축돼 있을 때", false, () -> {
+            this.dlcRom = file;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            try {
+                startActivityForResult(intent, REQUEST_PICK_DLC_ZIP);
+            } catch (Exception e) {
+                showError("파일을 고르는 화면을 열 수 없어요.");
+            }
+        }), actionGridParams(0));
+        tiles.addView(createActionTile(dialog, RoundIconView.FOLDER, Color.rgb(109, 92, 242), "폴더 고르기", "풀어 놓은 폴더가 있을 때", false, () -> {
+            this.dlcRom = file;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            try {
+                startActivityForResult(intent, REQUEST_PICK_DLC_FOLDER);
+            } catch (Exception e) {
+                showError("폴더를 고르는 화면을 열 수 없어요.");
+            }
+        }), actionGridParams(2));
+        panel.addView(tiles, spaced(14));
+
+        panel.addView(sectionLabel("가져온 DLC" + (installed.isEmpty() ? "" : " · " + installed.size() + "개")));
+        if (installed.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("아직 없어요 · 위에서 골라 넣어 보세요");
+            empty.setTextSize(12.0f);
+            empty.setTextColor(Color.rgb(154, 163, 178));
+            empty.setGravity(17);
+            empty.setPadding(0, dp(8), 0, dp(4));
+            panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
         }
-        String note = discId.isEmpty() ? "이 게임의 ID를 읽지 못해서 (CSO 등) 어느 게임용인지 확인 없이 넣어요."
-                : "게임 ID " + discId + " · PSP 메모리스틱의 PSP/GAME 과 PSP/SAVEDATA 에 복사해요. 게임 세이브는 건드리지 않아요.";
-        // A message would hide the list in a stock dialog, so the note goes in a view of its own.
-        TextView noteView = new TextView(this);
-        noteView.setText(note);
-        noteView.setTextSize(13.0f);
-        noteView.setPadding(dp(24), dp(10), dp(24), dp(4));
-        new AlertDialog.Builder(this).setTitle("DLC 가져오기 · " + displayGameNameFor(file)).setView(noteView)
-                .setItems(names.toArray(new String[0]), (d, which) -> {
-                    this.dlcRom = file;
-                    if (which == 0) {
-                        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                        intent.addCategory(Intent.CATEGORY_OPENABLE);
-                        intent.setType("*/*");
-                        try {
-                            startActivityForResult(intent, REQUEST_PICK_DLC_ZIP);
-                        } catch (Exception e) {
-                            showError("파일을 고르는 화면을 열 수 없어요.");
-                        }
-                    } else if (which == 1) {
-                        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-                        try {
-                            startActivityForResult(intent, REQUEST_PICK_DLC_FOLDER);
-                        } catch (Exception e) {
-                            showError("폴더를 고르는 화면을 열 수 없어요.");
-                        }
-                    } else {
-                        final File folder = installed.get(which - 2);
-                        new AlertDialog.Builder(this).setTitle("DLC 지우기").setMessage(folder.getName() + " 폴더를 지울까요? 이 DLC는 다시 가져와야 해요.")
-                                .setNegativeButton("취소", null)
-                                .setPositiveButton("지우기", (dd, w) -> {
-                                    PspDlc.deleteTree(folder);
-                                    romPrefs().edit().putInt("dlc:" + file.getName(), Math.max(0, installed.size() - 1)).apply();
-                                    refreshLibrary();
-                                    showMessage("지웠어요 · " + folder.getName());
-                                }).show();
-                    }
-                }).setNegativeButton("닫기", null).show();
+        for (final File folder : installed) {
+            boolean game = "GAME".equalsIgnoreCase(folder.getParentFile().getName());
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(10), dp(10), dp(10));
+            row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+            row.addView(new RoundIconView(this, game ? RoundIconView.DLC : RoundIconView.SAVE, game ? Color.rgb(14, 165, 183) : Color.rgb(109, 92, 242)), new LinearLayout.LayoutParams(dp(30), dp(30)));
+            LinearLayout words = new LinearLayout(this);
+            words.setOrientation(1);
+            TextView name = new TextView(this);
+            name.setText(folder.getName());
+            name.setTextSize(13.5f);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            words.addView(name);
+            TextView detail = new TextView(this);
+            detail.setText("PSP/" + folder.getParentFile().getName() + " · " + countFiles(folder) + "개 파일 · " + formatSize(PspDlc.sizeOf(folder)));
+            detail.setTextSize(11.5f);
+            detail.setTextColor(Color.rgb(122, 130, 140));
+            words.addView(detail);
+            LinearLayout.LayoutParams wordsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            wordsParams.setMargins(dp(10), 0, dp(8), 0);
+            row.addView(words, wordsParams);
+            TextView remove = new TextView(this);
+            remove.setText("지우기");
+            remove.setTextSize(12.0f);
+            remove.setTypeface(Typeface.DEFAULT_BOLD);
+            remove.setTextColor(Color.rgb(229, 72, 77));
+            remove.setPadding(dp(10), dp(5), dp(10), dp(5));
+            GradientDrawable outline = rounded(Color.WHITE, dp(999));
+            outline.setStroke(dp(1), Color.rgb(243, 194, 197));
+            remove.setBackground(outline);
+            remove.setOnClickListener(view -> {
+                dialog.dismiss();
+                LinearLayout confirmPanel = new LinearLayout(this);
+                final Dialog confirm = cardDialog(confirmPanel);
+                cardHeader(confirmPanel, RoundIconView.TRASH, Color.rgb(229, 72, 77), "DLC 지우기", folder.getName());
+                confirmPanel.addView(noteBox("이 폴더를 지우면 그 DLC는 다시 가져와야 해요. 게임 세이브는 그대로예요.", Color.rgb(255, 247, 230), Color.rgb(154, 91, 0)), spaced(12));
+                LinearLayout buttons = new LinearLayout(this);
+                TextView cancel = sheetButton("취소", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+                cancel.setOnClickListener(v -> {
+                    confirm.dismiss();
+                    showDlcMenu(file);
+                });
+                buttons.addView(cancel, actionGridParams(0));
+                TextView yes = sheetButton("지우기", Color.rgb(229, 72, 77), Color.WHITE);
+                yes.setOnClickListener(v -> {
+                    PspDlc.deleteTree(folder);
+                    confirm.dismiss();
+                    refreshLibrary();
+                    showMessage("지웠어요 · " + folder.getName());
+                    showDlcMenu(file);
+                });
+                buttons.addView(yes, actionGridParams(2));
+                LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(46));
+                buttonsParams.setMargins(0, dp(12), 0, 0);
+                confirmPanel.addView(buttons, buttonsParams);
+                confirm.show();
+            });
+            row.addView(remove, new LinearLayout.LayoutParams(-2, -2));
+            panel.addView(row, spaced(6));
+        }
+
+        panel.addView(noteBox(installed.isEmpty()
+                ? "PSP 메모리스틱의 PSP/GAME 과 PSP/SAVEDATA 에 복사해요. 게임 세이브는 건드리지 않아요. 암호화된 DLC는 PPSSPP가 알아서 열어요."
+                : "게임을 켜면 바로 인식돼요. 지우면 그 DLC는 다시 가져와야 해요.", Color.rgb(232, 246, 255), Color.rgb(3, 105, 161)), spaced(12));
+        TextView close = sheetButton("닫기", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.show();
     }
 
-    private void onDlcPicked(Intent data, boolean zip) {
+    private int countFiles(File folder) {
+        int count = 0;
+        File[] children = folder.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                count += child.isDirectory() ? countFiles(child) : 1;
+            }
+        }
+        return count;
+    }
+
+    private String pickedName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String name = cursor.getString(0);
+                long size = cursor.isNull(1) ? -1 : cursor.getLong(1);
+                return (name == null ? "" : name) + (size > 0 ? " · " + formatSize(size) : "");
+            }
+        } catch (RuntimeException ignored) {
+        }
+        String last = uri.getLastPathSegment();
+        return last == null ? "" : last.substring(last.lastIndexOf('/') + 1).replace("primary:", "");
+    }
+
+    private void onDlcPicked(Intent data, final boolean zip) {
         final File rom = this.dlcRom;
         final Uri uri = data.getData();
         if (rom == null || uri == null) {
             return;
         }
-        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
-        progress.setTitle("DLC 살펴보는 중");
-        progress.setMessage("안에 무엇이 있는지 보고 있어요…");
-        progress.setCancelable(false);
-        progress.show();
+        final String picked = pickedName(uri);
+        final Dialog progress = progressCard(RoundIconView.DLC, RoundIconView.COLOR_DLC, "DLC 살펴보는 중", "안에 무엇이 있는지 보고 있어요…");
         new Thread(() -> {
             PspDlc.Plan plan = null;
             String error = null;
@@ -3379,47 +3554,154 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 progress.dismiss();
-                if (failure != null) {
-                    showError("DLC를 읽지 못했어요: " + failure);
+                if (failure != null || found.why != null) {
+                    showDlcNotFound(rom, picked, failure != null ? "읽지 못했어요: " + failure : found.why);
                     return;
                 }
-                if (found.why != null) {
-                    new AlertDialog.Builder(this).setTitle("DLC를 못 찾았어요").setMessage(found.why).setPositiveButton("확인", null).show();
-                    return;
-                }
-                confirmDlc(rom, uri, found);
+                confirmDlc(rom, uri, picked, found);
             });
         }).start();
     }
 
-    private void confirmDlc(final File rom, final Uri uri, final PspDlc.Plan plan) {
-        StringBuilder text = new StringBuilder();
+    private void showDlcNotFound(final File rom, String picked, String why) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.WARN, Color.rgb(245, 165, 36), "DLC를 못 찾았어요", picked);
+        panel.addView(noteBox(why + "\n다음 중 하나가 들어 있어야 해요.\n• PSP/GAME 또는 PSP/SAVEDATA 폴더\n• PARAM.SFO 나 .EDAT 파일이 든, 게임 ID로 시작하는 폴더 (예: ULJM05066DLC)",
+                Color.rgb(255, 247, 230), Color.rgb(154, 91, 0)), spaced(12));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = sheetButton("닫기", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(close, actionGridParams(0));
+        TextView again = sheetButton("다른 파일 고르기", RoundIconView.COLOR_DLC, Color.WHITE);
+        again.setOnClickListener(view -> {
+            dialog.dismiss();
+            showDlcMenu(rom);
+        });
+        buttons.addView(again, actionGridParams(2));
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(46));
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.show();
+    }
+
+    private LinearLayout stepRow(int number, String title, String detail) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        TextView badge = new TextView(this);
+        badge.setText(String.valueOf(number));
+        badge.setTextSize(12.0f);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setGravity(17);
+        badge.setBackground(rounded(RoundIconView.COLOR_DLC, dp(11)));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+        badgeParams.setMargins(0, dp(2), dp(10), 0);
+        row.addView(badge, badgeParams);
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(1);
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextSize(13.5f);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        titleView.setTextColor(Color.rgb(31, 41, 51));
+        words.addView(titleView);
+        TextView detailView = new TextView(this);
+        detailView.setText(detail);
+        detailView.setTextSize(12.0f);
+        detailView.setTextColor(Color.rgb(85, 95, 110));
+        words.addView(detailView);
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        return row;
+    }
+
+    private void confirmDlc(final File rom, final Uri uri, String picked, final PspDlc.Plan plan) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.DLC, RoundIconView.COLOR_DLC, "DLC 가져오기 · " + plan.fileCount() + "개 파일", displayGameNameFor(rom));
+        panel.addView(stepRow(1, "파일", picked), spaced(12));
+        String idLine = plan.discId.isEmpty() ? "게임 ID를 읽지 못해서 확인 없이 넣어요" : plan.idMismatch ? "게임 ID " + plan.discId + " 와 달라요" : "게임 ID " + plan.discId + " 과 맞아요";
+        panel.addView(stepRow(2, "찾은 내용", idLine), spaced(8));
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        list.setPadding(dp(12), dp(4), dp(12), dp(4));
+        list.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
         for (Map.Entry<String, Integer> entry : plan.packages.entrySet()) {
             String pkg = entry.getKey();
-            String area = pkg.startsWith("PSP/SAVEDATA") ? "추가 데이터" : "DLC 패키지";
-            text.append("• ").append(area).append(" · ").append(pkg.substring(pkg.lastIndexOf('/') + 1)).append(" · ").append(entry.getValue()).append("개\n");
+            addPlanLine(list, (pkg.startsWith("PSP/SAVEDATA") ? "추가 데이터 · " : "DLC 패키지 · ") + pkg.substring(pkg.lastIndexOf('/') + 1), entry.getValue() + "개");
         }
         if (plan.overwrites > 0) {
-            text.append("• 이미 있는 파일 ").append(plan.overwrites).append("개는 덮어써요\n");
+            addPlanLine(list, "이미 있는 파일", "덮어씀 " + plan.overwrites + "개");
         }
-        text.append("\nPSP 메모리스틱의 PSP/GAME 과 PSP/SAVEDATA 에 복사해요. 게임 세이브는 건드리지 않아요. 암호화된 DLC는 PPSSPP가 알아서 열어요.");
+        panel.addView(list, spaced(8));
         if (plan.idMismatch) {
-            text.append("\n\n주의: 폴더 이름이 이 게임의 ID(").append(plan.discId).append(")로 시작하지 않아요. 다른 게임의 DLC일 수 있어요.");
+            panel.addView(noteBox("폴더 이름이 이 게임의 ID(" + plan.discId + ")로 시작하지 않아요. 다른 게임의 DLC일 수 있어요.", Color.rgb(255, 247, 230), Color.rgb(154, 91, 0)), spaced(8));
         }
-        new AlertDialog.Builder(this).setTitle("DLC 가져오기 · " + plan.fileCount() + "개 파일").setMessage(text.toString())
-                .setNegativeButton("취소", null)
-                .setPositiveButton(plan.idMismatch ? "그래도 가져오기" : "가져오기", (d, w) -> runImport("DLC 가져오기", reporter -> {
-                    reporter.report(plan.fileCount() + "개 파일을 복사하는 중…");
-                    PspDlc.install(getContentResolver(), uri, plan, pspMemstick());
-                    int count = PspDlc.installed(pspMemstick(), plan.discId).size();
-                    romPrefs().edit().putInt("dlc:" + rom.getName(), Math.max(count, plan.packages.size())).apply();
-                    StringBuilder done = new StringBuilder("DLC를 가져왔어요.\n");
-                    for (Map.Entry<String, Integer> entry : plan.packages.entrySet()) {
-                        done.append("• ").append(entry.getKey().substring(entry.getKey().lastIndexOf('/') + 1)).append(" · ").append(entry.getValue()).append("개\n");
-                    }
-                    done.append("게임을 켜면 바로 인식돼요.");
-                    return done.toString();
-                })).show();
+        panel.addView(noteBox("PSP/GAME 과 PSP/SAVEDATA 에 복사해요. 게임 세이브는 건드리지 않아요.", Color.rgb(232, 246, 255), Color.rgb(3, 105, 161)), spaced(8));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = sheetButton("취소", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, actionGridParams(0));
+        TextView go = sheetButton(plan.idMismatch ? "그래도 가져오기" : "가져오기", RoundIconView.COLOR_DLC, Color.WHITE);
+        go.setOnClickListener(view -> {
+            dialog.dismiss();
+            installDlc(rom, uri, plan);
+        });
+        buttons.addView(go, actionGridParams(2));
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(46));
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.show();
+    }
+
+    private void addPlanLine(LinearLayout list, String name, String value) {
+        LinearLayout line = new LinearLayout(this);
+        line.setOrientation(0);
+        line.setPadding(0, dp(5), 0, dp(5));
+        TextView left = new TextView(this);
+        left.setText(name);
+        left.setTextSize(12.5f);
+        left.setTextColor(Color.rgb(55, 65, 81));
+        line.addView(left, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView right = new TextView(this);
+        right.setText(value);
+        right.setTextSize(12.5f);
+        right.setTypeface(Typeface.DEFAULT_BOLD);
+        right.setTextColor(RoundIconView.COLOR_DLC);
+        line.addView(right, new LinearLayout.LayoutParams(-2, -2));
+        list.addView(line, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private void installDlc(final File rom, final Uri uri, final PspDlc.Plan plan) {
+        final Dialog progress = progressCard(RoundIconView.DLC, RoundIconView.COLOR_DLC, "DLC 가져오는 중", plan.fileCount() + "개 파일을 복사하고 있어요…");
+        new Thread(() -> {
+            String error = null;
+            try {
+                PspDlc.install(getContentResolver(), uri, plan, pspMemstick());
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() == null ? e.toString() : e.getMessage();
+            }
+            final String failure = error;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (failure != null) {
+                    showError("DLC 가져오기 실패: " + failure);
+                    return;
+                }
+                int count = PspDlc.installed(pspMemstick(), plan.discId).size();
+                romPrefs().edit().putInt("dlc:" + rom.getName(), Math.max(count, plan.packages.size())).apply();
+                refreshLibrary();
+                StringBuilder done = new StringBuilder("DLC를 가져왔어요");
+                for (Map.Entry<String, Integer> entry : plan.packages.entrySet()) {
+                    done.append(" · ").append(entry.getKey().substring(entry.getKey().lastIndexOf('/') + 1)).append(' ').append(entry.getValue()).append("개");
+                }
+                showMessage(done.toString());
+                showDlcMenu(rom);
+            });
+        }).start();
     }
 
     private void pickPatch(File file) {

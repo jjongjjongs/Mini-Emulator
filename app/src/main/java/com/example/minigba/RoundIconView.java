@@ -48,6 +48,7 @@ final class RoundIconView extends View {
     static final int WIFI = 33;
     static final int DS = 34;
     static final int DLC = 35;
+    static final int WARN = 36;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -436,6 +437,16 @@ final class RoundIconView extends View {
                 Paint level = new Paint(line);
                 level.setStyle(Paint.Style.FILL);
                 canvas.drawRect(6, 10, 13, 14, level);
+                break;
+            }
+            case WARN: {
+                // An exclamation mark.
+                path.moveTo(12, 5);
+                path.lineTo(12, 14);
+                canvas.drawPath(path, line);
+                Paint dot = new Paint(line);
+                dot.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(12, 18.5f, 1.6f, dot);
                 break;
             }
             case DLC: {
