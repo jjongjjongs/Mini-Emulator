@@ -187,6 +187,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_IMPORT_DC_BIOS = 1026;
     private static final int REQUEST_IMPORT_N3DS_KEYS = 1035;
     private static final int REQUEST_PICK_CIA = 1036;
+    private static final int REQUEST_IMPORT_PS1_BIOS = 1037;
     private static final int REQUEST_PICK_COVER = 1027;
     private static final int REQUEST_PICK_PATCH = 1050;
     private static final int REQUEST_PICK_DLC_ZIP = 1051;
@@ -194,6 +195,7 @@ public final class MainActivity extends Activity {
     private File dlcRom;
     private TextView dcBiosStatusView;
     private TextView n3dsKeysStatusView;
+    private TextView ps1BiosStatusView;
     private TextView n3dsKeysBanner;
     private TextView mcdBiosStatusView;
     private TextView saturnBiosStatusView;
@@ -408,6 +410,7 @@ public final class MainActivity extends Activity {
         this.noteView = null;
         this.dcBiosStatusView = null;
         this.n3dsKeysStatusView = null;
+        this.ps1BiosStatusView = null;
         this.n3dsKeysBanner = null;
     }
 
@@ -590,6 +593,11 @@ public final class MainActivity extends Activity {
                 LinearLayout dcBiosTile = createActionCard("DC BIOS", dcBiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showDcBiosSheet());
                 this.dcBiosStatusView = (TextView) dcBiosTile.getTag();
                 actionRow.addView(dcBiosTile, actionTileParams());
+            }
+            if (MODE_PS1.equals(this.currentMode)) {
+                LinearLayout ps1BiosTile = createActionCard("PS1 BIOS", ps1BiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPs1BiosSheet());
+                this.ps1BiosStatusView = (TextView) ps1BiosTile.getTag();
+                actionRow.addView(ps1BiosTile, actionTileParams());
             }
             if (MODE_N3DS.equals(this.currentMode)) {
                 LinearLayout keysTile = createActionCard("3DS 키 파일", n3dsKeysStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showN3dsKeysSheet());
@@ -1048,6 +1056,10 @@ public final class MainActivity extends Activity {
                 this.pceBiosBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
             }
         }
+        if (this.ps1BiosStatusView != null) {
+            this.ps1BiosStatusView.setText(ps1BiosStatusText());
+            this.ps1BiosStatusView.setTextColor(ps1BiosFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        }
         if (this.n3dsKeysStatusView != null) {
             this.n3dsKeysStatusView.setText(n3dsKeysStatusText());
             this.n3dsKeysStatusView.setTextColor(n3dsKeysFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
@@ -1438,6 +1450,10 @@ public final class MainActivity extends Activity {
             }
         } else if (i == REQUEST_PICK_CIA) {
             onCiaPicked(intent);
+        } else if (i == REQUEST_IMPORT_PS1_BIOS) {
+            if (data != null) {
+                importPs1Bios(data);
+            }
         } else if (i == REQUEST_PICK_COVER) {
             File rom = this.pendingCoverRom;
             this.pendingCoverRom = null;
@@ -8180,6 +8196,168 @@ public final class MainActivity extends Activity {
             return data;
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    // ---- PS1 BIOS: optional; PCSX ReARMed runs on its own HLE BIOS without one ----
+    private static final int PS1_BIOS_SIZE = 512 * 1024;
+
+    /** PCSX ReARMed looks for a BIOS by a few known names in the system folder; one name serves all regions. */
+    private File ps1BiosFile() {
+        return new File(systemDir(), "scph1001.bin");
+    }
+
+    private String ps1BiosStatusText() {
+        return ps1BiosFile().isFile() ? "등록됨 · 실제 BIOS" : "없음 · 내장 BIOS";
+    }
+
+    private void showPs1BiosSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        boolean present = ps1BiosFile().isFile();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        TextView icon = new TextView(this);
+        icon.setText("BIOS");
+        icon.setTextColor(-1);
+        icon.setTextSize(13.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(239, 84, 103), dp(13)));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("PS1 BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView state = new TextView(this);
+        state.setText(present ? "실제 BIOS 등록됨 · " + formatSize(ps1BiosFile().length()) : "등록된 BIOS 없음 · 내장 BIOS로 실행 중");
+        state.setTextSize(12.0f);
+        state.setTextColor(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        titles.addView(state);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout kinds = new LinearLayout(this);
+        kinds.setOrientation(0);
+        kinds.addView(engineCard("BIOS 없이", "내장 BIOS", "대부분 게임 실행", !present), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        secondParams.setMargins(dp(8), 0, 0, 0);
+        kinds.addView(engineCard("실제 BIOS", "scph·psxonpsp", "호환성 ↑ · 부팅 화면", present), secondParams);
+        LinearLayout.LayoutParams kindsParams = new LinearLayout.LayoutParams(-1, -2);
+        kindsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(kinds, kindsParams);
+
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("직접 가진 PS1에서 추출한 BIOS(512KB)를 골라 주세요. <b>scph1001.bin · scph5501.bin · scph7001.bin · psxonpsp660.bin</b> 같은 파일이고, .zip에 든 것도 돼요.<br>BIOS 없이도 내장 BIOS로 대부분 게임이 돌아가요. 메모리 카드 화면이 깨지거나 부팅이 안 되는 게임이 있을 때만 넣으면 됩니다. 지역(미국·일본·유럽)은 아무것이나 돼요.", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        TextView choose = sheetButton(present ? "다른 BIOS로 바꾸기" : "BIOS 파일 선택", MODE_COLORS[modeIndex(MODE_PS1)], -1);
+        choose.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+            intent.addCategory("android.intent.category.OPENABLE");
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_IMPORT_PS1_BIOS);
+        });
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+        chooseParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(choose, chooseParams);
+        if (present) {
+            TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
+            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("PS1 BIOS 삭제").setMessage("BIOS를 지우면 내장 BIOS로 실행돼요. 대부분 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+                dialog.dismiss();
+                ps1BiosFile().delete();
+                showMessage("PS1 BIOS를 삭제했습니다.");
+                updateHomeStatusCards();
+            }).show());
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, dp(44));
+            deleteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(delete, deleteParams);
+        }
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    private void importPs1Bios(Uri uri) {
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("선택한 파일을 열 수 없습니다");
+            }
+            byte[] data = readLimited(in, 16 * 1024 * 1024);
+            byte[] bios = null;
+            if (data.length > 4 && data[0] == 'P' && data[1] == 'K') {
+                try (ZipInputStream zip = new ZipInputStream(new java.io.ByteArrayInputStream(data))) {
+                    ZipEntry entry;
+                    while ((entry = zip.getNextEntry()) != null) {
+                        if (entry.isDirectory()) continue;
+                        byte[] part = readLimited(zip, 4 * 1024 * 1024);
+                        if (part.length == PS1_BIOS_SIZE) {
+                            bios = part;
+                            break;
+                        }
+                    }
+                }
+            } else if (data.length == PS1_BIOS_SIZE) {
+                bios = data;
+            }
+            if (bios == null) {
+                throw new IOException("PS1 BIOS가 아니에요. 512KB짜리 scph*.bin 또는 psxonpsp660.bin을 골라 주세요.");
+            }
+            // Every PS1 BIOS carries Sony's name in its header area.
+            String text = new String(bios, 0, 0x1000, StandardCharsets.ISO_8859_1);
+            if (!text.contains("Sony Computer Entertainment")) {
+                throw new IOException("PS1 BIOS 형식이 아니에요 (Sony 서명 없음)");
+            }
+            File dir = systemDir();
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("시스템 폴더를 만들 수 없습니다");
+            }
+            try (FileOutputStream out = new FileOutputStream(ps1BiosFile())) {
+                out.write(bios);
+            }
+            showMessage("PS1 BIOS를 가져왔습니다. 다음 실행부터 실제 BIOS로 켜져요.");
+            updateHomeStatusCards();
+        } catch (IOException e) {
+            showError("PS1 BIOS 가져오기 실패: " + e.getMessage());
         }
     }
 
