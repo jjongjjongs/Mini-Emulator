@@ -3288,6 +3288,56 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
 }
 
+// 3DS: install a CIA through the Citra core's own installer (a function the core build
+// exports for this app), reporting bytes done to the Java callback on this thread. The
+// core stays loaded in this process afterwards. Returns Citra's InstallStatus: 0 success,
+// 1 cannot open, 2 not found, 3 aborted, 4 invalid, 5 encrypted without a key; -1 when
+// the core or its installer is missing.
+namespace {
+struct CiaProgressContext {
+    JNIEnv* env;
+    jobject callback;
+    jmethodID method;
+};
+
+void ciaProgress(void* user, uint64_t done, uint64_t total) {
+    auto* ctx = static_cast<CiaProgressContext*>(user);
+    if (ctx != nullptr && ctx->callback != nullptr && ctx->method != nullptr) {
+        ctx->env->CallVoidMethod(ctx->callback, ctx->method, static_cast<jlong>(done), static_cast<jlong>(total));
+        if (ctx->env->ExceptionCheck()) {
+            ctx->env->ExceptionClear();
+        }
+    }
+}
+}  // namespace
+
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_installCia(
+        JNIEnv* env, jclass /*cls*/, jstring userDir, jstring ciaPath, jobject callback) {
+    static void* library = nullptr;
+    if (library == nullptr) {
+        library = dlopen("libcitra_libretro_android.so", RTLD_NOW);
+        if (library == nullptr) {
+            LOGE("dlopen citra failed: %s", dlerror());
+            return -1;
+        }
+    }
+    using InstallFn = int (*)(const char*, const char*, void (*)(void*, uint64_t, uint64_t), void*);
+    auto install = reinterpret_cast<InstallFn>(dlsym(library, "citra_install_cia"));
+    if (install == nullptr) {
+        LOGE("citra_install_cia missing from the core");
+        return -1;
+    }
+    CiaProgressContext ctx{env, callback, nullptr};
+    if (callback != nullptr) {
+        jclass cls = env->GetObjectClass(callback);
+        ctx.method = env->GetMethodID(cls, "onProgress", "(JJ)V");
+        env->DeleteLocalRef(cls);
+    }
+    std::string dir = jstringToString(env, userDir);
+    std::string path = jstringToString(env, ciaPath);
+    return install(dir.c_str(), path.c_str(), ciaProgress, &ctx);
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gN3dsScale.store(scale >= 1 && scale <= 3 ? scale : 1);
 }

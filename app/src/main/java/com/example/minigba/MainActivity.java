@@ -106,7 +106,7 @@ public final class MainActivity extends Activity {
             {MODE_DC, "flycast", ".chd,.cdi", ".chd / .cdi", "roms_dc", "1025"},
             {MODE_NDS, "melonds", ".nds", ".nds / .zip", "roms_nds", "1022"},
             // 3DS cartridge dumps (NCSD) and decrypted/encrypted executables (NCCH) on Citra.
-            {MODE_N3DS, "citra", ".3ds,.cci,.cxi", ".3ds / .cci / .cxi", "roms_3ds", "1034"},
+            {MODE_N3DS, "citra", ".3ds,.cci,.cxi,.app", ".3ds / .cci / .cxi", "roms_3ds", "1034"},
             // Mega CD discs and 32X cartridges on PicoDrive.
             {MODE_MCD, "picodrive", ".cue,.chd,.iso,.bin,.32x", ".cue+.bin / .chd / .32x", "roms_mcd", "1030"},
             {MODE_WS, "wswan", ".ws,.wsc,.pc2", ".ws / .wsc / .zip", "roms_ws", "1028"},
@@ -186,6 +186,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_IMPORT_PCE_BIOS = 1021;
     private static final int REQUEST_IMPORT_DC_BIOS = 1026;
     private static final int REQUEST_IMPORT_N3DS_KEYS = 1035;
+    private static final int REQUEST_PICK_CIA = 1036;
     private static final int REQUEST_PICK_COVER = 1027;
     private static final int REQUEST_PICK_PATCH = 1050;
     private static final int REQUEST_PICK_DLC_ZIP = 1051;
@@ -580,6 +581,7 @@ public final class MainActivity extends Activity {
                 LinearLayout keysTile = createActionCard("3DS 키 파일", n3dsKeysStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showN3dsKeysSheet());
                 this.n3dsKeysStatusView = (TextView) keysTile.getTag();
                 actionRow.addView(keysTile, actionTileParams());
+                actionRow.addView(createActionCard("CIA 설치", "게임 · 업데이트 · DLC", R.drawable.action_import, COLOR_N3DS, view -> showCiaSheet()), actionTileParams());
             }
             if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
                 LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
@@ -1420,6 +1422,8 @@ public final class MainActivity extends Activity {
             if (data != null) {
                 importN3dsKeys(data);
             }
+        } else if (i == REQUEST_PICK_CIA) {
+            onCiaPicked(intent);
         } else if (i == REQUEST_PICK_COVER) {
             File rom = this.pendingCoverRom;
             this.pendingCoverRom = null;
@@ -2822,6 +2826,24 @@ public final class MainActivity extends Activity {
             title.setSpan(new android.text.style.ForegroundColorSpan(RoundIconView.COLOR_DLC), start, title.length(), 0);
             title.setSpan(new android.text.style.RelativeSizeSpan(0.75f), start, title.length(), 0);
         }
+        if (MODE_N3DS.equals(modeForFile(file))) {
+            // CIA-installed games, and the updates and DLC installed for a game.
+            if (isInstalledCiaGame(file)) {
+                int start = title.length();
+                title.append("  설치됨");
+                title.setSpan(new android.text.style.ForegroundColorSpan(COLOR_N3DS), start, title.length(), 0);
+                title.setSpan(new android.text.style.RelativeSizeSpan(0.75f), start, title.length(), 0);
+            }
+            long tid = N3dsCia.titleIdOf(file);
+            if (tid != 0) {
+                for (N3dsCia.Installed extra : N3dsCia.installedFor(n3dsUserDir(), tid)) {
+                    int start = title.length();
+                    title.append(extra.isUpdate() ? "  업데이트" + (extra.version >= 0 ? " " + N3dsCia.versionName(extra.version) : "") : "  DLC");
+                    title.setSpan(new android.text.style.ForegroundColorSpan(extra.isUpdate() ? Color.rgb(3, 105, 161) : Color.rgb(21, 128, 61)), start, title.length(), 0);
+                    title.setSpan(new android.text.style.RelativeSizeSpan(0.75f), start, title.length(), 0);
+                }
+            }
+        }
         textView.setText(title);
         textView.setTextColor(Color.rgb(45, 53, 64));
         textView.setTextSize(16.0f);
@@ -3198,6 +3220,11 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams dlcParams = new LinearLayout.LayoutParams(-1, dp(52));
             dlcParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createDlcRow(dialog, file), dlcParams);
+        }
+        if (MODE_N3DS.equals(mode)) {
+            LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, dp(52));
+            titleParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createN3dsTitleRow(dialog, file), titleParams);
         }
 
         LinearLayout deletes = new LinearLayout(this);
@@ -5103,7 +5130,12 @@ public final class MainActivity extends Activity {
     }
 
     private void deleteRomConfirmed(File file, DialogInterface dialogInterface, int i) {
+        File installedTitle = isInstalledCiaGame(file) ? installedCiaTitleDir(file) : null;
         if (deleteRomFiles(file)) {
+            if (installedTitle != null) {
+                // The list entry was a link into the virtual SD card: drop the title with it.
+                N3dsCia.deleteTree(installedTitle);
+            }
             Covers.forget(this, file);
             romPrefs().edit().remove("title:" + file.getName()).remove("save:" + file.getName()).remove("favorite:" + file.getName()).remove("recent:" + file.getName()).remove("core:" + file.getName()).apply();
             showMessage("ROM을 삭제했습니다.");
@@ -7372,6 +7404,513 @@ public final class MainActivity extends Activity {
     // keys only decrypted dumps start.
     private File n3dsKeysFile() {
         return new File(new File(new File(new File(saveDir(), "citra"), "Citra"), "sysdata"), "aes_keys.txt");
+    }
+
+    // ---- 3DS CIA install: games, updates and DLC into Citra's virtual SD card ----
+    private static final int COLOR_N3DS = Color.rgb(225, 29, 72);
+
+    /** Citra's user directory (the bridge hands the core files/saves/citra as its save dir). */
+    private File n3dsUserDir() {
+        return new File(new File(saveDir(), "citra"), "Citra");
+    }
+
+    private File ciaCacheDir() {
+        return new File(getCacheDir(), "cia");
+    }
+
+    /** A list entry that links into the virtual SD card (a game installed from a CIA). */
+    private boolean isInstalledCiaGame(File file) {
+        if (!MODE_N3DS.equals(modeForFile(file)) || !file.getName().toLowerCase(Locale.US).endsWith(".app")) {
+            return false;
+        }
+        try {
+            return !file.getCanonicalPath().equals(file.getAbsolutePath());
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** The title folder (…/title/00040000/<low>/) an installed game's link points into. */
+    private File installedCiaTitleDir(File link) {
+        try {
+            File content = new File(link.getCanonicalPath()).getParentFile();
+            return content == null ? null : content.getParentFile();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private void showCiaSheet() {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.DLC, COLOR_N3DS, "CIA 설치", "Citra 가상 SD에 설치해요");
+        List<File> games = N3dsCia.installedGames(n3dsUserDir());
+        panel.addView(noteBox(".cia 파일을 하나 또는 여러 개 골라 주세요. 파일의 제목 ID로 게임 · 업데이트 · DLC를 가려내고 대상 게임을 찾아 보여 줘요.\n"
+                + (n3dsKeysFile().isFile() ? "키 파일이 있어 암호화된 CIA도 설치돼요." : "암호화된 CIA는 키 파일(aes_keys.txt)이 있어야 설치돼요. 먼저 \"3DS 키 파일\"에서 등록해 주세요."),
+                Color.rgb(232, 246, 255), Color.rgb(3, 105, 161)), spaced(12));
+        if (!games.isEmpty()) {
+            panel.addView(sectionLabel("CIA로 설치한 게임 · " + games.size() + "개"));
+            for (File game : games) {
+                TextView line = new TextView(this);
+                line.setText("• " + game.getName() + "  ·  " + formatSize(N3dsCia.sizeOf(game)));
+                line.setTextSize(12.0f);
+                line.setTextColor(Color.rgb(75, 85, 99));
+                line.setPadding(dp(4), dp(2), 0, dp(2));
+                panel.addView(line, new LinearLayout.LayoutParams(-1, -2));
+            }
+        }
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = sheetButton("닫기", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(close, actionGridParams(0));
+        TextView pick = sheetButton("CIA 파일 고르기", COLOR_N3DS, Color.WHITE);
+        pick.setOnClickListener(v -> {
+            dialog.dismiss();
+            pickCia();
+        });
+        buttons.addView(pick, actionGridParams(2));
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(46));
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.show();
+    }
+
+    private void pickCia() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        try {
+            startActivityForResult(intent, REQUEST_PICK_CIA);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    // The picked files are copied into the cache (the core installs from a path) and their
+    // TMDs read; then the confirmation card.
+    private void onCiaPicked(Intent data) {
+        if (data == null) {
+            return;
+        }
+        final List<Uri> uris = new ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int i = 0; i < data.getClipData().getItemCount(); i++) {
+                Uri uri = data.getClipData().getItemAt(i).getUri();
+                if (uri != null) uris.add(uri);
+            }
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        if (uris.isEmpty()) {
+            return;
+        }
+        final Dialog progress = progressCard(RoundIconView.DLC, COLOR_N3DS, "CIA 살펴보는 중", uris.size() + "개 파일을 읽고 있어요…");
+        new Thread(() -> {
+            final List<N3dsCia.Info> infos = new ArrayList<>();
+            final List<String> problems = new ArrayList<>();
+            File cache = ciaCacheDir();
+            //noinspection ResultOfMethodCallIgnored
+            cache.mkdirs();
+            for (Uri uri : uris) {
+                String shown = pickedName(uri);
+                String name = shown.contains(" · ") ? shown.substring(0, shown.indexOf(" · ")) : shown;
+                if (name.isEmpty()) name = "cia";
+                File copy = new File(cache, infos.size() + "-" + name.replaceAll("[\\\\/:*?\"<>|]", "_"));
+                try (InputStream in = getContentResolver().openInputStream(uri); FileOutputStream out = new FileOutputStream(copy)) {
+                    if (in == null) throw new IOException("열 수 없어요");
+                    byte[] buffer = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                } catch (IOException e) {
+                    //noinspection ResultOfMethodCallIgnored
+                    copy.delete();
+                    problems.add(name + ": 복사 실패 (" + e.getMessage() + ")");
+                    continue;
+                }
+                try {
+                    infos.add(N3dsCia.parse(copy, name));
+                } catch (IOException e) {
+                    //noinspection ResultOfMethodCallIgnored
+                    copy.delete();
+                    problems.add(name + ": " + e.getMessage());
+                }
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                progress.dismiss();
+                if (infos.isEmpty()) {
+                    showError("CIA 파일이 아니에요" + (problems.isEmpty() ? "" : " · " + problems.get(0)));
+                    return;
+                }
+                confirmCia(infos, problems);
+            });
+        }).start();
+    }
+
+    /** The list entry (cartridge or installed game) whose title ID lower half matches, or null. */
+    private File n3dsGameForLow(long low) {
+        File[] files = romDirFor(MODE_N3DS).listFiles(this::isRomFile);
+        if (files == null) return null;
+        for (File file : files) {
+            long tid = N3dsCia.titleIdOf(file);
+            if (tid != 0 && (tid & 0xFFFFFFFFL) == low) return file;
+        }
+        return null;
+    }
+
+    private void confirmCia(final List<N3dsCia.Info> infos, List<String> problems) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.DLC, COLOR_N3DS, "CIA 설치 · " + infos.size() + "개", "Citra 가상 SD에 설치해요");
+        panel.addView(sectionLabel("고른 파일"));
+        boolean orphan = false;
+        boolean encryptedWithoutKeys = false;
+        for (N3dsCia.Info info : infos) {
+            String target;
+            if (info.isGame()) {
+                File existing = N3dsCia.contentApp(N3dsCia.titleDir(n3dsUserDir(), info.titleId));
+                target = existing != null ? "이미 설치된 게임 · 덮어써요" : "새 게임으로 목록에 추가돼요";
+            } else if (info.isUpdate() || info.isDlc()) {
+                File game = n3dsGameForLow(info.low());
+                target = game != null ? "대상: " + displayGameNameFor(game) + " ✓" : "대상 게임이 목록에 없어요";
+                orphan |= game == null;
+            } else {
+                target = "게임이 아닌 타이틀 · 그대로 설치해요";
+            }
+            panel.addView(ciaLine(info.kindName(), info.name, info.kindName() + " · " + N3dsCia.hex(info.titleId) + " · " + formatSize(info.size) + "\n" + target), spaced(6));
+        }
+        for (String problem : problems) {
+            panel.addView(ciaLine("!", problem, "건너뛰어요"), spaced(6));
+        }
+        if (orphan) {
+            panel.addView(noteBox("업데이트·DLC는 대상 게임이 있을 때만 쓸모 있어요. 대상 게임이 목록에 없는 파일은 설치는 되지만 표시되지 않아요.", Color.rgb(255, 247, 230), Color.rgb(154, 91, 0)), spaced(10));
+        }
+        panel.addView(noteBox(n3dsKeysFile().isFile() ? "CIA는 키 파일로 풀어서 설치해요. 설치 중엔 앱을 닫지 마세요. 세이브는 건드리지 않아요."
+                : "키 파일이 없어 암호화된 CIA는 실패해요(복호화된 CIA만 설치돼요). 설치 중엔 앱을 닫지 마세요.", Color.rgb(232, 246, 255), Color.rgb(3, 105, 161)), spaced(10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = sheetButton("취소", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(v -> {
+            dialog.dismiss();
+            for (N3dsCia.Info info : infos) {
+                //noinspection ResultOfMethodCallIgnored
+                info.file.delete();
+            }
+        });
+        buttons.addView(cancel, actionGridParams(0));
+        TextView yes = sheetButton(infos.size() + "개 설치", COLOR_N3DS, Color.WHITE);
+        yes.setOnClickListener(v -> {
+            dialog.dismiss();
+            installCias(infos);
+        });
+        buttons.addView(yes, actionGridParams(2));
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(46));
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setCancelable(false);
+        dialog.show();
+    }
+
+    private LinearLayout ciaLine(String kind, String name, String detail) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+        TextView tag = new TextView(this);
+        String label = "게임".equals(kind) ? "GAME" : "업데이트".equals(kind) ? "UPD" : "DLC".equals(kind) ? "DLC" : "!".equals(kind) ? "!" : "CIA";
+        int color = "GAME".equals(label) ? COLOR_N3DS : "UPD".equals(label) ? Color.rgb(3, 105, 161) : "DLC".equals(label) ? Color.rgb(21, 128, 61) : "!".equals(label) ? Color.rgb(229, 72, 77) : Color.rgb(107, 114, 128);
+        tag.setText(label);
+        tag.setTextSize(10.0f);
+        tag.setTypeface(Typeface.DEFAULT_BOLD);
+        tag.setTextColor(Color.WHITE);
+        tag.setPadding(dp(7), dp(3), dp(7), dp(3));
+        tag.setBackground(rounded(color, dp(7)));
+        row.addView(tag, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(13.5f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        words.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(detail);
+        sub.setTextSize(11.5f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        words.addView(sub);
+        LinearLayout.LayoutParams wordsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        wordsParams.setMargins(dp(10), 0, 0, 0);
+        row.addView(words, wordsParams);
+        return row;
+    }
+
+    private static String ciaStatusText(int status) {
+        switch (status) {
+            case 0: return "설치됨";
+            case 1: return "파일을 열지 못했어요";
+            case 2: return "파일이 없어요";
+            case 3: return "설치 도중 실패했어요";
+            case 4: return "CIA 형식이 아니에요";
+            case 5: return "암호화돼 있는데 키가 없어요";
+            case -1: return "3DS 엔진을 불러오지 못했어요";
+            default: return "실패 (" + status + ")";
+        }
+    }
+
+    // Installs the files one after another on a worker thread, each with a progress bar
+    // in the card; then the results replace the bars and the list refreshes.
+    private void installCias(final List<N3dsCia.Info> infos) {
+        final LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        dialog.setCancelable(false);
+        cardHeader(panel, RoundIconView.DLC, COLOR_N3DS, "CIA 설치 중 · 1 / " + infos.size(), "설치가 끝날 때까지 기다려 주세요");
+        final TextView headerTitle = (TextView) ((LinearLayout) ((LinearLayout) panel.getChildAt(0)).getChildAt(1)).getChildAt(0);
+        final List<TextView> statusViews = new ArrayList<>();
+        final List<android.widget.ProgressBar> bars = new ArrayList<>();
+        for (N3dsCia.Info info : infos) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(1);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+            TextView name = new TextView(this);
+            name.setText(info.name);
+            name.setTextSize(13.5f);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            row.addView(name);
+            TextView status = new TextView(this);
+            status.setText("대기 중 · " + formatSize(info.size));
+            status.setTextSize(11.5f);
+            status.setTextColor(Color.rgb(122, 130, 140));
+            row.addView(status);
+            android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            bar.setMax(1000);
+            bar.setProgress(0);
+            bar.setVisibility(View.GONE);
+            row.addView(bar, spaced(4));
+            statusViews.add(status);
+            bars.add(bar);
+            panel.addView(row, spaced(6));
+        }
+        final TextView close = sheetButton("설치 끝나면 닫을 수 있어요", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+        close.setEnabled(false);
+        close.setAlpha(0.5f);
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.show();
+        final String userDir = n3dsUserDir().getAbsolutePath();
+        new Thread(() -> {
+            final int[] results = new int[infos.size()];
+            final List<String> installedGames = new ArrayList<>();
+            for (int i = 0; i < infos.size(); i++) {
+                final int index = i;
+                final N3dsCia.Info info = infos.get(i);
+                runOnUiThread(() -> {
+                    headerTitle.setText("CIA 설치 중 · " + (index + 1) + " / " + infos.size());
+                    statusViews.get(index).setText("설치 중 · 0 / " + formatSize(info.size));
+                    bars.get(index).setVisibility(View.VISIBLE);
+                });
+                final long[] lastShown = {0};
+                int status;
+                try {
+                    status = NativeGba.installCia(userDir, info.file.getAbsolutePath(), (done, total) -> {
+                        if (total <= 0 || done - lastShown[0] < total / 200 && done < total) return;
+                        lastShown[0] = done;
+                        runOnUiThread(() -> {
+                            bars.get(index).setProgress((int) (done * 1000 / total));
+                            statusViews.get(index).setText("설치 중 · " + formatSize(done) + " / " + formatSize(total));
+                        });
+                    });
+                } catch (Throwable t) {
+                    status = 3;
+                }
+                //noinspection ResultOfMethodCallIgnored
+                info.file.delete();
+                results[i] = status;
+                String line = ciaStatusText(status);
+                if (status == 0 && info.isGame()) {
+                    String linked = linkInstalledCiaGame(info);
+                    if (linked != null) {
+                        installedGames.add(linked);
+                        line = "설치됨 · 목록에 추가";
+                    } else {
+                        line = "설치됐지만 목록에 넣지 못했어요";
+                    }
+                } else if (status == 0 && info.isUpdate()) {
+                    line = "설치됨 · 업데이트 " + N3dsCia.versionName(info.version);
+                } else if (status == 0 && info.isDlc()) {
+                    line = "설치됨 · DLC";
+                }
+                final String shown = line;
+                final boolean ok = status == 0;
+                runOnUiThread(() -> {
+                    bars.get(index).setVisibility(View.GONE);
+                    statusViews.get(index).setText((ok ? "✓ " : "✕ ") + shown);
+                    statusViews.get(index).setTextColor(ok ? Color.rgb(22, 163, 74) : Color.rgb(229, 72, 77));
+                });
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                int okCount = 0;
+                for (int r : results) if (r == 0) okCount++;
+                headerTitle.setText(okCount == infos.size() ? "CIA 설치 완료 · " + okCount + "개" : "CIA 설치 끝 · " + okCount + " / " + infos.size() + "개 성공");
+                close.setText("목록으로");
+                close.setEnabled(true);
+                close.setAlpha(1.0f);
+                close.setOnClickListener(v -> dialog.dismiss());
+                dialog.setCancelable(true);
+                refreshLibrary();
+                updateHomeStatusCards();
+            });
+        }).start();
+    }
+
+    /** Puts a link to an installed game's executable in the ROM folder; returns the entry name or null. */
+    private String linkInstalledCiaGame(N3dsCia.Info info) {
+        File app = N3dsCia.contentApp(N3dsCia.titleDir(n3dsUserDir(), info.titleId));
+        if (app == null) {
+            return null;
+        }
+        File romDir = romDirFor(MODE_N3DS);
+        if (!romDir.isDirectory() && !romDir.mkdirs()) {
+            return null;
+        }
+        String base = info.name.toLowerCase(Locale.US).endsWith(".cia") ? info.name.substring(0, info.name.length() - 4) : info.name;
+        if (base.trim().isEmpty()) base = N3dsCia.hex(info.titleId);
+        File link = new File(romDir, base + ".app");
+        // An entry for the same title (whatever it was called) is replaced.
+        File[] existing = romDir.listFiles();
+        if (existing != null) {
+            for (File file : existing) {
+                if (isInstalledCiaGame(file)) {
+                    File dir = installedCiaTitleDir(file);
+                    if (dir != null && dir.equals(N3dsCia.titleDir(n3dsUserDir(), info.titleId))) {
+                        //noinspection ResultOfMethodCallIgnored
+                        file.delete();
+                    }
+                }
+            }
+        }
+        //noinspection ResultOfMethodCallIgnored
+        link.delete();
+        try {
+            android.system.Os.symlink(app.getAbsolutePath(), link.getAbsolutePath());
+        } catch (android.system.ErrnoException e) {
+            return null;
+        }
+        return link.getName();
+    }
+
+    private LinearLayout createN3dsTitleRow(Dialog dialog, File file) {
+        boolean installedGame = isInstalledCiaGame(file);
+        long tid = N3dsCia.titleIdOf(file);
+        List<N3dsCia.Installed> extras = tid == 0 ? new ArrayList<>() : N3dsCia.installedFor(n3dsUserDir(), tid);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+        row.addView(new RoundIconView(this, RoundIconView.DLC, COLOR_N3DS), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText("업데이트 · DLC 관리");
+        label.setTextSize(14.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1.0f));
+        TextView value = new TextView(this);
+        value.setText((extras.isEmpty() ? (installedGame ? "CIA 게임" : "없음") : extras.size() + "개 설치됨") + "  ›");
+        value.setTextSize(12.5f);
+        value.setTypeface(Typeface.DEFAULT_BOLD);
+        value.setTextColor(extras.isEmpty() ? Color.rgb(122, 130, 140) : COLOR_N3DS);
+        row.addView(value);
+        row.setClickable(true);
+        row.setOnClickListener(view -> {
+            dialog.dismiss();
+            showN3dsTitleMenu(file);
+        });
+        return row;
+    }
+
+    private void showN3dsTitleMenu(final File file) {
+        long tid = N3dsCia.titleIdOf(file);
+        final List<N3dsCia.Installed> extras = tid == 0 ? new ArrayList<>() : N3dsCia.installedFor(n3dsUserDir(), tid);
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.DLC, COLOR_N3DS, "업데이트 · DLC", displayGameNameFor(file) + (tid == 0 ? " · 제목 ID를 읽지 못함" : " · " + N3dsCia.hex(tid)));
+        if (extras.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("설치된 업데이트 · DLC가 없어요");
+            empty.setTextSize(12.0f);
+            empty.setTextColor(Color.rgb(154, 163, 178));
+            empty.setGravity(17);
+            empty.setPadding(0, dp(14), 0, dp(6));
+            panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        }
+        for (final N3dsCia.Installed extra : extras) {
+            LinearLayout row = ciaLine(extra.isUpdate() ? "업데이트" : "DLC",
+                    extra.isUpdate() ? "업데이트 " + (extra.version >= 0 ? N3dsCia.versionName(extra.version) : "") : "DLC",
+                    N3dsCia.hex(extra.titleId) + " · " + formatSize(extra.size));
+            TextView remove = new TextView(this);
+            remove.setText("지우기");
+            remove.setTextSize(12.0f);
+            remove.setTypeface(Typeface.DEFAULT_BOLD);
+            remove.setTextColor(Color.rgb(229, 72, 77));
+            remove.setPadding(dp(10), dp(5), dp(10), dp(5));
+            GradientDrawable outline = rounded(Color.WHITE, dp(999));
+            outline.setStroke(dp(1), Color.rgb(243, 194, 197));
+            remove.setBackground(outline);
+            remove.setOnClickListener(view -> {
+                dialog.dismiss();
+                LinearLayout confirmPanel = new LinearLayout(this);
+                final Dialog confirm = cardDialog(confirmPanel);
+                cardHeader(confirmPanel, RoundIconView.TRASH, Color.rgb(229, 72, 77), (extra.isUpdate() ? "업데이트" : "DLC") + " 지우기", N3dsCia.hex(extra.titleId));
+                confirmPanel.addView(noteBox("지우면 다시 CIA를 설치해야 해요. 게임 세이브는 그대로예요.", Color.rgb(255, 247, 230), Color.rgb(154, 91, 0)), spaced(12));
+                LinearLayout buttons = new LinearLayout(this);
+                TextView cancel = sheetButton("취소", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+                cancel.setOnClickListener(v -> {
+                    confirm.dismiss();
+                    showN3dsTitleMenu(file);
+                });
+                buttons.addView(cancel, actionGridParams(0));
+                TextView yes = sheetButton("지우기", Color.rgb(229, 72, 77), Color.WHITE);
+                yes.setOnClickListener(v -> {
+                    N3dsCia.deleteTree(extra.dir);
+                    confirm.dismiss();
+                    refreshLibrary();
+                    showMessage("지웠어요 · " + N3dsCia.hex(extra.titleId));
+                    showN3dsTitleMenu(file);
+                });
+                buttons.addView(yes, actionGridParams(2));
+                LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(46));
+                buttonsParams.setMargins(0, dp(12), 0, 0);
+                confirmPanel.addView(buttons, buttonsParams);
+                confirm.show();
+            });
+            row.addView(remove, new LinearLayout.LayoutParams(-2, -2));
+            panel.addView(row, spaced(6));
+        }
+        panel.addView(noteBox(isInstalledCiaGame(file) ? "CIA로 설치한 게임이에요. 게임을 지우려면 메뉴의 \"ROM 삭제\"를 쓰면 가상 SD에서도 지워져요."
+                : "게임을 켜면 Citra가 같은 제목 ID의 업데이트·DLC를 알아서 적용해요.", Color.rgb(232, 246, 255), Color.rgb(3, 105, 161)), spaced(12));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = sheetButton("닫기", Color.rgb(240, 241, 245), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(close, actionGridParams(0));
+        TextView add = sheetButton("CIA 추가", COLOR_N3DS, Color.WHITE);
+        add.setOnClickListener(v -> {
+            dialog.dismiss();
+            pickCia();
+        });
+        buttons.addView(add, actionGridParams(2));
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, dp(46));
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.show();
     }
 
     private String n3dsKeysStatusText() {

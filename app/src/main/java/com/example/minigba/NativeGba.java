@@ -42,6 +42,13 @@ final class NativeGba {
 
     static native void setN3dsScale(int scale);
 
+    // 3DS CIA install through the Citra core; see the bridge for the status codes.
+    interface CiaProgress {
+        void onProgress(long done, long total);
+    }
+
+    static native int installCia(String userDir, String ciaPath, CiaProgress progress);
+
     // PSP ad-hoc over the LAN: 0 off, 1 host (built-in server), 2 guest; server is the address to join.
     static native void setPspAdhoc(int mode, String server);
 

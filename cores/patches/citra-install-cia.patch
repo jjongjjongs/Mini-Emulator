@@ -1,0 +1,34 @@
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+index d9bd3ff..4c6798e 100644
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -34,6 +34,7 @@
+ #include "core/loader/loader.h"
+ #include "core/frontend/applets/default_applets.h"
+ #include "core/frontend/image_interface.h"
++#include "core/hle/service/am/am.h"
+ 
+ #ifdef HAVE_LIBRETRO_VFS
+ #include <streams/file_stream_transforms.h>
+@@ -835,3 +836,21 @@ size_t retro_get_memory_size(unsigned id) {
+ void retro_cheat_reset() {}
+ 
+ void retro_cheat_set(unsigned index, bool enabled, const char* code) {}
++
++// Mini Emulator: install a CIA (game, update or DLC) into the user directory's virtual SD
++// or NAND without starting the emulator. user_dir is the Citra user directory (the one the
++// core uses when it runs, so the keys in sysdata/aes_keys.txt are found). Returns
++// Service::AM::InstallStatus (0 on success).
++extern "C" __attribute__((visibility("default"))) int citra_install_cia(
++        const char* user_dir, const char* path, void (*progress)(void*, uint64_t, uint64_t), void* user) {
++    if (user_dir == nullptr || path == nullptr) {
++        return static_cast<int>(Service::AM::InstallStatus::ErrorInvalid);
++    }
++    FileUtil::SetUserPath(std::string(user_dir));
++    auto status = Service::AM::InstallCIA(std::string(path), [=](std::size_t done, std::size_t total) {
++        if (progress != nullptr) {
++            progress(user, static_cast<uint64_t>(done), static_cast<uint64_t>(total));
++        }
++    });
++    return static_cast<int>(status);
++}
