@@ -659,7 +659,7 @@ bool loadCoreSymbols(Core* core) {
 bool needsFrameBeforeState(const Core* core) {
     return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play" ||
            core->coreId == "pcee2" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
-           core->coreId == "yabasanshiro";
+           core->coreId == "yabasanshiro" || core->coreId == "citra";
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
@@ -841,7 +841,8 @@ bool resumeState(Core* core) {
 // after the first while the PS2 boots; keep trying for about 30 seconds.
 // MAME 2015 takes it only while no temporary timer is pending; that clears within frames.
 bool retryResume(const Core* core) {
-    return (core->coreId == "pcee2" && core->framesRun < 1800) || (core->coreId == "mame2015" && core->framesRun < 600);
+    return ((core->coreId == "pcee2" || core->coreId == "citra") && core->framesRun < 1800) ||
+           (core->coreId == "mame2015" && core->framesRun < 600);
 }
 
 // PCEE2's VM can be running before its GS has put out a single picture; a state restored
@@ -850,6 +851,13 @@ bool retryResume(const Core* core) {
 // real picture. In Vulkan the GS hands over its backbuffer from the first vsync, game
 // picture or not, so there it waits about five seconds of frames past that.
 bool readyToResume(const Core* core) {
+    if (core->coreId == "citra") {
+        // Citra restores a state by shutting its system down and starting it again, and the
+        // restarted system makes its renderer at once instead of waiting for context_reset.
+        // Before the GL context exists that renderer has no GL functions to call (a crash
+        // in ReportDriverInfo), so the restore waits for the first picture.
+        return core->hwReady && core->picturesShown.load() >= 1;
+    }
     if (core->coreId != "pcee2") {
         return true;
     }
