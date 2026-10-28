@@ -236,30 +236,31 @@ public final class MainActivity extends Activity {
     }
 
     // The game closes in its own process, which must be gone before the game opens again,
-    // or the new game would start in the process that is about to end.
+    // or the new game would start in the process that is about to end (its engine, still
+    // saving the last state, cannot be set up twice in one process: Citra asserts).
     private void relaunchGameIfAsked(Intent intent) {
         final Intent game = intent == null ? null : intent.getParcelableExtra(EXTRA_RELAUNCH_GAME);
         if (game == null) {
             return;
         }
         intent.removeExtra(EXTRA_RELAUNCH_GAME);
+        afterGameProcessEnds(() -> {
+            game.setComponent(new android.content.ComponentName(this, GameActivity.class));
+            startActivity(game);
+        });
+    }
+
+    /** Runs the action once the game process is gone (or after 15 seconds), on the UI thread. */
+    private void afterGameProcessEnds(final Runnable action) {
         final String gameProcess = getPackageName() + ":game";
+        final android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (!gameProcessAlive(manager, gameProcess)) {
+            action.run();
+            return;
+        }
+        final Dialog waiting = progressCard(RoundIconView.EXIT, Color.rgb(107, 114, 128), "이전 게임을 닫는 중", "저장을 마치고 바로 켜요…");
         new Thread(() -> {
-            android.app.ActivityManager manager = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
-            for (int tries = 0; tries < 100; tries++) {
-                boolean alive = false;
-                java.util.List<android.app.ActivityManager.RunningAppProcessInfo> processes = manager == null ? null : manager.getRunningAppProcesses();
-                if (processes != null) {
-                    for (android.app.ActivityManager.RunningAppProcessInfo process : processes) {
-                        if (gameProcess.equals(process.processName)) {
-                            alive = true;
-                            break;
-                        }
-                    }
-                }
-                if (!alive) {
-                    break;
-                }
+            for (int tries = 0; tries < 150 && gameProcessAlive(manager, gameProcess); tries++) {
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException e) {
@@ -267,12 +268,25 @@ public final class MainActivity extends Activity {
                 }
             }
             runOnUiThread(() -> {
-                if (!isFinishing()) {
-                    game.setComponent(new android.content.ComponentName(this, GameActivity.class));
-                    startActivity(game);
+                if (isFinishing() || isDestroyed()) {
+                    return;
                 }
+                waiting.dismiss();
+                action.run();
             });
-        }, "relaunch-game").start();
+        }, "await-game-process").start();
+    }
+
+    private static boolean gameProcessAlive(android.app.ActivityManager manager, String gameProcess) {
+        java.util.List<android.app.ActivityManager.RunningAppProcessInfo> processes = manager == null ? null : manager.getRunningAppProcesses();
+        if (processes != null) {
+            for (android.app.ActivityManager.RunningAppProcessInfo process : processes) {
+                if (gameProcess.equals(process.processName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
@@ -4532,7 +4546,7 @@ public final class MainActivity extends Activity {
         intent.putExtra("com.example.minigba.CORE_ID", coreFor(file));
         intent.putExtra(GameActivity.EXTRA_MODE, mode);
         intent.putExtra(GameActivity.EXTRA_TITLE, displayGameNameFor(file));
-        startActivity(intent);
+        afterGameProcessEnds(() -> startActivity(intent));
     }
 
     // PPSSPP reads its fonts, VFPU tables and compat.ini from <system>/PPSSPP; they ship in
