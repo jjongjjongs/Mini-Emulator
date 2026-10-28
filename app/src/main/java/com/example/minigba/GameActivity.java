@@ -2880,7 +2880,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         speedButtonView.setPercent(this.speedPercent);
         speedButtonView.setContentDescription("배속");
         FrameLayout.LayoutParams speedParams = new FrameLayout.LayoutParams(dp(80), dp(36));
-        if (isDualScreen()) {
+        if (isN3ds()) {
+            // Above START at the bottom of the right column.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(157), dp(62));
+        } else if (isDualScreen()) {
             // The DS screens run the full height, so the button sits beside START instead.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(146), dp(17));
@@ -3392,7 +3396,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             layoutParams.width = dp(i);
             layoutParams.height = dp(i);
         }
-        layoutParams.setMargins(dp(compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isN3ds() ? 56 : isDualScreen() ? 60 : isDualShock() ? 160 : isSonyPad() ? 214 : isGba ? 154 : 144));
+        layoutParams.setMargins(dp(isN3ds() ? 66 : compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isN3ds() ? 56 : isDualScreen() ? 60 : isDualShock() ? 160 : isSonyPad() ? 214 : isGba ? 154 : 144));
         frameLayout.addView(createDirectionControl, layoutParams);
         if (isPsp()) {
             FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
@@ -5173,21 +5177,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // bottom; on the right R above the diamond, which sits low and in from the edge.
     // SELECT and START go in the middle under the screens.
     private void addN3dsLandscapeControls(FrameLayout frameLayout) {
-        // L sits under the save/restart buttons in the top-left corner.
+        // Left column: L under the save/restart buttons, the circle pad, the D-pad to its
+        // lower right, SELECT at the bottom.
         addButton(frameLayout, "L", 512, 8388659, dp(14), dp(62), dp(104), dp(38), 2);
-        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.TOP | Gravity.START);
-        stickParams.setMargins(dp(18), dp(106), 0, 0);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.TOP | Gravity.START);
+        stickParams.setMargins(dp(50), dp(124), 0, 0);
         frameLayout.addView(leftStick(), stickParams);
-        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(128), dp(128), Gravity.BOTTOM | Gravity.START);
-        padParams.setMargins(dp(14), 0, 0, dp(40));
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(120), dp(120), Gravity.TOP | Gravity.START);
+        padParams.setMargins(dp(122), dp(232), 0, 0);
         frameLayout.addView(createDirectionControl(), padParams);
-        addButton(frameLayout, "R", 256, 8388693, dp(34), dp(166), dp(104), dp(38), 2);
-        addButton(frameLayout, "X", 1024, 8388693, dp(86), dp(114), dp(44), dp(44), TouchButton.STYLE_DARK);
-        addButton(frameLayout, "A", 1, 8388693, dp(42), dp(70), dp(44), dp(44), TouchButton.STYLE_DARK);
-        addButton(frameLayout, "B", 2, 8388693, dp(86), dp(26), dp(44), dp(44), TouchButton.STYLE_DARK);
-        addButton(frameLayout, "Y", 2048, 8388693, dp(130), dp(70), dp(44), dp(44), TouchButton.STYLE_DARK);
-        addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
-        addCenterButton(frameLayout, startLabel(), 8, 66, 14);
+        addButton(frameLayout, selectLabel(), 4, 8388691, dp(150), dp(14), dp(94), dp(34));
+        // Right column: R, the diamond level with the circle pad and well in from the edge,
+        // START at the bottom (the speed button sits above it).
+        addButton(frameLayout, "R", 256, 8388661, dp(14), dp(62), dp(104), dp(38), 2);
+        addButton(frameLayout, "X", 1024, 8388661, dp(121), dp(120), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, 8388661, dp(74), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, 8388661, dp(168), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, 8388661, dp(121), dp(200), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, startLabel(), 8, 8388693, dp(150), dp(14), dp(94), dp(34));
     }
 
     // Landscape: the same groups in the columns beside the screen; START under the D-pad,
@@ -5615,9 +5622,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private float screenAspect() {
         if (isN3ds()) {
-            // 400x240 over 320x240 as Citra lays them out: stacked (the lower one centred),
-            // the upper one large with the lower one small beside it (2:1), or side by side.
-            return this.ndsLayout == 2 ? 720.0f / 240.0f : this.ndsLayout == 1 ? 2.0f : 400.0f / 480.0f;
+            // 400x240 over 320x240 as Citra lays them out, like the DS: stacked (the lower
+            // one centred) or side by side.
+            return this.ndsLayout == 2 ? 720.0f / 240.0f : 400.0f / 480.0f;
         }
         if (isNds()) {
             // Both 256x192 screens as the bridge asks melonDS DS to lay them out: stacked
