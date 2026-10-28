@@ -7462,6 +7462,22 @@ public final class MainActivity extends Activity {
         panel.addView(noteBox(".cia 파일을 하나 또는 여러 개 골라 주세요. 파일의 제목 ID로 게임 · 업데이트 · DLC를 가려내고 대상 게임을 찾아 보여 줘요.\n"
                 + (n3dsKeysFile().isFile() ? "키 파일이 있어 암호화된 CIA도 설치돼요." : "암호화된 CIA는 키 파일(aes_keys.txt)이 있어야 설치돼요. 먼저 \"3DS 키 파일\"에서 등록해 주세요."),
                 Color.rgb(232, 246, 255), Color.rgb(3, 105, 161)), spaced(12));
+        List<N3dsCia.Installed> extras = N3dsCia.installedExtras(n3dsUserDir());
+        if (!extras.isEmpty()) {
+            // Every update and DLC in the virtual SD with the game it belongs to, so a
+            // DLC for another region (a different title ID) shows up as unmatched.
+            panel.addView(sectionLabel("설치된 업데이트 · DLC · " + extras.size() + "개"));
+            for (N3dsCia.Installed extra : extras) {
+                File game = n3dsGameForLow(extra.titleId & 0xFFFFFFFFL);
+                TextView line = new TextView(this);
+                line.setText("• " + (extra.isUpdate() ? "업데이트 " + (extra.version >= 0 ? N3dsCia.versionName(extra.version) : "") : "DLC") + "  ·  " + N3dsCia.hex(extra.titleId)
+                        + "  ·  " + formatSize(extra.size) + "\n   " + (game != null ? "→ " + displayGameNameFor(game) : "→ 맞는 게임이 목록에 없음 (지역판이 다를 수 있어요)"));
+                line.setTextSize(12.0f);
+                line.setTextColor(game != null ? Color.rgb(75, 85, 99) : Color.rgb(154, 91, 0));
+                line.setPadding(dp(4), dp(2), 0, dp(2));
+                panel.addView(line, new LinearLayout.LayoutParams(-1, -2));
+            }
+        }
         if (!games.isEmpty()) {
             panel.addView(sectionLabel("CIA로 설치한 게임 · " + games.size() + "개"));
             for (File game : games) {

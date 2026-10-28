@@ -129,11 +129,12 @@ final class N3dsCia {
         }
     }
 
-    // Title metadata (TMD) and tickets start with a signature whose type sets its size.
+    // Title metadata (TMD) and tickets start with a 4-byte signature type, the signature
+    // and padding up to a 0x40 boundary; the body follows.
     private static int signedBodyOffset(long signatureType) {
-        if (signatureType == 0x10000L || signatureType == 0x10003L) return 0x200 + 0x3C;
-        if (signatureType == 0x10001L || signatureType == 0x10004L) return 0x100 + 0x3C;
-        if (signatureType == 0x10002L || signatureType == 0x10005L) return 0x3C + 0x40;
+        if (signatureType == 0x10000L || signatureType == 0x10003L) return 4 + 0x200 + 0x3C;
+        if (signatureType == 0x10001L || signatureType == 0x10004L) return 4 + 0x100 + 0x3C;
+        if (signatureType == 0x10002L || signatureType == 0x10005L) return 4 + 0x3C + 0x40;
         return -1;
     }
 
@@ -227,6 +228,25 @@ final class N3dsCia {
             File dir = titleDir(userDir, tid);
             if (new File(dir, "content").isDirectory()) {
                 found.add(new Installed(dir, tid, installedVersion(dir), sizeOf(dir)));
+            }
+        }
+        return found;
+    }
+
+    /** Every update and DLC title in the virtual SD, whatever game it belongs to. */
+    static List<Installed> installedExtras(File userDir) {
+        List<Installed> found = new ArrayList<>();
+        for (long high : new long[]{HIGH_UPDATE, HIGH_DLC}) {
+            File[] lows = new File(titleRoot(userDir), String.format(Locale.US, "%08x", high)).listFiles(File::isDirectory);
+            if (lows == null) continue;
+            Arrays.sort(lows, Comparator.comparing(File::getName));
+            for (File low : lows) {
+                try {
+                    long tid = (high << 32) | Long.parseLong(low.getName(), 16);
+                    found.add(new Installed(low, tid, installedVersion(low), sizeOf(low)));
+                } catch (NumberFormatException ignored) {
+                    // Not a title folder.
+                }
             }
         }
         return found;
