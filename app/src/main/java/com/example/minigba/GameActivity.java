@@ -179,6 +179,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         setContentView(root);
         installComboZones(root);
         applyLayoutEdits(root);
+        recordLayoutGuide(root, frameLayout, false);
     }
 
     private void createLandscapeContent() {
@@ -222,6 +223,67 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         setContentView(root);
         installComboZones(root);
         applyLayoutEdits(root);
+        recordLayoutGuide(root, frameLayout2, true);
+    }
+
+    // Once the case is laid out, where its screen and controls are, for the photo
+    // background editor's guide: "guide:<mode>:<orient>" = "W,H|screen l,t,r,b|kind:label:l,t,r,b;...".
+    private void recordLayoutGuide(final FrameLayout root, final View screen, final boolean landscape) {
+        root.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (root.getWidth() == 0 || root.getHeight() == 0 || screen.getWidth() == 0) {
+                    return;
+                }
+                root.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                int[] origin = new int[2];
+                root.getLocationInWindow(origin);
+                StringBuilder out = new StringBuilder();
+                out.append(root.getWidth()).append(',').append(root.getHeight()).append('|');
+                appendBounds(out, screen, origin);
+                out.append('|');
+                collectControls(root, origin, out);
+                MainActivity.sharedSettings(GameActivity.this).edit()
+                        .putString("guide:" + gameMode + ":" + (landscape ? "land" : "port"), out.toString()).apply();
+            }
+        });
+    }
+
+    private void appendBounds(StringBuilder out, View view, int[] origin) {
+        int[] where = new int[2];
+        view.getLocationInWindow(where);
+        out.append(where[0] - origin[0]).append(',').append(where[1] - origin[1]).append(',')
+                .append(where[0] - origin[0] + view.getWidth()).append(',').append(where[1] - origin[1] + view.getHeight());
+    }
+
+    private void collectControls(View view, int[] origin, StringBuilder out) {
+        if (view.getVisibility() != View.VISIBLE || view instanceof SurfaceView) {
+            return;
+        }
+        String kind = null;
+        String label = "";
+        if (view instanceof AnalogStickView) {
+            kind = "stick";
+        } else if (view instanceof DPadView || view instanceof ArcadeJoystickView) {
+            kind = "pad";
+        } else if (view instanceof TouchButton) {
+            kind = "button";
+            label = ((TouchButton) view).label();
+        } else if (view instanceof SpeedButtonView || view instanceof RewindButtonView) {
+            kind = "pill";
+        }
+        if (kind != null && view.getWidth() > 0) {
+            out.append(kind).append(':').append(label.replace(':', ' ').replace(';', ' ')).append(':');
+            appendBounds(out, view, origin);
+            out.append(';');
+            return;
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectControls(group.getChildAt(i), origin, out);
+            }
+        }
     }
 
     // "프레임" (the default) draws the case's bezel around the screen; "전체 화면" drops it

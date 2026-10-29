@@ -73,6 +73,58 @@ public final class BgEditorActivity extends Activity {
     private TextView applyButton;
 
     private final List<PhotoBackground.Layer> layers = new ArrayList<>();
+    // The real layout of this mode's case, recorded by the game ("guide:<mode>:<orient>"); null when unknown.
+    private Guide guide;
+    private boolean guideWarned;
+
+    private static final class Guide {
+        float width;
+        float height;
+        RectF screen;
+        final List<Object[]> controls = new ArrayList<>();   // {kind, label, RectF}
+
+        static Guide parse(String text) {
+            try {
+                String[] parts = text.split("\\|", -1);
+                String[] size = parts[0].split(",");
+                Guide guide = new Guide();
+                guide.width = Float.parseFloat(size[0]);
+                guide.height = Float.parseFloat(size[1]);
+                guide.screen = rect(parts[1]);
+                if (parts.length > 2) {
+                    for (String item : parts[2].split(";")) {
+                        if (item.isEmpty()) continue;
+                        String[] fields = item.split(":", 3);
+                        if (fields.length < 3) continue;
+                        guide.controls.add(new Object[]{fields[0], fields[1], rect(fields[2])});
+                    }
+                }
+                return guide.width > 0 && guide.height > 0 ? guide : null;
+            } catch (RuntimeException e) {
+                return null;
+            }
+        }
+
+        private static RectF rect(String text) {
+            String[] v = text.split(",");
+            return new RectF(Float.parseFloat(v[0]), Float.parseFloat(v[1]), Float.parseFloat(v[2]), Float.parseFloat(v[3]));
+        }
+
+        RectF scaled(RectF rect, float w, float h) {
+            float kx = w / width;
+            float ky = h / height;
+            return new RectF(rect.left * kx, rect.top * ky, rect.right * kx, rect.bottom * ky);
+        }
+    }
+
+    private void loadGuide() {
+        String text = MainActivity.sharedSettings(this).getString("guide:" + this.mode + ":" + PhotoBackground.orient(this.landscape), null);
+        this.guide = text == null ? null : Guide.parse(text);
+        if (this.guide == null && !this.guideWarned) {
+            this.guideWarned = true;
+            Toast.makeText(this, (this.landscape ? "가로" : "세로") + "로 게임을 한 번 열면 그 게임기의 정확한 화면 · 버튼 자리가 안내선으로 나와요.", Toast.LENGTH_LONG).show();
+        }
+    }
     private int selected = -1;
     private int dim = PhotoBackground.DEFAULT_DIM;
     private int blur = PhotoBackground.DEFAULT_BLUR;
@@ -92,6 +144,7 @@ public final class BgEditorActivity extends Activity {
         this.scope = PhotoBackground.scopeInForce(this, this.mode);
         this.landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         setRequestedOrientation(this.landscape ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        loadGuide();
         buildUi();
         loadAll();
         if (this.layers.isEmpty()) {
@@ -450,6 +503,8 @@ public final class BgEditorActivity extends Activity {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         this.landscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE;
+        this.guideWarned = false;
+        loadGuide();
         buildUi();
         loadAll();
         if (this.layers.isEmpty()) {
@@ -677,6 +732,10 @@ public final class BgEditorActivity extends Activity {
 
         /** Where the game's screen will be: the panel goes there. */
         RectF screenRect(int w, int h) {
+            Guide recorded = BgEditorActivity.this.guide;
+            if (recorded != null) {
+                return recorded.scaled(recorded.screen, w, h);
+            }
             float d = getResources().getDisplayMetrics().density;
             if (!landscape) {
                 float top = 74 * d;
@@ -848,6 +907,22 @@ public final class BgEditorActivity extends Activity {
             this.fill.setColor(Color.argb(Math.round(230 * (1 - buttonAlpha / 100f)), 27, 30, 37));
             float d = getResources().getDisplayMetrics().density;
             RectF screen = screenRect(w, h);
+            Guide recorded = BgEditorActivity.this.guide;
+            if (recorded != null) {
+                // The recorded case: every control where the game put it.
+                for (Object[] control : recorded.controls) {
+                    String kind = (String) control[0];
+                    String label = (String) control[1];
+                    RectF rect = recorded.scaled((RectF) control[2], w, h);
+                    if ("stick".equals(kind) || ("button".equals(kind) && Math.abs(rect.width() - rect.height()) < 4 * d)) {
+                        circleButton(canvas, rect.centerX(), rect.centerY(), Math.min(rect.width(), rect.height()) / 2, label);
+                    } else {
+                        float radius = "pad".equals(kind) ? rect.width() * 0.2f : rect.height() / 2;
+                        roundButton(canvas, rect, radius, label);
+                    }
+                }
+                return;
+            }
             if (!landscape) {
                 float y = screen.bottom + 20 * d;
                 roundButton(canvas, new RectF(18 * d, y, 122 * d, y + 34 * d), 17 * d, "L");

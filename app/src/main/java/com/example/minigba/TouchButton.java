@@ -26,6 +26,10 @@ final class TouchButton extends View {
     private final Paint fill;
     private final Paint highlight;
     private final String label;
+
+    String label() {
+        return this.label;
+    }
     private final Listener listener;
     private boolean pressed;
     private final Paint shadow;
