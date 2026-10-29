@@ -37,6 +37,26 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- 꾸미기 프리셋 파일(.mepreset)을 메신저 · 파일 앱에서 열기 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:host="*"/>
+                <data android:mimeType="*/*"/>
+                <data android:pathPattern=".*\\.mepreset"/>
+                <data android:pathPattern=".*\\..*\\.mepreset"/>
+                <data android:pathPattern=".*\\..*\\..*\\.mepreset"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.mepreset"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="application/x-mepreset"/>
+            </intent-filter>
         </activity>
     </application>
 </manifest>

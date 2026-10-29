@@ -304,6 +304,13 @@ final class Presets {
      * they are. Returns what was skipped (a layout from another console), or null.
      */
     static String apply(Context context, Preset preset, String mode, String layoutConsole, boolean[] orientations) throws IOException {
+        android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        int shortSide = Math.min(metrics.widthPixels, metrics.heightPixels);
+        int longSide = Math.max(metrics.widthPixels, metrics.heightPixels);
+        return apply(context, preset, mode, layoutConsole, orientations, shortSide, longSide);
+    }
+
+    static String apply(Context context, Preset preset, String mode, String layoutConsole, boolean[] orientations, int shortSide, int longSide) throws IOException {
         SharedPreferences.Editor edit = MainActivity.sharedSettings(context).edit();
         SharedPreferences prefs = MainActivity.sharedSettings(context);
         String skipped = null;
@@ -350,6 +357,26 @@ final class Presets {
                             PhotoBackground.source(context, bgScope, landscape, i).delete();
                         }
                         edit.putInt("bg:" + bgScope + ":" + orientName + ":count", count);
+                        edit.commit();
+                        // A rendered file from another phone (or an older edit) may not fit this
+                        // screen, so the background is drawn again from the sources when there are any.
+                        if (count > 0) {
+                            List<PhotoBackground.Layer> loaded = PhotoBackground.loadLayers(context, bgScope, landscape);
+                            if (!loaded.isEmpty()) {
+                                int w = landscape ? longSide : shortSide;
+                                int h = landscape ? shortSide : longSide;
+                                try {
+                                    android.graphics.Bitmap drawn = PhotoBackground.render(loaded, w, h, photo.optInt("dim", 0), photo.optInt("blur", 0));
+                                    PhotoBackground.save(drawn, PhotoBackground.renderedFile(context, bgScope, landscape));
+                                    drawn.recycle();
+                                } catch (OutOfMemoryError e) {
+                                    // The copied rendering stays.
+                                }
+                                for (PhotoBackground.Layer layer : loaded) {
+                                    if (layer.bitmap != null) layer.bitmap.recycle();
+                                }
+                            }
+                        }
                     }
                 } else if (data.has("shell") && data.getInt("shell") != ClearShellView.STYLE_PHOTO) {
                     // A preset without a photo that sets another case: nothing to clear, the case decides.
@@ -382,6 +409,139 @@ final class Presets {
         }
         edit.commit();
         return skipped;
+    }
+
+    // ---- share files (.mepreset = zip of the folder) ----
+
+    static final String EXTENSION = ".mepreset";
+    private static final long MAX_IMPORT = 64L * 1024 * 1024;
+
+    static String fileName(Preset preset) {
+        String base = preset.name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return (base.isEmpty() ? "preset" : base) + EXTENSION;
+    }
+
+    static void exportZip(Context context, Preset preset, java.io.OutputStream out) throws IOException {
+        File folder = dir(context, preset.id);
+        File[] files = folder.listFiles(File::isFile);
+        if (files == null || !new File(folder, "preset.json").isFile()) {
+            throw new IOException("프리셋 파일이 없어요");
+        }
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(new java.io.BufferedOutputStream(out))) {
+            for (File file : files) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(file.getName()));
+                try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) zip.write(buffer, 0, n);
+                }
+                zip.closeEntry();
+            }
+        }
+    }
+
+    /** Unpacks a shared preset into a new folder and reads it; throws when it is not one. */
+    static Preset importZip(Context context, java.io.InputStream in) throws IOException {
+        String id = newId();
+        File folder = dir(context, id);
+        if (!folder.mkdirs()) {
+            throw new IOException("프리셋 폴더를 만들 수 없어요");
+        }
+        long total = 0;
+        boolean sawJson = false;
+        try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(new java.io.BufferedInputStream(in))) {
+            java.util.zip.ZipEntry entry;
+            byte[] buffer = new byte[64 * 1024];
+            while ((entry = zip.getNextEntry()) != null) {
+                String name = entry.getName();
+                // Only flat, plainly named files: preset.json and the jpg photos.
+                if (entry.isDirectory() || name.contains("/") || name.contains("\\") || name.startsWith(".")
+                        || !(name.equals("preset.json") || name.matches("[A-Za-z0-9_\\-]+\\.jpg"))) {
+                    zip.closeEntry();
+                    continue;
+                }
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(new File(folder, name))) {
+                    int n;
+                    while ((n = zip.read(buffer)) > 0) {
+                        total += n;
+                        if (total > MAX_IMPORT) {
+                            throw new IOException("파일이 너무 커요 (64 MB 넘음)");
+                        }
+                        out.write(buffer, 0, n);
+                    }
+                }
+                sawJson |= name.equals("preset.json");
+                zip.closeEntry();
+            }
+        } catch (IOException | RuntimeException e) {
+            N3dsCia.deleteTree(folder);
+            throw e instanceof IOException ? (IOException) e : new IOException("압축을 풀지 못했어요: " + e.getMessage());
+        }
+        if (!sawJson) {
+            N3dsCia.deleteTree(folder);
+            throw new IOException("Mini Emulator 프리셋 파일(.mepreset)이 아니에요");
+        }
+        Preset preset = read(folder);
+        if (preset == null) {
+            N3dsCia.deleteTree(folder);
+            throw new IOException("프리셋 내용을 읽을 수 없어요");
+        }
+        if (preset.favorite) {
+            preset.favorite = false;
+        }
+        preset.created = System.currentTimeMillis();
+        write(context, preset);
+        return preset;
+    }
+
+    /**
+     * Writes the preset as a file others can open: into 다운로드/Mini Emulator on Android 10
+     * and later (shareable through its content URI), else into the app's external files.
+     */
+    static android.net.Uri exportFile(Context context, Preset preset) throws IOException {
+        String name = fileName(preset);
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+            values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream");
+            values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER + "/");
+            values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1);
+            android.net.Uri uri = context.getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                throw new IOException("다운로드 폴더에 파일을 만들 수 없어요");
+            }
+            try (java.io.OutputStream out = context.getContentResolver().openOutputStream(uri)) {
+                if (out == null) throw new IOException("파일을 열 수 없어요");
+                exportZip(context, preset, out);
+            }
+            values.clear();
+            values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0);
+            context.getContentResolver().update(uri, values, null, null);
+            return uri;
+        }
+        File folder = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);
+        if (folder == null || (!folder.isDirectory() && !folder.mkdirs())) {
+            throw new IOException("외부 저장 폴더를 쓸 수 없어요");
+        }
+        File file = new File(folder, name);
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            exportZip(context, preset, out);
+        }
+        return android.net.Uri.fromFile(file);
+    }
+
+    /** The share sheet for an exported preset file; null when the file is not shareable here. */
+    static android.content.Intent shareIntent(android.net.Uri uri, Preset preset) {
+        if (!"content".equals(uri.getScheme())) {
+            return null;
+        }
+        android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+        send.setType("application/octet-stream");
+        send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+        send.putExtra(android.content.Intent.EXTRA_SUBJECT, "Mini Emulator 꾸미기 프리셋 · " + preset.name);
+        send.putExtra(android.content.Intent.EXTRA_TEXT, "Mini Emulator 꾸미기 프리셋 \"" + preset.name + "\" (" + fileName(preset) + ")\n파일을 열거나 앱의 꾸미기 프리셋 › 파일에서 가져오기로 적용하세요.");
+        send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        return android.content.Intent.createChooser(send, "프리셋 보내기");
     }
 
     // ---- built-in ----

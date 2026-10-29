@@ -235,6 +235,29 @@ public final class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         relaunchGameIfAsked(intent);
+        importPresetIfOpened(intent);
+    }
+
+    // A .mepreset opened from a messenger or file app: read it into the preset list and say
+    // where to apply it (that happens in a game, where the result shows at once).
+    private void importPresetIfOpened(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) {
+            return;
+        }
+        final Uri uri = intent.getData();
+        intent.setData(null);
+        intent.setAction(null);
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new java.io.IOException("파일을 열 수 없어요");
+            Presets.Preset preset = Presets.importZip(this, in);
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("꾸미기 프리셋을 받았어요")
+                    .setMessage("\"" + preset.name + "\"\n" + preset.summary() + "\n\n프리셋 목록에 넣었어요. 게임을 켠 뒤 메뉴 › 설정 › 꾸미기 프리셋에서 \"적용\"을 누르면 그 자리에서 바뀌어요.")
+                    .setPositiveButton("확인", null)
+                    .show();
+        } catch (java.io.IOException | RuntimeException e) {
+            showMessage("프리셋을 가져오지 못했어요: " + e.getMessage());
+        }
     }
 
     // The game closes in its own process, which must be gone before the game opens again,
@@ -295,6 +318,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         relaunchGameIfAsked(getIntent());
+        importPresetIfOpened(getIntent());
         ensureDownloadFolder();
         moveMasterSystemRoms();
         // Keep the open mode across rotation and other activity recreation.

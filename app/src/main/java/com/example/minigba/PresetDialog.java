@@ -35,6 +35,12 @@ final class PresetDialog {
         /** Applies a preset to this console (the window closes first). */
         void onApply(Presets.Preset preset);
 
+        /** "공유": writes the file and opens the share sheet. */
+        void onShare(Presets.Preset preset);
+
+        /** "파일에서 가져오기": opens the file picker (the window closes first). */
+        void onImportFile();
+
         void onClosed();
     }
 
@@ -116,7 +122,11 @@ final class PresetDialog {
         LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(42));
         saveParams.setMargins(0, dp(10), 0, 0);
         panel.addView(save, saveParams);
-        TextView imports = button("📂 파일에서 가져오기 · 공유 (다음 버전)", Color.rgb(241, 243, 247), MUTED);
+        TextView imports = button("📂 파일에서 가져오기 (.mepreset)", Color.rgb(241, 243, 247), TEXT);
+        imports.setOnClickListener(view -> {
+            this.dialog.dismiss();
+            this.listener.onImportFile();
+        });
         LinearLayout.LayoutParams importParams = new LinearLayout.LayoutParams(-1, dp(38));
         importParams.setMargins(0, dp(6), 0, 0);
         panel.addView(imports, importParams);
@@ -183,11 +193,14 @@ final class PresetDialog {
         });
         actions.addView(apply, new LinearLayout.LayoutParams(dp(58), dp(26)));
         if (!preset.builtin && !undo) {
+            TextView share = smallButton("공유");
+            share.setOnClickListener(view -> this.listener.onShare(preset));
+            LinearLayout.LayoutParams shareParams = new LinearLayout.LayoutParams(dp(58), dp(26));
+            shareParams.setMargins(0, dp(4), 0, 0);
+            actions.addView(share, shareParams);
             TextView more = smallButton("⋯");
             more.setOnClickListener(view -> showMenu(preset));
-            LinearLayout.LayoutParams moreParams = new LinearLayout.LayoutParams(dp(58), dp(26));
-            moreParams.setMargins(0, dp(4), 0, 0);
-            actions.addView(more, moreParams);
+            actions.addView(more, shareParams);
         }
         row.addView(actions);
         return row;
@@ -202,6 +215,7 @@ final class PresetDialog {
             this.dialog.dismiss();
             this.listener.onApply(preset);
         }));
+        panel.addView(menuRow("공유 (.mepreset 보내기)", false, view -> this.listener.onShare(preset)));
         panel.addView(menuRow("이름 바꾸기", false, view -> showRename(preset)));
         panel.addView(menuRow("지금 모습으로 덮어쓰기", false, view -> showSave(preset)));
         panel.addView(menuRow(preset.favorite ? "☆ 즐겨찾기 해제" : "★ 즐겨찾기 (목록 맨 위로)", false, view -> {
@@ -338,6 +352,75 @@ final class PresetDialog {
         });
         actions.addView(cancel, buttonParams(false));
         actions.addView(ok, buttonParams(true));
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(42));
+        actionsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(actions, actionsParams);
+        setPanel(panel);
+    }
+
+    // ---- import preview ----
+
+    /** Shows a preset just read from a file: what it holds, where to apply, keep or apply now. */
+    void showImport(Presets.Preset preset) {
+        LinearLayout panel = panel();
+        String from = ("all".equals(preset.mode) ? "모든 게임기용" : preset.modeName + "에서 저장");
+        panel.addView(title("프리셋 가져오기 · " + preset.name, from + " · " + preset.summary()));
+        LinearLayout body = new LinearLayout(this.activity);
+        body.setOrientation(LinearLayout.HORIZONTAL);
+        body.setPadding(0, dp(8), 0, 0);
+        body.addView(new Thumb(this.activity, preset.previewColors()), new LinearLayout.LayoutParams(dp(44), dp(78)));
+        LinearLayout right = new LinearLayout(this.activity);
+        right.setOrientation(LinearLayout.VERTICAL);
+        TextView holds = new TextView(this.activity);
+        holds.setText("담긴 것");
+        holds.setTextSize(11.5f);
+        holds.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        holds.setTextColor(MUTED);
+        right.addView(holds);
+        org.json.JSONObject any = preset.data.optJSONObject("P");
+        if (any == null || any.length() == 0) any = preset.data.optJSONObject("L");
+        String[] lines = {
+                preset.has(Presets.ITEM_SHELL) ? "배경 케이스" : null,
+                any != null && any.has("photo") ? "사진 배경" : null,
+                any != null && any.has("alpha") ? "버튼 투명도" : null,
+                any != null && any.has("buttons") ? "버튼 꾸미기" : null,
+                any != null && any.has("layout") ? "버튼 배치" : null,
+                preset.has(Presets.ITEM_FILTER) ? "화면 필터" : null,
+        };
+        for (String line : lines) {
+            if (line == null) continue;
+            TextView item = new TextView(this.activity);
+            item.setText("✓ " + line);
+            item.setTextSize(12.0f);
+            item.setTextColor(TEXT);
+            right.addView(item);
+        }
+        LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        rightParams.setMargins(dp(10), 0, 0, 0);
+        body.addView(right, rightParams);
+        panel.addView(body);
+        TextView where = new TextView(this.activity);
+        where.setText("적용할 곳: " + this.consoleName + " " + (preset.hasOrientation(false) && preset.hasOrientation(true) ? "세로 · 가로"
+                : preset.hasOrientation(true) ? "가로" : "세로") + "\n지금 모습은 \"되돌리기용\"으로 보관돼요."
+                + (!"all".equals(preset.mode) && !preset.modeName.equals(this.consoleName) ? "\n기종이 달라 버튼 배치는 빼고 적용해요." : ""));
+        where.setTextSize(10.5f);
+        where.setTextColor(MUTED);
+        where.setPadding(0, dp(8), 0, 0);
+        panel.addView(where);
+        LinearLayout actions = new LinearLayout(this.activity);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        TextView keep = button("목록에만 넣기", Color.rgb(241, 243, 247), TEXT);
+        keep.setOnClickListener(view -> {
+            Toast.makeText(this.activity, "\"" + preset.name + "\"을 프리셋 목록에 넣었어요.", Toast.LENGTH_SHORT).show();
+            showList();
+        });
+        TextView apply = button("바로 적용", ACCENT, Color.WHITE);
+        apply.setOnClickListener(view -> {
+            this.dialog.dismiss();
+            this.listener.onApply(preset);
+        });
+        actions.addView(keep, buttonParams(false));
+        actions.addView(apply, buttonParams(true));
         LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(42));
         actionsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(actions, actionsParams);

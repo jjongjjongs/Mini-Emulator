@@ -1441,7 +1441,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 hasLayoutEdits() ? "바꾼 배치" : "기본 배치",
                 (is3d() ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
         };
-        new PresetDialog(this, consoleName(), this.landscapeMode, summary, new PresetDialog.Listener() {
+        PresetDialog presets = new PresetDialog(this, consoleName(), this.landscapeMode, summary, presetListener());
+        this.presetDialog = presets;
+        presets.show(screenRectInWindow());
+    }
+
+    private PresetDialog presetDialog;
+    private static final int REQUEST_PRESET_FILE = 3103;
+
+    private PresetDialog.Listener presetListener() {
+        return new PresetDialog.Listener() {
             @Override
             public Presets.Preset onSave(String id, String name, int scope, boolean[] items) throws java.io.IOException {
                 return Presets.capture(GameActivity.this, id, name, gameMode, consoleName(), layoutConsole(), landscapeMode, scope, items);
@@ -1453,11 +1462,65 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
 
             @Override
+            public void onShare(Presets.Preset preset) {
+                sharePreset(preset);
+            }
+
+            @Override
+            public void onImportFile() {
+                // The window closed; the game stays held until the picker comes back.
+                holdPause = true;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/octet-stream", "application/zip", "application/x-mepreset"});
+                try {
+                    startActivityForResult(intent, REQUEST_PRESET_FILE);
+                } catch (android.content.ActivityNotFoundException e) {
+                    Toast.makeText(GameActivity.this, "파일 선택 앱이 없어요.", Toast.LENGTH_SHORT).show();
+                    holdPause = false;
+                    resumeUnlessExiting();
+                }
+            }
+
+            @Override
             public void onClosed() {
+                presetDialog = null;
+                if (!holdPause) return;
                 holdPause = false;
                 resumeUnlessExiting();
             }
-        }).show(screenRectInWindow());
+        };
+    }
+
+    private void sharePreset(Presets.Preset preset) {
+        try {
+            android.net.Uri uri = Presets.exportFile(this, preset);
+            Intent share = Presets.shareIntent(uri, preset);
+            if (share != null) {
+                startActivity(share);
+            } else {
+                Toast.makeText(this, "파일로 저장했어요: " + uri.getPath(), Toast.LENGTH_LONG).show();
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "공유하지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void importPresetFile(android.net.Uri uri) {
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new java.io.IOException("파일을 열 수 없어요");
+            Presets.Preset preset = Presets.importZip(this, in);
+            this.holdPause = true;
+            PresetDialog presets = new PresetDialog(this, consoleName(), this.landscapeMode, null, presetListener());
+            this.presetDialog = presets;
+            presets.showImport(preset);
+            presets.show(screenRectInWindow());
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "가져오지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            this.holdPause = false;
+            resumeUnlessExiting();
+        }
     }
 
     /** Keeps the current look as the undo preset, writes the preset's settings and rebuilds. */
@@ -3061,6 +3124,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (requestCode == REQUEST_BG_EDITOR) {
             // Whatever was applied (or not), draw the case as it now stands.
             rebuildContent();
+        }
+        if (requestCode == REQUEST_PRESET_FILE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                importPresetFile(data.getData());
+            } else {
+                this.holdPause = false;
+                resumeUnlessExiting();
+            }
         }
     }
 
