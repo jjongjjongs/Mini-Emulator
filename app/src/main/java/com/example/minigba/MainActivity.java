@@ -7707,7 +7707,7 @@ public final class MainActivity extends Activity {
             case 0: return "설치됨";
             case 1: return "파일을 열지 못했어요";
             case 2: return "파일이 없어요";
-            case 3: return "설치 도중 실패했어요";
+            case 3: return "CIA가 불완전해요 (TMD 목록보다 내용이 적거나 파일이 잘림) · 설치 취소";
             case 4: return "CIA 형식이 아니에요";
             case 5: return "암호화돼 있는데 키가 없어요";
             case -1: return "3DS 엔진을 불러오지 못했어요";
