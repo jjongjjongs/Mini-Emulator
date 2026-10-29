@@ -180,6 +180,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
+        this.screenArea = frameLayout;
     }
 
     private void createLandscapeContent() {
@@ -224,6 +225,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
+        this.screenArea = frameLayout2;
     }
 
     // Once the case is laid out, where its screen and controls are, for the photo
@@ -1406,6 +1408,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private LayoutEditorView layoutEditor;
     // "버튼 꾸미기" in force for this console or game and screen direction.
     private ButtonStyle buttonStyle = new ButtonStyle();
+    // The game screen's frame, where the 버튼 꾸미기 window sits so the buttons stay in view.
+    private View screenArea;
 
     private static boolean isLayoutControl(View view) {
         return view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView
@@ -1584,7 +1588,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 holdPause = false;
                 resumeUnlessExiting();
             }
-        }).show();
+        }).show(screenRectInWindow());
+    }
+
+    /** Where the game screen is on the window, or null before layout. */
+    private android.graphics.Rect screenRectInWindow() {
+        View screen = this.screenArea;
+        if (screen == null || screen.getWidth() == 0) {
+            return null;
+        }
+        int[] origin = new int[2];
+        screen.getLocationInWindow(origin);
+        return new android.graphics.Rect(origin[0], origin[1], origin[0] + screen.getWidth(), origin[1] + screen.getHeight());
     }
 
     private void startLayoutEditor() {
@@ -2673,7 +2688,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams styleRowParams = new LinearLayout.LayoutParams(-1, dp(52));
             styleRowParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_FILTER, "버튼 꾸미기",
-                    buttonStyleSummary(), view -> openButtonStyleDialog()), styleRowParams);
+                    buttonStyleSummary(), view -> {
+                        dialog.dismiss();
+                        openButtonStyleDialog();
+                    }), styleRowParams);
         }
 
         LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));

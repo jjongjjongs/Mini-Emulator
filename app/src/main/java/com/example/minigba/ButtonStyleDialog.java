@@ -78,7 +78,7 @@ final class ButtonStyleDialog {
         LinearLayout panel = new LinearLayout(activity);
         this.panel = panel;
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16), dp(14), dp(16), dp(14));
+        panel.setPadding(dp(14), dp(10), dp(14), dp(10));
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.WHITE);
         background.setCornerRadius(dp(18));
@@ -214,22 +214,37 @@ final class ButtonStyleDialog {
         refreshChips();
     }
 
-    void show() {
+    /**
+     * Opens the window over the game screen (its frame on the window, when known) so the
+     * buttons below or beside it stay in view while they change; otherwise over the top.
+     */
+    void show(android.graphics.Rect screen) {
         Window window = this.dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(0));
-            // The buttons below (or beside) stay visible and undimmed, so the change shows.
+            // The buttons stay visible and undimmed, so the change shows.
             window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             android.util.DisplayMetrics metrics = this.activity.getResources().getDisplayMetrics();
-            if (this.landscape) {
+            int minHeight = dp(230);
+            if (screen != null && screen.width() > dp(200) && screen.height() > dp(120)) {
+                // Fill the screen's frame, growing downward a little when it is very short.
+                int width = Math.min(screen.width(), dp(440));
+                int height = Math.min(Math.max(screen.height(), minHeight), metrics.heightPixels - screen.top - dp(8));
+                window.setGravity(Gravity.TOP | Gravity.START);
+                WindowManager.LayoutParams params = window.getAttributes();
+                params.x = screen.left + (screen.width() - width) / 2;
+                params.y = screen.top;
+                window.setAttributes(params);
+                window.setLayout(width, height);
+            } else if (this.landscape) {
                 window.setGravity(Gravity.CENTER);
-                window.setLayout(Math.min(metrics.widthPixels - dp(40), dp(430)), Math.min(metrics.heightPixels - dp(24), dp(420)));
+                window.setLayout(Math.min(metrics.widthPixels - dp(40), dp(430)), Math.min(metrics.heightPixels - dp(24), dp(360)));
             } else {
                 window.setGravity(Gravity.TOP);
                 WindowManager.LayoutParams params = window.getAttributes();
                 params.y = dp(28);
                 window.setAttributes(params);
-                window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(400)), Math.min((int) (metrics.heightPixels * 0.56f), dp(520)));
+                window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(400)), Math.min((int) (metrics.heightPixels * 0.42f), dp(420)));
             }
         }
         this.dialog.show();
@@ -351,7 +366,7 @@ final class ButtonStyleDialog {
         view.setTextSize(11.5f);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         view.setTextColor(MUTED);
-        view.setPadding(0, dp(12), 0, dp(6));
+        view.setPadding(0, dp(9), 0, dp(4));
         return view;
     }
 
@@ -362,7 +377,7 @@ final class ButtonStyleDialog {
     }
 
     private LinearLayout.LayoutParams chipParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(30), 1.0f);
         params.setMargins(dp(2), dp(2), dp(2), dp(2));
         return params;
     }
