@@ -43,6 +43,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String MENU_SAVE_SRAM = "게임 내 세이브 저장";
     private static final String MENU_RESET = "재시작";
     private static final String MENU_EXIT = "ROM 목록으로 나가기";
+    private static final String MENU_SHOT = "스크린샷";
+    private static final String MENU_SHOT_FULL = "전체 화면 스크린샷";
     private static final String PREFS_SETTINGS = "settings";
     private static final String PREF_ORIENTATION_MODE = "orientation_mode";
     private SurfaceHolder activeSurfaceHolder;
@@ -111,6 +113,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (stringExtra2 == null || stringExtra2.trim().isEmpty()) {
             this.saveBaseName = baseNameWithoutExtension(new File(this.romPath).getName());
         }
+        rotateAutoSaves();
         this.audioSink = new AudioSink();
         if ("pcee2".equals(this.coreId)) {
             // PS2's speed wobbles frame to frame on heavy games; 140 ms covers most of it.
@@ -3096,6 +3099,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     @Override
     protected void onPause() {
         super.onPause();
+        addPlayTime();
         if (isMame139()) {
             Emulator.pause();
             return;
@@ -3116,6 +3120,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     @Override
     protected void onResume() {
         super.onResume();
+        this.playStart = System.currentTimeMillis();
         this.activityResumed = true;
         if (isMame139()) {
             Emulator.resume();
@@ -3138,6 +3143,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (requestCode == REQUEST_BG_EDITOR) {
             // Whatever was applied (or not), draw the case as it now stands.
             rebuildContent();
+        }
+        if (requestCode == REQUEST_STATE_FILE) {
+            this.holdPause = false;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                loadStateFromUri(data.getData());
+            } else {
+                resumeUnlessExiting();
+            }
         }
         if (requestCode == REQUEST_PRESET_FILE) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
@@ -3672,6 +3685,548 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // ---- Play time (per game), auto-save history, fixed slots, screenshots ----
+    private long playStart;
+
+    private String playTimeKey() {
+        return "playtime:" + this.coreId + ":" + this.saveBaseName;
+    }
+
+    private long playTimeSeconds() {
+        return MainActivity.sharedSettings(this).getLong(playTimeKey(), 0) + (this.playStart > 0 ? (System.currentTimeMillis() - this.playStart) / 1000 : 0);
+    }
+
+    private void addPlayTime() {
+        if (this.playStart <= 0 || this.saveBaseName == null) {
+            return;
+        }
+        long seconds = (System.currentTimeMillis() - this.playStart) / 1000;
+        this.playStart = 0;
+        if (seconds > 0) {
+            android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+            prefs.edit().putLong(playTimeKey(), prefs.getLong(playTimeKey(), 0) + seconds).apply();
+        }
+    }
+
+    static String playTimeText(long seconds) {
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+        if (hours > 0) {
+            return "플레이 " + hours + "시간 " + minutes + "분";
+        }
+        return "플레이 " + Math.max(1, minutes) + "분";
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes >= 1024 * 1024) {
+            return String.format(Locale.US, "%.1f MB", bytes / 1048576.0);
+        }
+        return Math.max(1, bytes / 1024) + " KB";
+    }
+
+    // The two automatic saves before the latest: auto1.state (the exit before this one) and
+    // auto2.state. Moved along when the game starts, by hard links, so nothing is copied.
+    private File autoHistoryFile(int n) {
+        return new File(quickSaveDir(), "auto" + n + ".state");
+    }
+
+    private void rotateAutoSaves() {
+        if (isMame139() || this.saveBaseName == null) {
+            return;
+        }
+        final File latest = autoStateFile();
+        final File latestPicture = autoThumbnail();
+        final File one = autoHistoryFile(1);
+        final File two = autoHistoryFile(2);
+        final File dir = quickSaveDir();
+        new Thread(() -> {
+            if (!latest.isFile()) {
+                return;
+            }
+            if (one.isFile() && one.length() == latest.length() && one.lastModified() == latest.lastModified()) {
+                return; // Nothing new was written since the last turn.
+            }
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+            //noinspection ResultOfMethodCallIgnored
+            two.delete();
+            //noinspection ResultOfMethodCallIgnored
+            thumbnailFor(two).delete();
+            if (one.isFile()) {
+                //noinspection ResultOfMethodCallIgnored
+                one.renameTo(two);
+                //noinspection ResultOfMethodCallIgnored
+                thumbnailFor(one).renameTo(thumbnailFor(two));
+            }
+            try {
+                android.system.Os.link(latest.getAbsolutePath(), one.getAbsolutePath());
+            } catch (android.system.ErrnoException e) {
+                try {
+                    PhotoBackground.copy(latest, one);
+                } catch (java.io.IOException ignored) {
+                    return;
+                }
+            }
+            //noinspection ResultOfMethodCallIgnored
+            one.setLastModified(latest.lastModified());
+            if (latestPicture.isFile()) {
+                try {
+                    PhotoBackground.copy(latestPicture, thumbnailFor(one));
+                } catch (java.io.IOException ignored) {
+                    // No picture for the older save.
+                }
+            }
+        }, "auto-saves").start();
+    }
+
+    // ---- 내 칸: slot<n>.state with slot<n>.jpg and slot<n>.txt (memo, play time) ----
+    private static final int FIXED_SLOTS = 8;
+
+    private File slotFile(int n) {
+        return new File(quickSaveDir(), "slot" + n + ".state");
+    }
+
+    private static File metaFor(File state) {
+        String name = state.getName();
+        return new File(state.getParentFile(), name.substring(0, name.length() - ".state".length()) + ".txt");
+    }
+
+    private static boolean isSlot(File state) {
+        return state.getName().matches("slot\\d+\\.state");
+    }
+
+    private static int slotIndex(File state) {
+        try {
+            return Integer.parseInt(state.getName().substring(4, state.getName().indexOf('.')));
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private static boolean isAutoHistory(File state) {
+        return state.getName().matches("auto\\d+\\.state");
+    }
+
+    /** memo and play seconds of a slot, from its .txt ("memo\nseconds"). */
+    private static String[] slotMeta(File state) {
+        File meta = metaFor(state);
+        if (!meta.isFile()) {
+            return new String[]{"", ""};
+        }
+        String text = CrashReports.readText(meta, 4096);
+        int newline = text.indexOf('\n');
+        return newline < 0 ? new String[]{text.trim(), ""} : new String[]{text.substring(0, newline).trim(), text.substring(newline + 1).trim()};
+    }
+
+    private void writeSlotMeta(File state, String memo) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(metaFor(state))) {
+            out.write((memo.replace('\n', ' ') + "\n" + playTimeSeconds()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (java.io.IOException ignored) {
+            // The slot works without its memo.
+        }
+    }
+
+    private String describeSave(File save) {
+        if (save.equals(autoStateFile())) {
+            return isPs2() ? "이전 빠른 저장" : "자동 저장 · 방금 (종료 시)";
+        }
+        if (isAutoHistory(save)) {
+            int n = Integer.parseInt(save.getName().substring(4, save.getName().indexOf('.')));
+            return n == 1 ? "자동 저장 · 이전" : "자동 저장 · 그 전";
+        }
+        if (isSlot(save)) {
+            String memo = slotMeta(save)[0];
+            return "내 칸 " + slotIndex(save) + (memo.isEmpty() ? "" : " · " + memo);
+        }
+        return "빠른 저장 " + slotNumber(save);
+    }
+
+    private void saveToSlot(int n, String memo, boolean overwrite) {
+        final File state = slotFile(n);
+        if (state.isFile() && !overwrite) {
+            new AlertDialog.Builder(this).setTitle("내 칸 " + n + "을 덮어쓸까요?")
+                    .setMessage(describeSave(state) + "\n" + saveTimeText(state.lastModified()) + "\n지금 모습으로 바뀌고 이전 것은 되돌릴 수 없어요.")
+                    .setNegativeButton("취소", null)
+                    .setPositiveButton("덮어쓰기", (d, w) -> saveToSlot(n, memo, true)).show();
+            return;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        quickSaveDir().mkdirs();
+        captureThumbnail(thumbnailFor(state));
+        final String note = memo == null ? "" : memo.trim();
+        callCore(h -> {
+            boolean saved = NativeGba.saveStateFile(h, state.getAbsolutePath());
+            if (saved) {
+                writeSlotMeta(state, note);
+                long size = state.length();
+                android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+                if (size > 30L * 1024 * 1024 && !prefs.getBoolean("slot_size_notice", false)) {
+                    prefs.edit().putBoolean("slot_size_notice", true).apply();
+                    runOnUiThread(() -> Toast.makeText(this, "이 기종은 칸 하나에 약 " + (size / (1024 * 1024)) + " MB를 써요. 안 쓰는 칸은 불러오기에서 지울 수 있어요.", Toast.LENGTH_LONG).show());
+                }
+            } else {
+                //noinspection ResultOfMethodCallIgnored
+                thumbnailFor(state).delete();
+            }
+            return saved;
+        }, "내 칸 " + n + "에 저장했어요." + (note.isEmpty() ? "" : " · " + note), "저장하지 못했어요.");
+    }
+
+    /** "빠른 저장"을 길게 눌렀을 때: a quick slot or one of the fixed slots, with a memo. */
+    private void showSaveChooser() {
+        this.holdPause = true;
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            resumeUnlessExiting();
+        });
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("어디에 저장할까요?");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("짧게 누르면 전처럼 빠른 칸에 바로 저장돼요");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        panel.addView(sub);
+        final android.widget.EditText memo = new android.widget.EditText(this);
+        memo.setHint("메모 (선택) · 예: 보스 앞");
+        memo.setTextSize(13.5f);
+        memo.setSingleLine(true);
+        memo.setTextColor(Color.rgb(31, 41, 51));
+        memo.setPadding(dp(12), dp(10), dp(12), dp(10));
+        android.graphics.drawable.GradientDrawable memoBackground = new android.graphics.drawable.GradientDrawable();
+        memoBackground.setColor(Color.WHITE);
+        memoBackground.setCornerRadius(dp(12));
+        memoBackground.setStroke(dp(1), Color.rgb(214, 218, 226));
+        memo.setBackground(memoBackground);
+        LinearLayout.LayoutParams memoParams = new LinearLayout.LayoutParams(-1, -2);
+        memoParams.setMargins(0, dp(10), 0, dp(4));
+        panel.addView(memo, memoParams);
+
+        java.util.List<File> quick = quickSaves();
+        int next = quick.isEmpty() ? 1 : slotNumber(quick.get(0)) + 1;
+        panel.addView(saveChoiceRow(null, "빠른 칸 (새 칸 " + next + ")", "지금처럼 · 오래된 칸부터 교체", true, view -> {
+            dialog.dismiss();
+            createQuickSave(false);
+        }));
+        TextView section = new TextView(this);
+        section.setText("내 칸 (밀려나지 않음)");
+        section.setTextSize(11.5f);
+        section.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        section.setTextColor(Color.rgb(85, 95, 110));
+        section.setPadding(0, dp(10), 0, dp(2));
+        panel.addView(section);
+        for (int n = 1; n <= FIXED_SLOTS; n++) {
+            final int slot = n;
+            File state = slotFile(n);
+            boolean filled = state.isFile();
+            panel.addView(saveChoiceRow(filled ? thumbnailFor(state) : null, filled ? describeSave(state) : n + " · 비어 있음",
+                    filled ? "덮어쓰기 · " + saveTimeText(state.lastModified()) : "", false, view -> {
+                        dialog.dismiss();
+                        saveToSlot(slot, memo.getText().toString(), false);
+                    }));
+        }
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(46));
+        cancelParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(cancel, cancelParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400)), Math.min(getResources().getDisplayMetrics().heightPixels - dp(40), dp(560)));
+        }
+        dialog.show();
+    }
+
+    private View saveChoiceRow(File picture, String name, String detail, boolean highlight, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(10), dp(8), dp(10), dp(8));
+        android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+        rowBackground.setColor(highlight ? Color.rgb(255, 247, 248) : Color.rgb(246, 247, 249));
+        rowBackground.setCornerRadius(dp(14));
+        if (highlight) rowBackground.setStroke(dp(2), Color.rgb(225, 29, 72));
+        row.setBackground(rowBackground);
+        android.widget.ImageView thumb = new android.widget.ImageView(this);
+        thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        android.graphics.drawable.GradientDrawable thumbBackground = new android.graphics.drawable.GradientDrawable();
+        thumbBackground.setColor(Color.rgb(222, 226, 232));
+        thumbBackground.setCornerRadius(dp(6));
+        thumb.setBackground(thumbBackground);
+        thumb.setClipToOutline(true);
+        if (picture != null && picture.isFile()) {
+            thumb.setImageBitmap(android.graphics.BitmapFactory.decodeFile(picture.getAbsolutePath()));
+        }
+        row.addView(thumb, new LinearLayout.LayoutParams(dp(58), dp(36)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView label = new TextView(this);
+        label.setText(name);
+        label.setTextSize(13.5f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(label);
+        if (!detail.isEmpty()) {
+            TextView small = new TextView(this);
+            small.setText(detail);
+            small.setTextSize(11.0f);
+            small.setTextColor(Color.rgb(122, 130, 140));
+            texts.addView(small);
+        }
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, dp(8), 0);
+        row.addView(texts, textsParams);
+        TextView save = smallButton("저장");
+        save.setOnClickListener(onClick);
+        row.addView(save, new LinearLayout.LayoutParams(-2, dp(32)));
+        row.setOnClickListener(onClick);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+        rowParams.setMargins(0, dp(6), 0, 0);
+        row.setLayoutParams(rowParams);
+        return row;
+    }
+
+    /** Long press on a save in the list: open, memo, overwrite (fixed slots), export, delete. */
+    private void showSaveMenu(android.app.Dialog list, File save) {
+        final boolean slot = isSlot(save);
+        String[] meta = slot ? slotMeta(save) : new String[]{"", ""};
+        java.util.List<String> names = new java.util.ArrayList<>();
+        names.add("열기");
+        if (slot) {
+            names.add("메모 바꾸기");
+            names.add("지금 모습으로 덮어쓰기");
+        }
+        names.add("파일로 내보내기");
+        names.add("지우기");
+        String played = "";
+        if (!meta[1].isEmpty()) {
+            try {
+                played = " · " + playTimeText(Long.parseLong(meta[1]));
+            } catch (NumberFormatException ignored) {
+                // No play time noted.
+            }
+        }
+        new AlertDialog.Builder(this).setTitle(describeSave(save))
+                .setMessage(saveTimeText(save.lastModified()) + played + " · " + formatSize(save.length()))
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    String choice = names.get(which);
+                    switch (choice) {
+                        case "열기":
+                            list.dismiss();
+                            callCore(h -> NativeGba.loadStateFile(h, save.getAbsolutePath()), describeSave(save) + "을 불러왔어요.", "불러오지 못했어요.");
+                            break;
+                        case "메모 바꾸기":
+                            editSlotMemo(list, save);
+                            break;
+                        case "지금 모습으로 덮어쓰기":
+                            list.dismiss();
+                            saveToSlot(slotIndex(save), meta[0], false);
+                            break;
+                        case "파일로 내보내기":
+                            exportSave(save);
+                            break;
+                        default:
+                            new AlertDialog.Builder(this).setTitle(describeSave(save) + "을 지울까요?")
+                                    .setMessage("지운 세이브는 되돌릴 수 없어요.")
+                                    .setNegativeButton("취소", null)
+                                    .setPositiveButton("지우기", (d2, w2) -> {
+                                        if (save.equals(autoStateFile())) {
+                                            //noinspection ResultOfMethodCallIgnored
+                                            save.delete();
+                                            //noinspection ResultOfMethodCallIgnored
+                                            autoThumbnail().delete();
+                                        } else {
+                                            deleteSlot(save);
+                                            //noinspection ResultOfMethodCallIgnored
+                                            metaFor(save).delete();
+                                        }
+                                        fillLoadList(list, false, new java.util.HashSet<>());
+                                    }).show();
+                    }
+                }).setNegativeButton("닫기", null).show();
+    }
+
+    private void editSlotMemo(android.app.Dialog list, File save) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setText(slotMeta(save)[0]);
+        input.setSingleLine(true);
+        input.setSelection(input.getText().length());
+        new AlertDialog.Builder(this).setTitle("메모 바꾸기 · 내 칸 " + slotIndex(save)).setView(input)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("저장", (d, w) -> {
+                    String[] meta = slotMeta(save);
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(metaFor(save))) {
+                        out.write((input.getText().toString().trim().replace('\n', ' ') + "\n" + meta[1]).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    } catch (java.io.IOException ignored) {
+                        Toast.makeText(this, "메모를 저장하지 못했어요.", Toast.LENGTH_SHORT).show();
+                    }
+                    fillLoadList(list, false, new java.util.HashSet<>());
+                }).show();
+    }
+
+    // Copies a state to 다운로드/Mini Emulator/세이브 (Android 10+) as "<game> <slot>.state".
+    private void exportSave(File save) {
+        String base = (this.gameTitle + " " + describeSave(save)).replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        String name = base + ".state";
+        try {
+            String where;
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream");
+                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER + "/세이브/");
+                android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) throw new java.io.IOException("다운로드 폴더에 파일을 만들 수 없어요");
+                try (java.io.OutputStream out = getContentResolver().openOutputStream(uri); java.io.FileInputStream in = new java.io.FileInputStream(save)) {
+                    if (out == null) throw new java.io.IOException("파일을 열 수 없어요");
+                    byte[] buffer = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                }
+                where = "다운로드 › " + MainActivity.DOWNLOAD_FOLDER + " › 세이브 › " + name;
+            } else {
+                File folder = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);
+                if (folder == null || (!folder.isDirectory() && !folder.mkdirs())) throw new java.io.IOException("외부 저장 폴더를 쓸 수 없어요");
+                File target = new File(folder, name);
+                PhotoBackground.copy(save, target);
+                where = target.getAbsolutePath();
+            }
+            Toast.makeText(this, "내보냈어요: " + where + "\n같은 게임의 불러오기 › 파일에서 로 되돌릴 수 있어요.", Toast.LENGTH_LONG).show();
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "내보내지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static final int REQUEST_STATE_FILE = 3104;
+
+    private void pickStateFile() {
+        this.holdPause = true;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",
+                        "primary:" + android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER + "/세이브"));
+        try {
+            startActivityForResult(intent, REQUEST_STATE_FILE);
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "파일 선택 앱이 없어요.", Toast.LENGTH_SHORT).show();
+            this.holdPause = false;
+            resumeUnlessExiting();
+        }
+    }
+
+    private void loadStateFromUri(android.net.Uri uri) {
+        File temp = new File(getCacheDir(), "picked.state");
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri); java.io.FileOutputStream out = new java.io.FileOutputStream(temp)) {
+            if (in == null) throw new java.io.IOException("파일을 열 수 없어요");
+            byte[] buffer = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "파일을 읽지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            resumeUnlessExiting();
+            return;
+        }
+        callCore(h -> NativeGba.loadStateFile(h, temp.getAbsolutePath()), "파일의 장면을 불러왔어요.", "불러오지 못했어요. 다른 게임이나 다른 엔진 버전의 세이브일 수 있어요.");
+    }
+
+    // ---- 스크린샷 ----
+    private void takeScreenshot(boolean fullRequested) {
+        // Copying the whole window needs Android 8; older phones get the game picture.
+        final boolean full = fullRequested && android.os.Build.VERSION.SDK_INT >= 26;
+        final View source = full ? getWindow().getDecorView() : this.surfaceView;
+        if (source == null || source.getWidth() <= 0 || source.getHeight() <= 0) {
+            Toast.makeText(this, "지금은 화면을 찍을 수 없어요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(source.getWidth(), source.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+        android.view.PixelCopy.OnPixelCopyFinishedListener done = result -> {
+            if (result != android.view.PixelCopy.SUCCESS) {
+                Toast.makeText(this, "화면을 찍지 못했어요 (" + result + ")", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            flashScreen();
+            new Thread(() -> {
+                String outcome;
+                try {
+                    outcome = "📷 " + saveScreenshot(bitmap, full);
+                } catch (java.io.IOException | RuntimeException e) {
+                    outcome = "스크린샷을 저장하지 못했어요: " + e.getMessage();
+                }
+                final String message = outcome;
+                runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_LONG).show());
+            }, "screenshot").start();
+        };
+        try {
+            if (full) {
+                android.view.PixelCopy.request(getWindow(), bitmap, done, new android.os.Handler(android.os.Looper.getMainLooper()));
+            } else {
+                android.view.PixelCopy.request((SurfaceView) source, bitmap, done, new android.os.Handler(android.os.Looper.getMainLooper()));
+            }
+        } catch (IllegalArgumentException e) {
+            Toast.makeText(this, "지금은 화면을 찍을 수 없어요.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // A brief white flash over everything, like a camera.
+    private void flashScreen() {
+        final View flash = new View(this);
+        flash.setBackgroundColor(Color.WHITE);
+        flash.setAlpha(0.7f);
+        addContentView(flash, new FrameLayout.LayoutParams(-1, -1));
+        flash.animate().alpha(0f).setDuration(260).withEndAction(() -> {
+            if (flash.getParent() instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) flash.getParent()).removeView(flash);
+            }
+        }).start();
+    }
+
+    private String saveScreenshot(android.graphics.Bitmap bitmap, boolean full) throws java.io.IOException {
+        String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", Locale.US).format(new java.util.Date());
+        String name = (this.gameTitle.isEmpty() ? "screenshot" : this.gameTitle.replaceAll("[\\\\/:*?\"<>|]", "_")) + " " + stamp + (full ? " 전체" : "") + ".png";
+        String size = bitmap.getWidth() + "×" + bitmap.getHeight();
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+            values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png");
+            values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/" + MainActivity.DOWNLOAD_FOLDER + "/");
+            android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new java.io.IOException("사진 폴더에 파일을 만들 수 없어요");
+            try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out == null) throw new java.io.IOException("파일을 열 수 없어요");
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            }
+            return "사진 › " + MainActivity.DOWNLOAD_FOLDER + " › " + name + " (" + size + ")";
+        }
+        File folder = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES);
+        if (folder == null || (!folder.isDirectory() && !folder.mkdirs())) throw new java.io.IOException("외부 저장 폴더를 쓸 수 없어요");
+        File file = new File(folder, name);
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+        }
+        return file.getAbsolutePath() + " (" + size + ")";
+    }
+
     private static String saveTimeText(long modified) {
         java.util.Calendar then = java.util.Calendar.getInstance();
         then.setTimeInMillis(modified);
@@ -3704,7 +4259,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400));
-            window.setLayout(width, -2);
+            window.setLayout(width, Math.min(getResources().getDisplayMetrics().heightPixels - dp(40), dp(640)));
         }
         dialog.show();
     }
@@ -3721,10 +4276,23 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
         final java.util.List<File> saves = new java.util.ArrayList<>();
         final File auto = autoStateFile();
+        final java.util.List<File> autos = new java.util.ArrayList<>();
         if (auto.isFile()) {
-            saves.add(auto);
+            autos.add(auto);
         }
-        saves.addAll(quickSaves());
+        for (int n = 1; n <= 2; n++) {
+            if (autoHistoryFile(n).isFile()) autos.add(autoHistoryFile(n));
+        }
+        final java.util.List<File> quick = quickSaves();
+        final java.util.List<File> fixed = new java.util.ArrayList<>();
+        for (int n = 1; n <= FIXED_SLOTS; n++) {
+            if (slotFile(n).isFile()) fixed.add(slotFile(n));
+        }
+        saves.addAll(autos);
+        saves.addAll(quick);
+        saves.addAll(fixed);
+        long totalBytes = 0;
+        for (File save : saves) totalBytes += save.length();
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(0);
@@ -3739,7 +4307,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setTextColor(Color.rgb(31, 41, 51));
         titles.addView(title);
         TextView sub = new TextView(this);
-        sub.setText(deleting ? ticked.size() + "개 선택됨" : this.gameTitle + " · " + saves.size() + "개");
+        sub.setText(deleting ? ticked.size() + "개 선택됨" : this.gameTitle + " · 자동 " + autos.size() + " · 빠른 " + quick.size() + " · 내 칸 " + fixed.size()
+                + (totalBytes > 0 ? " · 총 " + formatSize(totalBytes) : ""));
         sub.setTextSize(12.0f);
         sub.setTextColor(Color.rgb(122, 130, 140));
         sub.setSingleLine(true);
@@ -3776,7 +4345,56 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             empty.setPadding(0, dp(24), 0, dp(24));
             panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
         }
-        for (final File save : saves) {
+        // Three groups: automatic saves, the quick slots, the fixed slots (empty ones too).
+        java.util.List<Object> entries = new java.util.ArrayList<>();
+        if (!autos.isEmpty()) entries.add("자동 저장 (최근 " + autos.size() + "개)");
+        entries.addAll(autos);
+        if (!quick.isEmpty()) entries.add("빠른 저장 (최근 " + QUICK_SLOTS + "칸 · 밀려남)");
+        entries.addAll(quick);
+        if (!isMame139()) entries.add("내 칸 (1 ~ " + FIXED_SLOTS + " · 밀려나지 않음)");
+        for (int n = 1; n <= FIXED_SLOTS && !isMame139(); n++) {
+            entries.add(slotFile(n).isFile() ? slotFile(n) : Integer.valueOf(n));
+        }
+        for (final Object entry : entries) {
+            if (entry instanceof String) {
+                TextView section = new TextView(this);
+                section.setText((String) entry);
+                section.setTextSize(11.5f);
+                section.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                section.setTextColor(Color.rgb(85, 95, 110));
+                section.setPadding(dp(2), dp(12), 0, 0);
+                panel.addView(section, new LinearLayout.LayoutParams(-1, -2));
+                continue;
+            }
+            if (entry instanceof Integer) {
+                if (deleting) continue;
+                final int slot = (Integer) entry;
+                LinearLayout empty = new LinearLayout(this);
+                empty.setOrientation(0);
+                empty.setGravity(16);
+                empty.setPadding(dp(12), dp(8), dp(12), dp(8));
+                android.graphics.drawable.GradientDrawable emptyBackground = new android.graphics.drawable.GradientDrawable();
+                emptyBackground.setColor(Color.WHITE);
+                emptyBackground.setCornerRadius(dp(14));
+                emptyBackground.setStroke(dp(1), Color.rgb(214, 218, 226));
+                empty.setBackground(emptyBackground);
+                TextView emptyText = new TextView(this);
+                emptyText.setText(slot + " · 비어 있음");
+                emptyText.setTextSize(13.0f);
+                emptyText.setTextColor(Color.rgb(122, 130, 140));
+                empty.addView(emptyText, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                TextView here = smallButton("여기에 저장");
+                here.setOnClickListener(view -> {
+                    dialog.dismiss();
+                    saveToSlot(slot, "", false);
+                });
+                empty.addView(here, new LinearLayout.LayoutParams(-2, dp(30)));
+                LinearLayout.LayoutParams emptyParams = new LinearLayout.LayoutParams(-1, -2);
+                emptyParams.setMargins(0, dp(6), 0, 0);
+                panel.addView(empty, emptyParams);
+                continue;
+            }
+            final File save = (File) entry;
             final boolean isAuto = save.equals(auto);
             boolean on = ticked.contains(save);
             LinearLayout row = new LinearLayout(this);
@@ -3817,13 +4435,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout texts = new LinearLayout(this);
             texts.setOrientation(1);
             TextView name = new TextView(this);
-            name.setText(isAuto ? (isPs2() ? "이전 빠른 저장" : "자동 저장") : "빠른 저장 " + slotNumber(save));
+            name.setText(describeSave(save));
+            name.setSingleLine(true);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             name.setTextSize(14.0f);
             name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             name.setTextColor(Color.rgb(31, 41, 51));
             texts.addView(name);
             TextView when = new TextView(this);
-            when.setText(saveTimeText(save.lastModified()) + (isAuto && !isPs2() ? " · 게임 나갈 때" : ""));
+            String played = "";
+            if (isSlot(save)) {
+                String[] meta = slotMeta(save);
+                try {
+                    if (!meta[1].isEmpty()) played = " · " + playTimeText(Long.parseLong(meta[1]));
+                } catch (NumberFormatException ignored) {
+                    // No play time noted.
+                }
+            }
+            when.setText(saveTimeText(save.lastModified()) + played + " · " + formatSize(save.length()));
             when.setTextSize(12.0f);
             when.setTextColor(Color.rgb(122, 130, 140));
             texts.addView(when);
@@ -3839,9 +4468,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     return;
                 }
                 dialog.dismiss();
-                callCore(h -> NativeGba.loadStateFile(h, save.getAbsolutePath()),
-                        (isAuto ? "자동 저장" : "빠른 저장 " + slotNumber(save)) + "을 불러왔어요.", "불러오지 못했어요.");
+                callCore(h -> NativeGba.loadStateFile(h, save.getAbsolutePath()), describeSave(save) + "을 불러왔어요.", "불러오지 못했어요.");
             });
+            if (!deleting) {
+                row.setOnLongClickListener(view -> {
+                    showSaveMenu(dialog, save);
+                    return true;
+                });
+            }
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
             rowParams.setMargins(0, dp(8), 0, 0);
             panel.addView(row, rowParams);
@@ -3849,7 +4483,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
         if (!deleting && !saves.isEmpty()) {
             TextView hint = new TextView(this);
-            hint.setText("항목을 누르면 그 장면으로 불러와요");
+            hint.setText("누르면 불러오기 · 길게 누르면 메모 · 덮어쓰기 · 내보내기 · 지우기");
             hint.setTextSize(11.5f);
             hint.setGravity(17);
             hint.setTextColor(Color.rgb(122, 130, 140));
@@ -3874,6 +4508,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             deleteParams.setMargins(dp(10), 0, 0, 0);
             buttons.addView(delete, deleteParams);
         } else {
+            if (!isMame139()) {
+                TextView fromFile = dialogButton("파일에서", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+                fromFile.setOnClickListener(view -> {
+                    dialog.dismiss();
+                    pickStateFile();
+                });
+                LinearLayout.LayoutParams fromParams = new LinearLayout.LayoutParams(0, dp(48), 1.0f);
+                fromParams.setMargins(0, 0, dp(10), 0);
+                buttons.addView(fromFile, fromParams);
+            }
             TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
             close.setOnClickListener(view -> dialog.dismiss());
             buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
@@ -3895,7 +4539,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 if (names.length() > 0) {
                     names.append(" · ");
                 }
-                names.append(save.equals(auto) ? (isPs2() ? "이전 빠른 저장" : "자동 저장") : "빠른 저장 " + slotNumber(save));
+                names.append(describeSave(save));
             }
         }
         String note = names + "\n지운 세이브는 되돌릴 수 없어요.\n게임 안 세이브(메모리카드·SRAM)는 지워지지 않아요.";
@@ -3910,6 +4554,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                             autoThumbnail().delete();
                         } else {
                             deleteSlot(save);
+                            //noinspection ResultOfMethodCallIgnored
+                            metaFor(save).delete();
                         }
                     }
                     Toast.makeText(this, "세이브 " + ticked.size() + "개를 지웠어요.", 0).show();
@@ -4187,6 +4833,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         items.add(MENU_RESET);
         items.add(this.landscapeMode ? "세로 화면으로 전환" : "가로 화면으로 전환");
         items.add(MENU_EXIT);
+        items.add(MENU_SHOT);
+        items.add(MENU_SHOT_FULL);
         this.menuItems = items.toArray(new String[0]);
         showPauseDialog();
     }
@@ -4216,7 +4864,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setTextColor(Color.rgb(31, 41, 51));
         header.addView(title, new LinearLayout.LayoutParams(-2, -2));
         TextView game = new TextView(this);
-        game.setText(this.gameTitle);
+        game.setText(this.gameTitle + (playTimeSeconds() > 0 ? " · " + playTimeText(playTimeSeconds()) : ""));
         game.setTextSize(12.0f);
         game.setTextColor(Color.rgb(122, 130, 140));
         game.setGravity(8388613);
@@ -4229,7 +4877,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
         // Indices follow this.menuItems: 1 save, 2 load, 3 in-game save, 4 reset, 5 rotate, 6 exit.
         LinearLayout row1 = new LinearLayout(this);
-        row1.addView(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", null), menuTileParams(0));
+        row1.addView(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", isMame139() ? null : "길게: 내 칸에"), menuTileParams(0));
         row1.addView(createMenuTile(dialog, 2, RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", lastQuickSaveText()), menuTileParams(1));
         row1.addView(createMenuTile(dialog, 3, RoundIconView.CARD, RoundIconView.COLOR_CARD, "게임 세이브\n저장", null), menuTileParams(2));
         panel.addView(row1, new LinearLayout.LayoutParams(-1, -2));
@@ -4240,6 +4888,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(10), 0, 0);
         panel.addView(row2, row2Params);
+        if (!isMame139()) {
+            // Screenshots: the game picture alone, or everything on screen (case and buttons).
+            LinearLayout row3 = new LinearLayout(this);
+            row3.addView(createMenuTile(dialog, 7, RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "스크린샷", "게임 화면만"), menuTileParams(0));
+            row3.addView(createMenuTile(dialog, 8, RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "전체 화면", "케이스 · 버튼 포함"), menuTileParams(2));
+            panel.addView(row3, row2Params);
+        }
         LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(-1, dp(52));
         settingsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "설정", "", view -> showSettingsSheet()), settingsParams);
@@ -5270,6 +5925,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             onGameMenuItemSelected(dialog, index);
             dialog.dismiss();
         });
+        if (index == 1 && !isMame139()) {
+            tile.setOnLongClickListener(view -> {
+                showSaveChooser();
+                dialog.dismiss();
+                return true;
+            });
+        }
         return tile;
     }
 
@@ -5286,6 +5948,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         for (File save : quickSaves()) {
             modified = Math.max(modified, save.lastModified());
         }
+        for (int n = 1; n <= FIXED_SLOTS; n++) {
+            if (slotFile(n).isFile()) modified = Math.max(modified, slotFile(n).lastModified());
+        }
         if (modified == 0) {
             return "저장 없음";
         }
@@ -5298,6 +5963,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void onGameMenuItemSelected(DialogInterface dialogInterface, int index) {
         String item = index < this.menuItems.length ? this.menuItems[index] : "";
+        if (MENU_SHOT.equals(item) || MENU_SHOT_FULL.equals(item)) {
+            final boolean full = MENU_SHOT_FULL.equals(item);
+            // After the menu is gone and a frame has been drawn.
+            getWindow().getDecorView().postDelayed(() -> takeScreenshot(full), 350);
+            return;
+        }
         // Map the label back to the fixed action numbers used below.
         int i;
         switch (item) {

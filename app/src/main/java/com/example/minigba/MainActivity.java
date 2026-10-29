@@ -6377,7 +6377,7 @@ public final class MainActivity extends Activity {
     }
 
     private static boolean isQuickSaveFileName(String name) {
-        return name.matches("\\d+\\.(state|jpg)") || name.equals("auto.jpg");
+        return name.matches("(\\d+|slot\\d+|auto\\d+)\\.(state|jpg|txt)") || name.equals("auto.jpg");
     }
 
     private File[] quickSaveFilesFor(File rom) {
