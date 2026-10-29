@@ -1482,6 +1482,9 @@ const char* fixedVariable(const char* key) {
         bool bios = core != nullptr && stat((core->systemDir + "/dc/dc_boot.bin").c_str(), &st) == 0;
         return bios ? "disabled" : "enabled";
     }
+    // Naomi / Atomiswave: the TEST and SERVICE keys (L3 / R3) reach the board, so the
+    // arcade test menu (free play, difficulty) can be used from the touch buttons.
+    if (strcmp(key, "reicast_allow_service_buttons") == 0) return "enabled";
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
     // DS online play through a replacement Nintendo Wi-Fi Connection server.
     if (strcmp(key, "melonds_network_mode") == 0) return "indirect";

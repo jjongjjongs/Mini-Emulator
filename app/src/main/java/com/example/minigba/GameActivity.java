@@ -448,6 +448,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isNds()) return new int[]{Color.rgb(219, 39, 119), Color.rgb(52, 56, 66)};
         if (isNes()) return new int[]{Color.rgb(196, 42, 52), Color.rgb(170, 34, 42)};
         if (isN64()) return new int[]{Color.rgb(22, 163, 74), Color.rgb(45, 47, 52)};
+        if (isNaomi()) return new int[]{Color.rgb(13, 148, 136), Color.rgb(28, 28, 32)};
         if (isDreamcast()) return new int[]{Color.rgb(202, 138, 4), Color.rgb(228, 230, 233)};
         if (isMasterSystem()) return new int[]{Color.rgb(162, 28, 175), Color.rgb(30, 30, 33)};
         if (isMegaCd()) return new int[]{Color.rgb(159, 18, 57), Color.rgb(32, 32, 35)};
@@ -490,6 +491,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isN64()) {
             tint = ClearShellView.TINT_GRAY;
             name = "NINTENDO 64";
+        } else if (isNaomi()) {
+            tint = ClearShellView.TINT_SMOKE;
+            name = "NAOMI";
         } else if (isDreamcast()) {
             tint = ClearShellView.TINT_WHITE;
             name = "DREAMCAST";
@@ -608,6 +612,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isN64()) {
             addN64LandscapeControls(frameLayout);
+            return;
+        }
+        if (isNaomi()) {
+            addNaomiLandscapeControls(frameLayout);
             return;
         }
         if (isDreamcast()) {
@@ -965,6 +973,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
             targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
             targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isNaomi()) {
+            int count = naomiButtons();
+            for (int k = 0; k < count && k < 6; k++) {
+                targets.add(new PadMapping.Target(NAOMI_BITS[k], String.valueOf(k + 1), face));
+            }
+            targets.add(new PadMapping.Target(4, "COIN", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+            targets.add(new PadMapping.Target(kL3, "TEST", middle));
+            targets.add(new PadMapping.Target(kR3, "SERVICE", middle));
         } else if (isDreamcast()) {
             targets.add(new PadMapping.Target(1024, "Y", face));
             targets.add(new PadMapping.Target(1, "B", face));
@@ -1032,6 +1049,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isN64()) return "n64";
         if (isMegaDrive()) return "md";
         if (isSaturn()) return "ss";
+        if (isNaomi()) return "arcade";
         if (isDreamcast()) return "dc";
         if (this.coreId.equals("gba") || isDualScreen() || isWonderSwan() || isNeoGeoPocket()) return "gba";
         if (isPadLayout()) return "fc";
@@ -1055,6 +1073,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "ps2": return "PS2";
             case "ss": return "새턴";
             case "dc": return "드림캐스트";
+            case "naomi": return "Naomi · Atomiswave";
             case "ws": return "원더스완";
             case "ngp": return "네오지오 포켓";
             case "neogeo": return "Neo Geo";
@@ -3506,7 +3525,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Under the A button.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(18), dp(12));
-        } else if (isDreamcast() || isSaturn()) {
+        } else if ((isDreamcast() && !isNaomi()) || isSaturn()) {
             // Under the face buttons.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(54), dp(12));
@@ -4621,6 +4640,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isN64()) {
             addN64Controls(frameLayout);
+            return;
+        }
+        if (isNaomi()) {
+            addNaomiControls(frameLayout);
             return;
         }
         if (isDreamcast()) {
@@ -6407,6 +6430,75 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "flycast".equals(this.coreId);
     }
 
+    // Naomi · Atomiswave arcade sets on the Dreamcast engine: arcade stick and numbered
+    // buttons instead of the Dreamcast pad.
+    private boolean isNaomi() {
+        return "naomi".equals(this.gameMode);
+    }
+
+    private NaomiSets.Set naomiSet() {
+        return this.romPath == null ? null : NaomiSets.forFile(this, new File(this.romPath));
+    }
+
+    // Flycast's libretro Naomi mapping: buttons 1-6 are B, A, Y, X, R, L; coin SELECT,
+    // start START, test L3, service R3.
+    private static final int[] NAOMI_BITS = {2, 1, 2048, 1024, 256, 512};
+    private static final int[] NAOMI_STYLES = {TouchButton.STYLE_ARCADE_BLUE, TouchButton.STYLE_ARCADE_BLUE, TouchButton.STYLE_ARCADE_BLUE,
+            TouchButton.STYLE_ARCADE_RED, TouchButton.STYLE_ARCADE_RED, TouchButton.STYLE_ARCADE_RED};
+
+    private int naomiButtons() {
+        return NaomiSets.buttonsFor(this, this.saveBaseName, naomiSet());
+    }
+
+    // Portrait: the arcade stick at the bottom left, buttons 1 2 3 over 4 5 6 at the
+    // bottom right, COIN · START in the middle with TEST · SERVICE above them.
+    private void addNaomiControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(156), dp(156));
+        stickParams.gravity = 8388691;
+        stickParams.setMargins(dp(16), 0, 0, dp(144));
+        frameLayout.addView(new ArcadeJoystickView(this, this::onDirectionChanged), stickParams);
+        addFastForwardButton(frameLayout);
+        int count = naomiButtons();
+        int[] columns = {136, 76, 16};
+        for (int k = 0; k < count && k < 6; k++) {
+            int row = count <= 3 ? 0 : k / 3;
+            int column = count <= 3 ? k : k % 3;
+            int bottom = count <= 3 ? 197 : (row == 0 ? 227 : 167);
+            addButton(frameLayout, String.valueOf(k + 1), NAOMI_BITS[k], 8388693, dp(columns[column]), dp(bottom), dp(50), dp(50), NAOMI_STYLES[k]);
+        }
+        addCenterButton(frameLayout, "TEST", kL3, -66, 112);
+        addCenterButton(frameLayout, "SERVICE", kR3, 66, 112);
+        addCenterButton(frameLayout, "COIN", 4, -66);
+        addCenterButton(frameLayout, "START", 8, 66);
+    }
+
+    // Landscape: the stick on the left, the button rows on the right, COIN and START at the
+    // bottom corners, TEST · SERVICE small at the top left under the speed button.
+    private void addNaomiLandscapeControls(FrameLayout frameLayout) {
+        View stick = new ArcadeJoystickView(this, this::onDirectionChanged);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(150), dp(150));
+        stickParams.gravity = 8388627;
+        stickParams.setMargins(dp(12), 0, 0, 0);
+        stick.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
+        frameLayout.addView(stick, stickParams);
+        int count = naomiButtons();
+        int[] columns = {120, 66, 12};
+        for (int k = 0; k < count && k < 6; k++) {
+            int row = count <= 3 ? 0 : k / 3;
+            int column = count <= 3 ? k : k % 3;
+            int y = count <= 3 ? 0 : (row == 0 ? -27 : 27);
+            addLandscapeArcadeButton(frameLayout, String.valueOf(k + 1), NAOMI_BITS[k], columns[column], y, 46, NAOMI_STYLES[k]);
+        }
+        FrameLayout.LayoutParams testParams = new FrameLayout.LayoutParams(dp(64), dp(28), Gravity.TOP | Gravity.START);
+        testParams.setMargins(dp(14), dp(60), 0, 0);
+        frameLayout.addView(new TouchButton(this, "TEST", kL3, this::setButtonPressed, 2), testParams);
+        FrameLayout.LayoutParams serviceParams = new FrameLayout.LayoutParams(dp(78), dp(28), Gravity.TOP | Gravity.START);
+        serviceParams.setMargins(dp(84), dp(60), 0, 0);
+        frameLayout.addView(new TouchButton(this, "SERVICE", kR3, this::setButtonPressed, 2), serviceParams);
+        addButton(frameLayout, "COIN", 4, 8388691, dp(42), dp(18), dp(94), dp(34));
+        addButton(frameLayout, "START", 8, 8388693, dp(42), dp(18), dp(94), dp(34));
+    }
+
     // Dreamcast pad in its own colours: Y on top, B right, A bottom, X left. Flycast reads the
     // libretro pad by position, so A/B/X/Y are libretro B/A/Y/X; the triggers are L2/R2.
     private void addDreamcastFace(FrameLayout frameLayout, int gravity, int rightCenter, int verticalCenter, int gap, int size) {
@@ -6809,7 +6901,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean hasLeftStick() {
-        return isSonyPad() || isN64() || isDreamcast() || isN3ds();
+        return isSonyPad() || isN64() || (isDreamcast() && !isNaomi()) || isN3ds();
     }
 
     private LinearLayout createStickRow(boolean right, Runnable reopen) {

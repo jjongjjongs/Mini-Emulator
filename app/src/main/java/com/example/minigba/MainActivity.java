@@ -77,6 +77,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_SMS = "sms";
     private static final String MODE_N64 = "n64";
     private static final String MODE_DC = "dc";
+    private static final String MODE_NAOMI = "naomi";
     private static final String MODE_WS = "ws";
     private static final String MODE_MCD = "mcd";
     private static final String MODE_SS = "ss";
@@ -104,6 +105,9 @@ public final class MainActivity extends Activity {
             {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
             {MODE_DC, "flycast", ".chd,.cdi", ".chd / .cdi", "roms_dc", "1025"},
+            // Naomi / Naomi 2 / Atomiswave arcade sets (MAME-named ZIPs, GD-ROM games with
+            // their disc image beside them) on the same Flycast engine.
+            {MODE_NAOMI, "flycast", ".zip,.chd,.gdi", "ROM .zip (+ .chd)", "roms_naomi", "1040"},
             {MODE_NDS, "melonds", ".nds", ".nds / .zip", "roms_nds", "1022"},
             // 3DS cartridge dumps (NCSD) and decrypted/encrypted executables (NCCH) on Citra.
             {MODE_N3DS, "citra", ".3ds,.cci,.cxi,.app", ".3ds / .cci / .cxi", "roms_3ds", "1034"},
@@ -161,13 +165,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_SS, MODE_DC, MODE_WS, MODE_NGP, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -188,6 +192,10 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_IMPORT_N3DS_KEYS = 1035;
     private static final int REQUEST_PICK_CIA = 1036;
     private static final int REQUEST_IMPORT_PS1_BIOS = 1037;
+    private static final int REQUEST_IMPORT_NAOMI_BIOS = 1041;
+    private static final int REQUEST_NAOMI_BIOS_TREE = 1042;
+    private TextView naomiBiosStatusView;
+    private TextView naomiBanner;
     private static final int REQUEST_PICK_COVER = 1027;
     private static final int REQUEST_PICK_PATCH = 1050;
     private static final int REQUEST_PICK_DLC_ZIP = 1051;
@@ -437,6 +445,8 @@ public final class MainActivity extends Activity {
         this.n3dsKeysStatusView = null;
         this.ps1BiosStatusView = null;
         this.n3dsKeysBanner = null;
+        this.naomiBiosStatusView = null;
+        this.naomiBanner = null;
     }
 
     private void showModePicker() {
@@ -619,6 +629,11 @@ public final class MainActivity extends Activity {
                 this.dcBiosStatusView = (TextView) dcBiosTile.getTag();
                 actionRow.addView(dcBiosTile, actionTileParams());
             }
+            if (MODE_NAOMI.equals(this.currentMode)) {
+                LinearLayout naomiBiosTile = createActionCard("기판 BIOS", naomiBiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showNaomiBiosSheet());
+                this.naomiBiosStatusView = (TextView) naomiBiosTile.getTag();
+                actionRow.addView(naomiBiosTile, actionTileParams());
+            }
             if (MODE_PS1.equals(this.currentMode)) {
                 LinearLayout ps1BiosTile = createActionCard("PS1 BIOS", ps1BiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPs1BiosSheet());
                 this.ps1BiosStatusView = (TextView) ps1BiosTile.getTag();
@@ -662,6 +677,16 @@ public final class MainActivity extends Activity {
             banner.setLineSpacing(0.0f, 1.2f);
             banner.setPadding(dp(12), dp(10), dp(12), dp(10));
             this.pceBiosBanner = banner;
+            LinearLayout.LayoutParams bannerParams = new LinearLayout.LayoutParams(-1, -2);
+            bannerParams.setMargins(0, dp(4), 0, 0);
+            linearLayout3.addView(banner, bannerParams);
+        }
+        if (MODE_NAOMI.equals(this.currentMode)) {
+            TextView banner = new TextView(this);
+            banner.setTextSize(12.0f);
+            banner.setLineSpacing(0.0f, 1.2f);
+            banner.setPadding(dp(12), dp(10), dp(12), dp(10));
+            this.naomiBanner = banner;
             LinearLayout.LayoutParams bannerParams = new LinearLayout.LayoutParams(-1, -2);
             bannerParams.setMargins(0, dp(4), 0, 0);
             linearLayout3.addView(banner, bannerParams);
@@ -839,6 +864,9 @@ public final class MainActivity extends Activity {
         }
         if ("arcade".equals(this.currentMode)) {
             return "아직 가져온 아케이드 게임이 없습니다.";
+        }
+        if (MODE_NAOMI.equals(this.currentMode)) {
+            return "아직 가져온 Naomi · Atomiswave 게임이 없습니다.\nMAME 세트명의 .zip을 넣어 주세요 (GD-ROM 게임은 .chd도 함께).";
         }
         if (isConsoleMode(this.currentMode)) {
             return "아직 가져온 " + MODE_NAMES[modeIndex(this.currentMode)] + " 게임이 없습니다.";
@@ -1224,6 +1252,24 @@ public final class MainActivity extends Activity {
             this.n3dsKeysStatusView.setText(n3dsKeysStatusText());
             this.n3dsKeysStatusView.setTextColor(n3dsKeysFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
         }
+        if (this.naomiBiosStatusView != null) {
+            this.naomiBiosStatusView.setText(naomiBiosStatusText());
+            this.naomiBiosStatusView.setTextColor(naomiBiosFile("naomi.zip").isFile() || naomiBiosFile("awbios.zip").isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        }
+        if (this.naomiBanner != null) {
+            boolean naomi = naomiBiosFile("naomi.zip").isFile();
+            boolean aw = naomiBiosFile("awbios.zip").isFile();
+            if (naomi && aw) {
+                this.naomiBanner.setVisibility(View.GONE);
+            } else {
+                this.naomiBanner.setVisibility(View.VISIBLE);
+                this.naomiBanner.setText(android.text.Html.fromHtml("<b>" + (!naomi && !aw ? "Naomi 게임은 naomi.zip, Atomiswave 게임은 awbios.zip BIOS가 필요해요."
+                        : !naomi ? "Naomi 게임은 naomi.zip BIOS가 필요해요." : "Atomiswave 게임은 awbios.zip BIOS가 필요해요.")
+                        + "</b><br>GD-ROM 게임은 .zip과 같은 폴더에 디스크 이미지(.chd)를 함께 넣어 주세요. ROM 검사에서 짝을 확인해요.", 0));
+                this.naomiBanner.setTextColor(Color.rgb(154, 52, 18));
+                this.naomiBanner.setBackground(rounded(Color.rgb(255, 247, 237), dp(12)));
+            }
+        }
         if (this.n3dsKeysBanner != null) {
             if (n3dsKeysFile().isFile()) {
                 this.n3dsKeysBanner.setText(android.text.Html.fromHtml("<b>✓ 키 파일이 등록돼 암호화된 게임도 실행할 수 있어요.</b> 시험판: 무거운 게임은 느릴 수 있어요.", 0));
@@ -1604,6 +1650,12 @@ public final class MainActivity extends Activity {
             if (data != null) {
                 importDcBios(data);
             }
+        } else if (i == REQUEST_IMPORT_NAOMI_BIOS) {
+            importNaomiBios(intent);
+        } else if (i == REQUEST_NAOMI_BIOS_TREE) {
+            if (data != null) {
+                importNaomiBiosFromTree(data);
+            }
         } else if (i == REQUEST_IMPORT_N3DS_KEYS) {
             if (data != null) {
                 importN3dsKeys(data);
@@ -1712,10 +1764,19 @@ public final class MainActivity extends Activity {
                 sb.append(displayNameFor).append(": 지원하지 않는 파일\n");
             } else {
                 try {
-                    if (lowerCase.endsWith(".zip")) {
+                    if (lowerCase.endsWith(".zip") && !MODE_NAOMI.equals(mode)) {
                         singletonOrEmpty = copyZippedRomsToAppStorage(uri2, displayNameFor, mode);
                     } else {
+                        // Naomi sets stay ZIPs (the engine reads the archive itself).
                         singletonOrEmpty = singletonOrEmpty(copyRomToAppStorage(uri2, displayNameFor, mode));
+                        if (MODE_NAOMI.equals(mode)) {
+                            for (File imported : singletonOrEmpty) {
+                                NaomiSets.Set set = NaomiSets.forFile(this, imported);
+                                if (set != null) {
+                                    romPrefs().edit().putString("title:" + imported.getName(), set.title()).apply();
+                                }
+                            }
+                        }
                     }
                     if (singletonOrEmpty.isEmpty()) {
                         i3++;
@@ -2503,10 +2564,18 @@ public final class MainActivity extends Activity {
                                 failed.add(picked.name + " · 같은 게임(" + romset.renameConflict + ")이 이미 있음");
                             }
                         }
-                    } else if (lower.endsWith(".zip")) {
+                    } else if (lower.endsWith(".zip") && !MODE_NAOMI.equals(mode)) {
                         imported = copyZippedRomsToAppStorage(picked.uri, picked.name, mode);
                     } else {
                         imported = singletonOrEmpty(copyRomToAppStorage(picked.uri, picked.name, mode));
+                        if (MODE_NAOMI.equals(mode)) {
+                            for (File file : imported) {
+                                NaomiSets.Set set = NaomiSets.forFile(this, file);
+                                if (set != null) {
+                                    romPrefs().edit().putString("title:" + file.getName(), set.title()).apply();
+                                }
+                            }
+                        }
                     }
                     if (imported.isEmpty()) {
                         duplicates++;
@@ -2983,6 +3052,9 @@ public final class MainActivity extends Activity {
 
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
+        if (romDirFor(MODE_NAOMI).equals(dir) && !file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
+            return false;
+        }
         return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_SS).equals(dir)) && isCueTrack(file));
     }
 
@@ -3390,6 +3462,21 @@ public final class MainActivity extends Activity {
             row1.addView(createActionTile(dialog, RoundIconView.ERASE, RoundIconView.COLOR_EXIT, "세이브 삭제", null, true, () -> confirmDeleteSave(file)), actionGridParams(2));
         }
         panel.addView(row1, new LinearLayout.LayoutParams(-1, -2));
+        if (MODE_NAOMI.equals(modeForFile(file))) {
+            LinearLayout naomiRow = new LinearLayout(this);
+            NaomiSets.Set set = NaomiSets.forFile(this, file);
+            int chosen = settingsPrefs().getInt("naomi:buttons:" + saveBaseNameFor(file), 0);
+            String shown = chosen >= 1 ? chosen + "개" : "자동 (" + (set != null ? set.buttons : 6) + "개)";
+            naomiRow.addView(createActionTile(dialog, RoundIconView.PAD, RoundIconView.COLOR_MOVE, "조작 버튼", shown, false, () -> showNaomiButtonsPicker(file)), actionGridParams(0));
+            naomiRow.addView(createActionTile(dialog, RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "ROM 검사", set == null ? "모르는 세트" : set.systemName(), false, () -> {
+                RomCheck check = checkNaomiSet(file);
+                new AlertDialog.Builder(this).setTitle(displayGameNameFor(file)).setMessage(check.detail).setPositiveButton("확인", null).show();
+            }), actionGridParams(1));
+            naomiRow.addView(createActionTile(dialog, RoundIconView.CARD, RoundIconView.COLOR_CARD, "기판 BIOS", naomiBiosStatusText(), false, this::showNaomiBiosSheet), actionGridParams(2));
+            LinearLayout.LayoutParams naomiParams = new LinearLayout.LayoutParams(-1, -2);
+            naomiParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(naomiRow, naomiParams);
+        }
         LinearLayout row2 = new LinearLayout(this);
         row2.addView(createActionTile(dialog, RoundIconView.EXPORT, RoundIconView.COLOR_SAVE, "세이브\n내보내기", null, false, () -> startSaveExport(file)), actionGridParams(0));
         row2.addView(createActionTile(dialog, RoundIconView.IMPORT, RoundIconView.COLOR_LOAD, "세이브\n가져오기", null, false, () -> startSaveImport(file)), actionGridParams(1));
@@ -6095,6 +6182,9 @@ public final class MainActivity extends Activity {
 
     private RomCheck checkRomHeader(File file) {
         String mode = modeForFile(file);
+        if (MODE_NAOMI.equals(mode)) {
+            return checkNaomiSet(file);
+        }
         if (MODE_NES.equals(mode)) {
             return checkNesHeader(file);
         }
@@ -8581,6 +8671,218 @@ public final class MainActivity extends Activity {
             return "없음 · 내장 BIOS";
         }
         return dcFlashFile().isFile() ? "등록됨 · 플래시 포함" : "등록됨";
+    }
+
+    // ---- Naomi · Atomiswave: board BIOS ZIPs in the Dreamcast BIOS folder (Flycast's rule) ----
+    private static final String[] NAOMI_BIOS_NAMES = {"naomi.zip", "naomi2.zip", "awbios.zip"};
+
+    private File naomiBiosFile(String name) {
+        return new File(dcBiosDir(), name);
+    }
+
+    private String naomiBiosStatusText() {
+        boolean naomi = naomiBiosFile("naomi.zip").isFile();
+        boolean naomi2 = naomiBiosFile("naomi2.zip").isFile();
+        boolean aw = naomiBiosFile("awbios.zip").isFile();
+        if (!naomi && !naomi2 && !aw) {
+            return "없음 · 등록 필요";
+        }
+        StringBuilder sb = new StringBuilder();
+        if (naomi) sb.append("Naomi");
+        if (naomi2) sb.append(sb.length() > 0 ? " · " : "").append("Naomi 2");
+        if (aw) sb.append(sb.length() > 0 ? " · " : "").append("AW");
+        return sb.toString();
+    }
+
+    private void showNaomiBiosSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(10), dp(18), dp(22));
+        android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
+        sheet.setColor(Color.WHITE);
+        float r = dp(22);
+        sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        panel.setBackground(sheet);
+        View grip = new View(this);
+        grip.setBackground(rounded(Color.rgb(212, 215, 220), dp(2)));
+        LinearLayout.LayoutParams gripParams = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gripParams.gravity = 1;
+        gripParams.setMargins(0, 0, 0, dp(14));
+        panel.addView(grip, gripParams);
+        TextView title = new TextView(this);
+        title.setText("Naomi · Atomiswave BIOS");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        panel.addView(title);
+        TextView note = new TextView(this);
+        note.setText(android.text.Html.fromHtml("Flycast는 드림캐스트 BIOS 폴더(system/dc)에서 기판 BIOS도 찾아요. MAME 이름 그대로 넣어 주세요.<br><b>naomi.zip</b> Naomi 게임 · <b>naomi2.zip</b> Naomi 2 게임(VF4 등) · <b>awbios.zip</b> Atomiswave 게임", 0));
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0.0f, 1.25f);
+        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setPadding(0, dp(8), 0, dp(10));
+        panel.addView(note);
+        String[] labels = {"naomi.zip", "naomi2.zip", "awbios.zip", "dc_boot.bin"};
+        String[] notes = {"Naomi 게임 필요", "Naomi 2 게임(VF4 · 이니셜D 등)", "Atomiswave 게임 필요", "드림캐스트 모드에서 등록"};
+        for (int k = 0; k < labels.length; k++) {
+            File file = k == 3 ? dcBiosFile() : naomiBiosFile(labels[k]);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(9), dp(12), dp(9));
+            row.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+            TextView name = new TextView(this);
+            name.setText(labels[k]);
+            name.setTextSize(13.0f);
+            name.setTypeface(Typeface.MONOSPACE);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            TextView state = new TextView(this);
+            state.setText(file.isFile() ? "등록됨 · " + formatSize(file.length()) : "없음 · " + notes[k]);
+            state.setTextSize(11.5f);
+            state.setTypeface(Typeface.DEFAULT_BOLD);
+            state.setTextColor(file.isFile() ? Color.rgb(22, 163, 74) : Color.rgb(185, 28, 28));
+            row.addView(state);
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.setMargins(0, dp(6), 0, 0);
+            panel.addView(row, rowParams);
+        }
+        TextView pick = sheetButton("파일에서 등록 (여러 개 선택 가능)", MODE_COLORS[modeIndex(MODE_NAOMI)], -1);
+        pick.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            startActivityForResult(intent, REQUEST_IMPORT_NAOMI_BIOS);
+        });
+        LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(-1, dp(50));
+        pickParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(pick, pickParams);
+        TextView folder = sheetButton("폴더에서 찾기 (MAME 세트 폴더도 돼요)", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        folder.setOnClickListener(view -> {
+            dialog.dismiss();
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            startActivityForResult(intent, REQUEST_NAOMI_BIOS_TREE);
+        });
+        LinearLayout.LayoutParams folderParams = new LinearLayout.LayoutParams(-1, dp(44));
+        folderParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(folder, folderParams);
+        TextView close = sheetButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(-1, -2);
+            window.setGravity(80);
+        }
+        dialog.show();
+    }
+
+    // Takes the picked files whose names are the board BIOS ZIPs.
+    private void importNaomiBios(Intent intent) {
+        List<Uri> uris = new ArrayList<>();
+        if (intent != null && intent.getClipData() != null) {
+            for (int k = 0; k < intent.getClipData().getItemCount(); k++) {
+                Uri uri = intent.getClipData().getItemAt(k).getUri();
+                if (uri != null) uris.add(uri);
+            }
+        } else if (intent != null && intent.getData() != null) {
+            uris.add(intent.getData());
+        }
+        int done = 0;
+        StringBuilder skipped = new StringBuilder();
+        for (Uri uri : uris) {
+            String name = displayNameFor(uri).toLowerCase(Locale.US);
+            if (!Arrays.asList(NAOMI_BIOS_NAMES).contains(name)) {
+                skipped.append(displayNameFor(uri)).append(" (naomi.zip · naomi2.zip · awbios.zip만)\n");
+                continue;
+            }
+            try {
+                //noinspection ResultOfMethodCallIgnored
+                dcBiosDir().mkdirs();
+                copyUriToFile(uri, naomiBiosFile(name));
+                done++;
+            } catch (IOException e) {
+                skipped.append(displayNameFor(uri)).append(": ").append(e.getMessage()).append('\n');
+            }
+        }
+        updateHomeStatusCards();
+        showMessage((done > 0 ? done + "개를 등록했어요. " + naomiBiosStatusText() : "등록한 BIOS가 없어요.") + (skipped.length() > 0 ? "\n" + skipped.toString().trim() : ""));
+    }
+
+    // Scans the chosen folder (a MAME set folder works) for the three BIOS ZIPs.
+    private void importNaomiBiosFromTree(Uri treeUri) {
+        runImport("기판 BIOS 찾는 중", reporter -> {
+            int done = 0;
+            for (PickedFile picked : listTree(treeUri)) {
+                String name = picked.name.toLowerCase(Locale.US);
+                if (!Arrays.asList(NAOMI_BIOS_NAMES).contains(name)) continue;
+                try {
+                    //noinspection ResultOfMethodCallIgnored
+                    dcBiosDir().mkdirs();
+                    copyUriToFile(picked.uri, naomiBiosFile(name));
+                    done++;
+                } catch (IOException ignored) {
+                    // The next one may still work.
+                }
+            }
+            final int count = done;
+            runOnUiThread(this::updateHomeStatusCards);
+            return count > 0 ? count + "개를 찾아 등록했어요. " + naomiBiosStatusText() : "폴더에서 naomi.zip · naomi2.zip · awbios.zip을 찾지 못했어요.";
+        });
+    }
+
+    // Set known to Flycast? Disc image beside a GD-ROM set? Board BIOS present?
+    private RomCheck checkNaomiSet(File file) {
+        NaomiSets.Set set = NaomiSets.forFile(this, file);
+        if (set == null) {
+            return new RomCheck(false, "Flycast가 모르는 세트 이름이에요. MAME 세트명(.zip)으로 바꿔 주세요");
+        }
+        StringBuilder sb = new StringBuilder(set.systemName());
+        if (set.vertical) sb.append(" · 세로 화면 게임");
+        boolean ok = true;
+        if (set.gd != null) {
+            File disc = NaomiSets.discFor(file, set);
+            if (disc != null && disc.isFile()) {
+                sb.append(" · GD-ROM ").append(disc.getName()).append(" 있음");
+            } else {
+                ok = false;
+                sb.append(" · GD-ROM 이미지 ").append(set.gd).append(".chd 없음 (같은 폴더에 넣어 주세요)");
+            }
+        }
+        if (!naomiBiosFile(set.biosName()).isFile()) {
+            ok = false;
+            sb.append(" · BIOS ").append(set.biosName()).append(" 없음");
+        } else {
+            sb.append(" · BIOS 있음");
+        }
+        return new RomCheck(ok, sb.toString());
+    }
+
+    private void showNaomiButtonsPicker(File file) {
+        NaomiSets.Set set = NaomiSets.forFile(this, file);
+        String[] names = {"자동 (" + (set != null ? set.buttons : 6) + "개)", "1개", "2개", "3개", "4개", "5개", "6개"};
+        final String key = "naomi:buttons:" + saveBaseNameFor(file);
+        int current = settingsPrefs().getInt(key, 0);
+        new AlertDialog.Builder(this).setTitle("조작 버튼 수 · " + displayGameNameFor(file))
+                .setSingleChoiceItems(names, Math.max(0, Math.min(6, current)), (d, which) -> {
+                    if (which == 0) {
+                        settingsPrefs().edit().remove(key).apply();
+                    } else {
+                        settingsPrefs().edit().putInt(key, which).apply();
+                    }
+                    d.dismiss();
+                    showMessage("버튼 " + names[which] + "로 보여요. 1번부터 차례로 Flycast의 버튼 1~6이에요.");
+                }).setNegativeButton("취소", null).show();
     }
 
     private void showDcBiosSheet() {
