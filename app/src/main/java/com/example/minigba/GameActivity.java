@@ -96,6 +96,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (this.gameMode == null) {
             this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isNds() ? "nds" : "arcade";
         }
+        CrashReports.installJavaHandler(this);
+        CrashReports.noteGame(this, this.gameMode, this.coreId, this.romPath == null ? "" : new File(this.romPath).getName());
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
         if (!isSupportedGameFile(lowerCase)) {

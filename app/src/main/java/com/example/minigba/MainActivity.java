@@ -317,6 +317,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        CrashReports.installJavaHandler(this);
         relaunchGameIfAsked(getIntent());
         importPresetIfOpened(getIntent());
         ensureDownloadFolder();
@@ -650,6 +651,10 @@ public final class MainActivity extends Activity {
         LinearLayout screenModeTile = createActionCard("화면 모드", SCREEN_MODE_LABELS[screenMode()], R.drawable.action_screen, Color.rgb(55, 188, 116), view -> cycleScreenMode(view));
         this.screenModeStatusView = (TextView) screenModeTile.getTag();
         actionRow.addView(screenModeTile, actionTileParams());
+        LinearLayout crashHolder = new LinearLayout(this);
+        crashHolder.setOrientation(1);
+        this.crashCardHolder = crashHolder;
+        linearLayout3.addView(crashHolder, new LinearLayout.LayoutParams(-1, -2));
         linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
         if (MODE_PCE.equals(this.currentMode)) {
             TextView banner = new TextView(this);
@@ -790,6 +795,25 @@ public final class MainActivity extends Activity {
             });
             sheet.addView(row, new LinearLayout.LayoutParams(-1, -2));
         }
+        // Kept crash reports are reached from here (the list card only shows new ones).
+        List<CrashReports.Report> reports = CrashReports.list(this);
+        if (!reports.isEmpty()) {
+            TextView crashRow = new TextView(this);
+            crashRow.setText("오류 보고 " + reports.size() + "건 · 보기 · 내보내기 · 지우기");
+            crashRow.setTextColor(Color.rgb(124, 45, 18));
+            crashRow.setTextSize(12.5f);
+            crashRow.setTypeface(Typeface.DEFAULT_BOLD);
+            crashRow.setGravity(17);
+            crashRow.setPadding(dp(10), dp(10), dp(10), dp(10));
+            crashRow.setBackground(rounded(Color.rgb(255, 247, 237), dp(12)));
+            crashRow.setOnClickListener(view -> {
+                dialog.dismiss();
+                showCrashReportList();
+            });
+            LinearLayout.LayoutParams crashParams = new LinearLayout.LayoutParams(-1, -2);
+            crashParams.setMargins(0, dp(10), 0, 0);
+            sheet.addView(crashRow, crashParams);
+        }
         // Twelve modes outgrow a landscape screen; the list scrolls then.
         ScrollView sheetScroll = new ScrollView(this);
         sheetScroll.setVerticalScrollBarEnabled(false);
@@ -839,8 +863,9 @@ public final class MainActivity extends Activity {
         updateHomeStatusCards();
         updateNote();
         refreshLibrary();
-        boolean reported = showLastCrashReport();
+        boolean reported = collectCrashReports();
         checkGameSession(reported, 0);
+        updateCrashCard();
         // Left by 0.0.112-0.0.113, which showed the PS2 engine log after each PS2 game.
         new File(getFilesDir(), "ps2_log_pending").delete();
     }
@@ -858,7 +883,7 @@ public final class MainActivity extends Activity {
         if (isGameProcessRunning() && attempt < 6) {
             getWindow().getDecorView().postDelayed(() -> {
                 if (!isFinishing() && !isDestroyed()) {
-                    checkGameSession(reported || showLastCrashReport(), attempt + 1);
+                    checkGameSession(reported || collectCrashReports(), attempt + 1);
                 }
             }, 1000);
             return;
@@ -867,9 +892,227 @@ public final class MainActivity extends Activity {
             return;
         }
         prefs.edit().remove(GameActivity.SESSION_START).apply();
-        if (!reported && !showLastCrashReport() && !endedByUserOrUpdate(sessionStart)) {
-            showUnexpectedGameExit(sessionStart);
+        if (!reported && !collectCrashReports() && !endedByUserOrUpdate(sessionStart)) {
+            CrashReports.collectUnexpectedExit(this, sessionStart, gameExitText(sessionStart), gameTombstone(sessionStart));
         }
+        updateCrashCard();
+    }
+
+    // ---- 충돌 보고 ----
+    private LinearLayout crashCardHolder;
+
+    // Makes reports from what the bridge or a Java handler left; an engine that crashed
+    // drawing with Vulkan has that turned off for its core from now on.
+    private boolean collectCrashReports() {
+        long sessionStart = settingsPrefs().getLong(GameActivity.SESSION_START, 0);
+        String[] vulkanCore = new String[1];
+        int made = CrashReports.collectCrashFiles(this, sessionStart, gameExitText(sessionStart), gameTombstone(sessionStart), vulkanCore);
+        if (vulkanCore[0] != null) {
+            settingsPrefs().edit().putBoolean("vulkan_off:" + vulkanCore[0], true).apply();
+            showMessage("엔진이 Vulkan으로 그리다 멈춰서, 이 기종은 다음부터 OpenGL로 실행돼요.");
+        }
+        return made > 0;
+    }
+
+    // The system's record of why the game process ended since the session began (Android 11+).
+    private String gameExitText(long sessionStart) {
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            return null;
+        }
+        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        List<android.app.ApplicationExitInfo> exits = am == null ? null : am.getHistoricalProcessExitReasons(null, 0, 10);
+        if (exits == null) {
+            return null;
+        }
+        for (android.app.ApplicationExitInfo exit : exits) {
+            if (exit.getProcessName() == null || !exit.getProcessName().endsWith(":game") || exit.getTimestamp() < sessionStart) {
+                continue;
+            }
+            StringBuilder text = new StringBuilder();
+            text.append("reason ").append(exitReasonName(exit.getReason())).append(" (").append(exit.getReason()).append(")")
+                    .append(", status ").append(exit.getStatus())
+                    .append(", importance ").append(exit.getImportance())
+                    .append("\ntime ").append(CrashReports.stamp(exit.getTimestamp()))
+                    .append("\npss ").append(exit.getPss() / 1024).append(" MB, rss ").append(exit.getRss() / 1024).append(" MB");
+            if (exit.getDescription() != null) {
+                text.append("\n").append(exit.getDescription());
+            }
+            return text.toString();
+        }
+        return null;
+    }
+
+    // The tombstone the system kept for a native crash of the game process (Android 12+).
+    private java.io.InputStream gameTombstone(long sessionStart) {
+        if (android.os.Build.VERSION.SDK_INT < 31) {
+            return null;
+        }
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            List<android.app.ApplicationExitInfo> exits = am == null ? null : am.getHistoricalProcessExitReasons(null, 0, 10);
+            if (exits == null) {
+                return null;
+            }
+            for (android.app.ApplicationExitInfo exit : exits) {
+                if (exit.getProcessName() == null || !exit.getProcessName().endsWith(":game") || exit.getTimestamp() < sessionStart) {
+                    continue;
+                }
+                int reason = exit.getReason();
+                if (reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE || reason == android.app.ApplicationExitInfo.REASON_ANR) {
+                    return exit.getTraceInputStream();
+                }
+                return null;
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // No trace this time.
+        }
+        return null;
+    }
+
+    /** The card at the top of the list while a report waits: 지우기 · 자세히 · 내보내기. */
+    private void updateCrashCard() {
+        LinearLayout holder = this.crashCardHolder;
+        if (holder == null) {
+            return;
+        }
+        holder.removeAllViews();
+        List<CrashReports.Report> reports = CrashReports.list(this);
+        int unseen = 0;
+        CrashReports.Report newest = null;
+        for (CrashReports.Report report : reports) {
+            if (report.unseen) {
+                unseen++;
+                if (newest == null) newest = report;
+            }
+        }
+        if (newest == null) {
+            return;
+        }
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(1);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        GradientDrawable background = rounded(Color.rgb(255, 247, 237), dp(14));
+        background.setStroke(dp(1), Color.rgb(253, 186, 116));
+        card.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("⚠ 지난번에 게임이 비정상 종료됐어요");
+        title.setTextColor(Color.rgb(124, 45, 18));
+        title.setTextSize(14.5f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(title);
+        TextView body = new TextView(this);
+        body.setText("언제  " + newest.when + "\n게임  " + (newest.game.isEmpty() ? "(알 수 없음)" : newest.game)
+                + "\n원인  " + newest.title() + " · " + newest.cause + "\n앱  " + CrashReports.appVersion(this) + " · " + android.os.Build.MODEL + " · Android " + android.os.Build.VERSION.RELEASE
+                + (unseen > 1 ? "\n\n보고 " + unseen + "건이 쌓여 있어요 · 내보내기는 모두 한 파일에 담아요" : ""));
+        body.setTextColor(Color.rgb(68, 64, 60));
+        body.setTextSize(12.0f);
+        body.setLineSpacing(0, 1.2f);
+        body.setPadding(0, dp(6), 0, 0);
+        card.addView(body);
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(0);
+        final CrashReports.Report shown = newest;
+        TextView dismiss = crashButton("지우기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99), view -> {
+            CrashReports.markSeen(this);
+            updateCrashCard();
+        });
+        TextView detail = crashButton("자세히", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99), view -> showCrashReport(shown));
+        TextView export = crashButton("오류 보고 내보내기", Color.rgb(225, 29, 72), Color.WHITE, view -> exportCrashReports(true));
+        actions.addView(dismiss, crashButtonParams(1.0f, false));
+        actions.addView(detail, crashButtonParams(1.0f, true));
+        actions.addView(export, crashButtonParams(1.8f, true));
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(40));
+        actionsParams.setMargins(0, dp(10), 0, 0);
+        card.addView(actions, actionsParams);
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
+        cardParams.setMargins(0, dp(8), 0, dp(2));
+        holder.addView(card, cardParams);
+    }
+
+    private TextView crashButton(String text, int background, int textColor, View.OnClickListener onClick) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(12.5f);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setTextColor(textColor);
+        button.setGravity(17);
+        button.setMaxLines(1);
+        button.setBackground(rounded(background, dp(11)));
+        button.setOnClickListener(onClick);
+        return button;
+    }
+
+    private static LinearLayout.LayoutParams crashButtonParams(float weight, boolean gap) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, weight);
+        params.setMargins(gap ? 12 : 0, 0, 0, 0);
+        return params;
+    }
+
+    // Zips the unseen (or all) reports into 다운로드/Mini Emulator and marks them seen.
+    private void exportCrashReports(boolean unseenOnly) {
+        List<CrashReports.Report> reports = new ArrayList<>();
+        for (CrashReports.Report report : CrashReports.list(this)) {
+            if (!unseenOnly || report.unseen) reports.add(report);
+        }
+        if (reports.isEmpty()) {
+            showMessage("내보낼 보고가 없어요.");
+            return;
+        }
+        try {
+            String where = CrashReports.export(this, reports);
+            CrashReports.markSeen(this);
+            updateCrashCard();
+            new AlertDialog.Builder(this).setTitle("오류 보고를 저장했어요")
+                    .setMessage(where + "\n\n이 파일을 보내 주시면 원인을 찾을 수 있어요. 세이브 · ROM · 사진은 들어 있지 않아요.")
+                    .setPositiveButton("확인", null).show();
+        } catch (IOException | RuntimeException e) {
+            showError("오류 보고를 저장하지 못했어요: " + e.getMessage());
+        }
+    }
+
+    private void showCrashReport(CrashReports.Report report) {
+        final String text = CrashReports.fullText(report);
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(10.5f);
+        view.setTextIsSelectable(true);
+        view.setTypeface(Typeface.MONOSPACE);
+        view.setPadding(dp(16), dp(8), dp(16), dp(8));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(view);
+        new AlertDialog.Builder(this).setTitle("오류 보고 · " + report.when).setView(scroll)
+                .setNegativeButton("닫기", null)
+                .setNeutralButton("복사", (dialog, which) -> {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Mini Emulator crash", text));
+                        showMessage("복사했습니다.");
+                    }
+                })
+                .setPositiveButton("내보내기", (dialog, which) -> exportCrashReports(false)).show();
+    }
+
+    /** All kept reports: 보기 · 모두 내보내기 · 모두 지우기 (from the 모드 변경 sheet). */
+    private void showCrashReportList() {
+        List<CrashReports.Report> reports = CrashReports.list(this);
+        if (reports.isEmpty()) {
+            showMessage("보관된 오류 보고가 없어요.");
+            return;
+        }
+        String[] names = new String[reports.size()];
+        for (int i = 0; i < reports.size(); i++) {
+            CrashReports.Report report = reports.get(i);
+            names[i] = report.when + " · " + (report.game.isEmpty() ? report.title() : report.game) + "\n" + report.title() + " · " + report.cause + (report.unseen ? " · 새 보고" : "");
+        }
+        new AlertDialog.Builder(this).setTitle("오류 보고 (최근 " + reports.size() + "건)")
+                .setItems(names, (dialog, which) -> showCrashReport(reports.get(which)))
+                .setNegativeButton("모두 지우기", (dialog, which) -> {
+                    CrashReports.deleteAll(this);
+                    updateCrashCard();
+                    showMessage("오류 보고를 모두 지웠어요.");
+                })
+                .setPositiveButton("모두 내보내기", (dialog, which) -> exportCrashReports(false))
+                .setNeutralButton("닫기", null).show();
     }
 
     // Whether the system's record says the game process was stopped on purpose: the task
@@ -911,40 +1154,6 @@ public final class MainActivity extends Activity {
         return false;
     }
 
-    // A game that ended without its engine crashing (no last_crash.txt): the system was
-    // asked to stop it, killed it (memory) or it exited. Shows the system's record of why
-    // (Android 11+) and the engine's last log lines, which the bridge keeps in a file.
-    private void showUnexpectedGameExit(long sessionStart) {
-        StringBuilder text = new StringBuilder();
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
-            List<android.app.ApplicationExitInfo> exits = am == null ? null : am.getHistoricalProcessExitReasons(null, 0, 10);
-            if (exits != null) {
-                for (android.app.ApplicationExitInfo exit : exits) {
-                    if (exit.getProcessName() == null || !exit.getProcessName().endsWith(":game") || exit.getTimestamp() < sessionStart) {
-                        continue;
-                    }
-                    text.append("reason ").append(exitReasonName(exit.getReason())).append(" (").append(exit.getReason()).append(")")
-                            .append(", status ").append(exit.getStatus())
-                            .append(", importance ").append(exit.getImportance())
-                            .append("\npss ").append(exit.getPss() / 1024).append(" MB, rss ").append(exit.getRss() / 1024).append(" MB");
-                    if (exit.getDescription() != null) {
-                        text.append("\n").append(exit.getDescription());
-                    }
-                    text.append('\n');
-                    break;
-                }
-            }
-        }
-        String log = readGameLog();
-        if (text.length() == 0) {
-            text.append("(시스템 종료 기록 없음)\n");
-        }
-        if (!log.isEmpty()) {
-            text.append("log:\n").append(log);
-        }
-        showReport("게임이 갑자기 종료됐습니다", "엔진이 오류 없이 꺼졌습니다. 아래 내용을 복사해서 보내 주시면 원인을 찾는 데 도움이 됩니다.", text.toString());
-    }
 
     private static String exitReasonName(int reason) {
         switch (reason) {
@@ -966,81 +1175,8 @@ public final class MainActivity extends Activity {
         }
     }
 
-    // files/game_log.bin: a little-endian line count, then 160 slots of 240 bytes.
-    private String readGameLog() {
-        File file = new File(getFilesDir(), "game_log.bin");
-        byte[] data = readHead(file, (int) Math.min(file.length(), 4 + 160 * 240));
-        if (data == null || data.length < 4) {
-            return "";
-        }
-        long count = (data[0] & 255) | ((data[1] & 255) << 8) | ((data[2] & 255) << 16) | ((long) (data[3] & 255) << 24);
-        StringBuilder sb = new StringBuilder();
-        for (long i = Math.max(0, count - 160); i < count; i++) {
-            int at = 4 + (int) (i % 160) * 240;
-            int end = at;
-            while (end < Math.min(data.length, at + 240) && data[end] != 0) {
-                end++;
-            }
-            sb.append(new String(data, at, end - at, StandardCharsets.UTF_8)).append('\n');
-        }
-        return sb.toString();
-    }
 
-    // The native bridge writes this file when a game's engine crashes.
-    private boolean showLastCrashReport() {
-        File file = new File(getFilesDir(), "last_crash.txt");
-        if (!file.isFile()) {
-            return false;
-        }
-        String report;
-        try (FileInputStream in = new FileInputStream(file)) {
-            byte[] data = new byte[(int) Math.min(file.length(), 32768)];
-            int length = in.read(data);
-            report = new String(data, 0, Math.max(length, 0), "UTF-8");
-        } catch (IOException e) {
-            report = "";
-        }
-        if (!file.delete()) {
-            file.deleteOnExit();
-        }
-        if (report.trim().isEmpty()) {
-            return false;
-        }
-        String intro = "엔진이 멈춘 위치를 기록했습니다. 아래 내용을 복사해서 보내 주시면 원인을 찾는 데 도움이 됩니다.";
-        // An engine crashed while drawing with Vulkan: run its games on OpenGL ES from now on.
-        java.util.regex.Matcher vulkanCrash = java.util.regex.Pattern.compile("core (\\S+), rom .*, renderer vulkan").matcher(report);
-        if (vulkanCrash.find()) {
-            settingsPrefs().edit().putBoolean("vulkan_off:" + vulkanCrash.group(1), true).apply();
-            intro += "\n이 기종 게임은 다음부터 Vulkan 대신 OpenGL로 실행돼요.";
-        }
-        showReport("게임이 비정상 종료됐습니다", intro, report);
-        return true;
-    }
 
-    private void showReport(String title, String intro, String report) {
-        String version;
-        try {
-            version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-            version = "?";
-        }
-        final String text = "Mini Emulator " + version + "\n" + report;
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextSize(11.0f);
-        view.setTextIsSelectable(true);
-        view.setTypeface(Typeface.MONOSPACE);
-        view.setPadding(dp(16), dp(8), dp(16), dp(8));
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(view);
-        new AlertDialog.Builder(this).setTitle(title).setMessage(intro).setView(scroll).setNegativeButton("닫기", null).setPositiveButton("복사", (dialog, which) -> {
-            android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("Mini Emulator crash", text));
-                showMessage("복사했습니다.");
-            }
-        }).show();
-    }
 
     private void updateHomeStatusCards() {
         if (this.saturnBiosStatusView != null) {
