@@ -1418,8 +1418,119 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Saved per console, screen direction and screen style.
     private String layoutKey() {
-        String console = isGameGear() ? "gg" : isMasterSystem() ? "sms" : isGameBoy() ? "gb" : this.coreId;
-        return "layout:" + console + ":" + (this.landscapeMode ? "L" : "P") + ":" + (isFullScreenStyle() ? "full" : "frame");
+        return "layout:" + layoutConsole() + ":" + (this.landscapeMode ? "L" : "P") + ":" + (isFullScreenStyle() ? "full" : "frame");
+    }
+
+    private String layoutConsole() {
+        return isGameGear() ? "gg" : isMasterSystem() ? "sms" : isGameBoy() ? "gb" : this.coreId;
+    }
+
+    // ---- 꾸미기 프리셋 ----
+    private View undoBar;
+
+    private void openPresetDialog() {
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        String[] summary = {
+                ClearShellView.STYLE_NAMES[shellStyle()],
+                PhotoBackground.rendered(this, this.gameMode, this.landscapeMode) != null ? "있음" : "없음",
+                PhotoBackground.buttonAlpha(this, this.gameMode) + "%",
+                buttonStyleSummary(),
+                hasLayoutEdits() ? "바꾼 배치" : "기본 배치",
+                (is3d() ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
+        };
+        new PresetDialog(this, consoleName(), this.landscapeMode, summary, new PresetDialog.Listener() {
+            @Override
+            public Presets.Preset onSave(String id, String name, int scope, boolean[] items) throws java.io.IOException {
+                return Presets.capture(GameActivity.this, id, name, gameMode, consoleName(), layoutConsole(), landscapeMode, scope, items);
+            }
+
+            @Override
+            public void onApply(Presets.Preset preset) {
+                applyPreset(preset);
+            }
+
+            @Override
+            public void onClosed() {
+                holdPause = false;
+                resumeUnlessExiting();
+            }
+        }).show(screenRectInWindow());
+    }
+
+    /** Keeps the current look as the undo preset, writes the preset's settings and rebuilds. */
+    private void applyPreset(Presets.Preset preset) {
+        boolean undo = Presets.UNDO_ID.equals(preset.id);
+        try {
+            if (!undo) {
+                Presets.capture(this, Presets.UNDO_ID, "되돌리기용", this.gameMode, consoleName(), layoutConsole(), this.landscapeMode,
+                        Presets.SCOPE_BOTH, new boolean[]{true, true, true, true, true, true});
+            }
+            boolean[] orientations = {preset.hasOrientation(false), preset.hasOrientation(true)};
+            String skipped = Presets.apply(this, preset, this.gameMode, layoutConsole(), orientations);
+            if (undo) {
+                Presets.delete(this, Presets.UNDO_ID);
+            }
+            rebuildContent();
+            applyScreenFilterToNative(screenFilter());
+            updateScreenFilters();
+            Toast.makeText(this, (undo ? "적용 전 모습으로 되돌렸어요." : "\"" + preset.name + "\"을 " + consoleName() + "에 적용했어요.")
+                    + (skipped != null ? "\n" + skipped : ""), Toast.LENGTH_SHORT).show();
+            if (!undo) {
+                showUndoBar();
+            }
+        } catch (java.io.IOException e) {
+            Toast.makeText(this, "적용하지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // A strip at the bottom for ten seconds: "되돌리기" brings the previous look back.
+    private void showUndoBar() {
+        hideUndoBar();
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(14), dp(8), dp(8), dp(8));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.argb(235, 31, 36, 48));
+        background.setCornerRadius(dp(12));
+        bar.setBackground(background);
+        TextView text = new TextView(this);
+        text.setText("프리셋을 적용했어요");
+        text.setTextSize(12.5f);
+        text.setTextColor(Color.WHITE);
+        bar.addView(text, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView undo = new TextView(this);
+        undo.setText("되돌리기");
+        undo.setTextSize(13.0f);
+        undo.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        undo.setTextColor(Color.rgb(255, 143, 168));
+        undo.setPadding(dp(12), dp(6), dp(12), dp(6));
+        undo.setOnClickListener(view -> {
+            hideUndoBar();
+            Presets.Preset previous = Presets.read(Presets.dir(this, Presets.UNDO_ID));
+            if (previous != null) {
+                applyPreset(previous);
+            }
+        });
+        bar.addView(undo);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        params.setMargins(dp(16), 0, dp(16), dp(24));
+        addContentView(bar, params);
+        this.undoBar = bar;
+        bar.postDelayed(() -> {
+            if (this.undoBar == bar) hideUndoBar();
+        }, 10000);
+    }
+
+    private void hideUndoBar() {
+        View bar = this.undoBar;
+        this.undoBar = null;
+        if (bar != null && bar.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) bar.getParent()).removeView(bar);
+        }
     }
 
     private java.util.Map<String, float[]> loadLayoutEdits() {
@@ -2861,6 +2972,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         dialog.dismiss();
                         openButtonStyleDialog();
                     }), styleRowParams);
+            LinearLayout.LayoutParams presetRowParams = new LinearLayout.LayoutParams(-1, dp(52));
+            presetRowParams.setMargins(0, dp(8), 0, 0);
+            int presetCount = 0;
+            for (Presets.Preset preset : Presets.list(this)) {
+                if (!Presets.UNDO_ID.equals(preset.id)) presetCount++;
+            }
+            panel.addView(createSettingRow(RoundIconView.STAR, RoundIconView.COLOR_SAVE, "꾸미기 프리셋",
+                    presetCount == 0 ? "저장 · 적용" : "저장된 것 " + presetCount, view -> {
+                        dialog.dismiss();
+                        openPresetDialog();
+                    }), presetRowParams);
         }
 
         LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));
