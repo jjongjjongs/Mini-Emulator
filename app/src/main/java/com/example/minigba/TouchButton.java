@@ -46,7 +46,15 @@ final class TouchButton extends View {
     private float pulse = 1.0f;
     private android.animation.ValueAnimator pulseAnimator;
 
-    void setStyle(ButtonStyle style) {
+    // The layout editor's id of this control ("TouchButton.<bit>#n"), for its own colour.
+    private String styleKey;
+
+    boolean isShoulder() {
+        return this.style == STYLE_SHOULDER;
+    }
+
+    void setStyle(ButtonStyle style, String key) {
+        this.styleKey = key;
         this.look = style != null && style.themed() ? style : null;
         // Glows are blurred, which only a software layer draws.
         setLayerType(this.look != null && this.look.neon() && this.look.glow ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
@@ -112,7 +120,7 @@ final class TouchButton extends View {
         } else if (keycap) {
             drawKeycap(canvas, width, height);
         } else {
-            int themed = look != null ? look.color(ButtonStyle.roleOf(this.label)) : 0;
+            int themed = look != null ? look.colorFor(this.styleKey, ButtonStyle.roleOf(this.label)) : 0;
             drawRound(canvas, width, height, themed != 0 ? ButtonStyle.palette(themed) : palette(),
                     themed != 0 ? (ButtonStyle.isLight(themed) ? Color.rgb(40, 44, 52) : Color.WHITE) : (this.labelColor != 0 ? this.labelColor : Color.WHITE));
         }
@@ -139,7 +147,7 @@ final class TouchButton extends View {
     // "윤곽선만" and "네온": a thin ring in the theme colour on a clear (or near-black) body;
     // pressing fills it with the colour, and neon lets it glow.
     private void drawLine(Canvas canvas, float width, float height, boolean keycap, ButtonStyle style) {
-        int color = style.color(keycap ? ButtonStyle.ROLE_PILL : ButtonStyle.roleOf(this.label));
+        int color = style.colorFor(this.styleKey, keycap ? ButtonStyle.ROLE_PILL : ButtonStyle.roleOf(this.label));
         boolean pressed = looksPressed();
         float stroke = Math.max(2.0f, Math.min(width, height) * (keycap ? 0.07f : 0.06f));
         Path path;
@@ -279,7 +287,7 @@ final class TouchButton extends View {
         this.shadow.setColor(Color.argb(looksPressed() ? 34 : 50, 0, 0, 0));
         canvas.drawRoundRect(new RectF(left, top + drop * 0.5f, right, bottom + drop * 0.5f), radius, radius, this.shadow);
 
-        int themed = this.look != null ? this.look.color(ButtonStyle.ROLE_PILL) : 0;
+        int themed = this.look != null ? this.look.colorFor(this.styleKey, ButtonStyle.ROLE_PILL) : 0;
         if (themed != 0) {
             int[] palette = ButtonStyle.palette(themed);
             this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom,

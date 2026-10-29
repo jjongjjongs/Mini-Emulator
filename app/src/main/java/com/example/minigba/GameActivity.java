@@ -1450,6 +1450,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Finds the controls just built, names them (kind, button bit, n-th of the same) so a saved
     // layout still fits when another button comes or goes, and applies the saved moves.
     private void applyLayoutEdits(View root) {
+        this.controlsGeneration++;
+        this.gapOffsets.clear();
         this.layoutControls.clear();
         this.layoutIds.clear();
         this.layoutBase.clear();
@@ -1482,10 +1484,123 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float density = getResources().getDisplayMetrics().density;
         view.setTranslationX(base[0] + dxDp * density);
         view.setTranslationY(base[1] + dyDp * density);
-        // The group size from "버튼 꾸미기" multiplies whatever the layout editor set.
+        // The group size from "버튼 꾸미기" multiplies whatever the layout editor set, and
+        // "버튼 사이 간격" adds its spread.
+        float[] gap = index < this.gapOffsets.size() ? this.gapOffsets.get(index) : null;
+        if (gap != null) {
+            view.setTranslationX(view.getTranslationX() + gap[0]);
+            view.setTranslationY(view.getTranslationY() + gap[1]);
+        }
         float styled = scale * this.buttonStyle.scale(styleGroup(view));
         view.setScaleX(styled);
         view.setScaleY(styled);
+    }
+
+    // Per control, the extra offset "버튼 사이 간격" gives it (pixels); empty when 100%.
+    private final java.util.List<float[]> gapOffsets = new java.util.ArrayList<>();
+
+    /**
+     * Spreads the A·B·X·Y group and the SELECT·START pair about their own centres by the
+     * gap percent. Needs the controls laid out; before that it arranges to run once they are.
+     */
+    private void computeGapOffsets(Runnable then) {
+        this.gapOffsets.clear();
+        float gap = this.buttonStyle.gap / 100.0f;
+        if (Math.abs(gap - 1.0f) < 0.005f || this.layoutControls.isEmpty()) {
+            then.run();
+            return;
+        }
+        for (View view : this.layoutControls) {
+            if (view.getWidth() == 0 && isGapControl(view)) {
+                final View probe = view;
+                probe.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        if (probe.getWidth() == 0) return;
+                        probe.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        computeGapOffsets(then);
+                    }
+                });
+                return;
+            }
+        }
+        java.util.Map<String, float[]> edits = loadLayoutEdits();
+        // Two groups, each spread about its centre: round action buttons, and centre keycaps.
+        for (int group = 0; group < 2; group++) {
+            java.util.List<Integer> members = new java.util.ArrayList<>();
+            float sumX = 0, sumY = 0;
+            for (int k = 0; k < this.layoutControls.size(); k++) {
+                View view = this.layoutControls.get(k);
+                if (!(view instanceof TouchButton)) continue;
+                TouchButton button = (TouchButton) view;
+                boolean action = !button.isKeycap();
+                boolean pill = button.isKeycap() && !button.isShoulder();
+                if (group == 0 ? !action : !pill) continue;
+                members.add(k);
+                float[] center = editedCenter(k, edits);
+                sumX += center[0];
+                sumY += center[1];
+            }
+            if (members.size() < 2) continue;
+            float cx = sumX / members.size();
+            float cy = sumY / members.size();
+            for (int k : members) {
+                float[] center = editedCenter(k, edits);
+                float dx = (center[0] - cx) * (gap - 1.0f);
+                float dy = group == 0 ? (center[1] - cy) * (gap - 1.0f) : 0;
+                // Stays inside its parent.
+                View view = this.layoutControls.get(k);
+                View parent = (View) view.getParent();
+                float half = view.getWidth() / 2.0f * this.buttonStyle.scale(styleGroup(view));
+                float halfH = view.getHeight() / 2.0f * this.buttonStyle.scale(styleGroup(view));
+                dx = Math.max(half - center[0], Math.min(parent.getWidth() - half - center[0], dx));
+                dy = Math.max(halfH - center[1], Math.min(parent.getHeight() - halfH - center[1], dy));
+                while (this.gapOffsets.size() <= k) this.gapOffsets.add(null);
+                this.gapOffsets.set(k, new float[]{dx, dy});
+            }
+        }
+        then.run();
+    }
+
+    private static boolean isGapControl(View view) {
+        return view instanceof TouchButton;
+    }
+
+    // The control's centre in its parent with the layout editor's move applied (gap excluded).
+    private float[] editedCenter(int index, java.util.Map<String, float[]> edits) {
+        View view = this.layoutControls.get(index);
+        float[] base = this.layoutBase.get(index);
+        float[] edit = edits.get(this.layoutIds.get(index));
+        float density = getResources().getDisplayMetrics().density;
+        float tx = base[0] + (edit != null ? edit[0] * density : 0);
+        float ty = base[1] + (edit != null ? edit[1] * density : 0);
+        return new float[]{view.getLeft() + view.getWidth() / 2.0f + tx, view.getTop() + view.getHeight() / 2.0f + ty};
+    }
+
+    /** The controls on this screen as (id, name, role) for "버튼마다 따로 고르기". */
+    private java.util.List<String[]> styleControlNames() {
+        java.util.List<String[]> names = new java.util.ArrayList<>();
+        int sticks = 0;
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            View view = this.layoutControls.get(k);
+            String name;
+            int role;
+            if (view instanceof TouchButton) {
+                TouchButton button = (TouchButton) view;
+                name = button.label();
+                role = button.isKeycap() ? ButtonStyle.ROLE_PILL : ButtonStyle.roleOf(name);
+            } else if (view instanceof DPadView) {
+                name = "방향키";
+                role = ButtonStyle.ROLE_DPAD;
+            } else if (view instanceof AnalogStickView) {
+                name = ++sticks == 1 ? "스틱" : "오른쪽 스틱";
+                role = ButtonStyle.ROLE_DPAD;
+            } else {
+                continue;
+            }
+            names.add(new String[]{this.layoutIds.get(k), name, String.valueOf(role)});
+        }
+        return names;
     }
 
     // ---- 버튼 꾸미기 (button style) ----
@@ -1505,31 +1620,75 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     /** Draws the controls just built (or rebuilt) with the style in force, sizes included. */
+    // Bumped whenever the controls are rebuilt, so a gap pass waiting on layout can tell.
+    private int controlsGeneration;
+
     private void applyButtonStyle(ButtonStyle style) {
         this.buttonStyle = style;
-        for (View view : this.layoutControls) {
+        final int generation = this.controlsGeneration;
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            View view = this.layoutControls.get(k);
+            String key = this.layoutIds.get(k);
             if (view instanceof TouchButton) {
-                ((TouchButton) view).setStyle(style);
+                ((TouchButton) view).setStyle(style, key);
             } else if (view instanceof DPadView) {
-                ((DPadView) view).setStyle(style);
+                ((DPadView) view).setStyle(style, key);
             } else if (view instanceof AnalogStickView) {
-                ((AnalogStickView) view).setStyle(style);
+                ((AnalogStickView) view).setStyle(style, key);
             }
         }
-        java.util.Map<String, float[]> edits = loadLayoutEdits();
+        computeGapOffsets(() -> {
+            if (generation != this.controlsGeneration) return;
+            java.util.Map<String, float[]> edits = loadLayoutEdits();
+            for (int k = 0; k < this.layoutControls.size(); k++) {
+                float[] edit = edits.get(this.layoutIds.get(k));
+                applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1);
+            }
+            for (android.view.ViewGroup parent : this.comboParents) {
+                layoutComboZones(parent, true);
+            }
+        });
+    }
+
+    // ---- "화면의 버튼을 눌러 고르기" ----
+    private ButtonPickOverlay pickOverlay;
+
+    /** The id of the control under a window point, or null. */
+    private String styleControlAt(float x, float y) {
+        int[] origin = new int[2];
         for (int k = 0; k < this.layoutControls.size(); k++) {
-            float[] edit = edits.get(this.layoutIds.get(k));
-            applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1);
+            View view = this.layoutControls.get(k);
+            if (!(view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView)) continue;
+            view.getLocationInWindow(origin);
+            // getLocationInWindow includes translation and scale about the centre.
+            float w = view.getWidth() * view.getScaleX();
+            float h = view.getHeight() * view.getScaleY();
+            if (x >= origin[0] && x <= origin[0] + w && y >= origin[1] && y <= origin[1] + h) {
+                return this.layoutIds.get(k);
+            }
         }
-        for (android.view.ViewGroup parent : this.comboParents) {
-            layoutComboZones(parent, true);
+        return null;
+    }
+
+    private void startButtonPick(ButtonPickOverlay.Listener listener) {
+        stopButtonPick();
+        ButtonPickOverlay overlay = new ButtonPickOverlay(this, screenRectInWindow(), this::styleControlAt, listener);
+        addContentView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        this.pickOverlay = overlay;
+    }
+
+    private void stopButtonPick() {
+        ButtonPickOverlay overlay = this.pickOverlay;
+        this.pickOverlay = null;
+        if (overlay != null && overlay.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) overlay.getParent()).removeView(overlay);
         }
     }
 
     private String buttonStyleSummary() {
         ButtonStyle style = this.buttonStyle;
         String name = style.isDefault() ? "기본" : ButtonStyle.THEME_NAMES[style.theme].replace(" (케이스 색)", "");
-        if (!style.isDefault() && (style.sizeAll != 100 || style.sizes[0] != 100 || style.sizes[1] != 100 || style.sizes[2] != 100 || style.sizes[3] != 100)) {
+        if (!style.isDefault() && (style.sizeAll != 100 || style.sizes[0] != 100 || style.sizes[1] != 100 || style.sizes[2] != 100 || style.sizes[3] != 100 || style.gap != 100)) {
             name += " · 크기 조절";
         }
         return hasOwnButtonStyle() ? name + " (이 게임)" : name;
@@ -1547,10 +1706,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final boolean landscape = this.landscapeMode;
         final String modeScope = this.gameMode;
         final String gameScope = this.saveBaseName != null ? ButtonStyle.gameScope(this.saveBaseName) : null;
-        new ButtonStyleDialog(this, this.buttonStyle, hasOwnButtonStyle(), landscape, consoleName(), new ButtonStyleDialog.Listener() {
+        new ButtonStyleDialog(this, this.buttonStyle, hasOwnButtonStyle(), landscape, consoleName(), styleControlNames(), new ButtonStyleDialog.Listener() {
             @Override
             public void onChange(ButtonStyle style) {
                 applyButtonStyle(style);
+            }
+
+            @Override
+            public void onPickStart(ButtonPickOverlay.Listener picked) {
+                startButtonPick(picked);
+            }
+
+            @Override
+            public void onPickStop() {
+                stopButtonPick();
             }
 
             @Override
@@ -1585,6 +1754,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
             @Override
             public void onClosed() {
+                stopButtonPick();
                 holdPause = false;
                 resumeUnlessExiting();
             }
@@ -1652,9 +1822,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (editor != null && editor.getParent() instanceof android.view.ViewGroup) {
             ((android.view.ViewGroup) editor.getParent()).removeView(editor);
         }
-        for (android.view.ViewGroup parent : this.comboParents) {
-            layoutComboZones(parent, true);
-        }
+        // Moved buttons shift the groups' centres, so the gap spread is taken again.
+        applyButtonStyle(this.buttonStyle);
         if (message != null) {
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
         }

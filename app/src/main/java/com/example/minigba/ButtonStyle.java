@@ -62,6 +62,13 @@ final class ButtonStyle {
     boolean bounce = false;
     /** "내 색 고르기": 방향키, A·B·X·Y, L·R·시작. */
     final int[] custom = {Color.rgb(255, 255, 255), Color.rgb(255, 122, 0), Color.rgb(107, 77, 230)};
+    /** "버튼마다 따로 고르기": colours by control id (the layout editor's "kind#n"). */
+    boolean perButton = false;
+    final java.util.Map<String, Integer> colors = new java.util.HashMap<>();
+    /** "버튼 사이 간격" percent: how far the A·B·X·Y and SELECT·START groups spread. */
+    int gap = 100;
+    static final int MIN_GAP = 70;
+    static final int MAX_GAP = 140;
 
     ButtonStyle copy() {
         ButtonStyle out = new ButtonStyle();
@@ -73,6 +80,9 @@ final class ButtonStyle {
         out.glow = glow;
         out.bounce = bounce;
         System.arraycopy(custom, 0, out.custom, 0, custom.length);
+        out.perButton = perButton;
+        out.colors.putAll(colors);
+        out.gap = gap;
         return out;
     }
 
@@ -146,6 +156,17 @@ final class ButtonStyle {
             default:
                 return 0;
         }
+    }
+
+    /** The colour for one control: its own when "버튼마다 따로" gave it one, else the role's. */
+    int colorFor(String key, int role) {
+        if (theme == THEME_CUSTOM && perButton && key != null) {
+            Integer own = colors.get(key);
+            if (own != null) {
+                return own;
+            }
+        }
+        return color(role);
     }
 
     /** The role a round button's letter stands for. */
@@ -225,6 +246,13 @@ final class ButtonStyle {
         for (int size : sizes) sb.append(',').append(size);
         sb.append(',').append(glow ? 1 : 0).append(',').append(bounce ? 1 : 0);
         for (int color : custom) sb.append(',').append(color);
+        sb.append(',').append(gap).append(',').append(perButton ? 1 : 0);
+        StringBuilder own = new StringBuilder();
+        for (java.util.Map.Entry<String, Integer> entry : colors.entrySet()) {
+            if (own.length() > 0) own.append('|');
+            own.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        sb.append(',').append(own);
         return sb.toString();
     }
 
@@ -247,6 +275,16 @@ final class ButtonStyle {
             style.bounce = "1".equals(parts[k++]);
             for (int i = 0; i < style.custom.length; i++) {
                 style.custom[i] = Integer.parseInt(parts[k++]) | 0xFF000000;
+            }
+            style.gap = clamp(Integer.parseInt(parts[k++]), MIN_GAP, MAX_GAP);
+            style.perButton = "1".equals(parts[k++]);
+            if (k < parts.length) {
+                for (String entry : parts[k].split("\\|")) {
+                    int eq = entry.indexOf('=');
+                    if (eq > 0) {
+                        style.colors.put(entry.substring(0, eq), Integer.parseInt(entry.substring(eq + 1)) | 0xFF000000);
+                    }
+                }
             }
         } catch (RuntimeException ignored) {
             // A damaged or older entry keeps whatever was read before it broke.

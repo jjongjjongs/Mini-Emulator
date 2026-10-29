@@ -39,6 +39,11 @@ final class ButtonStyleDialog {
 
         /** The window went away, by any button or the back key. */
         void onClosed();
+
+        /** "화면의 버튼을 눌러 고르기": put the pick overlay over the game; it reports taps here. */
+        void onPickStart(ButtonPickOverlay.Listener picked);
+
+        void onPickStop();
     }
 
     private static final int ACCENT = Color.rgb(225, 29, 72);
@@ -64,9 +69,16 @@ final class ButtonStyleDialog {
     private final TextView[] labelChips = new TextView[ButtonStyle.LABEL_NAMES.length];
     private final TextView[] customChips = new TextView[3];
     private LinearLayout customRow;
+    private LinearLayout perButtonBox;
+    private LinearLayout perButtonChips;
+    private final java.util.List<String[]> controls;
+    private final java.util.Map<String, TextView> controlChips = new java.util.HashMap<>();
+    private Switch perButtonSwitch;
     private boolean done;
 
-    ButtonStyleDialog(Activity activity, ButtonStyle initial, boolean perGame, boolean landscape, String consoleName, Listener listener) {
+    ButtonStyleDialog(Activity activity, ButtonStyle initial, boolean perGame, boolean landscape, String consoleName,
+                      java.util.List<String[]> controls, Listener listener) {
+        this.controls = controls;
         this.activity = activity;
         this.listener = listener;
         this.style = initial.copy();
@@ -126,6 +138,80 @@ final class ButtonStyleDialog {
         }
         panel.addView(this.customRow);
 
+        // "버튼마다 따로 고르기": one chip per control on this screen, and picking on screen.
+        LinearLayout perBox = new LinearLayout(activity);
+        this.perButtonBox = perBox;
+        perBox.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout perRow = new LinearLayout(activity);
+        perRow.setOrientation(LinearLayout.HORIZONTAL);
+        perRow.setGravity(Gravity.CENTER_VERTICAL);
+        perRow.setPadding(0, dp(4), 0, 0);
+        TextView perLabel = new TextView(activity);
+        perLabel.setText("버튼마다 따로 고르기");
+        perLabel.setTextSize(12.5f);
+        perLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        perLabel.setTextColor(TEXT);
+        perRow.addView(perLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        Switch perSwitch = new Switch(activity);
+        this.perButtonSwitch = perSwitch;
+        perSwitch.setChecked(this.style.perButton);
+        perSwitch.setOnCheckedChangeListener((view, checked) -> {
+            this.style.perButton = checked;
+            refreshChips();
+            changed();
+        });
+        perRow.addView(perSwitch, new LinearLayout.LayoutParams(-2, -2));
+        perBox.addView(perRow);
+        LinearLayout chips = new LinearLayout(activity);
+        this.perButtonChips = chips;
+        chips.setOrientation(LinearLayout.VERTICAL);
+        perBox.addView(chips);
+        LinearLayout row2 = null;
+        for (int i = 0; i < controls.size(); i++) {
+            if (i % 4 == 0) {
+                row2 = chipRow();
+                chips.addView(row2);
+            }
+            final String id = controls.get(i)[0];
+            final String name = controls.get(i)[1];
+            TextView chip = chip(name, view -> pickControlColor(id, name, null));
+            chip.setOnLongClickListener(view -> {
+                Integer color = this.style.colors.get(id);
+                if (color == null) {
+                    int role = ButtonStyle.ROLE_OTHER;
+                    for (String[] control : controls) {
+                        if (control[0].equals(id)) role = Integer.parseInt(control[2]);
+                    }
+                    color = this.style.colorFor(id, role);
+                }
+                for (String[] control : controls) {
+                    this.style.colors.put(control[0], color);
+                }
+                refreshChips();
+                changed();
+                android.widget.Toast.makeText(activity, "모든 버튼을 " + name + " 색으로 맞췄어요.", android.widget.Toast.LENGTH_SHORT).show();
+                return true;
+            });
+            this.controlChips.put(id, chip);
+            row2.addView(chip, chipParams());
+        }
+        // Pads the last row so the chips keep one width.
+        if (row2 != null) {
+            for (int i = controls.size() % 4; i != 0 && i < 4; i++) {
+                row2.addView(new View(activity), chipParams());
+            }
+        }
+        TextView hint = new TextView(activity);
+        hint.setText("이 화면에 있는 버튼만 나와요. 칩을 누르면 색 고르기, 길게 누르면 모든 버튼을 그 색으로.");
+        hint.setTextSize(10.5f);
+        hint.setTextColor(MUTED);
+        hint.setPadding(dp(2), dp(2), 0, dp(4));
+        chips.addView(hint);
+        TextView pickOnScreen = button("🎯 화면의 버튼을 눌러 고르기", Color.rgb(241, 243, 247), TEXT);
+        pickOnScreen.setOnClickListener(view -> startPickOnScreen());
+        chips.addView(pickOnScreen, new LinearLayout.LayoutParams(-1, dp(38)));
+        panel.addView(perBox);
+
         // ---- 모양 · 글자 ----
         panel.addView(section("모양 · 글자"));
         LinearLayout shapeRow = chipRow();
@@ -160,6 +246,13 @@ final class ButtonStyleDialog {
             final int group = i;
             panel.addView(slider(ButtonStyle.GROUP_NAMES[i], this.style.sizes[i], value -> this.style.sizes[group] = value));
         }
+        panel.addView(slider("버튼 사이 간격", this.style.gap, ButtonStyle.MIN_GAP, ButtonStyle.MAX_GAP, value -> this.style.gap = value));
+        TextView gapHint = new TextView(activity);
+        gapHint.setText("A·B·X·Y 묶음과 SELECT·START가 가운데를 두고 벌어지거나 모여요. 방향키 · 스틱 · L · R은 그대로예요.");
+        gapHint.setTextSize(10.5f);
+        gapHint.setTextColor(MUTED);
+        gapHint.setPadding(dp(2), 0, 0, dp(2));
+        panel.addView(gapHint);
 
         // ---- 누를 때 ----
         panel.addView(section("누를 때"));
@@ -256,7 +349,57 @@ final class ButtonStyleDialog {
 
     // ---- custom colours ----
 
+    private void startPickOnScreen() {
+        this.dialog.hide();
+        this.listener.onPickStart(new ButtonPickOverlay.Listener() {
+            @Override
+            public void onPicked(String controlId, String ignored) {
+                String name = controlId;
+                for (String[] control : controls) {
+                    if (control[0].equals(controlId)) name = control[1];
+                }
+                pickControlColor(controlId, name, null);
+            }
+
+            @Override
+            public void onStop() {
+                listener.onPickStop();
+                dialog.show();
+            }
+        });
+    }
+
+    /** Colour for one control under "버튼마다 따로"; turns that mode on if it was off. */
+    private void pickControlColor(String id, String name, Runnable after) {
+        this.style.theme = ButtonStyle.THEME_CUSTOM;
+        this.style.perButton = true;
+        int role = ButtonStyle.ROLE_OTHER;
+        for (String[] control : this.controls) {
+            if (control[0].equals(id)) role = Integer.parseInt(control[2]);
+        }
+        int start = this.style.colorFor(id, role);
+        openPicker(name + " 색", start, color -> {
+            this.style.colors.put(id, color);
+            refreshChips();
+            changed();
+        }, after);
+    }
+
     private void pickColor(int slot, String name) {
+        openPicker(name + " 색", this.style.custom[slot], color -> {
+            this.style.custom[slot] = color;
+            refreshChips();
+            changed();
+        }, null);
+    }
+
+    private static final int[] PALETTE = {
+            Color.rgb(227, 38, 58), Color.rgb(255, 122, 0), Color.rgb(248, 179, 26), Color.rgb(34, 179, 90), Color.rgb(0, 194, 168), Color.rgb(47, 111, 224),
+            Color.rgb(107, 77, 230), Color.rgb(255, 43, 214), Color.rgb(255, 255, 255), Color.rgb(154, 163, 178), Color.rgb(58, 58, 63), Color.rgb(17, 17, 20),
+    };
+
+    // A palette of twelve to tap plus 색상 · 채도 · 밝기 sliders; every move is applied at once.
+    private void openPicker(String title, int start, IntConsumer onColor, Runnable after) {
         Dialog picker = new Dialog(this.activity);
         picker.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout box = new LinearLayout(this.activity);
@@ -266,12 +409,12 @@ final class ButtonStyleDialog {
         background.setColor(Color.WHITE);
         background.setCornerRadius(dp(18));
         box.setBackground(background);
-        TextView title = new TextView(this.activity);
-        title.setText(name + " 색");
-        title.setTextSize(15.0f);
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(TEXT);
-        box.addView(title);
+        TextView heading = new TextView(this.activity);
+        heading.setText(title);
+        heading.setTextSize(15.0f);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        heading.setTextColor(TEXT);
+        box.addView(heading);
 
         View preview = new View(this.activity);
         GradientDrawable swatch = new GradientDrawable();
@@ -283,30 +426,62 @@ final class ButtonStyleDialog {
         box.addView(preview, previewParams);
 
         float[] hsv = new float[3];
-        Color.colorToHSV(this.style.custom[slot], hsv);
-        final int[] current = {this.style.custom[slot]};
+        Color.colorToHSV(start, hsv);
+        final SeekBar[] bars = new SeekBar[3];
         Runnable update = () -> {
-            current[0] = Color.HSVToColor(hsv);
-            swatch.setColor(current[0]);
-            this.style.custom[slot] = current[0];
-            refreshChips();
-            changed();
+            int color = Color.HSVToColor(hsv);
+            swatch.setColor(color);
+            onColor.accept(color);
         };
+        // Palette: two rows of six.
+        LinearLayout grid = new LinearLayout(this.activity);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout line = null;
+        for (int i = 0; i < PALETTE.length; i++) {
+            if (i % 6 == 0) {
+                line = new LinearLayout(this.activity);
+                line.setOrientation(LinearLayout.HORIZONTAL);
+                grid.addView(line);
+            }
+            final int color = PALETTE[i];
+            View dot = new View(this.activity);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(color);
+            circle.setStroke(dp(1), Color.argb(40, 0, 0, 0));
+            dot.setBackground(circle);
+            dot.setOnClickListener(view -> {
+                Color.colorToHSV(color, hsv);
+                if (bars[0] != null) {
+                    bars[0].setProgress(Math.round(hsv[0]));
+                    bars[1].setProgress(Math.round(hsv[1] * 100));
+                    bars[2].setProgress(Math.round(hsv[2] * 100));
+                }
+                update.run();
+            });
+            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+            dotParams.setMargins(dp(4), dp(4), dp(4), dp(4));
+            line.addView(dot, dotParams);
+        }
+        box.addView(grid);
         update.run();
-        box.addView(hsvSlider("색상", 360, Math.round(hsv[0]), value -> {
+        box.addView(bars[0] = hsvSliderBar(box, "색상", 360, Math.round(hsv[0]), value -> {
             hsv[0] = value;
             update.run();
         }));
-        box.addView(hsvSlider("채도", 100, Math.round(hsv[1] * 100), value -> {
+        box.addView(bars[1] = hsvSliderBar(box, "채도", 100, Math.round(hsv[1] * 100), value -> {
             hsv[1] = value / 100.0f;
             update.run();
         }));
-        box.addView(hsvSlider("밝기", 100, Math.round(hsv[2] * 100), value -> {
+        box.addView(bars[2] = hsvSliderBar(box, "밝기", 100, Math.round(hsv[2] * 100), value -> {
             hsv[2] = value / 100.0f;
             update.run();
         }));
         TextView ok = button("이 색으로", ACCENT, Color.WHITE);
         ok.setOnClickListener(view -> picker.dismiss());
+        picker.setOnDismissListener(d -> {
+            if (after != null) after.run();
+        });
         LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(-1, dp(44));
         okParams.setMargins(0, dp(12), 0, 0);
         box.addView(ok, okParams);
@@ -320,15 +495,14 @@ final class ButtonStyleDialog {
         picker.show();
     }
 
-    private View hsvSlider(String name, int max, int value, IntConsumer onValue) {
-        LinearLayout row = new LinearLayout(this.activity);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+    // Adds the name to the box and returns the bar, which the caller adds next.
+    private SeekBar hsvSliderBar(LinearLayout box, String name, int max, int value, IntConsumer onValue) {
         TextView label = new TextView(this.activity);
         label.setText(name);
-        label.setTextSize(12.5f);
-        label.setTextColor(TEXT);
-        row.addView(label, new LinearLayout.LayoutParams(dp(40), -2));
+        label.setTextSize(11.5f);
+        label.setTextColor(MUTED);
+        label.setPadding(dp(2), dp(4), 0, 0);
+        box.addView(label);
         SeekBar bar = new SeekBar(this.activity);
         bar.setMax(max);
         bar.setProgress(value);
@@ -346,8 +520,7 @@ final class ButtonStyleDialog {
             public void onStopTrackingTouch(SeekBar seekBar) {
             }
         });
-        row.addView(bar, new LinearLayout.LayoutParams(0, -2, 1.0f));
-        return row;
+        return bar;
     }
 
     // ---- widgets ----
@@ -446,7 +619,22 @@ final class ButtonStyleDialog {
         for (int i = 0; i < this.labelChips.length; i++) {
             setChipSelected(this.labelChips[i], this.style.label == i);
         }
-        this.customRow.setVisibility(this.style.theme == ButtonStyle.THEME_CUSTOM ? View.VISIBLE : View.GONE);
+        boolean custom = this.style.theme == ButtonStyle.THEME_CUSTOM;
+        this.customRow.setVisibility(custom && !this.style.perButton ? View.VISIBLE : View.GONE);
+        this.perButtonBox.setVisibility(custom ? View.VISIBLE : View.GONE);
+        this.perButtonChips.setVisibility(custom && this.style.perButton ? View.VISIBLE : View.GONE);
+        if (this.perButtonSwitch.isChecked() != this.style.perButton) {
+            this.perButtonSwitch.setChecked(this.style.perButton);
+        }
+        for (String[] control : this.controls) {
+            TextView chip = this.controlChips.get(control[0]);
+            if (chip == null) continue;
+            int color = this.style.colorFor(control[0], Integer.parseInt(control[2]));
+            SpannableStringBuilder text = new SpannableStringBuilder("● ");
+            text.setSpan(new ForegroundColorSpan(ButtonStyle.isLight(color) ? ButtonStyle.darker(color, 0.18f) : color), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.append(control[1]);
+            chip.setText(text);
+        }
         String[] names = {"방향키", "A · B · X · Y", "L · R · 시작"};
         for (int i = 0; i < 3; i++) {
             SpannableStringBuilder text = new SpannableStringBuilder("● ");
@@ -458,6 +646,10 @@ final class ButtonStyleDialog {
     }
 
     private View slider(String name, int value, IntConsumer onValue) {
+        return slider(name, value, ButtonStyle.MIN_SIZE, ButtonStyle.MAX_SIZE, onValue);
+    }
+
+    private View slider(String name, int value, int min, int max, IntConsumer onValue) {
         LinearLayout row = new LinearLayout(this.activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -472,12 +664,12 @@ final class ButtonStyleDialog {
         shown.setTextColor(MUTED);
         shown.setGravity(Gravity.END);
         SeekBar bar = new SeekBar(this.activity);
-        bar.setMax(ButtonStyle.MAX_SIZE - ButtonStyle.MIN_SIZE);
-        bar.setProgress(value - ButtonStyle.MIN_SIZE);
+        bar.setMax(max - min);
+        bar.setProgress(value - min);
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                int percent = progress + ButtonStyle.MIN_SIZE;
+                int percent = progress + min;
                 // Snaps to 100 so the default is easy to find again.
                 if (Math.abs(percent - 100) <= 3) percent = 100;
                 shown.setText(percent + "%");

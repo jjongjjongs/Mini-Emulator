@@ -33,7 +33,10 @@ final class AnalogStickView extends View {
     // "버튼 꾸미기": the ring and cap take the theme's 방향키 colour.
     private ButtonStyle style;
 
-    void setStyle(ButtonStyle style) {
+    private String styleKey;
+
+    void setStyle(ButtonStyle style, String key) {
+        this.styleKey = key;
         this.style = style != null && style.theme != ButtonStyle.THEME_DEFAULT ? style : null;
         invalidate();
     }
@@ -49,7 +52,7 @@ final class AnalogStickView extends View {
         float cx = getWidth() / 2.0f;
         float cy = getHeight() / 2.0f;
         float ring = size * 0.48f;
-        int themed = this.style != null ? this.style.color(ButtonStyle.ROLE_DPAD) : 0;
+        int themed = this.style != null ? this.style.colorFor(this.styleKey, ButtonStyle.ROLE_DPAD) : 0;
         boolean line = this.style != null && (this.style.outline() || this.style.neon());
         if (line) {
             paint.setShader(null);

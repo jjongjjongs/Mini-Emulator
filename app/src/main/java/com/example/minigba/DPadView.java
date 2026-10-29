@@ -79,7 +79,10 @@ final class DPadView extends View {
     // "버튼 꾸미기": null keeps the built-in cross.
     private ButtonStyle style;
 
-    void setStyle(ButtonStyle style) {
+    private String styleKey;
+
+    void setStyle(ButtonStyle style, String key) {
+        this.styleKey = key;
         this.style = style != null && style.theme != ButtonStyle.THEME_DEFAULT ? style : null;
         setLayerType(this.style != null && this.style.neon() && this.style.glow ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
         invalidate();
@@ -87,7 +90,7 @@ final class DPadView extends View {
 
     // "윤곽선만" and "네온": the cross as a ring in the theme colour; pressed arms fill in.
     private void drawLine(Canvas canvas, Path cross, float cx, float cy, float arm, float reach, float min) {
-        int color = this.style.color(ButtonStyle.ROLE_DPAD);
+        int color = this.style.colorFor(this.styleKey, ButtonStyle.ROLE_DPAD);
         boolean neon = this.style.neon();
         float stroke = Math.max(2.0f, min * 0.025f);
         this.paint.setShader(null);
@@ -140,7 +143,7 @@ final class DPadView extends View {
             drawLine(canvas, cross, cx, cy - depth / 2.0f, arm, reach, min);
             return;
         }
-        int themed = this.style != null ? this.style.color(ButtonStyle.ROLE_DPAD) : 0;
+        int themed = this.style != null ? this.style.colorFor(this.styleKey, ButtonStyle.ROLE_DPAD) : 0;
         boolean light = themed != 0 ? ButtonStyle.isLight(themed) : this.light;
 
         canvas.save();
