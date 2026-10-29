@@ -35,7 +35,7 @@ final class PresetDialog {
         /** Applies a preset to this console (the window closes first). */
         void onApply(Presets.Preset preset);
 
-        /** "공유": writes the file and opens the share sheet. */
+        /** "파일로 저장": writes the .mepreset into 다운로드/Mini Emulator. */
         void onShare(Presets.Preset preset);
 
         /** "파일에서 가져오기": opens the file picker (the window closes first). */
@@ -122,7 +122,7 @@ final class PresetDialog {
         LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(42));
         saveParams.setMargins(0, dp(10), 0, 0);
         panel.addView(save, saveParams);
-        TextView imports = button("📂 파일에서 가져오기 (.mepreset)", Color.rgb(241, 243, 247), TEXT);
+        TextView imports = button("📂 파일에서 가져오기 (다운로드 › Mini Emulator)", Color.rgb(241, 243, 247), TEXT);
         imports.setOnClickListener(view -> {
             this.dialog.dismiss();
             this.listener.onImportFile();
@@ -193,7 +193,7 @@ final class PresetDialog {
         });
         actions.addView(apply, new LinearLayout.LayoutParams(dp(58), dp(26)));
         if (!preset.builtin && !undo) {
-            TextView share = smallButton("공유");
+            TextView share = smallButton("파일로 저장");
             share.setOnClickListener(view -> this.listener.onShare(preset));
             LinearLayout.LayoutParams shareParams = new LinearLayout.LayoutParams(dp(58), dp(26));
             shareParams.setMargins(0, dp(4), 0, 0);
@@ -215,7 +215,7 @@ final class PresetDialog {
             this.dialog.dismiss();
             this.listener.onApply(preset);
         }));
-        panel.addView(menuRow("공유 (.mepreset 보내기)", false, view -> this.listener.onShare(preset)));
+        panel.addView(menuRow("파일로 저장 (다운로드 › Mini Emulator)", false, view -> this.listener.onShare(preset)));
         panel.addView(menuRow("이름 바꾸기", false, view -> showRename(preset)));
         panel.addView(menuRow("지금 모습으로 덮어쓰기", false, view -> showSave(preset)));
         panel.addView(menuRow(preset.favorite ? "☆ 즐겨찾기 해제" : "★ 즐겨찾기 (목록 맨 위로)", false, view -> {

@@ -1474,6 +1474,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("*/*");
                 intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/octet-stream", "application/zip", "application/x-mepreset"});
+                // Opens in 다운로드/Mini Emulator, where "파일로 저장" puts the files.
+                intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                        android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",
+                                "primary:" + android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER));
                 try {
                     startActivityForResult(intent, REQUEST_PRESET_FILE);
                 } catch (android.content.ActivityNotFoundException e) {
@@ -1493,17 +1497,25 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         };
     }
 
+    // "파일로 저장": straight into 다운로드/Mini Emulator, where "파일에서 가져오기" opens.
     private void sharePreset(Presets.Preset preset) {
         try {
             android.net.Uri uri = Presets.exportFile(this, preset);
-            Intent share = Presets.shareIntent(uri, preset);
-            if (share != null) {
-                startActivity(share);
+            String name = Presets.fileName(preset);
+            if ("content".equals(uri.getScheme())) {
+                try (android.database.Cursor cursor = getContentResolver().query(uri, new String[]{android.provider.MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst() && cursor.getString(0) != null) {
+                        name = cursor.getString(0);
+                    }
+                } catch (RuntimeException ignored) {
+                    // The requested name will do.
+                }
+                Toast.makeText(this, "다운로드 › " + MainActivity.DOWNLOAD_FOLDER + " 폴더에 저장했어요\n" + name, Toast.LENGTH_LONG).show();
             } else {
                 Toast.makeText(this, "파일로 저장했어요: " + uri.getPath(), Toast.LENGTH_LONG).show();
             }
         } catch (java.io.IOException | RuntimeException e) {
-            Toast.makeText(this, "공유하지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "저장하지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
