@@ -3347,6 +3347,12 @@ JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_installCia(
     }
     std::string dir = jstringToString(env, userDir);
     std::string path = jstringToString(env, ciaPath);
+    // Citra builds its sub paths by plain concatenation ("<user dir>" + "sdmc/"), so the
+    // user directory must end with a slash; without it the titles land in a sibling folder
+    // named "Citrasdmc" that neither the running core nor the game list ever looks at.
+    if (!dir.empty() && dir.back() != '/') {
+        dir += '/';
+    }
     return install(dir.c_str(), path.c_str(), ciaProgress, &ctx);
 }
 

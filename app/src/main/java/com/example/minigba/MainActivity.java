@@ -7441,7 +7441,50 @@ public final class MainActivity extends Activity {
 
     /** Citra's user directory (the bridge hands the core files/saves/citra as its save dir). */
     private File n3dsUserDir() {
-        return new File(new File(saveDir(), "citra"), "Citra");
+        File dir = new File(new File(saveDir(), "citra"), "Citra");
+        migrateMisplacedN3dsUserDirs(dir);
+        return dir;
+    }
+
+    /**
+     * Versions up to 0.0.180 handed Citra's installer the user directory without a trailing
+     * slash, and Citra concatenates its sub paths, so CIAs were installed into sibling folders
+     * such as files/saves/citra/Citrasdmc instead of Citra/sdmc. Move whatever landed there
+     * into place (keeping anything already in place) and drop the other stray folders.
+     */
+    private void migrateMisplacedN3dsUserDirs(File userDir) {
+        File parent = userDir.getParentFile();
+        if (parent == null) return;
+        for (String sub : new String[]{"sdmc", "nand"}) {
+            File stray = new File(parent, "Citra" + sub);
+            if (stray.isDirectory()) {
+                mergeTreeInto(stray, new File(userDir, sub));
+                N3dsCia.deleteTree(stray);
+            }
+        }
+        for (String sub : new String[]{"config", "cache", "sysdata", "log", "cheats", "dump", "load", "shaders", "states"}) {
+            File stray = new File(parent, "Citra" + sub);
+            if (stray.isDirectory()) {
+                N3dsCia.deleteTree(stray);
+            }
+        }
+    }
+
+    /** Moves every file under from into to, keeping files that already exist at the target. */
+    private void mergeTreeInto(File from, File to) {
+        File[] children = from.listFiles();
+        if (children == null) return;
+        for (File child : children) {
+            File target = new File(to, child.getName());
+            if (child.isDirectory()) {
+                mergeTreeInto(child, target);
+            } else if (!target.exists()) {
+                File dir = target.getParentFile();
+                if (dir != null && (dir.isDirectory() || dir.mkdirs()) && !child.renameTo(target)) {
+                    copyFile(child, target);
+                }
+            }
+        }
     }
 
     private File ciaCacheDir() {
