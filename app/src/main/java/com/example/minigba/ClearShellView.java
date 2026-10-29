@@ -32,9 +32,10 @@ final class ClearShellView extends View {
     static final int STYLE_PASTEL = 3;
     static final int STYLE_METAL = 4;
     static final int STYLE_NEON = 5;
-    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트"};
+    static final int STYLE_PHOTO = 6;
+    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림"};
     static final String[] STYLE_NOTES = {"지금 디자인 · 속이 비치는 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
-            "부드러운 그라데이션 + 반투명 유리판", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기"};
+            "부드러운 그라데이션 + 반투명 유리판", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절"};
 
     private static final int[][] TINTS = {
             // case colour, rim highlight, plate colour
@@ -61,6 +62,8 @@ final class ClearShellView extends View {
     private boolean compactBezel;
     private boolean labelHidden;
     private View plateView;
+    // The player's photo (STYLE_PHOTO), already cropped, darkened and blurred for this orientation.
+    private android.graphics.Bitmap photo;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final int[] origin = new int[2];
@@ -84,6 +87,11 @@ final class ClearShellView extends View {
         text.setFakeBoldText(true);
         text.setColor(Color.rgb(93, 101, 108));
         text.setLetterSpacing(0.22f);
+    }
+
+    void setPhoto(android.graphics.Bitmap bitmap) {
+        this.photo = bitmap;
+        invalidate();
     }
 
     // Full-screen style: a thin glass rim around the screen instead of the grey bezel.
@@ -135,6 +143,7 @@ final class ClearShellView extends View {
         switch (style) {
             case STYLE_DARK:
             case STYLE_NEON:
+            case STYLE_PHOTO:
                 return true;
             case STYLE_PLASTIC:
                 return luminance(body) < 0.5f;
@@ -369,6 +378,9 @@ final class ClearShellView extends View {
             case STYLE_METAL:
                 drawMetal(canvas, width, height, plate, frame);
                 break;
+            case STYLE_PHOTO:
+                drawPhoto(canvas, width, height, plate, frame);
+                break;
             default:
                 drawNeon(canvas, width, height, frame);
                 break;
@@ -457,6 +469,34 @@ final class ClearShellView extends View {
             canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
             strokeRoundRect(canvas, frame, frameRadius(), dp(1), Color.argb(22, 255, 255, 255));
             text.setColor(Color.rgb(93, 100, 112));
+        }
+    }
+
+    // The photo fills the case; the bezel and a faint plate behind the controls keep the
+    // dark style's shapes so the buttons read against any picture.
+    private void drawPhoto(Canvas canvas, float width, float height, RectF plate, RectF frame) {
+        if (photo != null && !photo.isRecycled()) {
+            float scale = Math.max(width / photo.getWidth(), height / photo.getHeight());
+            android.graphics.Matrix matrix = new android.graphics.Matrix();
+            matrix.postScale(scale, scale);
+            matrix.postTranslate((width - photo.getWidth() * scale) / 2f, (height - photo.getHeight() * scale) / 2f);
+            Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+            canvas.drawBitmap(photo, matrix, bitmapPaint);
+        } else {
+            paint.setShader(new LinearGradient(0, 0, 0, height, Color.rgb(28, 31, 38), Color.rgb(17, 19, 24), Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(null);
+        }
+        if (plate != null) {
+            paint.setColor(Color.argb(70, 10, 12, 16));
+            canvas.drawRoundRect(plate, dp(24), dp(24), paint);
+            strokeRoundRect(canvas, plate, dp(24), dp(1), Color.argb(40, 255, 255, 255));
+        }
+        if (frame != null) {
+            paint.setColor(Color.argb(235, 0, 0, 0));
+            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
+            strokeRoundRect(canvas, frame, frameRadius(), dp(1), Color.argb(60, 255, 255, 255));
+            text.setColor(Color.rgb(150, 156, 168));
         }
     }
 

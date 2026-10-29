@@ -155,6 +155,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout frameLayout2 = new FrameLayout(this);
         frameLayout2.setBackgroundColor(0);
         addControls(frameLayout2);
+        applyButtonAlpha(frameLayout2, null);
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
         // The controls start where the frame style puts them, whatever the style.
         controlsParams.topMargin = full ? Math.max(dp(10), dp(18) + frame[1] + dp(36) - dp(6) - screen[1]) : dp(36);
@@ -205,6 +206,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(dp(320), dp(214), 17));
         addLandscapeControls(frameLayout);
         addLandscapeCornerButtons(frameLayout);
+        applyButtonAlpha(frameLayout, frameLayout2);
         frameLayout.addOnLayoutChangeListener((view, i2, i3, i4, i5, i6, i7, i8, i9) -> fitLandscapeScreen(i, frameLayout2, view, i2, i3, i4, i5, i6, i7, i8, i9));
         linearLayout.addView(frameLayout, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         FrameLayout root = new FrameLayout(this);
@@ -448,7 +450,35 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             name = "ARCADE";
         }
         int[] colors = shellColors();
-        return new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape, shellStyle(), colors[0], colors[1]);
+        ClearShellView shell = new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape, shellStyle(), colors[0], colors[1]);
+        if (shellStyle() == ClearShellView.STYLE_PHOTO) {
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            shell.setPhoto(PhotoBackground.load(PhotoBackground.rendered(this, this.gameMode, landscape), metrics.widthPixels, metrics.heightPixels));
+        }
+        return shell;
+    }
+
+    // With a photo background the buttons let it show through as much as the player set.
+    private void applyButtonAlpha(android.view.ViewGroup controls, View except) {
+        if (shellStyle() != ClearShellView.STYLE_PHOTO) {
+            return;
+        }
+        float alpha = 1.0f - PhotoBackground.buttonAlpha(this, this.gameMode) / 100f;
+        for (int i = 0; i < controls.getChildCount(); i++) {
+            View child = controls.getChildAt(i);
+            if (child != except && !(child instanceof SurfaceView)) {
+                child.setAlpha(alpha);
+            }
+        }
+    }
+
+    private static final int REQUEST_BG_EDITOR = 3102;
+
+    private void openBackgroundEditor() {
+        Intent intent = new Intent(this, BgEditorActivity.class);
+        intent.putExtra(BgEditorActivity.EXTRA_MODE, this.gameMode);
+        intent.putExtra(BgEditorActivity.EXTRA_MODE_NAME, consoleName());
+        startActivityForResult(intent, REQUEST_BG_EDITOR);
     }
 
     private void fitLandscapeScreen(int i, FrameLayout frameLayout, View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
@@ -2412,6 +2442,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES, ClearShellView.STYLE_NOTES,
                             shellStyle(), "모든 게임에 바로 적용돼요. 버튼과 화면 크기는 그대로예요.\n실물 플라스틱·다크 매트·파스텔·네온은 모드마다 색이 달라요.",
                             Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
+                        if (choice == ClearShellView.STYLE_PHOTO) {
+                            // The editor picks the photo and saves the style when it is applied.
+                            openBackgroundEditor();
+                            return;
+                        }
                         MainActivity.sharedSettings(this).edit().putInt("shell_style", choice).apply();
                         rebuildContent();
                         reopen.run();
@@ -2545,6 +2580,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CHEAT_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             importCheatFile(data.getData());
+        }
+        if (requestCode == REQUEST_BG_EDITOR) {
+            // Whatever was applied (or not), draw the case as it now stands.
+            rebuildContent();
         }
     }
 

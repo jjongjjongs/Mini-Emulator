@@ -26,6 +26,11 @@
             android:exported="false"
             android:configChanges="screenSize|orientation|keyboardHidden|keyboard"/>
         <activity
+            android:name="com.example.minigba.BgEditorActivity"
+            android:process=":game"
+            android:exported="false"
+            android:configChanges="screenSize|orientation|keyboardHidden|keyboard"/>
+        <activity
             android:name="com.example.minigba.MainActivity"
             android:exported="true">
             <intent-filter>
