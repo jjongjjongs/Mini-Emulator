@@ -734,7 +734,7 @@ public final class MainActivity extends Activity {
         this.emptyView = textView3;
         textView3.setText("아직 가져온 ROM이 없습니다.");
         this.emptyView.setGravity(17);
-        this.emptyView.setTextSize(16.0f);
+        this.emptyView.setTextSize(14.0f);
         this.emptyView.setTextColor(Color.rgb(99, 110, 122));
         LinearLayout linearLayout7 = new LinearLayout(this);
         this.romList = linearLayout7;
@@ -748,7 +748,9 @@ public final class MainActivity extends Activity {
         this.noteView.setTextColor(Color.rgb(93, 103, 112));
         this.noteView.setPadding(dp(8), dp(8), dp(8), 0);
         linearLayout.addView(linearLayout3, new LinearLayout.LayoutParams(-1, -2));
-        linearLayout.addView(this.emptyView, new LinearLayout.LayoutParams(-1, dp(58)));
+        this.emptyView.setLineSpacing(0.0f, 1.2f);
+        this.emptyView.setPadding(dp(16), dp(14), dp(16), dp(14));
+        linearLayout.addView(this.emptyView, new LinearLayout.LayoutParams(-1, -2));
         linearLayout.addView(scrollView, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         linearLayout.addView(this.noteView, new LinearLayout.LayoutParams(-1, -2));
         setContentView(linearLayout);
@@ -1770,12 +1772,15 @@ public final class MainActivity extends Activity {
                         // Naomi sets stay ZIPs (the engine reads the archive itself).
                         singletonOrEmpty = singletonOrEmpty(copyRomToAppStorage(uri2, displayNameFor, mode));
                         if (MODE_NAOMI.equals(mode)) {
+                            List<File> renamed = new ArrayList<>();
                             for (File imported : singletonOrEmpty) {
-                                NaomiSets.Set set = NaomiSets.forFile(this, imported);
-                                if (set != null) {
-                                    romPrefs().edit().putString("title:" + imported.getName(), set.title()).apply();
+                                File named = nameNaomiSet(imported);
+                                if (named == null) {
+                                    sb.append(displayNameFor).append(": Flycast가 모르는 세트예요. MAME 세트명(.zip)인지 확인해 주세요\n");
                                 }
+                                renamed.add(named != null ? named : imported);
                             }
+                            singletonOrEmpty = renamed;
                         }
                     }
                     if (singletonOrEmpty.isEmpty()) {
@@ -2569,12 +2574,15 @@ public final class MainActivity extends Activity {
                     } else {
                         imported = singletonOrEmpty(copyRomToAppStorage(picked.uri, picked.name, mode));
                         if (MODE_NAOMI.equals(mode)) {
+                            List<File> renamed = new ArrayList<>();
                             for (File file : imported) {
-                                NaomiSets.Set set = NaomiSets.forFile(this, file);
-                                if (set != null) {
-                                    romPrefs().edit().putString("title:" + file.getName(), set.title()).apply();
+                                File named = nameNaomiSet(file);
+                                if (named == null) {
+                                    failed.add(picked.name + " · Flycast가 모르는 세트 (목록에는 추가됨)");
                                 }
+                                renamed.add(named != null ? named : file);
                             }
+                            imported = renamed;
                         }
                     }
                     if (imported.isEmpty()) {
@@ -8841,11 +8849,50 @@ public final class MainActivity extends Activity {
         });
     }
 
+    /**
+     * Flycast finds a Naomi game by the ZIP's file name, so a ZIP named otherwise is
+     * renamed to its set once its contents say which set it is. Returns the file as it now
+     * is (renamed or not), or null when the contents match no set.
+     */
+    private File nameNaomiSet(File file) {
+        NaomiSets.Set set = NaomiSets.forFile(this, file);
+        if (set == null) {
+            set = NaomiSets.identify(this, file);
+            if (set == null) {
+                return null;
+            }
+            File target = new File(file.getParentFile(), set.name + ".zip");
+            if (!target.exists() && file.renameTo(target)) {
+                String title = romPrefs().getString("title:" + file.getName(), null);
+                String save = romPrefs().getString("save:" + file.getName(), null);
+                SharedPreferences.Editor edit = romPrefs().edit().remove("title:" + file.getName()).remove("save:" + file.getName());
+                if (save != null) edit.putString("save:" + target.getName(), save);
+                edit.putString("title:" + target.getName(), title != null && !title.equalsIgnoreCase(baseNameWithoutExtension(file.getName())) ? title : set.title()).apply();
+                file = target;
+            } else if (target.exists() && !target.equals(file)) {
+                // The set is already here under its proper name; this copy is a duplicate.
+                return file;
+            }
+        }
+        if (romPrefs().getString("title:" + file.getName(), "").equalsIgnoreCase(baseNameWithoutExtension(file.getName()))
+                || !romPrefs().contains("title:" + file.getName())) {
+            romPrefs().edit().putString("title:" + file.getName(), set.title()).apply();
+        }
+        return file;
+    }
+
     // Set known to Flycast? Disc image beside a GD-ROM set? Board BIOS present?
     private RomCheck checkNaomiSet(File file) {
         NaomiSets.Set set = NaomiSets.forFile(this, file);
         if (set == null) {
-            return new RomCheck(false, "Flycast가 모르는 세트 이름이에요. MAME 세트명(.zip)으로 바꿔 주세요");
+            File named = nameNaomiSet(file);
+            set = named == null ? null : NaomiSets.forFile(this, named);
+            if (set == null) {
+                NaomiSets.Set guess = NaomiSets.identify(this, file);
+                return new RomCheck(false, guess != null ? "내용은 " + guess.name + " 세트인데 이름이 달라요. " + guess.name + ".zip으로 바꿔 주세요"
+                        : "Flycast가 모르는 세트예요. 파일 이름이 MAME 세트명(예: mvsc2.zip)이어야 하고, 안의 파일들도 그 세트의 것이어야 해요");
+            }
+            refreshLibrary();
         }
         StringBuilder sb = new StringBuilder(set.systemName());
         if (set.vertical) sb.append(" · 세로 화면 게임");

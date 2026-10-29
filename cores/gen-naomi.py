@@ -7,7 +7,7 @@ cores/build-flycast.sh builds, so the table matches what the engine can run.
 Usage: ./cores/gen-naomi.py
 
 Output (gzip text; not named .gz because the Android build unpacks those):
-  <set>\t<parent or ->\t<description>\t<naomi|naomi2|aw>\t<gd disc or ->\t<buttons>\t<1 when vertical>\t<Korean title or ->
+  <set>\t<parent or ->\t<description>\t<naomi|naomi2|aw>\t<gd disc or ->\t<buttons>\t<1 when vertical>\t<Korean title or ->\t<ROM files in the ZIP, comma separated>
 """
 import gzip, os, re, subprocess, sys, urllib.request
 
@@ -78,13 +78,17 @@ def main():
         r'(?:0x[0-9a-fA-F]+|\d+),\s*\n\s*"([a-z0-9_\-]+)",(?:\s*//[^\n]*)?\s*\n\s*(M1|M2|M4|AW|GD),\s*\n\s*(ROT0|ROT270),'
         r'(.*?)\n\s*\},\s*\n\s*(nullptr|"[a-z0-9\-]+"),\s*\n\s*(?:&(\w+)|nullptr)', re.S)
     rows = []
-    for name, parent, desc, bios, cart, rot, _blobs, gd, inp in pattern.findall(body):
+    for name, parent, desc, bios, cart, rot, blobs, gd, inp in pattern.findall(body):
+        files = []
+        for blob in re.findall(r'\{\s*"([^"]+)"', blobs):
+            if blob not in files:
+                files.append(blob)
         system = "aw" if cart == "AW" else ("naomi2" if bios == "naomi2" else "naomi")
         parent = parent.strip('"') if parent != "nullptr" else "-"
         gd = gd.strip('"') if gd != "nullptr" else "-"
         count = buttons.get(inp, 4) if inp else 4
         korean = KOREAN.get(name) or (KOREAN.get(parent) if parent != "-" else None) or "-"
-        rows.append((name, parent, desc, system, gd, str(max(1, min(6, count))), "1" if rot == "ROT270" else "0", korean))
+        rows.append((name, parent, desc, system, gd, str(max(1, min(6, count))), "1" if rot == "ROT270" else "0", korean, ",".join(files)))
     if len(rows) < 200:
         sys.exit("parsed only %d sets; the table format may have changed" % len(rows))
     with gzip.open(OUT, "wt", encoding="utf-8") as f:

@@ -29,8 +29,10 @@ final class NaomiSets {
         final int buttons;
         final boolean vertical;
         final String korean;
+        /** The ROM files inside the set's ZIP (lower case), for telling a set by its contents. */
+        final String[] files;
 
-        Set(String name, String parent, String description, String system, String gd, int buttons, boolean vertical, String korean) {
+        Set(String name, String parent, String description, String system, String gd, int buttons, boolean vertical, String korean, String[] files) {
             this.name = name;
             this.parent = parent;
             this.description = description;
@@ -39,6 +41,7 @@ final class NaomiSets {
             this.buttons = buttons;
             this.vertical = vertical;
             this.korean = korean;
+            this.files = files;
         }
 
         String systemName() {
@@ -92,6 +95,43 @@ final class NaomiSets {
         return new File(dir, set.gd + ".chd");
     }
 
+    /**
+     * The set whose ROM files a ZIP holds, whatever the ZIP is called: the set with the most
+     * of its files present, when at least all but one are. Null when nothing fits.
+     */
+    static Set identify(Context context, File zip) {
+        java.util.HashSet<String> names = new java.util.HashSet<>();
+        try (java.util.zip.ZipFile archive = new java.util.zip.ZipFile(zip)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = archive.entries();
+            while (entries.hasMoreElements()) {
+                String name = entries.nextElement().getName();
+                int slash = name.lastIndexOf('/');
+                names.add((slash >= 0 ? name.substring(slash + 1) : name).toLowerCase(Locale.US));
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        if (names.isEmpty()) {
+            return null;
+        }
+        Set best = null;
+        int bestHits = 0;
+        for (Set set : load(context).values()) {
+            if (set.files.length == 0) continue;
+            int hits = 0;
+            for (String file : set.files) {
+                if (names.contains(file)) hits++;
+            }
+            if (hits == 0 || hits < set.files.length - 1) continue;
+            // Prefer the fuller match, then the parent over its clones.
+            if (hits > bestHits || (hits == bestHits && best != null && best.parent != null && set.parent == null)) {
+                best = set;
+                bestHits = hits;
+            }
+        }
+        return best;
+    }
+
     /** The number of buttons to show: the player's choice for the game, else the set's. */
     static int buttonsFor(Context context, String saveBaseName, Set set) {
         int chosen = MainActivity.sharedSettings(context).getInt("naomi:buttons:" + saveBaseName, 0);
@@ -116,8 +156,9 @@ final class NaomiSets {
                     } catch (NumberFormatException e) {
                         buttons = 4;
                     }
+                    String[] files = f.length > 8 && !f[8].isEmpty() ? f[8].toLowerCase(Locale.US).split(",") : new String[0];
                     map.put(f[0], new Set(f[0], "-".equals(f[1]) ? null : f[1], f[2], f[3], "-".equals(f[4]) ? null : f[4],
-                            buttons, "1".equals(f[6]), "-".equals(f[7]) ? null : f[7]));
+                            buttons, "1".equals(f[6]), "-".equals(f[7]) ? null : f[7], files));
                 }
             } catch (IOException e) {
                 // Without the table, ZIPs are shown by name and run with six buttons.

@@ -6203,8 +6203,100 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         finish();
     }
 
+    // The game could not start: a card in the app's style with a plain explanation first
+    // and the engine's own words underneath, and one way out (back to the list).
     private void showFatalError(String str) {
-        new AlertDialog.Builder(this).setTitle("Mini Emulator").setMessage(str).setPositiveButton(17039370, (dialogInterface, i) -> finish()).show();
+        String raw = str == null ? "" : str;
+        StringBuilder detail = new StringBuilder();
+        String summary = null;
+        for (String line : raw.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.contains("nvmem is DISABLED")) continue;
+            if (trimmed.startsWith("ROM load failure: selected file could not be loaded")) {
+                if (summary == null) summary = "엔진이 이 파일을 열지 못했어요.";
+                continue;
+            }
+            if (trimmed.contains("Unknown game")) {
+                summary = isNaomi() ? "Flycast가 이 ZIP의 이름으로 세트를 찾지 못했어요. 파일 이름이 MAME 세트명(예: mvsc2.zip)이어야 해요. 목록에서 게임을 길게 눌러 \"ROM 검사\"를 하면 내용을 보고 이름을 맞춰 줘요."
+                        : "엔진이 이 게임을 알아보지 못했어요.";
+            } else if (trimmed.toLowerCase(Locale.US).contains("bios")) {
+                summary = isNaomi() ? "기판 BIOS가 없거나 맞지 않아요. 목록의 \"기판 BIOS\"에서 naomi.zip · naomi2.zip · awbios.zip을 등록해 주세요." : "BIOS가 없거나 맞지 않아요.";
+            } else if (trimmed.toLowerCase(Locale.US).contains("gdrom") || trimmed.toLowerCase(Locale.US).contains(".chd")) {
+                summary = "GD-ROM 디스크 이미지(.chd)를 찾지 못했어요. ZIP과 같은 폴더에 넣어 주세요.";
+            }
+            if (detail.length() > 0) detail.append('\n');
+            detail.append(trimmed);
+        }
+        if (summary == null) {
+            summary = detail.length() > 0 ? "게임을 시작하지 못했어요." : raw;
+        }
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setCancelable(false);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(20), dp(20), dp(20), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.WARN, Color.rgb(225, 29, 72)), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        TextView title = new TextView(this);
+        title.setText("게임을 열지 못했어요");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titleParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(title, titleParams);
+        panel.addView(header);
+        TextView text = new TextView(this);
+        text.setText(summary);
+        text.setTextSize(14.0f);
+        text.setLineSpacing(0, 1.25f);
+        text.setTextColor(Color.rgb(55, 65, 81));
+        text.setPadding(0, dp(14), 0, 0);
+        panel.addView(text);
+        if (detail.length() > 0) {
+            TextView raws = new TextView(this);
+            raws.setText(detail);
+            raws.setTextSize(11.0f);
+            raws.setTypeface(android.graphics.Typeface.MONOSPACE);
+            raws.setTextColor(Color.rgb(122, 130, 140));
+            raws.setPadding(dp(12), dp(10), dp(12), dp(10));
+            raws.setTextIsSelectable(true);
+            android.graphics.drawable.GradientDrawable box = new android.graphics.drawable.GradientDrawable();
+            box.setColor(Color.rgb(246, 247, 249));
+            box.setCornerRadius(dp(12));
+            raws.setBackground(box);
+            LinearLayout.LayoutParams rawParams = new LinearLayout.LayoutParams(-1, -2);
+            rawParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(raws, rawParams);
+        }
+        TextView back = dialogButton("목록으로 돌아가기", Color.rgb(225, 29, 72), Color.WHITE);
+        back.setOnClickListener(view -> {
+            dialog.dismiss();
+            finish();
+        });
+        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(-1, dp(48));
+        backParams.setMargins(0, dp(16), 0, 0);
+        panel.addView(back, backParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380)), -2);
+        }
+        try {
+            dialog.show();
+        } catch (RuntimeException e) {
+            finish();
+        }
     }
 
     private int dp(int i) {
