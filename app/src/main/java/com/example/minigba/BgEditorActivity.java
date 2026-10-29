@@ -58,6 +58,8 @@ public final class BgEditorActivity extends Activity {
     private FrameLayout panel;
     private LinearLayout thumbs;
     private TextView hint;
+    private LinearLayout shapesRow;
+    private TextView shapeButton;
     private TextView portTab;
     private TextView landTab;
     private TextView scopeAll;
@@ -154,8 +156,30 @@ public final class BgEditorActivity extends Activity {
             this.editView.invalidate();
         });
         for (SeekBar bar : new SeekBar[]{this.dimBar, this.blurBar, this.buttonBar}) {
-            column.addView(bar, new LinearLayout.LayoutParams(-1, dp(24)));
+            column.addView(bar, new LinearLayout.LayoutParams(-1, dp(22)));
         }
+
+        // The photos as thumbnails, and the selected one's readout, in one row.
+        LinearLayout photosRow = new LinearLayout(this);
+        photosRow.setOrientation(0);
+        photosRow.setGravity(Gravity.CENTER_VERTICAL);
+        this.thumbs = new LinearLayout(this);
+        this.thumbs.setOrientation(0);
+        this.thumbs.setPadding(dp(3), dp(3), dp(3), dp(3));
+        this.thumbs.setBackground(rounded(Color.rgb(241, 242, 245), dp(8)));
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.addView(this.thumbs);
+        photosRow.addView(scroll, new LinearLayout.LayoutParams(-2, -2));
+        this.hint = new TextView(this);
+        this.hint.setTextColor(Color.rgb(75, 85, 99));
+        this.hint.setTextSize(10.5f);
+        this.hint.setTypeface(Typeface.DEFAULT_BOLD);
+        this.hint.setPadding(dp(8), 0, 0, 0);
+        photosRow.addView(this.hint, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams photosParams = new LinearLayout.LayoutParams(-1, -2);
+        photosParams.setMargins(0, dp(6), 0, 0);
+        column.addView(photosRow, photosParams);
 
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(0);
@@ -174,7 +198,14 @@ public final class BgEditorActivity extends Activity {
                 updateHint();
             }
         }), buttonParams(0.7f, dp(6)));
-        tools.addView(button("맨 앞으로", Color.rgb(241, 242, 245), Color.rgb(75, 85, 99), () -> {
+        this.shapeButton = button("테두리", Color.rgb(241, 242, 245), Color.rgb(75, 85, 99), () -> {
+            boolean show = this.shapesRow.getVisibility() != View.VISIBLE;
+            this.shapesRow.setVisibility(show ? View.VISIBLE : View.GONE);
+            this.shapeButton.setBackground(rounded(show ? ACCENT : Color.rgb(241, 242, 245), dp(10)));
+            this.shapeButton.setTextColor(show ? Color.WHITE : Color.rgb(75, 85, 99));
+        });
+        tools.addView(this.shapeButton, buttonParams(0.8f, dp(6)));
+        tools.addView(button("맨 앞", Color.rgb(241, 242, 245), Color.rgb(75, 85, 99), () -> {
             PhotoBackground.Layer layer = selectedLayer();
             if (layer != null && this.selected > 0 && this.selected < this.layers.size() - 1) {
                 this.layers.remove(this.selected);
@@ -185,9 +216,33 @@ public final class BgEditorActivity extends Activity {
             }
         }), buttonParams(1, dp(6)));
         tools.addView(button("지우기", Color.rgb(255, 241, 242), ACCENT, this::removeSelected), buttonParams(0.8f, dp(6)));
-        LinearLayout.LayoutParams toolsParams = new LinearLayout.LayoutParams(-1, dp(34));
+        LinearLayout.LayoutParams toolsParams = new LinearLayout.LayoutParams(-1, dp(32));
         toolsParams.setMargins(0, dp(6), 0, 0);
         column.addView(tools, toolsParams);
+
+        // The shapes, shown by the "테두리" button; the selected photo takes the one tapped.
+        this.shapesRow = new LinearLayout(this);
+        this.shapesRow.setOrientation(0);
+        this.shapesRow.setVisibility(View.GONE);
+        for (int i = 0; i < PhotoBackground.SHAPE_NAMES.length; i++) {
+            final int shape = i;
+            TextView chip = chip(PhotoBackground.SHAPE_NAMES[i], () -> {
+                PhotoBackground.Layer layer = selectedLayer();
+                if (layer != null) {
+                    layer.shape = shape;
+                    refreshShapes();
+                    updateHint();
+                    this.editView.invalidate();
+                }
+            });
+            chip.setTextSize(10.0f);
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(26), 1);
+            chipParams.setMargins(i == 0 ? 0 : dp(4), 0, 0, 0);
+            this.shapesRow.addView(chip, chipParams);
+        }
+        LinearLayout.LayoutParams shapesParams = new LinearLayout.LayoutParams(-1, -2);
+        shapesParams.setMargins(0, dp(6), 0, 0);
+        column.addView(this.shapesRow, shapesParams);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(0);
@@ -206,58 +261,42 @@ public final class BgEditorActivity extends Activity {
         this.applyButton = button("세로 적용", ACCENT, Color.WHITE, this::apply);
         actions.addView(this.applyButton, buttonParams(1.1f, dp(6)));
         actions.addView(button("완료", Color.rgb(31, 41, 51), Color.WHITE, this::finish), buttonParams(0.7f, dp(6)));
-        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(36));
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(34));
         actionsParams.setMargins(0, dp(6), 0, 0);
         column.addView(actions, actionsParams);
         this.panel.addView(column, new FrameLayout.LayoutParams(-1, -2));
         this.root.addView(this.panel, new FrameLayout.LayoutParams(-2, -2));
-
-        // Under the panel: the layer thumbnails and a readout of the selected one.
-        this.hint = new TextView(this);
-        this.hint.setTextColor(Color.WHITE);
-        this.hint.setTextSize(10.5f);
-        this.hint.setTypeface(Typeface.DEFAULT_BOLD);
-        this.hint.setPadding(dp(9), dp(4), dp(9), dp(4));
-        this.hint.setBackground(rounded(Color.argb(150, 0, 0, 0), dp(999)));
-        this.root.addView(this.hint, new FrameLayout.LayoutParams(-2, -2));
-        this.thumbs = new LinearLayout(this);
-        this.thumbs.setOrientation(0);
-        this.thumbs.setPadding(dp(5), dp(5), dp(5), dp(5));
-        this.thumbs.setBackground(rounded(Color.argb(150, 0, 0, 0), dp(10)));
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.addView(this.thumbs);
-        this.root.addView(scroll, new FrameLayout.LayoutParams(-2, -2));
-        this.root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placePanel(r - l, b - t, scroll));
+        this.root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> placePanel(r - l, b - t));
         setContentView(this.root);
         refreshTabs();
     }
 
-    /** The panel fills the screen's place in the guide; the thumbnails sit just under it. */
-    private void placePanel(int width, int height, View scroll) {
+    /** The panel takes the screen's place in the guide (growing past it only if it must). */
+    private void placePanel(int width, int height) {
         if (width <= 0 || height <= 0) return;
         RectF screen = this.editView.screenRect(width, height);
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) this.panel.getLayoutParams();
         int left = Math.round(screen.left);
         int top = Math.round(screen.top);
         int w = Math.round(screen.width());
-        int h = Math.round(screen.height());
-        if (params.leftMargin != left || params.topMargin != top || params.width != w || params.height != h) {
+        if (params.leftMargin != left || params.topMargin != top || params.width != w) {
             params.leftMargin = left;
             params.topMargin = top;
             params.width = w;
-            params.height = h;
+            params.height = -2;
+            this.panel.setMinimumHeight(Math.round(screen.height()));
             this.panel.post(() -> this.panel.setLayoutParams(params));
         }
-        FrameLayout.LayoutParams hintParams = (FrameLayout.LayoutParams) this.hint.getLayoutParams();
-        hintParams.leftMargin = left;
-        hintParams.topMargin = top + h + dp(8);
-        this.hint.post(() -> this.hint.setLayoutParams(hintParams));
-        FrameLayout.LayoutParams thumbParams = (FrameLayout.LayoutParams) scroll.getLayoutParams();
-        thumbParams.gravity = Gravity.TOP | Gravity.END;
-        thumbParams.rightMargin = width - (left + w);
-        thumbParams.topMargin = top + h + dp(6);
-        scroll.post(() -> scroll.setLayoutParams(thumbParams));
+    }
+
+    private void refreshShapes() {
+        PhotoBackground.Layer layer = selectedLayer();
+        for (int i = 0; i < this.shapesRow.getChildCount(); i++) {
+            TextView chip = (TextView) this.shapesRow.getChildAt(i);
+            boolean on = layer != null && layer.shape == i;
+            chip.setBackground(rounded(on ? ACCENT : Color.rgb(241, 242, 245), dp(8)));
+            chip.setTextColor(on ? Color.WHITE : Color.rgb(107, 114, 128));
+        }
     }
 
     private LinearLayout.LayoutParams buttonParams(float weight, int left) {
@@ -375,10 +414,11 @@ public final class BgEditorActivity extends Activity {
                 this.editView.invalidate();
                 updateHint();
             });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(44), dp(34));
-            params.setMargins(i == 0 ? 0 : dp(4), 0, 0, 0);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(40), dp(30));
+            params.setMargins(i == 0 ? 0 : dp(3), 0, 0, 0);
             this.thumbs.addView(image, params);
         }
+        refreshShapes();
         updateHint();
     }
 
@@ -389,7 +429,8 @@ public final class BgEditorActivity extends Activity {
             return;
         }
         String rotation = layer.rotation == 0 ? "" : " · 회전 " + Math.round(layer.rotation) + "°";
-        this.hint.setText("사진 " + (this.selected + 1) + " · " + Math.round(layer.zoom * 100) + "%" + rotation + (this.selected == 0 ? " · 바탕" : ""));
+        String shape = layer.shape == PhotoBackground.SHAPE_NONE ? "" : " · " + PhotoBackground.SHAPE_NAMES[layer.shape];
+        this.hint.setText("사진 " + (this.selected + 1) + " · " + Math.round(layer.zoom * 100) + "%" + rotation + shape + (this.selected == 0 ? " · 바탕" : ""));
     }
 
     private PhotoBackground.Layer selectedLayer() {
@@ -444,6 +485,7 @@ public final class BgEditorActivity extends Activity {
                 copy.offsetX = layer.offsetX;
                 copy.offsetY = layer.offsetY;
                 copy.rotation = layer.rotation;
+                copy.shape = layer.shape;
                 this.layers.add(copy);
             }
             this.selected = 0;
@@ -512,6 +554,7 @@ public final class BgEditorActivity extends Activity {
                 target.bitmap.recycle();
             }
             target.bitmap = bitmap;
+            target.faded = null;
             target.zoom = 1;
             target.offsetX = 0;
             target.offsetY = 0;
@@ -771,8 +814,7 @@ public final class BgEditorActivity extends Activity {
             for (int i = 0; i < layers.size(); i++) {
                 PhotoBackground.Layer layer = layers.get(i);
                 if (layer.bitmap == null) continue;
-                Matrix matrix = matrixFor(i, w, h);
-                canvas.drawBitmap(layer.bitmap, matrix, this.paint);
+                PhotoBackground.drawLayer(canvas, layer, matrixFor(i, w, h), this.paint);
             }
             if (dim > 0) {
                 canvas.drawColor(Color.argb(Math.round(255 * dim / 100f), 0, 0, 0));

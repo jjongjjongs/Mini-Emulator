@@ -51,6 +51,14 @@ final class PhotoBackground {
     }
 
     /** One photo's placement: zoom and rotation about its centre, offset from the screen centre. */
+    static final int SHAPE_NONE = 0;
+    static final int SHAPE_ROUNDED = 1;
+    static final int SHAPE_CIRCLE = 2;
+    static final int SHAPE_POLAROID = 3;
+    static final int SHAPE_SHADOW = 4;
+    static final int SHAPE_FADE = 5;
+    static final String[] SHAPE_NAMES = {"없음", "둥근", "원", "폴라로이드", "그림자", "가장자리 흐림"};
+
     static final class Layer {
         File file;
         Bitmap bitmap;
@@ -58,6 +66,9 @@ final class PhotoBackground {
         float offsetX;
         float offsetY;
         float rotation;
+        int shape = SHAPE_NONE;
+        // The photo with its edges faded out (SHAPE_FADE), made when first drawn.
+        Bitmap faded;
 
         Layer(File file) {
             this.file = file;
@@ -97,6 +108,7 @@ final class PhotoBackground {
             layer.offsetX = prefs.getFloat(layerKey(scope, landscape, i, "ox"), 0);
             layer.offsetY = prefs.getFloat(layerKey(scope, landscape, i, "oy"), 0);
             layer.rotation = prefs.getFloat(layerKey(scope, landscape, i, "rot"), 0);
+            layer.shape = prefs.getInt(layerKey(scope, landscape, i, "shape"), SHAPE_NONE);
             layers.add(layer);
         }
         return layers;
@@ -118,7 +130,8 @@ final class PhotoBackground {
                 layer.file = target;
             }
             edit.putFloat(layerKey(scope, landscape, i, "zoom"), layer.zoom).putFloat(layerKey(scope, landscape, i, "ox"), layer.offsetX)
-                    .putFloat(layerKey(scope, landscape, i, "oy"), layer.offsetY).putFloat(layerKey(scope, landscape, i, "rot"), layer.rotation);
+                    .putFloat(layerKey(scope, landscape, i, "oy"), layer.offsetY).putFloat(layerKey(scope, landscape, i, "rot"), layer.rotation)
+                    .putInt(layerKey(scope, landscape, i, "shape"), layer.shape);
         }
         for (int i = layers.size(); i < MAX_LAYERS; i++) {
             //noinspection ResultOfMethodCallIgnored
@@ -283,7 +296,7 @@ final class PhotoBackground {
         for (int i = 0; i < layers.size(); i++) {
             Layer layer = layers.get(i);
             if (layer.bitmap == null) continue;
-            canvas.drawBitmap(layer.bitmap, placement(layer.bitmap, width, height, i == 0, layer.zoom, layer.offsetX, layer.offsetY, layer.rotation), paint);
+            drawLayer(canvas, layer, placement(layer.bitmap, width, height, i == 0, layer.zoom, layer.offsetX, layer.offsetY, layer.rotation), paint);
         }
         if (blur > 0) {
             Bitmap blurred = blur(out, blur);
@@ -296,6 +309,86 @@ final class PhotoBackground {
         if (dim > 0) {
             canvas.drawColor(Color.argb(Math.round(255 * Math.min(90, dim) / 100f), 0, 0, 0));
         }
+        return out;
+    }
+
+    /** Draws one photo through its matrix in its shape (frame, shadow, rounded or faded edges). */
+    static void drawLayer(Canvas canvas, Layer layer, Matrix matrix, Paint paint) {
+        Bitmap bitmap = layer.bitmap;
+        float w = bitmap.getWidth();
+        float h = bitmap.getHeight();
+        canvas.save();
+        canvas.concat(matrix);
+        switch (layer.shape) {
+            case SHAPE_ROUNDED: {
+                float radius = Math.min(w, h) * 0.08f;
+                android.graphics.Path path = new android.graphics.Path();
+                path.addRoundRect(new android.graphics.RectF(0, 0, w, h), radius, radius, android.graphics.Path.Direction.CW);
+                canvas.clipPath(path);
+                canvas.drawBitmap(bitmap, 0, 0, paint);
+                break;
+            }
+            case SHAPE_CIRCLE: {
+                float d = Math.min(w, h);
+                android.graphics.Path path = new android.graphics.Path();
+                path.addOval(new android.graphics.RectF((w - d) / 2, (h - d) / 2, (w + d) / 2, (h + d) / 2), android.graphics.Path.Direction.CW);
+                canvas.clipPath(path);
+                canvas.drawBitmap(bitmap, 0, 0, paint);
+                break;
+            }
+            case SHAPE_POLAROID: {
+                float m = Math.min(w, h) * 0.06f;
+                softShadow(canvas, -m, -m, w + m, h + m * 4.2f, m * 1.2f);
+                Paint white = new Paint(Paint.ANTI_ALIAS_FLAG);
+                white.setColor(Color.rgb(250, 250, 248));
+                canvas.drawRect(-m, -m, w + m, h + m * 4.2f, white);
+                canvas.drawBitmap(bitmap, 0, 0, paint);
+                break;
+            }
+            case SHAPE_SHADOW:
+                softShadow(canvas, 0, 0, w, h, Math.min(w, h) * 0.08f);
+                canvas.drawBitmap(bitmap, 0, 0, paint);
+                break;
+            case SHAPE_FADE: {
+                if (layer.faded == null) {
+                    layer.faded = fadeEdges(bitmap);
+                }
+                canvas.drawBitmap(layer.faded, 0, 0, paint);
+                break;
+            }
+            default:
+                canvas.drawBitmap(bitmap, 0, 0, paint);
+                break;
+        }
+        canvas.restore();
+    }
+
+    /** A soft shadow under a rectangle: rings of growing size and fading alpha (works on any canvas). */
+    private static void softShadow(Canvas canvas, float left, float top, float right, float bottom, float spread) {
+        Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
+        int rings = 10;
+        for (int i = rings; i >= 1; i--) {
+            float grow = spread * i / rings;
+            shadow.setColor(Color.argb(Math.round(26f * (rings - i + 1) / rings), 0, 0, 0));
+            canvas.drawRoundRect(new android.graphics.RectF(left - grow, top - grow + spread * 0.6f, right + grow, bottom + grow + spread * 0.6f), grow, grow, shadow);
+        }
+    }
+
+    /** The photo with its edges faded to transparent (an elliptical falloff). */
+    private static Bitmap fadeEdges(Bitmap bitmap) {
+        Bitmap out = bitmap.copy(Bitmap.Config.ARGB_8888, true);
+        Canvas canvas = new Canvas(out);
+        Paint mask = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float w = bitmap.getWidth();
+        float h = bitmap.getHeight();
+        android.graphics.RadialGradient gradient = new android.graphics.RadialGradient(w / 2, h / 2, Math.max(w, h) * 0.5f,
+                new int[]{Color.BLACK, Color.BLACK, Color.TRANSPARENT}, new float[]{0, 0.55f, 1}, android.graphics.Shader.TileMode.CLAMP);
+        Matrix stretch = new Matrix();
+        stretch.setScale(w >= h ? 1 : w / h, h >= w ? 1 : h / w, w / 2, h / 2);
+        gradient.setLocalMatrix(stretch);
+        mask.setShader(gradient);
+        mask.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
+        canvas.drawRect(0, 0, w, h, mask);
         return out;
     }
 
