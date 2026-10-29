@@ -487,11 +487,7 @@ final class ClearShellView extends View {
             canvas.drawRect(0, 0, width, height, paint);
             paint.setShader(null);
         }
-        if (plate != null) {
-            paint.setColor(Color.argb(70, 10, 12, 16));
-            canvas.drawRoundRect(plate, dp(24), dp(24), paint);
-            strokeRoundRect(canvas, plate, dp(24), dp(1), Color.argb(40, 255, 255, 255));
-        }
+        // No plate behind the controls: the photo is the case.
         if (frame != null) {
             paint.setColor(Color.argb(235, 0, 0, 0));
             canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);

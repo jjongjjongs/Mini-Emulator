@@ -43,8 +43,100 @@ final class PhotoBackground {
         return landscape ? "land" : "port";
     }
 
-    static File source(Context context, String scope, boolean landscape) {
-        return new File(dir(context), "src_" + scope + "_" + orient(landscape) + ".jpg");
+    static final int MAX_LAYERS = 6;
+
+    /** The photo of one layer (0 is the base that covers the screen; the rest sit on it). */
+    static File source(Context context, String scope, boolean landscape, int layer) {
+        return new File(dir(context), "src_" + scope + "_" + orient(landscape) + "_" + layer + ".jpg");
+    }
+
+    /** One photo's placement: zoom and rotation about its centre, offset from the screen centre. */
+    static final class Layer {
+        File file;
+        Bitmap bitmap;
+        float zoom = 1.0f;
+        float offsetX;
+        float offsetY;
+        float rotation;
+
+        Layer(File file) {
+            this.file = file;
+        }
+    }
+
+    static String layerKey(String scope, boolean landscape, int layer, String what) {
+        return "bg:" + scope + ":" + orient(landscape) + ":L" + layer + ":" + what;
+    }
+
+    /** The layers saved for a scope and orientation (bitmaps loaded), oldest format moved over. */
+    static java.util.List<Layer> loadLayers(Context context, String scope, boolean landscape) {
+        SharedPreferences prefs = MainActivity.sharedSettings(context);
+        String base = "bg:" + scope + ":" + orient(landscape);
+        java.util.List<Layer> layers = new java.util.ArrayList<>();
+        int count = prefs.getInt(base + ":count", -1);
+        if (count < 0) {
+            // 0.0.177 kept one photo as src_<scope>_<orient>.jpg with its placement under :zoom/:ox/:oy.
+            File old = new File(dir(context), "src_" + scope + "_" + orient(landscape) + ".jpg");
+            if (old.isFile() && old.renameTo(source(context, scope, landscape, 0))) {
+                prefs.edit().putInt(base + ":count", 1)
+                        .putFloat(layerKey(scope, landscape, 0, "zoom"), prefs.getFloat(base + ":zoom", 1.0f))
+                        .putFloat(layerKey(scope, landscape, 0, "ox"), prefs.getFloat(base + ":ox", 0))
+                        .putFloat(layerKey(scope, landscape, 0, "oy"), prefs.getFloat(base + ":oy", 0)).apply();
+                count = 1;
+            } else {
+                count = 0;
+            }
+        }
+        for (int i = 0; i < Math.min(count, MAX_LAYERS); i++) {
+            File file = source(context, scope, landscape, i);
+            Bitmap bitmap = load(file, 0, 0);
+            if (bitmap == null) continue;
+            Layer layer = new Layer(file);
+            layer.bitmap = bitmap;
+            layer.zoom = prefs.getFloat(layerKey(scope, landscape, i, "zoom"), 1.0f);
+            layer.offsetX = prefs.getFloat(layerKey(scope, landscape, i, "ox"), 0);
+            layer.offsetY = prefs.getFloat(layerKey(scope, landscape, i, "oy"), 0);
+            layer.rotation = prefs.getFloat(layerKey(scope, landscape, i, "rot"), 0);
+            layers.add(layer);
+        }
+        return layers;
+    }
+
+    /** Writes the layers' files (renumbered in order) and placements. */
+    static void saveLayers(Context context, String scope, boolean landscape, java.util.List<Layer> layers) throws IOException {
+        SharedPreferences.Editor edit = MainActivity.sharedSettings(context).edit();
+        String base = "bg:" + scope + ":" + orient(landscape);
+        for (int i = 0; i < layers.size(); i++) {
+            Layer layer = layers.get(i);
+            File target = source(context, scope, landscape, i);
+            if (!target.equals(layer.file)) {
+                if (layer.bitmap != null) {
+                    save(layer.bitmap, target);
+                } else if (layer.file != null && layer.file.isFile()) {
+                    copy(layer.file, target);
+                }
+                layer.file = target;
+            }
+            edit.putFloat(layerKey(scope, landscape, i, "zoom"), layer.zoom).putFloat(layerKey(scope, landscape, i, "ox"), layer.offsetX)
+                    .putFloat(layerKey(scope, landscape, i, "oy"), layer.offsetY).putFloat(layerKey(scope, landscape, i, "rot"), layer.rotation);
+        }
+        for (int i = layers.size(); i < MAX_LAYERS; i++) {
+            //noinspection ResultOfMethodCallIgnored
+            source(context, scope, landscape, i).delete();
+        }
+        edit.putInt(base + ":count", layers.size()).commit();
+    }
+
+    static void copy(File from, File to) throws IOException {
+        File dir = to.getParentFile();
+        if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
+            throw new IOException("배경 폴더를 만들 수 없어요");
+        }
+        try (java.io.FileInputStream in = new java.io.FileInputStream(from); FileOutputStream out = new FileOutputStream(to)) {
+            byte[] buffer = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        }
     }
 
     static File renderedFile(Context context, String scope, boolean landscape) {
@@ -155,25 +247,44 @@ final class PhotoBackground {
         return Math.max(width / (float) source.getWidth(), height / (float) source.getHeight());
     }
 
+    /** The scale at which a layer added on top first appears: half the screen's width. */
+    static float topScale(Bitmap source, int width, int height) {
+        return Math.min(width * 0.5f / source.getWidth(), height * 0.5f / source.getHeight());
+    }
+
     /**
-     * The matrix that places the source in a width x height area: covering it at zoom 1,
-     * centred, then zoomed about the centre and moved by (offsetX, offsetY) pixels.
+     * The matrix that places a layer in a width x height area: the base covers it at zoom
+     * 1 and the others start at half size; zoomed and turned about the photo's centre,
+     * then moved by (offsetX, offsetY) from the area's centre.
      */
-    static Matrix placement(Bitmap source, int width, int height, float zoom, float offsetX, float offsetY) {
-        float scale = coverScale(source, width, height) * zoom;
+    static Matrix placement(Bitmap source, int width, int height, boolean base, float zoom, float offsetX, float offsetY, float rotation) {
+        float scale = (base ? coverScale(source, width, height) : topScale(source, width, height)) * zoom;
         Matrix matrix = new Matrix();
+        matrix.postTranslate(-source.getWidth() / 2f, -source.getHeight() / 2f);
         matrix.postScale(scale, scale);
-        matrix.postTranslate((width - source.getWidth() * scale) / 2f + offsetX, (height - source.getHeight() * scale) / 2f + offsetY);
+        matrix.postRotate(rotation);
+        matrix.postTranslate(width / 2f + offsetX, height / 2f + offsetY);
         return matrix;
     }
 
-    /** Draws the source through the placement, darkened by dim percent and blurred by blur percent. */
-    static Bitmap render(Bitmap source, int width, int height, float zoom, float offsetX, float offsetY, int dim, int blur) {
+    /** Draws the layers in order (the base's blurred stretch fills what they leave), then blurs and darkens. */
+    static Bitmap render(java.util.List<Layer> layers, int width, int height, int dim, int blur) {
         Bitmap out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(out);
         canvas.drawColor(Color.BLACK);
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
-        canvas.drawBitmap(source, placement(source, width, height, zoom, offsetX, offsetY), paint);
+        if (!layers.isEmpty() && layers.get(0).bitmap != null) {
+            // Behind everything: the base photo stretched over the screen and blurred, so
+            // the parts no photo covers are not plain black.
+            Bitmap backdrop = render(layers.get(0).bitmap, width, height);
+            canvas.drawBitmap(backdrop, 0, 0, paint);
+            backdrop.recycle();
+        }
+        for (int i = 0; i < layers.size(); i++) {
+            Layer layer = layers.get(i);
+            if (layer.bitmap == null) continue;
+            canvas.drawBitmap(layer.bitmap, placement(layer.bitmap, width, height, i == 0, layer.zoom, layer.offsetX, layer.offsetY, layer.rotation), paint);
+        }
         if (blur > 0) {
             Bitmap blurred = blur(out, blur);
             if (blurred != out) {
@@ -186,6 +297,25 @@ final class PhotoBackground {
             canvas.drawColor(Color.argb(Math.round(255 * Math.min(90, dim) / 100f), 0, 0, 0));
         }
         return out;
+    }
+
+    /** The base photo covering the area, heavily blurred and darkened: the backdrop. */
+    private static Bitmap render(Bitmap base, int width, int height) {
+        int w = Math.max(1, width / 4);
+        int h = Math.max(1, height / 4);
+        Bitmap small = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(small);
+        float scale = coverScale(base, w, h);
+        Matrix matrix = new Matrix();
+        matrix.postScale(scale, scale);
+        matrix.postTranslate((w - base.getWidth() * scale) / 2f, (h - base.getHeight() * scale) / 2f);
+        canvas.drawBitmap(base, matrix, new Paint(Paint.FILTER_BITMAP_FLAG));
+        Bitmap blurred = blur(small, 80);
+        if (blurred != small) small.recycle();
+        Bitmap full = Bitmap.createScaledBitmap(blurred, width, height, true);
+        if (full != blurred) blurred.recycle();
+        new Canvas(full).drawColor(Color.argb(110, 0, 0, 0));
+        return full;
     }
 
     /** A cheap blur: shrink the picture and stretch it back with filtering, more for more blur. */
