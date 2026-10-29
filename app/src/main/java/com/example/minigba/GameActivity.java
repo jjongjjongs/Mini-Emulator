@@ -1404,6 +1404,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private final java.util.List<String> layoutIds = new java.util.ArrayList<>();
     private final java.util.List<float[]> layoutBase = new java.util.ArrayList<>();
     private LayoutEditorView layoutEditor;
+    // "버튼 꾸미기" in force for this console or game and screen direction.
+    private ButtonStyle buttonStyle = new ButtonStyle();
 
     private static boolean isLayoutControl(View view) {
         return view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView
@@ -1466,13 +1468,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
             }
         }
-        java.util.Map<String, float[]> edits = loadLayoutEdits();
-        for (int k = 0; k < this.layoutControls.size(); k++) {
-            float[] edit = edits.get(this.layoutIds.get(k));
-            if (edit != null) {
-                applyLayoutEdit(k, edit[0], edit[1], edit[2]);
-            }
-        }
+        loadButtonStyle();
+        applyButtonStyle(this.buttonStyle);
     }
 
     private void applyLayoutEdit(int index, float dxDp, float dyDp, float scale) {
@@ -1481,8 +1478,113 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float density = getResources().getDisplayMetrics().density;
         view.setTranslationX(base[0] + dxDp * density);
         view.setTranslationY(base[1] + dyDp * density);
-        view.setScaleX(scale);
-        view.setScaleY(scale);
+        // The group size from "버튼 꾸미기" multiplies whatever the layout editor set.
+        float styled = scale * this.buttonStyle.scale(styleGroup(view));
+        view.setScaleX(styled);
+        view.setScaleY(styled);
+    }
+
+    // ---- 버튼 꾸미기 (button style) ----
+    private static int styleGroup(View view) {
+        if (view instanceof DPadView) return ButtonStyle.GROUP_DPAD;
+        if (view instanceof AnalogStickView || view instanceof ArcadeJoystickView) return ButtonStyle.GROUP_STICK;
+        if (view instanceof TouchButton) return ((TouchButton) view).isKeycap() ? ButtonStyle.GROUP_SHOULDER : ButtonStyle.GROUP_ACTION;
+        return ButtonStyle.GROUP_NONE;
+    }
+
+    private boolean hasOwnButtonStyle() {
+        return this.saveBaseName != null && ButtonStyle.exists(this, ButtonStyle.gameScope(this.saveBaseName), this.landscapeMode);
+    }
+
+    private void loadButtonStyle() {
+        this.buttonStyle = ButtonStyle.load(this, this.gameMode, this.saveBaseName, this.landscapeMode);
+    }
+
+    /** Draws the controls just built (or rebuilt) with the style in force, sizes included. */
+    private void applyButtonStyle(ButtonStyle style) {
+        this.buttonStyle = style;
+        for (View view : this.layoutControls) {
+            if (view instanceof TouchButton) {
+                ((TouchButton) view).setStyle(style);
+            } else if (view instanceof DPadView) {
+                ((DPadView) view).setStyle(style);
+            } else if (view instanceof AnalogStickView) {
+                ((AnalogStickView) view).setStyle(style);
+            }
+        }
+        java.util.Map<String, float[]> edits = loadLayoutEdits();
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            float[] edit = edits.get(this.layoutIds.get(k));
+            applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1);
+        }
+        for (android.view.ViewGroup parent : this.comboParents) {
+            layoutComboZones(parent, true);
+        }
+    }
+
+    private String buttonStyleSummary() {
+        ButtonStyle style = this.buttonStyle;
+        String name = style.isDefault() ? "기본" : ButtonStyle.THEME_NAMES[style.theme].replace(" (케이스 색)", "");
+        if (!style.isDefault() && (style.sizeAll != 100 || style.sizes[0] != 100 || style.sizes[1] != 100 || style.sizes[2] != 100 || style.sizes[3] != 100)) {
+            name += " · 크기 조절";
+        }
+        return hasOwnButtonStyle() ? name + " (이 게임)" : name;
+    }
+
+    private void openButtonStyleDialog() {
+        if (this.layoutControls.isEmpty()) {
+            Toast.makeText(this, "이 화면에는 꾸밀 버튼이 없어요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        final boolean landscape = this.landscapeMode;
+        final String modeScope = this.gameMode;
+        final String gameScope = this.saveBaseName != null ? ButtonStyle.gameScope(this.saveBaseName) : null;
+        new ButtonStyleDialog(this, this.buttonStyle, hasOwnButtonStyle(), landscape, consoleName(), new ButtonStyleDialog.Listener() {
+            @Override
+            public void onChange(ButtonStyle style) {
+                applyButtonStyle(style);
+            }
+
+            @Override
+            public void onDone(ButtonStyle style, boolean perGame) {
+                if (perGame && gameScope != null) {
+                    ButtonStyle.save(GameActivity.this, gameScope, landscape, style);
+                } else {
+                    if (gameScope != null) ButtonStyle.clear(GameActivity.this, gameScope, landscape);
+                    ButtonStyle.save(GameActivity.this, modeScope, landscape, style);
+                }
+                applyButtonStyle(style);
+                Toast.makeText(GameActivity.this, perGame && gameScope != null ? "이 게임의 버튼 꾸미기를 저장했어요." : consoleName() + " 버튼 꾸미기를 저장했어요.", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onCopyToOther(ButtonStyle style, boolean perGame) {
+                ButtonStyle.save(GameActivity.this, perGame && gameScope != null ? gameScope : modeScope, !landscape, style);
+            }
+
+            @Override
+            public void onReset(boolean perGame) {
+                if (perGame && gameScope != null) {
+                    ButtonStyle.clear(GameActivity.this, gameScope, landscape);
+                } else {
+                    if (gameScope != null) ButtonStyle.clear(GameActivity.this, gameScope, landscape);
+                    ButtonStyle.clear(GameActivity.this, modeScope, landscape);
+                }
+                loadButtonStyle();
+                applyButtonStyle(buttonStyle);
+                Toast.makeText(GameActivity.this, "버튼을 기본 모습으로 되돌렸어요.", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onClosed() {
+                holdPause = false;
+                resumeUnlessExiting();
+            }
+        }).show();
     }
 
     private void startLayoutEditor() {
@@ -2568,6 +2670,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         dialog.dismiss();
                         startLayoutEditor();
                     }), editParams);
+            LinearLayout.LayoutParams styleRowParams = new LinearLayout.LayoutParams(-1, dp(52));
+            styleRowParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_FILTER, "버튼 꾸미기",
+                    buttonStyleSummary(), view -> openButtonStyleDialog()), styleRowParams);
         }
 
         LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));

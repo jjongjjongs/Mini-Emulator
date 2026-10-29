@@ -1,6 +1,7 @@
 package com.example.minigba;
 
 import android.content.Context;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -75,6 +76,51 @@ final class DPadView extends View {
         invalidate();
     }
 
+    // "버튼 꾸미기": null keeps the built-in cross.
+    private ButtonStyle style;
+
+    void setStyle(ButtonStyle style) {
+        this.style = style != null && style.theme != ButtonStyle.THEME_DEFAULT ? style : null;
+        setLayerType(this.style != null && this.style.neon() && this.style.glow ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
+        invalidate();
+    }
+
+    // "윤곽선만" and "네온": the cross as a ring in the theme colour; pressed arms fill in.
+    private void drawLine(Canvas canvas, Path cross, float cx, float cy, float arm, float reach, float min) {
+        int color = this.style.color(ButtonStyle.ROLE_DPAD);
+        boolean neon = this.style.neon();
+        float stroke = Math.max(2.0f, min * 0.025f);
+        this.paint.setShader(null);
+        this.paint.setColor(neon ? Color.argb(200, 18, 19, 24) : Color.argb(28, 255, 255, 255));
+        canvas.drawPath(cross, this.paint);
+        for (int bit : new int[]{64, 128, 32, 16}) {
+            if ((this.directionMask & bit) != 0) {
+                canvas.save();
+                canvas.clipPath(cross);
+                this.activePaint.setColor(neon ? ButtonStyle.withAlpha(color, 230) : Color.argb(160, 255, 255, 255));
+                canvas.drawRect(armRect(bit, cx, cy, arm, reach), this.activePaint);
+                canvas.restore();
+            }
+        }
+        this.highlightPaint.setStyle(Paint.Style.STROKE);
+        if (neon && this.style.glow) {
+            this.highlightPaint.setColor(ButtonStyle.withAlpha(color, 150));
+            this.highlightPaint.setStrokeWidth(stroke * 2.2f);
+            this.highlightPaint.setMaskFilter(new BlurMaskFilter(stroke * 2.5f, BlurMaskFilter.Blur.NORMAL));
+            canvas.drawPath(cross, this.highlightPaint);
+            this.highlightPaint.setMaskFilter(null);
+        }
+        this.highlightPaint.setColor(color);
+        this.highlightPaint.setStrokeWidth(stroke);
+        canvas.drawPath(cross, this.highlightPaint);
+        float tip = reach - arm * 0.42f;
+        this.arrowPaint.setColor(ButtonStyle.withAlpha(color, 170));
+        drawArrow(canvas, cx, cy - tip, 64);
+        drawArrow(canvas, cx, cy + tip, 128);
+        drawArrow(canvas, cx - tip, cy, 32);
+        drawArrow(canvas, cx + tip, cy, 16);
+    }
+
     // Smoky see-through cross: a soft shadow, tinted plastic with a shine along each arm
     // and a thin bright rim. A pressed arm darkens.
     @Override
@@ -90,6 +136,12 @@ final class DPadView extends View {
         float corner = arm * 0.22f;
         float depth = min * 0.03f;
         Path cross = crossPath(cx, cy - depth / 2.0f, arm, reach, corner);
+        if (this.style != null && (this.style.outline() || this.style.neon())) {
+            drawLine(canvas, cross, cx, cy - depth / 2.0f, arm, reach, min);
+            return;
+        }
+        int themed = this.style != null ? this.style.color(ButtonStyle.ROLE_DPAD) : 0;
+        boolean light = themed != 0 ? ButtonStyle.isLight(themed) : this.light;
 
         canvas.save();
         canvas.translate(0, depth * 1.6f);
@@ -102,9 +154,11 @@ final class DPadView extends View {
         canvas.drawPath(cross, this.shellPaint);
         canvas.restore();
 
-        this.paint.setShader(new LinearGradient(cx - reach, 0, cx + reach, 0,
-                this.light ? new int[]{Color.argb(240, 232, 234, 238), Color.argb(245, 186, 190, 196), Color.argb(240, 232, 234, 238)}
-                        : new int[]{Color.argb(217, 60, 60, 70), Color.argb(230, 20, 20, 26), Color.argb(217, 60, 60, 70)}, null, Shader.TileMode.CLAMP));
+        int[] body = themed != 0
+                ? new int[]{ButtonStyle.withAlpha(ButtonStyle.palette(themed)[0], 235), ButtonStyle.withAlpha(ButtonStyle.palette(themed)[1], 240), ButtonStyle.withAlpha(ButtonStyle.palette(themed)[0], 235)}
+                : light ? new int[]{Color.argb(240, 232, 234, 238), Color.argb(245, 186, 190, 196), Color.argb(240, 232, 234, 238)}
+                        : new int[]{Color.argb(217, 60, 60, 70), Color.argb(230, 20, 20, 26), Color.argb(217, 60, 60, 70)};
+        this.paint.setShader(new LinearGradient(cx - reach, 0, cx + reach, 0, body, null, Shader.TileMode.CLAMP));
         canvas.drawPath(cross, this.paint);
         this.paint.setShader(new LinearGradient(0, cy - reach, 0, cy + reach,
                 new int[]{Color.argb(60, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(40, 120, 120, 140)}, null, Shader.TileMode.CLAMP));
@@ -128,13 +182,13 @@ final class DPadView extends View {
 
         // Centre dimple.
         this.centerPaint.setShader(new RadialGradient(cx, cy - depth / 2.0f, arm * 0.36f,
-                this.light ? new int[]{Color.argb(230, 150, 154, 160), Color.argb(220, 205, 208, 212)}
+                light ? new int[]{Color.argb(230, 150, 154, 160), Color.argb(220, 205, 208, 212)}
                         : new int[]{Color.argb(220, 10, 10, 12), Color.argb(200, 60, 60, 68)}, null, Shader.TileMode.CLAMP));
         canvas.drawCircle(cx, cy - depth / 2.0f, arm * 0.34f, this.centerPaint);
         this.centerPaint.setShader(null);
 
         float tip = reach - arm * 0.42f;
-        this.arrowPaint.setColor(this.light ? Color.argb(120, 60, 64, 72) : Color.argb(95, 255, 255, 255));
+        this.arrowPaint.setColor(light ? Color.argb(120, 60, 64, 72) : Color.argb(95, 255, 255, 255));
         drawArrow(canvas, cx, cy - tip, 64);
         drawArrow(canvas, cx, cy + tip, 128);
         drawArrow(canvas, cx - tip, cy, 32);

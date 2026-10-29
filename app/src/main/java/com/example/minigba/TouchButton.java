@@ -1,11 +1,13 @@
 package com.example.minigba;
 
 import android.content.Context;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RadialGradient;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.view.MotionEvent;
@@ -38,6 +40,25 @@ final class TouchButton extends View {
     private final Paint text;
     // Colour for the label of round buttons; 0 keeps white (PSP symbols are coloured).
     private int labelColor;
+    // "버튼 꾸미기": null keeps the built-in look.
+    private ButtonStyle look;
+    // Press bounce: the drawn size relative to the view, animated around a press.
+    private float pulse = 1.0f;
+    private android.animation.ValueAnimator pulseAnimator;
+
+    void setStyle(ButtonStyle style) {
+        this.look = style != null && style.themed() ? style : null;
+        // Glows are blurred, which only a software layer draws.
+        setLayerType(this.look != null && this.look.neon() && this.look.glow ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE, null);
+        invalidate();
+    }
+
+    boolean isKeycap() {
+        android.view.ViewGroup.LayoutParams params = getLayoutParams();
+        float w = params != null && params.width > 0 ? params.width : getWidth();
+        float h = params != null && params.height > 0 ? params.height : getHeight();
+        return Math.max(w, h) > Math.min(w, h) * 1.25f;
+    }
 
     interface Listener {
         void onButtonChanged(int i, boolean z);
@@ -81,10 +102,86 @@ final class TouchButton extends View {
         super.onDraw(canvas);
         float width = getWidth();
         float height = getHeight();
-        if (Math.max(width, height) > Math.min(width, height) * 1.25f) {
+        if (this.pulse != 1.0f) {
+            canvas.scale(this.pulse, this.pulse, width / 2.0f, height / 2.0f);
+        }
+        boolean keycap = Math.max(width, height) > Math.min(width, height) * 1.25f;
+        ButtonStyle look = this.look;
+        if (look != null && (look.outline() || look.neon())) {
+            drawLine(canvas, width, height, keycap, look);
+        } else if (keycap) {
             drawKeycap(canvas, width, height);
         } else {
-            drawRound(canvas, width, height, palette());
+            int themed = look != null ? look.color(ButtonStyle.roleOf(this.label)) : 0;
+            drawRound(canvas, width, height, themed != 0 ? ButtonStyle.palette(themed) : palette(),
+                    themed != 0 ? (ButtonStyle.isLight(themed) ? Color.rgb(40, 44, 52) : Color.WHITE) : (this.labelColor != 0 ? this.labelColor : Color.WHITE));
+        }
+    }
+
+    private int shape() {
+        return this.look != null ? this.look.shape : ButtonStyle.SHAPE_CIRCLE;
+    }
+
+    // The round button's outline: a circle, or a square with softened or barely rounded corners.
+    private Path shapePath(float cx, float cy, float radius) {
+        Path path = new Path();
+        int shape = shape();
+        if (shape == ButtonStyle.SHAPE_CIRCLE) {
+            path.addCircle(cx, cy, radius, Path.Direction.CW);
+        } else {
+            float half = radius * 0.94f;
+            float corner = half * (shape == ButtonStyle.SHAPE_ROUNDED ? 0.42f : 0.16f);
+            path.addRoundRect(new RectF(cx - half, cy - half, cx + half, cy + half), corner, corner, Path.Direction.CW);
+        }
+        return path;
+    }
+
+    // "윤곽선만" and "네온": a thin ring in the theme colour on a clear (or near-black) body;
+    // pressing fills it with the colour, and neon lets it glow.
+    private void drawLine(Canvas canvas, float width, float height, boolean keycap, ButtonStyle style) {
+        int color = style.color(keycap ? ButtonStyle.ROLE_PILL : ButtonStyle.roleOf(this.label));
+        boolean pressed = looksPressed();
+        float stroke = Math.max(2.0f, Math.min(width, height) * (keycap ? 0.07f : 0.06f));
+        Path path;
+        float cx = width / 2.0f;
+        float cy = height / 2.0f;
+        float labelSize;
+        if (keycap) {
+            RectF face = new RectF(3.0f + stroke, 2.0f + stroke, width - 3.0f - stroke, height - 5.0f - stroke);
+            float radius = (face.bottom - face.top) * (style.shape == ButtonStyle.SHAPE_SQUARE ? 0.2f : 0.5f);
+            path = new Path();
+            path.addRoundRect(face, radius, radius, Path.Direction.CW);
+            cy = face.centerY();
+            labelSize = (face.bottom - face.top) * 0.9f;
+        } else {
+            float radius = Math.min(width, height) * 0.42f - stroke;
+            path = shapePath(cx, cy, radius);
+            labelSize = radius * 0.86f;
+        }
+        if (style.neon()) {
+            // Near-black body so the glow reads at night.
+            this.fill.setShader(null);
+            this.fill.setColor(pressed ? ButtonStyle.withAlpha(color, 230) : Color.argb(200, 18, 19, 24));
+            canvas.drawPath(path, this.fill);
+            if (style.glow) {
+                this.stroke.setColor(ButtonStyle.withAlpha(color, pressed ? 220 : 150));
+                this.stroke.setStrokeWidth(stroke * (pressed ? 3.0f : 2.2f));
+                this.stroke.setMaskFilter(new BlurMaskFilter(stroke * (pressed ? 4.0f : 2.5f), BlurMaskFilter.Blur.NORMAL));
+                canvas.drawPath(path, this.stroke);
+                this.stroke.setMaskFilter(null);
+            }
+            this.stroke.setColor(pressed ? Color.WHITE : color);
+            this.stroke.setStrokeWidth(stroke * 0.8f);
+            canvas.drawPath(path, this.stroke);
+            drawLabel(canvas, cx, cy, labelSize, pressed ? Color.WHITE : color);
+        } else {
+            this.fill.setShader(null);
+            this.fill.setColor(pressed ? Color.argb(160, 255, 255, 255) : Color.argb(28, 255, 255, 255));
+            canvas.drawPath(path, this.fill);
+            this.stroke.setColor(color);
+            this.stroke.setStrokeWidth(stroke);
+            canvas.drawPath(path, this.stroke);
+            drawLabel(canvas, cx, cy, labelSize, pressed ? Color.rgb(40, 44, 52) : color);
         }
     }
 
@@ -110,7 +207,7 @@ final class TouchButton extends View {
         }
     }
 
-    private void drawRound(Canvas canvas, float width, float height, int[] palette) {
+    private void drawRound(Canvas canvas, float width, float height, int[] palette, int labelColor) {
         float cx = width / 2.0f;
         float radius = Math.min(width, height) * 0.42f;
         float press = looksPressed() ? radius * 0.05f : 0.0f;
@@ -123,17 +220,21 @@ final class TouchButton extends View {
         canvas.drawCircle(cx, glowY, radius * 1.22f, this.shadow);
         this.shadow.setShader(null);
         this.shadow.setColor(Color.argb(60, 0, 0, 0));
-        canvas.drawCircle(cx, cy + Math.max(1.0f, radius * 0.03f), radius, this.shadow);
+        Path body = shapePath(cx, cy, radius);
+        canvas.save();
+        canvas.translate(0, Math.max(1.0f, radius * 0.03f));
+        canvas.drawPath(body, this.shadow);
+        canvas.restore();
 
         // See-through body, brighter below the centre.
         this.fill.setShader(new RadialGradient(cx, cy + radius * 0.2f, radius * 1.1f,
                 new int[]{withAlpha(palette[0], 204), withAlpha(palette[1], 179), withAlpha(palette[2], 204)},
                 new float[]{0.0f, 0.7f, 1.0f}, Shader.TileMode.CLAMP));
-        canvas.drawCircle(cx, cy, radius, this.fill);
+        canvas.drawPath(body, this.fill);
         // Light pooling at the bottom inside the plastic.
         this.fill.setShader(new RadialGradient(cx, cy + radius * 0.8f, radius * 0.75f,
                 withAlpha(lighter(palette[0]), 150), withAlpha(palette[0], 0), Shader.TileMode.CLAMP));
-        canvas.drawCircle(cx, cy, radius, this.fill);
+        canvas.drawPath(body, this.fill);
         this.fill.setShader(null);
 
         // Thin bright rim.
@@ -142,16 +243,21 @@ final class TouchButton extends View {
         this.highlight.setStyle(Paint.Style.STROKE);
         this.highlight.setStrokeWidth(rim);
         this.highlight.setColor(Color.argb(90, 255, 255, 255));
-        canvas.drawCircle(cx, cy, radius - rim / 2.0f, this.highlight);
+        if (shape() == ButtonStyle.SHAPE_CIRCLE) {
+            canvas.drawCircle(cx, cy, radius - rim / 2.0f, this.highlight);
+        } else {
+            canvas.drawPath(shapePath(cx, cy, radius - rim / 2.0f), this.highlight);
+        }
 
         // Small tilted reflection in the upper left.
         this.highlight.setStyle(Paint.Style.FILL);
         this.highlight.setColor(Color.argb(looksPressed() ? 140 : 190, 255, 255, 255));
         canvas.save();
+        canvas.clipPath(body);
         canvas.rotate(-25.0f, cx - radius * 0.28f, cy - radius * 0.58f);
         canvas.drawOval(new RectF(cx - radius * 0.64f, cy - radius * 0.78f, cx + radius * 0.08f, cy - radius * 0.38f), this.highlight);
         canvas.restore();
-        drawLabel(canvas, cx, cy, radius * 0.86f, this.labelColor != 0 ? this.labelColor : Color.WHITE);
+        drawLabel(canvas, cx, cy, radius * 0.86f, labelColor);
     }
 
     // Wide keys (L/R, SELECT/START, coin and the like): smoky see-through plastic.
@@ -173,8 +279,15 @@ final class TouchButton extends View {
         this.shadow.setColor(Color.argb(looksPressed() ? 34 : 50, 0, 0, 0));
         canvas.drawRoundRect(new RectF(left, top + drop * 0.5f, right, bottom + drop * 0.5f), radius, radius, this.shadow);
 
-        this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom,
-                Color.argb(looksPressed() ? 205 : 190, 70, 70, 80), Color.argb(looksPressed() ? 230 : 217, 30, 30, 38), Shader.TileMode.CLAMP));
+        int themed = this.look != null ? this.look.color(ButtonStyle.ROLE_PILL) : 0;
+        if (themed != 0) {
+            int[] palette = ButtonStyle.palette(themed);
+            this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom,
+                    withAlpha(palette[0], looksPressed() ? 235 : 225), withAlpha(palette[1], looksPressed() ? 245 : 235), Shader.TileMode.CLAMP));
+        } else {
+            this.fill.setShader(new LinearGradient(0, face.top, 0, face.bottom,
+                    Color.argb(looksPressed() ? 205 : 190, 70, 70, 80), Color.argb(looksPressed() ? 230 : 217, 30, 30, 38), Shader.TileMode.CLAMP));
+        }
         canvas.drawRoundRect(face, radius, radius, this.fill);
         // Faint sheen on the upper half.
         this.fill.setShader(new LinearGradient(0, face.top, 0, face.centerY(),
@@ -187,7 +300,8 @@ final class TouchButton extends View {
         this.highlight.setStrokeWidth(1.6f);
         this.highlight.setColor(Color.argb(80, 255, 255, 255));
         canvas.drawRoundRect(new RectF(face.left + 0.8f, face.top + 0.8f, face.right - 0.8f, face.bottom - 0.8f), radius, radius, this.highlight);
-        drawLabel(canvas, width / 2.0f, face.centerY(), (face.bottom - face.top) * 0.9f, Color.WHITE);
+        drawLabel(canvas, width / 2.0f, face.centerY(), (face.bottom - face.top) * 0.9f,
+                themed != 0 && ButtonStyle.isLight(themed) ? Color.rgb(40, 44, 52) : Color.WHITE);
     }
 
     private static int withAlpha(int color, int alpha) {
@@ -199,8 +313,13 @@ final class TouchButton extends View {
     }
 
     private void drawLabel(Canvas canvas, float x, float centerY, float size, int color) {
+        int mode = this.look != null ? this.look.label : ButtonStyle.LABEL_SHOW;
+        if (mode == ButtonStyle.LABEL_HIDE) {
+            return;
+        }
         boolean wide = Math.max(getWidth(), getHeight()) > Math.min(getWidth(), getHeight()) * 1.25f;
-        this.text.setTextSize(wide ? Math.min(size * 0.5f, getWidth() / Math.max(3.0f, this.label.length() + 1.5f)) : Math.max(16.0f, size * 0.7f));
+        float textSize = wide ? Math.min(size * 0.5f, getWidth() / Math.max(3.0f, this.label.length() + 1.5f)) : Math.max(16.0f, size * 0.7f);
+        this.text.setTextSize(mode == ButtonStyle.LABEL_SMALL ? textSize * 0.62f : textSize);
         Paint.FontMetrics metrics = this.text.getFontMetrics();
         float baseline = centerY - (metrics.ascent + metrics.descent) / 2.0f;
         boolean darkLabel = Color.red(color) + Color.green(color) + Color.blue(color) < 300;
@@ -241,6 +360,22 @@ final class TouchButton extends View {
         invalidate();
     }
 
+    // "살짝 커졌다 돌아오기": a quick swell and settle, drawn without touching the view's scale.
+    private void bounce() {
+        if (this.pulseAnimator != null) {
+            this.pulseAnimator.cancel();
+        }
+        android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(1.0f, 1.14f, 1.0f);
+        animator.setDuration(220);
+        animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        animator.addUpdateListener(a -> {
+            this.pulse = (Float) a.getAnimatedValue();
+            invalidate();
+        });
+        animator.start();
+        this.pulseAnimator = animator;
+    }
+
     private boolean looksPressed() {
         return this.pressed || this.comboHolds > 0;
     }
@@ -252,6 +387,9 @@ final class TouchButton extends View {
         this.pressed = z;
         if (z) {
             Haptics.tap();
+            if (this.look != null && this.look.bounce) {
+                bounce();
+            }
         }
         this.listener.onButtonChanged(this.button, z);
         invalidate();
