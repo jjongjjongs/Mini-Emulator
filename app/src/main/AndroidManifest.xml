@@ -24,12 +24,12 @@
             android:name="com.example.minigba.GameActivity"
             android:process=":game"
             android:exported="false"
-            android:configChanges="screenSize|orientation|keyboardHidden|keyboard"/>
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
         <activity
             android:name="com.example.minigba.BgEditorActivity"
             android:process=":game"
             android:exported="false"
-            android:configChanges="screenSize|orientation|keyboardHidden|keyboard"/>
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
         <activity
             android:name="com.example.minigba.MainActivity"
             android:exported="true">
