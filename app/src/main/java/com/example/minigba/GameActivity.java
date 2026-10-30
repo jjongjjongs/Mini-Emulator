@@ -3826,48 +3826,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    private void showSettingsSheet() {
-        final android.app.Dialog dialog = new android.app.Dialog(this);
-        dialog.requestWindowFeature(1);
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(1);
-        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
-        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
-        background.setCornerRadius(dp(24));
-        panel.setBackground(background);
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(0);
-        header.setGravity(16);
-        header.addView(new RoundIconView(this, RoundIconView.GEAR, RoundIconView.COLOR_GEAR), new LinearLayout.LayoutParams(dp(36), dp(36)));
-        LinearLayout titles = new LinearLayout(this);
-        titles.setOrientation(1);
-        TextView title = new TextView(this);
-        title.setText("게임 설정");
-        title.setTextSize(17.0f);
-        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
-        titles.addView(title);
-        TextView subtitle = new TextView(this);
-        subtitle.setText("모든 게임 공통 · 바로 적용");
-        subtitle.setTextSize(12.0f);
-        subtitle.setTextColor(Color.rgb(122, 130, 140));
-        titles.addView(subtitle);
-        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
-        titlesParams.setMargins(dp(10), 0, 0, 0);
-        header.addView(titles, titlesParams);
-        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
-
-        // A choice reopens this sheet so the rows show the new values.
-        Runnable reopen = () -> {
-            if (dialog.isShowing()) {
-                dialog.dismiss();
-            }
-            showSettingsSheet();
-        };
+    // 화면 탭: the picture and the case, button looks and layout (all games).
+    private void addScreenTabRows(LinearLayout panel, Runnable refresh) {
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
-        filterParams.setMargins(0, dp(14), 0, 0);
+        filterParams.setMargins(0, 0, 0, 0);
         boolean threeD = is3d();
         panel.addView(createSettingRow(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", (threeD ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
                 view -> showChoiceDialog(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", threeD ? FILTER_NAMES_3D : FILTER_NAMES,
@@ -3878,7 +3840,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     MainActivity.sharedSettings(this).edit().putInt("screen_filter", choice).apply();
                     applyScreenFilterToNative(choice);
                     updateScreenFilters();
-                    reopen.run();
+                    refresh.run();
                 })), filterParams);
         if (!isPadScreen()) {
             LinearLayout.LayoutParams shapeParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -3886,8 +3848,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             String shapeShown = (shapeScaleMode() == 1 ? "픽셀 정확" : "맞춤") + (shapeAspectMode() != 0 ? " · " + SHAPE_ASPECT_NAMES[shapeAspectMode()] : "")
                     + (shapeCornerDp() > 0 ? " · 둥근 " + shapeCornerDp() : "");
             panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_FILTER, "화면 모양", shapeShown, view -> {
-                dialog.dismiss();
-                showScreenShapeSheet(reopen);
+                showScreenShapeSheet(refresh);
             }), shapeParams);
         }
         if (!isPadScreen()) {
@@ -3905,12 +3866,40 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         }
                         MainActivity.sharedSettings(this).edit().putInt("shell_style", choice).apply();
                         rebuildContent();
-                        reopen.run();
+                        refresh.run();
                     })), styleParams);
         }
         if (!isPadScreen()) {
+            LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(52));
+            editParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.MOVE, RoundIconView.COLOR_MOVE, "버튼 · 화면 배치 편집",
+                    hasLayoutEdits() ? "바꾼 배치" : "기본 배치", view -> {
+                        startLayoutEditor();
+                    }), editParams);
+            LinearLayout.LayoutParams styleRowParams = new LinearLayout.LayoutParams(-1, dp(52));
+            styleRowParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_FILTER, "버튼 꾸미기",
+                    buttonStyleSummary(), view -> {
+                        openButtonStyleDialog();
+                    }), styleRowParams);
+            LinearLayout.LayoutParams presetRowParams = new LinearLayout.LayoutParams(-1, dp(52));
+            presetRowParams.setMargins(0, dp(8), 0, 0);
+            int presetCount = 0;
+            for (Presets.Preset preset : Presets.list(this)) {
+                if (!Presets.UNDO_ID.equals(preset.id)) presetCount++;
+            }
+            panel.addView(createSettingRow(RoundIconView.STAR, RoundIconView.COLOR_SAVE, "꾸미기 프리셋",
+                    presetCount == 0 ? "저장 · 적용" : "저장된 것 " + presetCount, view -> {
+                        openPresetDialog();
+                    }), presetRowParams);
+        }
+    }
+
+    // 조작 탭: vibration, combos, sticks, rewind and game controllers.
+    private void addControlTabRows(LinearLayout panel, Runnable refresh) {
+        if (!isPadScreen()) {
             LinearLayout.LayoutParams hapticParams = new LinearLayout.LayoutParams(-1, dp(52));
-            hapticParams.setMargins(0, dp(8), 0, 0);
+            hapticParams.setMargins(0, 0, 0, 0);
             panel.addView(createSettingRow(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES[hapticLevel()],
                     view -> showChoiceDialog(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES, HAPTIC_NOTES,
                             hapticLevel(), "화면 버튼을 누를 때 짧게 진동해요.\n휴대폰이 무음·진동 끔이어도 울릴 수 있어요.",
@@ -3918,20 +3907,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         MainActivity.sharedSettings(this).edit().putInt("haptic_level", choice).apply();
                         Haptics.setLevel(this, choice);
                         Haptics.tap();
-                        reopen.run();
+                        refresh.run();
                     })), hapticParams);
             LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
             comboParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createComboRow(reopen), comboParams);
+            panel.addView(createComboRow(refresh), comboParams);
             if (isDualShock()) {
                 LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(-1, dp(52));
                 rightParams.setMargins(0, dp(8), 0, 0);
-                panel.addView(createStickRow(true, reopen), rightParams);
+                panel.addView(createStickRow(true, refresh), rightParams);
             }
             if (hasLeftStick()) {
                 LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(-1, dp(52));
                 leftParams.setMargins(0, dp(8), 0, 0);
-                panel.addView(createStickRow(false, reopen), leftParams);
+                panel.addView(createStickRow(false, refresh), leftParams);
             }
             LinearLayout.LayoutParams rewindParams = new LinearLayout.LayoutParams(-1, dp(52));
             rewindParams.setMargins(0, dp(8), 0, 0);
@@ -3953,65 +3942,23 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                                 NativeGba.setRewindEnabled(handle, rewindOn());
                             }
                             rebuildContent();
-                            reopen.run();
+                            refresh.run();
                         });
                     }), rewindParams);
-            LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(52));
-            editParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createSettingRow(RoundIconView.MOVE, RoundIconView.COLOR_MOVE, "버튼 · 화면 배치 편집",
-                    hasLayoutEdits() ? "바꾼 배치" : "기본 배치", view -> {
-                        dialog.dismiss();
-                        startLayoutEditor();
-                    }), editParams);
-            LinearLayout.LayoutParams styleRowParams = new LinearLayout.LayoutParams(-1, dp(52));
-            styleRowParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_FILTER, "버튼 꾸미기",
-                    buttonStyleSummary(), view -> {
-                        dialog.dismiss();
-                        openButtonStyleDialog();
-                    }), styleRowParams);
-            LinearLayout.LayoutParams presetRowParams = new LinearLayout.LayoutParams(-1, dp(52));
-            presetRowParams.setMargins(0, dp(8), 0, 0);
-            int presetCount = 0;
-            for (Presets.Preset preset : Presets.list(this)) {
-                if (!Presets.UNDO_ID.equals(preset.id)) presetCount++;
-            }
-            panel.addView(createSettingRow(RoundIconView.STAR, RoundIconView.COLOR_SAVE, "꾸미기 프리셋",
-                    presetCount == 0 ? "저장 · 적용" : "저장된 것 " + presetCount, view -> {
-                        dialog.dismiss();
-                        openPresetDialog();
-                    }), presetRowParams);
         }
 
         LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));
         padParams.setMargins(0, dp(8), 0, 0);
-        panel.addView(createPadMappingRow(reopen), padParams);
+        panel.addView(createPadMappingRow(refresh), padParams);
         if (!isPadScreen() && !isMame139()) {
             LinearLayout.LayoutParams autoParams = new LinearLayout.LayoutParams(-1, dp(52));
             autoParams.setMargins(0, dp(8), 0, 0);
             String autoShown = padAutoForGame() == 1 ? "이 게임은 항상 터치" : padAutoForGame() == 2 ? "이 게임은 항상 숨김" : padPref("pad_auto_hide") ? "꽂으면 터치 숨김" : "꺼짐";
             panel.addView(createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_MOVE, "게임패드 자동 전환", autoShown, view -> {
-                dialog.dismiss();
-                showPadAutoSheet(reopen);
+                showPadAutoSheet(refresh);
             }), autoParams);
         }
 
-        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
-        close.setOnClickListener(view -> dialog.dismiss());
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
-        closeParams.setMargins(0, dp(14), 0, 0);
-        panel.addView(close, closeParams);
-
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
-        scroll.addView(panel);
-        dialog.setContentView(scroll);
-        android.view.Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
-            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
-            window.setLayout(width, -2);
-        }
-        dialog.show();
     }
 
     private void addLandscapeArcadeButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int size, int i4) {
@@ -5830,21 +5777,31 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Pause menu: six round tiles and a big continue button.
     private android.app.Dialog pauseDialog;
 
+    private static final String[] PAUSE_TAB_NAMES = {"기본", "성능", "화면", "조작", "게임기"};
+
+    // 게임기 탭: settings only some consoles have.
+    private boolean hasDeviceTab() {
+        return isPsp() || isNds() || isWonderSwan();
+    }
+
+    // The pause menu: one card with tabs (기본 · 성능 · 화면 · 조작 · 게임기), a content area
+    // of fixed height so the card doesn't jump between tabs, and 계속하기 always at the
+    // bottom. In landscape the tabs run down the left side.
     private void showPauseDialog() {
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(1);
-        panel.setPadding(dp(16), dp(16), dp(16), dp(16));
-        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
-        background.setCornerRadius(dp(24));
-        panel.setBackground(background);
+        boolean wide = this.landscapeMode;
+        android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(16), dp(14), dp(14));
+        card.setBackground(roundRect(Color.WHITE, dp(24)));
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(0);
         header.setGravity(16);
-        header.setPadding(dp(4), 0, dp(4), dp(12));
+        header.setPadding(dp(4), 0, dp(4), 0);
         TextView title = new TextView(this);
         title.setText("일시정지");
         title.setTextSize(17.0f);
@@ -5861,33 +5818,169 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams gameParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         gameParams.setMargins(dp(12), 0, 0, 0);
         header.addView(game, gameParams);
-        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
-        // Indices follow this.menuItems: 1 save, 2 load, 3 in-game save, 4 reset, 5 rotate, 6 exit.
-        LinearLayout row1 = new LinearLayout(this);
-        row1.addView(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", isMame139() ? null : "길게: 내 칸에"), menuTileParams(0));
-        row1.addView(createMenuTile(dialog, 2, RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", lastQuickSaveText()), menuTileParams(1));
-        row1.addView(createMenuTile(dialog, 3, RoundIconView.CARD, RoundIconView.COLOR_CARD, "게임 세이브\n저장", null), menuTileParams(2));
-        panel.addView(row1, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout row2 = new LinearLayout(this);
-        row2.addView(createMenuTile(dialog, 4, RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null), menuTileParams(0));
-        row2.addView(createMenuTile(dialog, 5, RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, this.landscapeMode ? "세로 화면" : "가로 화면", null), menuTileParams(1));
-        row2.addView(createMenuTile(dialog, 6, RoundIconView.EXIT, RoundIconView.COLOR_EXIT, "나가기", null), menuTileParams(2));
-        LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
-        row2Params.setMargins(0, dp(10), 0, 0);
-        panel.addView(row2, row2Params);
-        if (!isMame139()) {
-            // Screenshots: the game picture alone, or everything on screen (case and buttons).
-            LinearLayout row3 = new LinearLayout(this);
-            row3.addView(createMenuTile(dialog, 7, RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "스크린샷", "게임 화면만"), menuTileParams(0));
-            row3.addView(createMenuTile(dialog, 8, RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "전체 화면", "케이스 · 버튼 포함"), menuTileParams(2));
-            panel.addView(row3, row2Params);
+        final java.util.List<Integer> tabs = new java.util.ArrayList<>(java.util.Arrays.asList(0, 1, 2, 3));
+        if (hasDeviceTab()) {
+            tabs.add(4);
         }
-        LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(-1, dp(52));
-        settingsParams.setMargins(0, dp(12), 0, 0);
-        panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "설정", "", view -> showSettingsSheet()), settingsParams);
-        LinearLayout.LayoutParams cheatParams = new LinearLayout.LayoutParams(-1, dp(52));
-        cheatParams.setMargins(0, dp(8), 0, 0);
+        LinearLayout tabBar = new LinearLayout(this);
+        tabBar.setOrientation(wide ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        tabBar.setPadding(dp(4), dp(4), dp(4), dp(4));
+        tabBar.setBackground(roundRect(Color.rgb(241, 243, 245), dp(14)));
+        final TextView[] tabViews = new TextView[tabs.size()];
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(1);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(content);
+
+        final int[] current = {0};
+        final Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            int tab = tabs.get(current[0]);
+            for (int k = 0; k < tabViews.length; k++) {
+                boolean on = k == current[0];
+                tabViews[k].setTextColor(on ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128));
+                tabViews[k].setBackground(on ? roundRect(Color.WHITE, dp(10)) : null);
+                tabViews[k].setElevation(on ? dp(1) : 0);
+            }
+            content.removeAllViews();
+            this.cheatRowValue = null;
+            Runnable refresh = () -> {
+                int y = scroll.getScrollY();
+                fill[0].run();
+                scroll.post(() -> scroll.scrollTo(0, y));
+            };
+            switch (tab) {
+                case 0: addBasicTabRows(content, dialog, () -> {
+                    current[0] = tabs.indexOf(1);
+                    fill[0].run();
+                    scroll.scrollTo(0, 0);
+                }); break;
+                case 1: addPerfTabRows(content, dialog); break;
+                case 2: addScreenTabRows(content, refresh); break;
+                case 3: addControlTabRows(content, refresh); break;
+                default: addDeviceTabRows(content, dialog); break;
+            }
+        };
+        for (int k = 0; k < tabs.size(); k++) {
+            TextView tab = new TextView(this);
+            tab.setText(PAUSE_TAB_NAMES[tabs.get(k)]);
+            tab.setTextSize(12.5f);
+            tab.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tab.setGravity(Gravity.CENTER);
+            final int index = k;
+            tab.setOnClickListener(view -> {
+                if (current[0] != index) {
+                    current[0] = index;
+                    fill[0].run();
+                    scroll.scrollTo(0, 0);
+                }
+            });
+            tabViews[k] = tab;
+            LinearLayout.LayoutParams tabParams = wide ? new LinearLayout.LayoutParams(-1, dp(40)) : new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+            if (wide && k > 0) {
+                tabParams.setMargins(0, dp(4), 0, 0);
+            }
+            tabBar.addView(tab, tabParams);
+        }
+
+        TextView resume = new TextView(this);
+        resume.setText("▶  계속하기");
+        resume.setTextSize(16.0f);
+        resume.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        resume.setTextColor(Color.WHITE);
+        resume.setGravity(17);
+        resume.setBackground(roundRect(Color.rgb(22, 185, 207), dp(14)));
+        resume.setOnClickListener(view -> dialog.dismiss());
+
+        // The content area keeps one height for every tab: up to seven rows, less when the
+        // screen is short (it scrolls then).
+        int screenH = Math.round(metrics.heightPixels / metrics.density);
+        int contentDp = wide ? Math.max(160, screenH - 150) : Math.max(220, Math.min(380, screenH - 260));
+        int width = wide ? Math.min(metrics.widthPixels - dp(40), dp(600)) : Math.min(metrics.widthPixels - dp(40), dp(380));
+        if (wide) {
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(dp(84), -2);
+            card.addView(tabBar, barParams);
+            LinearLayout right = new LinearLayout(this);
+            right.setOrientation(1);
+            right.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, dp(contentDp));
+            scrollParams.setMargins(0, dp(10), 0, 0);
+            right.addView(scroll, scrollParams);
+            LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(46));
+            resumeParams.setMargins(0, dp(10), 0, 0);
+            right.addView(resume, resumeParams);
+            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            rightParams.setMargins(dp(12), 0, 0, 0);
+            card.addView(right, rightParams);
+        } else {
+            card.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2);
+            barParams.setMargins(0, dp(10), 0, 0);
+            card.addView(tabBar, barParams);
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, dp(contentDp));
+            scrollParams.setMargins(0, dp(10), 0, 0);
+            card.addView(scroll, scrollParams);
+            LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(50));
+            resumeParams.setMargins(0, dp(12), 0, 0);
+            card.addView(resume, resumeParams);
+        }
+        fill[0].run();
+
+        dialog.setContentView(card);
+        this.pauseDialog = dialog;
+        dialog.setOnDismissListener(d -> resumeUnlessExiting());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout.LayoutParams tabRowParams(LinearLayout panel) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+        params.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
+        return params;
+    }
+
+    private LinearLayout.LayoutParams tile4Params(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+        params.setMargins(column == 0 ? 0 : dp(3), 0, column == 3 ? 0 : dp(3), 0);
+        return params;
+    }
+
+    // 기본 탭: the actions (four to a row), cheats, and a line on how the game runs that
+    // leads to the 성능 탭.
+    private void addBasicTabRows(LinearLayout panel, android.app.Dialog dialog, Runnable toPerf) {
+        // Indices follow onGameMenuItemSelected: 1 save, 2 load, 3 in-game save, 4 reset,
+        // 5 rotate, 6 exit, 7 screenshot, 8 whole-screen capture.
+        java.util.List<View> tiles = new java.util.ArrayList<>();
+        tiles.add(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", isMame139() ? null : "길게: 내 칸"));
+        tiles.add(createMenuTile(dialog, 2, RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", lastQuickSaveText()));
+        tiles.add(createMenuTile(dialog, 3, RoundIconView.CARD, RoundIconView.COLOR_CARD, "세이브 저장", null));
+        tiles.add(createMenuTile(dialog, 4, RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null));
+        tiles.add(createMenuTile(dialog, 5, RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, this.landscapeMode ? "세로 화면" : "가로 화면", null));
+        if (!isMame139()) {
+            tiles.add(createMenuTile(dialog, 7, RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "스크린샷", "화면만"));
+            tiles.add(createMenuTile(dialog, 8, RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "전체 캡처", "케이스 포함"));
+        }
+        tiles.add(createMenuTile(dialog, 6, RoundIconView.EXIT, RoundIconView.COLOR_EXIT, "나가기", null));
+        LinearLayout row = null;
+        for (int k = 0; k < tiles.size(); k++) {
+            if (k % 4 == 0) {
+                row = new LinearLayout(this);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, k == 0 ? 0 : dp(6), 0, 0);
+                panel.addView(row, rowParams);
+            }
+            row.addView(tiles.get(k), tile4Params(k % 4));
+        }
+        for (int k = tiles.size() % 4; k != 0 && k < 4; k++) {
+            row.addView(new View(this), tile4Params(k));
+        }
         LinearLayout cheatRow = createSettingRow(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, "치트 코드", cheatSummary(), view -> {
             if (!cheatsSupported()) {
                 Toast.makeText(this, "이 기종은 엔진이 치트를 지원하지 않아요.", Toast.LENGTH_LONG).show();
@@ -5897,97 +5990,85 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         });
         // Its value ("2개 켜짐") follows changes made in the cheat sheet over it.
         this.cheatRowValue = (TextView) cheatRow.getChildAt(cheatRow.getChildCount() - 1);
+        LinearLayout.LayoutParams cheatParams = new LinearLayout.LayoutParams(-1, dp(52));
+        cheatParams.setMargins(0, dp(10), 0, 0);
         panel.addView(cheatRow, cheatParams);
-        LinearLayout.LayoutParams perfParams = new LinearLayout.LayoutParams(-1, dp(52));
-        perfParams.setMargins(0, dp(8), 0, 0);
-        panel.addView(createPerfRow(), perfParams);
-        LinearLayout.LayoutParams powerParams = new LinearLayout.LayoutParams(-1, dp(52));
-        powerParams.setMargins(0, dp(8), 0, 0);
-        panel.addView(createPowerRow(dialog), powerParams);
+        if (!isMame139()) {
+            TextView status = new TextView(this);
+            status.setText(runStatusText());
+            status.setTextSize(12.0f);
+            status.setTextColor(Color.rgb(17, 94, 89));
+            status.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            status.setPadding(dp(12), dp(10), dp(12), dp(10));
+            status.setBackground(roundRect(Color.rgb(240, 253, 250), dp(13)));
+            status.setOnClickListener(view -> toPerf.run());
+            LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
+            statusParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(status, statusParams);
+        }
+    }
+
+    private static final String[] THERMAL_WORDS = {"보통", "약간", "뜨거움", "심각"};
+    private static final int[] THERMAL_DOT_COLORS = {Color.rgb(22, 163, 74), Color.rgb(202, 138, 4), Color.rgb(234, 88, 12), Color.rgb(220, 38, 38)};
+
+    // "⚡ 균형 · ● 약간 · 화질 1배 · 속도 우선   성능 탭 ›"
+    private CharSequence runStatusText() {
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder("⚡ " + POWER_SHORT[powerMode()]);
+        int level = PerfOverlayView.thermalLevel;
+        if (level >= 0 && level <= 3) {
+            text.append(" · ");
+            int start = text.length();
+            text.append("● ").append(THERMAL_WORDS[level]);
+            text.setSpan(new android.text.style.ForegroundColorSpan(THERMAL_DOT_COLORS[level]), start, text.length(), 0);
+        }
+        int scale = isPsp() ? pspScale() : isN3ds() ? n3dsScale() : isN64() ? n64Scale() : 0;
+        if (scale > 0) {
+            text.append(" · 화질 ").append(String.valueOf(scale)).append("배");
+        }
+        if (speedFirstSupported() && speedFirst()) {
+            text.append(" · 속도 우선");
+        }
+        text.append("   성능 탭 ›");
+        return text;
+    }
+
+    // 성능 탭: power, the readout, render scale, 속도 우선 and heat.
+    private void addPerfTabRows(LinearLayout panel, android.app.Dialog dialog) {
+        if (isPadScreen()) {
+            panel.addView(createSpeedRow(), tabRowParams(panel));
+        }
+        panel.addView(createPowerRow(dialog), tabRowParams(panel));
+        panel.addView(createPerfRow(), tabRowParams(panel));
+        if (isPsp()) {
+            panel.addView(createScaleRow(dialog), tabRowParams(panel));
+        } else if (isN3ds()) {
+            panel.addView(createN3dsScaleRow(dialog), tabRowParams(panel));
+        } else if (isN64()) {
+            panel.addView(createN64ScaleRow(dialog), tabRowParams(panel));
+        }
+        if (speedFirstSupported()) {
+            panel.addView(createFastRow(dialog), tabRowParams(panel));
+        }
         if (heavySystem()) {
-            LinearLayout.LayoutParams heatParams = new LinearLayout.LayoutParams(-1, dp(52));
-            heatParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createSettingRow(RoundIconView.PERF, HEAT_ORANGE, "발열 줄이는 법", "", view -> showHeatTips(dialog)), heatParams);
+            panel.addView(createSettingRow(RoundIconView.PERF, HEAT_ORANGE, "발열 줄이는 법", "", view -> showHeatTips(dialog)), tabRowParams(panel));
         }
         if (!isMame139()) {
-            LinearLayout.LayoutParams heatActionParams = new LinearLayout.LayoutParams(-1, dp(52));
-            heatActionParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createHeatActionRow(), heatActionParams);
+            panel.addView(createHeatActionRow(), tabRowParams(panel));
         }
-        if (isPadScreen()) {
-            LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(-1, dp(52));
-            speedParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createSpeedRow(), speedParams);
-        }
+    }
+
+    // 게임기 탭: what only this console has.
+    private void addDeviceTabRows(LinearLayout panel, android.app.Dialog dialog) {
         if (isPsp()) {
-            LinearLayout.LayoutParams languageParams = new LinearLayout.LayoutParams(-1, dp(52));
-            languageParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createLanguageRow(dialog), languageParams);
-            LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
-            scaleParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createScaleRow(dialog), scaleParams);
-            LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
-            fastParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createFastRow(dialog), fastParams);
-            LinearLayout.LayoutParams wifiParams = new LinearLayout.LayoutParams(-1, dp(52));
-            wifiParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createWifiRow(dialog), wifiParams);
-        }
-        if ("pcee2".equals(this.coreId) || isN64() || isDreamcast()) {
-            LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
-            fastParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createFastRow(dialog), fastParams);
+            panel.addView(createLanguageRow(dialog), tabRowParams(panel));
+            panel.addView(createWifiRow(dialog), tabRowParams(panel));
         }
         if (isNds()) {
-            LinearLayout.LayoutParams dsParams = new LinearLayout.LayoutParams(-1, dp(52));
-            dsParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createDsNetRow(dialog), dsParams);
-        }
-        if (isN3ds()) {
-            LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
-            scaleParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createN3dsScaleRow(dialog), scaleParams);
-        }
-        if (isN64()) {
-            LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
-            scaleParams.setMargins(0, dp(12), 0, 0);
-            panel.addView(createN64ScaleRow(dialog), scaleParams);
+            panel.addView(createDsNetRow(dialog), tabRowParams(panel));
         }
         if (isWonderSwan()) {
-            LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
-            tallParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createWonderSwanTallRow(dialog), tallParams);
+            panel.addView(createWonderSwanTallRow(dialog), tabRowParams(panel));
         }
-
-        TextView resume = new TextView(this);
-        resume.setText("▶  계속하기");
-        resume.setTextSize(16.0f);
-        resume.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        resume.setTextColor(Color.WHITE);
-        resume.setGravity(17);
-        android.graphics.drawable.GradientDrawable resumeBackground = new android.graphics.drawable.GradientDrawable();
-        resumeBackground.setColor(Color.rgb(22, 185, 207));
-        resumeBackground.setCornerRadius(dp(14));
-        resume.setBackground(resumeBackground);
-        resume.setOnClickListener(view -> dialog.dismiss());
-        LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(50));
-        resumeParams.setMargins(0, dp(14), 0, 0);
-        panel.addView(resume, resumeParams);
-
-        // Scrolls when the rows outgrow a landscape screen.
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.addView(panel);
-        dialog.setContentView(scroll);
-        this.pauseDialog = dialog;
-        dialog.setOnDismissListener(d -> resumeUnlessExiting());
-        android.view.Window window = dialog.getWindow();
-        if (window != null) {
-            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
-            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
-            window.setLayout(width, -2);
-        }
-        dialog.show();
     }
 
     // PSP system language, per game. PSP games pick their text (and some their keyboard)
