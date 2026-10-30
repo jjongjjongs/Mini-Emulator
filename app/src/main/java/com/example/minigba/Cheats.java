@@ -66,10 +66,51 @@ final class Cheats {
         switch (mode) {
             case "gba": case "snes": case "nes": case "md": case "sms": case "pce":
             case "nds": case "n64": case "psp": case "ps1": case "mcd": case "ss":
+            case "ws": case "ngp": case "dc": case "naomi":
                 return true;
             default:
                 return false;
         }
+    }
+
+    // Consoles whose engine has no cheat call of its own: the app writes the values into
+    // the game's memory itself ("address cheats", see addressCode), and codes are typed as
+    // an address, a value and a size.
+    static boolean addressMode(String mode) {
+        return "dc".equals(mode) || "naomi".equals(mode);
+    }
+
+    // Consoles with no usable cheat files in the collection: WonderSwan's are all ROM
+    // patches its engine can't take, and there are none for Naomi · Atomiswave.
+    static boolean hasCollection(String mode) {
+        return !"ws".equals(mode) && !"naomi".equals(mode);
+    }
+
+    // ---- address cheats: "@ADDR:VALUE:BYTES[:TYPE[:REPEAT:ADDRESS_STEP:VALUE_STEP[:B]]]" ----
+    // (address in hex, the rest in decimal), applied by the bridge after every frame on the
+    // engine's system RAM, the way RetroArch applies its own ("handler 1") cheats.
+    static String addressCode(long address, long value, int bytes) {
+        return "@" + Long.toHexString(address).toUpperCase(Locale.US) + ":" + value + ":" + bytes;
+    }
+
+    // "주소 1EC4B4 · 값 2432" for address cheats; other codes as typed.
+    static String displayCode(String code) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : code.split("\\+")) {
+            if (sb.length() > 0) {
+                sb.append(" · ");
+            }
+            String[] f = part.startsWith("@") ? part.substring(1).split(":") : null;
+            if (f != null && f.length >= 3) {
+                sb.append("주소 ").append(f[0]).append(" · 값 ").append(f[1]);
+                if (f.length >= 7 && !"1".equals(f[4])) {
+                    sb.append(" ×").append(f[4]);
+                }
+            } else {
+                sb.append(part);
+            }
+        }
+        return sb.toString();
     }
 
     static File file(Context context, File rom) {
@@ -107,6 +148,7 @@ final class Cheats {
     // ---- the .cht format: cheatN_desc / cheatN_code / cheatN_enable lines ----
     static List<Cheat> parse(String text) {
         Map<Integer, Cheat> byIndex = new java.util.TreeMap<>();
+        Map<Integer, Map<String, String>> extra = new HashMap<>();
         for (String raw : text.split("\n")) {
             String line = raw.trim();
             if (!line.startsWith("cheat")) {
@@ -136,6 +178,15 @@ final class Cheats {
                 cheat = new Cheat("", "", false, false);
                 byIndex.put(index, cheat);
             }
+            if (ADDRESS_FIELDS.contains(field)) {
+                Map<String, String> fields = extra.get(index);
+                if (fields == null) {
+                    fields = new HashMap<>();
+                    extra.put(index, fields);
+                }
+                fields.put(field, value.trim());
+                continue;
+            }
             switch (field) {
                 case "desc": cheat.desc = value; break;
                 case "code": cheat.code = value.trim(); break;
@@ -145,9 +196,14 @@ final class Cheats {
             }
         }
         List<Cheat> list = new ArrayList<>();
-        for (Cheat cheat : byIndex.values()) {
-            // Headings in the collection have a description and no code.
-            if (!cheat.code.isEmpty()) {
+        for (Map.Entry<Integer, Cheat> entry : byIndex.entrySet()) {
+            Cheat cheat = entry.getValue();
+            if (cheat.code.isEmpty() && extra.containsKey(entry.getKey())) {
+                cheat.code = fromRetroArch(extra.get(entry.getKey()));
+            }
+            // Headings in the collection have a description and no code; "??" marks a
+            // value the player was meant to fill in.
+            if (!cheat.code.isEmpty() && !cheat.code.contains("??")) {
                 if (cheat.desc.isEmpty()) {
                     cheat.desc = "치트 " + (list.size() + 1);
                 }
@@ -155,6 +211,44 @@ final class Cheats {
             }
         }
         return list;
+    }
+
+    private static final java.util.Set<String> ADDRESS_FIELDS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "handler", "address", "value", "memory_search_size", "cheat_type", "big_endian",
+            "repeat_count", "repeat_add_to_value", "repeat_add_to_address"));
+
+    // A RetroArch address cheat (handler 1) as an address code, or "" when it isn't one
+    // the bridge can apply (bit-sized values, rumble-only entries).
+    private static String fromRetroArch(Map<String, String> f) {
+        if (!"1".equals(f.get("handler"))) {
+            return "";
+        }
+        int bytes;
+        switch (f.getOrDefault("memory_search_size", "3")) {
+            case "3": bytes = 1; break;
+            case "4": bytes = 2; break;
+            case "5": bytes = 4; break;
+            default: return "";
+        }
+        try {
+            long address = Long.parseLong(f.getOrDefault("address", ""));
+            long value = Long.parseLong(f.getOrDefault("value", "0"));
+            int type = Integer.parseInt(f.getOrDefault("cheat_type", "1"));
+            if (address < 0 || type < 1 || type > 7) {
+                return "";
+            }
+            int repeat = Integer.parseInt(f.getOrDefault("repeat_count", "1"));
+            long addressStep = Long.parseLong(f.getOrDefault("repeat_add_to_address", "1"));
+            long valueStep = Long.parseLong(f.getOrDefault("repeat_add_to_value", "0"));
+            boolean big = "true".equalsIgnoreCase(f.get("big_endian"));
+            String code = addressCode(address, value & 0xFFFFFFFFL, bytes) + ":" + type;
+            if (repeat > 1 || big) {
+                code += ":" + Math.max(1, repeat) + ":" + addressStep + ":" + valueStep;
+            }
+            return big ? code + ":B" : code;
+        } catch (NumberFormatException e) {
+            return "";
+        }
     }
 
     static String write(List<Cheat> cheats) {
@@ -201,15 +295,42 @@ final class Cheats {
     }
 
     // The codes to hand the engine: the ones that are on, one string each ("+" between lines).
-    static String[] enabledCodes(List<Cheat> cheats) {
+    // Address codes go one per part. Neo Geo Pocket's engine has no cheat call, so its
+    // "AAAA:VV" codes (offsets into its 16 KB of RAM) become one-byte address codes.
+    static String[] enabledCodes(List<Cheat> cheats, String mode) {
         List<String> codes = new ArrayList<>();
         for (Cheat cheat : cheats) {
-            if (cheat.on && !cheat.code.isEmpty()) {
+            if (!cheat.on || cheat.code.isEmpty()) {
+                continue;
+            }
+            if (!cheat.code.startsWith("@") && !"ngp".equals(mode)) {
                 codes.add(cheat.code);
+                continue;
+            }
+            for (String part : cheat.code.split("\\+")) {
+                String trimmed = part.trim();
+                java.util.regex.Matcher m = RAM_BYTE.matcher(trimmed);
+                if ("ngp".equals(mode) && m.matches()) {
+                    codes.add(addressCode(Long.parseLong(m.group(1), 16), Long.parseLong(m.group(2), 16), 1));
+                } else if (!trimmed.isEmpty()) {
+                    codes.add(trimmed);
+                }
             }
         }
         return codes.toArray(new String[0]);
     }
+
+    static int countOn(List<Cheat> cheats) {
+        int on = 0;
+        for (Cheat cheat : cheats) {
+            if (cheat.on && !cheat.code.isEmpty()) {
+                on++;
+            }
+        }
+        return on;
+    }
+
+    private static final java.util.regex.Pattern RAM_BYTE = java.util.regex.Pattern.compile("([0-9A-Fa-f]{1,5}):([0-9A-Fa-f]{2})");
 
     // Typed codes: one per line, spaces kept inside a line ("82025D7C 423F").
     static String codeFromInput(String text) {
@@ -239,6 +360,9 @@ final class Cheats {
     // ---- the collection ----
     static List<String> folders(String mode, String lowerName) {
         List<String> list = new ArrayList<>();
+        if (!hasCollection(mode)) {
+            return list;
+        }
         for (String repo : Covers.repos(mode, lowerName)) {
             list.add(repo.replace('_', ' '));
         }

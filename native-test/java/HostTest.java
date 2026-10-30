@@ -140,6 +140,24 @@ public class HostTest {
         Thread.sleep(300);
         int[] cf = lastFrame();
         check(cf[0] == 0x07C0, String.format("cheat changes the game: centre pixel 0x%04X", cf[0]));
+        // Address cheats (RetroArch's handler 1): the bridge writes them into system RAM,
+        // and the test ROM draws WRAM[0] into the centre pixel.
+        check(NativeGba.setCheats(h, new String[]{"@0:31744:2"}), "address cheat accepted");
+        Thread.sleep(300);
+        cf = lastFrame();
+        check(cf[0] == 0x001F, String.format("address cheat writes system RAM: centre pixel 0x%04X", cf[0]));
+        check(NativeGba.setCheats(h, new String[]{"@0:31744:2:1:3:0:1"}), "repeated address cheat accepted");
+        Thread.sleep(300);
+        cf = lastFrame();
+        check(cf[0] == 0x101F, String.format("repeated address cheat steps the value: centre pixel 0x%04X", cf[0]));
+        check(NativeGba.setCheats(h, new String[]{"@0:2:1:4", "@0:992:2"}), "conditional address cheat accepted");
+        Thread.sleep(300);
+        cf = lastFrame();
+        check(cf[0] == 0x07C0, String.format("run-next-if-equal runs the next cheat: centre pixel 0x%04X", cf[0]));
+        check(NativeGba.setCheats(h, new String[]{"@0:3:1:4", "@0:31:2"}), "failing condition accepted");
+        Thread.sleep(300);
+        cf = lastFrame();
+        check(cf[0] == 0x07C0, String.format("a failing condition skips the next cheat: centre pixel 0x%04X", cf[0]));
         check(NativeGba.setCheats(h, new String[0]), "cheats cleared");
         NativeGba.setRewindEnabled(h, false);
         NativeGba.setRewinding(h, true);

@@ -27,6 +27,13 @@ loop:
     ldr     r0, =0x04000130
     ldrh    r1, [r0]
     strb    r1, [r5, #1]
+    @ WRAM[0] (halfword), when not zero, is drawn into the centre pixel: lets the host
+    @ see address cheats, which the bridge writes into system RAM
+    mov     r6, #0x02000000
+    ldrh    r1, [r6]
+    cmp     r1, #0
+    ldrne   r2, =0x060096F0
+    strhne  r1, [r2]
     b       loop
     .ltorg
     .ascii  "SRAM_V113"

@@ -2369,7 +2369,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (!cheatsSupported()) {
             return "지원 안 함";
         }
-        int on = Cheats.enabledCodes(cheats()).length;
+        int on = Cheats.countOn(cheats());
         return on == 0 ? "꺼짐" : on + "개 켜짐";
     }
 
@@ -2386,7 +2386,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private String cheatSubtitleText() {
-        int on = Cheats.enabledCodes(cheats()).length;
+        int on = Cheats.countOn(cheats());
         return this.gameTitle + (on > 0 ? " · 켜진 것 " + on + "개" : "");
     }
 
@@ -2395,7 +2395,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (handle == 0 || !cheatsSupported()) {
             return;
         }
-        final String[] codes = Cheats.enabledCodes(cheats());
+        final String[] codes = Cheats.enabledCodes(cheats(), this.gameMode);
         // Nothing was ever set for this game: leave the engine alone.
         if (codes.length == 0 && !Cheats.file(this, romFile()).exists()) {
             return;
@@ -2418,6 +2418,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "n64": return "N64: 게임샤크 (예: 8033B21E 0008)";
             case "ps1": return "PS1: 게임샤크 (예: 800B1234 FFFF)";
             case "psp": return "PSP: CWCheat (예: _L 0x20123456 0x0000270F)";
+            case "ws": return "원더스완: RAM 주소:값 (예: 1E24:09)";
+            case "ngp": return "네오지오 포켓: 주소:값 (예: 09F8:04)";
             default: return "";
         }
     }
@@ -2592,6 +2594,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             detail = this.cheatError;
             background = Color.rgb(255, 247, 237);
             color = Color.rgb(154, 52, 18);
+        } else if (!Cheats.hasCollection(this.gameMode)) {
+            title = "이 기종은 치트 모음이 없어요";
+            detail = "직접 입력하거나 파일에서 가져온 치트예요";
+            background = Color.rgb(246, 247, 249);
+            color = Color.rgb(75, 85, 99);
         } else if (source == null || "-".equals(source)) {
             title = "치트 모음에 없는 게임이에요";
             detail = "다른 판을 고르거나 직접 입력해 주세요";
@@ -2618,7 +2625,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
         texts.addView(sub);
         banner.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
-        if (!this.cheatSearching) {
+        if (!this.cheatSearching && Cheats.hasCollection(this.gameMode)) {
             final boolean retry = this.cheatError != null && source == null;
             TextView action = sheetText(retry ? "다시 시도" : "다른 판 ›", 12.0f, retry ? color : CHEAT_GREEN, true);
             action.setPadding(dp(10), dp(6), dp(10), dp(6));
@@ -2645,17 +2652,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         box.setPadding(dp(14), dp(20), dp(14), dp(20));
         box.setBackground(roundRect(Color.rgb(246, 247, 249), dp(16)));
         box.addView(sheetText("✱", 28.0f, Color.rgb(203, 210, 217), true));
-        TextView title = sheetText("치트 모음에서 이 게임을 못 찾았어요", 15.0f, Color.rgb(55, 65, 81), true);
+        boolean collection = Cheats.hasCollection(this.gameMode);
+        TextView title = sheetText(collection ? "치트 모음에서 이 게임을 못 찾았어요" : "이 기종은 치트 모음이 없어요", 15.0f, Color.rgb(55, 65, 81), true);
         title.setGravity(1);
         box.addView(title);
-        TextView detail = sheetText("한글판·일본판처럼 모음에 없는 판일 수 있어요.\n비슷한 판을 직접 고르거나 코드를 입력해 주세요.", 12.0f, Color.rgb(122, 130, 140), false);
+        TextView detail = sheetText(collection ? "한글판·일본판처럼 모음에 없는 판일 수 있어요.\n비슷한 판을 직접 고르거나 코드를 입력해 주세요."
+                : "치트 코드를 직접 입력하거나 .cht 파일을 가져와 주세요.", 12.0f, Color.rgb(122, 130, 140), false);
         detail.setGravity(1);
         detail.setPadding(0, dp(6), 0, 0);
         box.addView(detail);
         panel.addView(box, marginTop(-1, -2, 14));
-        panel.addView(createSettingRow(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "", view -> showCheatVersionPicker()), marginTop(-1, dp(52), 12));
-        panel.addView(createSettingRow(RoundIconView.CHEAT, CHEAT_RED, "직접 입력", "", view -> showCheatEditor(null)), marginTop(-1, dp(52), 8));
+        if (collection) {
+            panel.addView(createSettingRow(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "", view -> showCheatVersionPicker()), marginTop(-1, dp(52), 12));
+        }
+        panel.addView(createSettingRow(RoundIconView.CHEAT, CHEAT_RED, "직접 입력", "", view -> showCheatEditor(null)), marginTop(-1, dp(52), collection ? 8 : 12));
         panel.addView(createSettingRow(RoundIconView.IMPORT, Color.rgb(75, 85, 99), "파일에서 가져오기 (.cht)", "", view -> openCheatFile()), marginTop(-1, dp(52), 8));
+        if (!collection) {
+            return;
+        }
         TextView note = sheetText("다른 판의 코드는 주소가 달라서 안 먹히거나 엉뚱하게 동작할 수 있어요. 켜보고 이상하면 끄면 돼요.", 11.5f, Color.rgb(154, 52, 18), false);
         note.setLineSpacing(0, 1.15f);
         note.setPadding(dp(12), dp(10), dp(12), dp(10));
@@ -2692,7 +2706,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 nameLine.addView(badge, badgeParams);
             }
             texts.addView(nameLine);
-            TextView code = sheetText(cheat.code.replace("+", " · "), 11.0f, Color.rgb(156, 163, 175), false);
+            TextView code = sheetText(Cheats.displayCode(cheat.code), 11.0f, Color.rgb(156, 163, 175), false);
             code.setTypeface(android.graphics.Typeface.MONOSPACE);
             code.setSingleLine(true);
             code.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -2801,7 +2815,78 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         name.setPadding(dp(12), dp(10), dp(12), dp(10));
         name.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
         panel.addView(name, marginTop(-1, -2, 6));
-        panel.addView(sheetText("코드 (한 줄에 하나, 여러 줄 가능)", 12.5f, Color.rgb(55, 65, 81), true), marginTop(-2, -2, 12));
+        // Dreamcast · Naomi (and address codes from a file): an address, a value and a size.
+        final boolean byAddress = editing != null ? editing.code.startsWith("@") && !editing.code.contains("+")
+                : Cheats.addressMode(this.gameMode);
+        final String[] oldParts = editing != null && byAddress ? editing.code.substring(1).split(":") : new String[0];
+        EditText address = new EditText(this);
+        EditText value = new EditText(this);
+        final int[] size = {oldParts.length >= 3 ? cheatSize(oldParts[2]) : 4};
+        if (byAddress) {
+            LinearLayout pair = new LinearLayout(this);
+            pair.setOrientation(0);
+            LinearLayout addressColumn = new LinearLayout(this);
+            addressColumn.setOrientation(1);
+            addressColumn.addView(sheetText("주소 (16진수)", 12.5f, Color.rgb(55, 65, 81), true));
+            address.setSingleLine(true);
+            address.setTextSize(14.0f);
+            address.setTypeface(android.graphics.Typeface.MONOSPACE);
+            address.setHint("1EC4C8");
+            address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+                    | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            address.setPadding(dp(12), dp(10), dp(12), dp(10));
+            address.setBackground(roundRect(Color.rgb(255, 241, 242), dp(12)));
+            addressColumn.addView(address, marginTop(-1, -2, 6));
+            pair.addView(addressColumn, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            LinearLayout valueColumn = new LinearLayout(this);
+            valueColumn.setOrientation(1);
+            valueColumn.addView(sheetText("값 (10진수)", 12.5f, Color.rgb(55, 65, 81), true));
+            value.setSingleLine(true);
+            value.setTextSize(14.0f);
+            value.setTypeface(android.graphics.Typeface.MONOSPACE);
+            value.setHint("9999999");
+            value.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            value.setPadding(dp(12), dp(10), dp(12), dp(10));
+            value.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
+            valueColumn.addView(value, marginTop(-1, -2, 6));
+            LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            valueParams.setMargins(dp(8), 0, 0, 0);
+            pair.addView(valueColumn, valueParams);
+            panel.addView(pair, marginTop(-1, -2, 12));
+            panel.addView(sheetText("크기", 12.5f, Color.rgb(55, 65, 81), true), marginTop(-2, -2, 12));
+            LinearLayout sizes = new LinearLayout(this);
+            sizes.setOrientation(0);
+            final TextView[] sizeViews = new TextView[3];
+            final int[] sizeValues = {1, 2, 4};
+            Runnable paintSizes = () -> {
+                for (int k = 0; k < 3; k++) {
+                    boolean on = sizeValues[k] == size[0];
+                    sizeViews[k].setTextColor(on ? Color.WHITE : Color.rgb(55, 65, 81));
+                    sizeViews[k].setBackground(roundRect(on ? CHEAT_RED : Color.rgb(241, 242, 244), dp(10)));
+                }
+            };
+            for (int k = 0; k < 3; k++) {
+                final int bytes = sizeValues[k];
+                TextView option = sheetText(bytes + "바이트", 12.5f, Color.rgb(55, 65, 81), true);
+                option.setGravity(17);
+                option.setOnClickListener(view -> {
+                    size[0] = bytes;
+                    paintSizes.run();
+                });
+                sizeViews[k] = option;
+                LinearLayout.LayoutParams optionParams = new LinearLayout.LayoutParams(0, dp(36), 1.0f);
+                optionParams.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+                sizes.addView(option, optionParams);
+            }
+            paintSizes.run();
+            panel.addView(sizes, marginTop(-1, -2, 6));
+            if (oldParts.length >= 2) {
+                address.setText(oldParts[0]);
+                value.setText(oldParts[1]);
+            }
+        }
+        TextView codeLabel = sheetText("코드 (한 줄에 하나, 여러 줄 가능)", 12.5f, Color.rgb(55, 65, 81), true);
+        panel.addView(codeLabel, marginTop(-2, -2, 12));
         EditText code = new EditText(this);
         code.setTextSize(14.0f);
         code.setTypeface(android.graphics.Typeface.MONOSPACE);
@@ -2816,7 +2901,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             name.setText(editing.desc);
             code.setText(Cheats.codeForInput(editing.code));
         }
-        TextView note = sheetText(cheatFormatNote() + "\n형식은 엔진이 알아서 구분해요.", 11.5f, Color.rgb(75, 85, 99), false);
+        if (byAddress) {
+            codeLabel.setVisibility(View.GONE);
+            code.setVisibility(View.GONE);
+        }
+        TextView note = sheetText(byAddress ? "주소 방식이에요. 켜 두면 앱이 매 프레임 그 주소에 값을 다시 써서 고정해요."
+                : cheatFormatNote() + "\n형식은 엔진이 알아서 구분해요.", 11.5f, Color.rgb(75, 85, 99), false);
         note.setLineSpacing(0, 1.15f);
         note.setPadding(dp(12), dp(10), dp(12), dp(10));
         note.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
@@ -2838,7 +2928,35 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         cancel.setOnClickListener(view -> dialog.dismiss());
         ok.setOnClickListener(view -> {
-            String codeText = Cheats.codeFromInput(code.getText().toString());
+            String codeText;
+            if (byAddress) {
+                long addressValue;
+                long valueValue;
+                try {
+                    String hex = address.getText().toString().trim().replaceFirst("^(0[xX])", "");
+                    addressValue = Long.parseLong(hex, 16);
+                    valueValue = Long.parseLong(value.getText().toString().trim());
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, "주소(16진수)와 값(10진수)을 입력해 주세요.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                long max = size[0] == 4 ? 0xFFFFFFFFL : (1L << (8 * size[0])) - 1;
+                if (addressValue < 0 || addressValue > 0xFFFFFFFFL || valueValue < 0 || valueValue > max) {
+                    Toast.makeText(this, size[0] + "바이트 값은 0~" + max + "까지예요.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                codeText = Cheats.addressCode(addressValue, valueValue, size[0]);
+                // Keep the rest of a collection code (condition, repeat) when only these change.
+                if (oldParts.length > 3) {
+                    StringBuilder rest = new StringBuilder();
+                    for (int k = 3; k < oldParts.length; k++) {
+                        rest.append(':').append(oldParts[k]);
+                    }
+                    codeText += rest;
+                }
+            } else {
+                codeText = Cheats.codeFromInput(code.getText().toString());
+            }
             if (codeText.isEmpty()) {
                 Toast.makeText(this, "코드를 입력해 주세요.", Toast.LENGTH_SHORT).show();
                 return;
@@ -2861,6 +2979,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             setCheatOn(cheat, true, this::showCheatSheet);
         });
         dialog.show();
+    }
+
+    private static int cheatSize(String text) {
+        return "1".equals(text) ? 1 : "2".equals(text) ? 2 : 4;
     }
 
     private void openCheatFile() {

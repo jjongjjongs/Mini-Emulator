@@ -23,9 +23,26 @@ FOLDERS = [
     "Sega - Master System - Mark III", "Sega - Game Gear", "NEC - PC Engine - TurboGrafx 16",
     "NEC - PC Engine CD - TurboGrafx-CD", "Nintendo - Nintendo 64", "Sony - PlayStation Portable",
     "Sony - PlayStation", "Sega - Mega-CD - Sega CD", "Sega - 32X", "Sega - Saturn",
+    "Sega - Dreamcast", "SNK - Neo Geo Pocket", "SNK - Neo Geo Pocket Color",
 ]
+# (WonderSwan's files are all ROM patches its engine can't take, so it has none.)
 DESC = re.compile(r'^\s*cheat(\d+)_desc\s*=', re.M)
 CODE = re.compile(r'^\s*cheat(\d+)_code\s*=\s*"([^"]*)"', re.M)
+FIELD = re.compile(r'^\s*cheat(\d+)_(handler|memory_search_size)\s*=\s*"?([^"\n]*)"?', re.M)
+
+
+def count_cheats(text):
+    """Cheats the app can use, as Cheats.parse() keeps them: a code without "??" (a value
+    left for the player to fill in), or a RetroArch address cheat (handler 1) of 1, 2 or 4
+    bytes, which the app applies itself."""
+    usable = {m.group(1) for m in CODE.finditer(text) if m.group(2).strip() and "??" not in m.group(2)}
+    fields = {}
+    for m in FIELD.finditer(text):
+        fields.setdefault(m.group(1), {})[m.group(2)] = m.group(3).strip()
+    for index, f in fields.items():
+        if f.get("handler") == "1" and f.get("memory_search_size", "3") in ("3", "4", "5"):
+            usable.add(index)
+    return len(usable)
 
 
 def checkout(work):
@@ -52,7 +69,7 @@ def main():
                 continue
             text = open(path, encoding="utf-8", errors="replace").read()
             # Only cheats that have a code count (some files list descriptions alone).
-            count = len({m.group(1) for m in CODE.finditer(text) if m.group(2).strip()})
+            count = count_cheats(text)
             if count:
                 entries.append("%s\t%d" % (name[:-4], count))
         print("%s: %d" % (folder, len(entries)), file=sys.stderr)

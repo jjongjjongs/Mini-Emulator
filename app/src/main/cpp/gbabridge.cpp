@@ -346,6 +346,20 @@ struct Core {
     // Optional: cheats (the app offers them only for engines that implement these).
     void (*retroCheatReset)() = nullptr;
     void (*retroCheatSet)(unsigned, bool, const char*) = nullptr;
+    // "Address" cheats (RetroArch's own kind, handler 1): the app writes a value into the
+    // engine's system RAM after every frame, for engines whose own cheat call does nothing.
+    struct MemoryCheat {
+        uint32_t address = 0;
+        uint32_t value = 0;
+        int bytes = 1;
+        // 1 set, 2 add, 3 subtract, 4-7 run the next one only if ==, !=, value <, value >.
+        int type = 1;
+        uint32_t repeat = 1;
+        uint32_t addressStep = 0;
+        uint32_t valueStep = 0;
+        bool bigEndian = false;
+    };
+    std::vector<MemoryCheat> memoryCheats;
     void (*retroGetSystemAvInfo)(retro_system_av_info*) = nullptr;
     void* (*retroGetMemoryData)(unsigned) = nullptr;
     size_t (*retroGetMemorySize)(unsigned) = nullptr;
@@ -2614,6 +2628,97 @@ bool rewindStep(Core* core) {
     return core->retroUnserialize(r.head.data(), r.head.size());
 }
 
+// "@ADDR:VALUE:BYTES[:TYPE[:REPEAT:ADDRESS_STEP:VALUE_STEP[:B]]]" (address in hex, the
+// rest in decimal; Cheats.java writes these from RetroArch's address cheats).
+static bool parseMemoryCheat(const std::string& code, Core::MemoryCheat& out) {
+    if (code.size() < 2 || code[0] != '@') {
+        return false;
+    }
+    std::vector<std::string> parts;
+    size_t start = 1;
+    while (true) {
+        size_t colon = code.find(':', start);
+        parts.push_back(code.substr(start, colon == std::string::npos ? std::string::npos : colon - start));
+        if (colon == std::string::npos) break;
+        start = colon + 1;
+    }
+    if (parts.size() < 3) {
+        return false;
+    }
+    char* end = nullptr;
+    out.address = static_cast<uint32_t>(strtoul(parts[0].c_str(), &end, 16));
+    if (end == parts[0].c_str()) return false;
+    out.value = static_cast<uint32_t>(strtoul(parts[1].c_str(), &end, 10));
+    if (end == parts[1].c_str()) return false;
+    out.bytes = atoi(parts[2].c_str());
+    if (out.bytes != 1 && out.bytes != 2 && out.bytes != 4) return false;
+    if (parts.size() > 3) out.type = atoi(parts[3].c_str());
+    if (out.type < 1 || out.type > 7) return false;
+    if (parts.size() > 6) {
+        out.repeat = static_cast<uint32_t>(strtoul(parts[4].c_str(), nullptr, 10));
+        out.addressStep = static_cast<uint32_t>(strtoul(parts[5].c_str(), nullptr, 10));
+        out.valueStep = static_cast<uint32_t>(strtoul(parts[6].c_str(), nullptr, 10));
+        if (out.repeat < 1) out.repeat = 1;
+        if (out.repeat > 4096) out.repeat = 4096;
+    }
+    if (parts.size() > 7) out.bigEndian = parts[7] == "B";
+    return true;
+}
+
+// The same steps as RetroArch's cheat_manager_apply_retro_cheats, on RETRO_MEMORY_SYSTEM_RAM.
+static void applyMemoryCheats(Core* core) {
+    if (core->memoryCheats.empty() || core->retroGetMemoryData == nullptr || core->retroGetMemorySize == nullptr) {
+        return;
+    }
+    auto* ram = static_cast<uint8_t*>(core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM));
+    size_t size = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
+    if (ram == nullptr || size < 4) {
+        return;
+    }
+    auto read = [ram](size_t at, int bytes, bool big) {
+        uint32_t v = 0;
+        for (int b = 0; b < bytes; ++b) {
+            v |= static_cast<uint32_t>(ram[at + b]) << (8 * (big ? bytes - 1 - b : b));
+        }
+        return v;
+    };
+    bool runNext = true;
+    for (const Core::MemoryCheat& cheat : core->memoryCheats) {
+        if (!runNext) {
+            runNext = true;
+            continue;
+        }
+        size_t at = cheat.address;
+        if (at + cheat.bytes > size) {
+            if (cheat.type >= 4) runNext = false;
+            continue;
+        }
+        uint32_t current = read(at, cheat.bytes, cheat.bigEndian);
+        uint32_t target;
+        switch (cheat.type) {
+            case 1: target = cheat.value; break;
+            case 2: target = current + cheat.value; break;
+            case 3: target = current - cheat.value; break;
+            case 4: runNext = current == cheat.value; continue;
+            case 5: runNext = current != cheat.value; continue;
+            case 6: runNext = cheat.value < current; continue;
+            case 7: runNext = cheat.value > current; continue;
+            default: continue;
+        }
+        // RetroArch wraps with % mask (0xFF, 0xFFFF, 0xFFFFFFFF), not mask + 1; kept as is.
+        uint32_t mask = cheat.bytes == 4 ? 0xFFFFFFFFu : (1u << (8 * cheat.bytes)) - 1;
+        for (uint32_t k = 0; k < cheat.repeat; ++k) {
+            if (at + cheat.bytes > size) break;
+            for (int b = 0; b < cheat.bytes; ++b) {
+                ram[at + b] = static_cast<uint8_t>(target >> (8 * (cheat.bigEndian ? cheat.bytes - 1 - b : b)));
+            }
+            target += cheat.valueStep;
+            if (mask != 0) target %= mask;
+            at = (at + static_cast<size_t>(cheat.addressStep) * cheat.bytes) % size;
+        }
+    }
+}
+
 void runLoop(Core* core) {
     // Stay attached to Java for the whole session: audio goes to Java every frame and
     // attaching for each call is expensive.
@@ -2670,6 +2775,7 @@ void runLoop(Core* core) {
             bool rewound = held && rewindStep(core);
             if (core->coreId == "melonds") dsnet::tick();
             core->retroRun();
+            applyMemoryCheats(core);
             core->framesRun++;
             core->framesCounted.fetch_add(1);
             if (rewound) {
@@ -3288,8 +3394,15 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setCheats(
     }
     return callCore(core, [core, list] {
         core->retroCheatReset();
-        for (size_t k = 0; k < list.size(); ++k) {
-            core->retroCheatSet(static_cast<unsigned>(k), true, list[k].c_str());
+        core->memoryCheats.clear();
+        unsigned index = 0;
+        for (const std::string& code : list) {
+            Core::MemoryCheat memory;
+            if (parseMemoryCheat(code, memory)) {
+                core->memoryCheats.push_back(memory);
+            } else if (!code.empty() && code[0] != '@') {
+                core->retroCheatSet(index++, true, code.c_str());
+            }
         }
         return true;
     }) ? JNI_TRUE : JNI_FALSE;
