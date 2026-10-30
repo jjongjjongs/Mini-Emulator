@@ -258,7 +258,7 @@ public final class MainActivity extends Activity {
         try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
             if (in == null) throw new java.io.IOException("파일을 열 수 없어요");
             Presets.Preset preset = Presets.importZip(this, in);
-            new android.app.AlertDialog.Builder(this)
+            new AppDialog.Builder(this)
                     .setTitle("꾸미기 프리셋을 받았어요")
                     .setMessage("\"" + preset.name + "\"\n" + preset.summary() + "\n\n프리셋 목록에 넣었어요. 게임을 켠 뒤 메뉴 › 설정 › 꾸미기 프리셋에서 \"적용\"을 누르면 그 자리에서 바뀌어요.")
                     .setPositiveButton("확인", null)
@@ -359,7 +359,7 @@ public final class MainActivity extends Activity {
         if (size == 0) {
             return;
         }
-        new AlertDialog.Builder(this).setTitle("게임큐브 · Wii 파일 정리").setMessage("게임큐브 · Wii 모드가 없어졌습니다. 남아 있는 게임큐브 · Wii 게임과 세이브 파일(" + formatSize(size) + ")을 삭제할까요?").setNegativeButton("나중에", null).setPositiveButton("삭제", (dialog, which) -> {
+        new AppDialog.Builder(this).setTitle("게임큐브 · Wii 파일 정리").setMessage("게임큐브 · Wii 모드가 없어졌습니다. 남아 있는 게임큐브 · Wii 게임과 세이브 파일(" + formatSize(size) + ")을 삭제할까요?").setNegativeButton("나중에", null).setPositiveButton("삭제", (dialog, which) -> {
             for (File folder : folders) {
                 deleteRecursively(folder);
             }
@@ -1092,7 +1092,7 @@ public final class MainActivity extends Activity {
             String where = CrashReports.export(this, reports);
             CrashReports.markSeen(this);
             updateCrashCard();
-            new AlertDialog.Builder(this).setTitle("오류 보고를 저장했어요")
+            new AppDialog.Builder(this).setTitle("오류 보고를 저장했어요")
                     .setMessage(where + "\n\n이 파일을 보내 주시면 원인을 찾을 수 있어요. 세이브 · ROM · 사진은 들어 있지 않아요.")
                     .setPositiveButton("확인", null).show();
         } catch (IOException | RuntimeException e) {
@@ -1110,7 +1110,7 @@ public final class MainActivity extends Activity {
         view.setPadding(dp(16), dp(8), dp(16), dp(8));
         ScrollView scroll = new ScrollView(this);
         scroll.addView(view);
-        new AlertDialog.Builder(this).setTitle("오류 보고 · " + report.when).setView(scroll)
+        new AppDialog.Builder(this).setTitle("오류 보고 · " + report.when).setView(scroll)
                 .setNegativeButton("닫기", null)
                 .setNeutralButton("복사", (dialog, which) -> {
                     android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -1134,7 +1134,7 @@ public final class MainActivity extends Activity {
             CrashReports.Report report = reports.get(i);
             names[i] = report.when + " · " + (report.game.isEmpty() ? report.title() : report.game) + "\n" + report.title() + " · " + report.cause + (report.unseen ? " · 새 보고" : "");
         }
-        new AlertDialog.Builder(this).setTitle("오류 보고 (최근 " + reports.size() + "건)")
+        new AppDialog.Builder(this).setTitle("오류 보고 (최근 " + reports.size() + "건)")
                 .setItems(names, (dialog, which) -> showCrashReport(reports.get(which)))
                 .setNegativeButton("모두 지우기", (dialog, which) -> {
                     CrashReports.deleteAll(this);
@@ -1471,7 +1471,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showMameBiosManager() {
-        final AlertDialog[] alertDialogArr = new AlertDialog[1];
+        final android.app.Dialog[] alertDialogArr = new android.app.Dialog[1];
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.setPadding(dp(20), dp(4), dp(20), dp(8));
@@ -1529,7 +1529,7 @@ public final class MainActivity extends Activity {
         linearLayout.addView(textView5);
         ScrollView scrollView = new ScrollView(this);
         scrollView.addView(linearLayout, new FrameLayout.LayoutParams(-1, -2));
-        AlertDialog create = new AlertDialog.Builder(this).setTitle("MAME BIOS 관리").setView(scrollView).setNegativeButton("닫기", (DialogInterface.OnClickListener) null).setPositiveButton("BIOS 가져오기", (dialogInterface, i3) -> openMameBiosPicker()).create();
+        android.app.Dialog create = new AppDialog.Builder(this).setTitle("MAME BIOS 관리").setView(scrollView).setNegativeButton("닫기", (DialogInterface.OnClickListener) null).setPositiveButton("BIOS 가져오기", (dialogInterface, i3) -> openMameBiosPicker()).create();
         alertDialogArr[0] = create;
         create.show();
     }
@@ -1538,16 +1538,16 @@ public final class MainActivity extends Activity {
         return file.isFile() && file.getName().toLowerCase(Locale.US).endsWith(".zip");
     }
 
-    private boolean onMameBiosLongClick(File file, AlertDialog[] alertDialogArr, View view) {
+    private boolean onMameBiosLongClick(File file, android.app.Dialog[] alertDialogArr, View view) {
         confirmDeleteMameBios(file, alertDialogArr[0]);
         return true;
     }
 
-    private void confirmDeleteMameBios(final File file, final AlertDialog alertDialog) {
-        new AlertDialog.Builder(this).setTitle("MAME BIOS 삭제").setMessage(file.getName() + "을(를) 삭제할까요?").setNegativeButton("취소", (DialogInterface.OnClickListener) null).setPositiveButton("삭제", (dialogInterface, i) -> deleteMameBiosConfirmed(file, alertDialog, dialogInterface, i)).show();
+    private void confirmDeleteMameBios(final File file, final android.app.Dialog alertDialog) {
+        new AppDialog.Builder(this).setTitle("MAME BIOS 삭제").setMessage(file.getName() + "을(를) 삭제할까요?").setNegativeButton("취소", (DialogInterface.OnClickListener) null).setPositiveButton("삭제", (dialogInterface, i) -> deleteMameBiosConfirmed(file, alertDialog, dialogInterface, i)).show();
     }
 
-    private void deleteMameBiosConfirmed(File file, AlertDialog alertDialog, DialogInterface dialogInterface, int i) {
+    private void deleteMameBiosConfirmed(File file, android.app.Dialog alertDialog, DialogInterface dialogInterface, int i) {
         if (deleteMameBios(file)) {
             showMessage("MAME BIOS를 삭제했습니다.");
             updateHomeStatusCards();
@@ -2696,7 +2696,7 @@ public final class MainActivity extends Activity {
                 updateHomeStatusCards();
                 updateNote();
                 refreshLibrary();
-                new AlertDialog.Builder(this).setTitle(error ? "가져오기 실패" : title).setMessage(summary).setPositiveButton("확인", null).show();
+                new AppDialog.Builder(this).setTitle(error ? "가져오기 실패" : title).setMessage(summary).setPositiveButton("확인", null).show();
             });
         }, "import").start();
     }
@@ -2991,23 +2991,23 @@ public final class MainActivity extends Activity {
             refreshLibrary();
         }
         if (result.match == null) {
-            new AlertDialog.Builder(this).setTitle("이 ROM을 알아볼 수 없습니다").setMessage(unknownRomsetText(resolved)).setNegativeButton("취소", null).setPositiveButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).show();
+            new AppDialog.Builder(this).setTitle("이 ROM을 알아볼 수 없습니다").setMessage(unknownRomsetText(resolved)).setNegativeButton("취소", null).setPositiveButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).show();
             return;
         }
         if (result.renameConflict != null) {
-            new AlertDialog.Builder(this).setTitle("같은 게임이 이미 있습니다").setMessage(result.match.name + " 게임이 이미 " + result.renameConflict + "로 들어 있어요. 이 파일은 이름이 달라서 엔진이 찾지 못합니다.\n\n목록에서 " + result.renameConflict + " 쪽을 실행하거나, 이 항목을 삭제해 주세요.").setPositiveButton("확인", null).show();
+            new AppDialog.Builder(this).setTitle("같은 게임이 이미 있습니다").setMessage(result.match.name + " 게임이 이미 " + result.renameConflict + "로 들어 있어요. 이 파일은 이름이 달라서 엔진이 찾지 못합니다.\n\n목록에서 " + result.renameConflict + " 쪽을 실행하거나, 이 항목을 삭제해 주세요.").setPositiveButton("확인", null).show();
             return;
         }
         if (!result.match.isComplete(resolved.getParentFile())) {
-            new AlertDialog.Builder(this).setTitle("ROM 파일이 부족합니다").setMessage(romsetProblem(result)).setNegativeButton("취소", null).setPositiveButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).show();
+            new AppDialog.Builder(this).setTitle("ROM 파일이 부족합니다").setMessage(romsetProblem(result)).setNegativeButton("취소", null).setPositiveButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).show();
             return;
         }
         if (!hasBoardBios(result.match, resolved.getParentFile())) {
-            new AlertDialog.Builder(this).setTitle("기판 BIOS가 필요합니다").setMessage(coreDisplayName(result.match.core) + "의 '" + result.match.name + "' 게임은 기판 BIOS " + result.match.bios + ".zip이 있어야 실행됩니다.\n\nMAME BIOS에 " + result.match.bios + ".zip을 등록해 주세요.").setNegativeButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).setPositiveButton("BIOS 등록", (dialog, which) -> showBiosChooser(BIOS_SOURCE_MAME)).show();
+            new AppDialog.Builder(this).setTitle("기판 BIOS가 필요합니다").setMessage(coreDisplayName(result.match.core) + "의 '" + result.match.name + "' 게임은 기판 BIOS " + result.match.bios + ".zip이 있어야 실행됩니다.\n\nMAME BIOS에 " + result.match.bios + ".zip을 등록해 주세요.").setNegativeButton("그대로 실행", (dialog, which) -> startGameActivity(resolved)).setPositiveButton("BIOS 등록", (dialog, which) -> showBiosChooser(BIOS_SOURCE_MAME)).show();
             return;
         }
         if (!result.match.working) {
-            new AlertDialog.Builder(this).setTitle("아직 동작하지 않는 게임입니다").setMessage(coreDisplayName(result.match.core) + "의 게임 목록에 '" + result.match.name + "'은(는) 아직 제대로 동작하지 않는 게임(preliminary)으로 표시돼 있습니다.\n\n실행해도 검은 화면에서 멈추거나 진행이 안 될 수 있어요. 다른 엔진에서 동작하는 게임이면 앱이 자동으로 그 엔진을 고릅니다.").setNegativeButton("취소", null).setPositiveButton("그래도 실행", (dialog, which) -> startGameActivity(resolved)).show();
+            new AppDialog.Builder(this).setTitle("아직 동작하지 않는 게임입니다").setMessage(coreDisplayName(result.match.core) + "의 게임 목록에 '" + result.match.name + "'은(는) 아직 제대로 동작하지 않는 게임(preliminary)으로 표시돼 있습니다.\n\n실행해도 검은 화면에서 멈추거나 진행이 안 될 수 있어요. 다른 엔진에서 동작하는 게임이면 앱이 자동으로 그 엔진을 고릅니다.").setNegativeButton("취소", null).setPositiveButton("그래도 실행", (dialog, which) -> startGameActivity(resolved)).show();
             return;
         }
         if (result.coreChanged) {
@@ -3478,7 +3478,7 @@ public final class MainActivity extends Activity {
             naomiRow.addView(createActionTile(dialog, RoundIconView.PAD, RoundIconView.COLOR_MOVE, "조작 버튼", shown, false, () -> showNaomiButtonsPicker(file)), actionGridParams(0));
             naomiRow.addView(createActionTile(dialog, RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "ROM 검사", set == null ? "모르는 세트" : set.systemName(), false, () -> {
                 RomCheck check = checkNaomiSet(file);
-                new AlertDialog.Builder(this).setTitle(displayGameNameFor(file)).setMessage(check.detail).setPositiveButton("확인", null).show();
+                new AppDialog.Builder(this).setTitle(displayGameNameFor(file)).setMessage(check.detail).setPositiveButton("확인", null).show();
             }), actionGridParams(1));
             naomiRow.addView(createActionTile(dialog, RoundIconView.CARD, RoundIconView.COLOR_CARD, "기판 BIOS", naomiBiosStatusText(), false, this::showNaomiBiosSheet), actionGridParams(2));
             LinearLayout.LayoutParams naomiParams = new LinearLayout.LayoutParams(-1, -2);
@@ -4620,7 +4620,7 @@ public final class MainActivity extends Activity {
         String[] strArr = ARCADE_CORE_LABELS;
         final String[] strArr2 = ARCADE_CORE_IDS;
         int i = Math.max(0, Arrays.asList(ARCADE_CORE_IDS).indexOf(coreFor(file)));
-        new AlertDialog.Builder(this).setTitle("실행 엔진 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
+        new AppDialog.Builder(this).setTitle("실행 엔진 선택").setSingleChoiceItems(strArr, i, (dialogInterface, i2) -> onCoreSelected(file, strArr2, dialogInterface, i2)).show();
     }
 
     // Speed and how many games each engine runs, out of 5, for the engine cards.
@@ -4764,7 +4764,7 @@ public final class MainActivity extends Activity {
         }
         String mode = modeForFile(file);
         if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
-            new AlertDialog.Builder(this).setTitle("Neo Geo BIOS가 필요합니다").setMessage("neogeo.zip을 등록해야 Neo Geo 게임을 실행할 수 있어요.").setNegativeButton("취소", null).setPositiveButton("BIOS 등록", (dialog, which) -> openNeoGeoBiosPicker()).show();
+            new AppDialog.Builder(this).setTitle("Neo Geo BIOS가 필요합니다").setMessage("neogeo.zip을 등록해야 Neo Geo 게임을 실행할 수 있어요.").setNegativeButton("취소", null).setPositiveButton("BIOS 등록", (dialog, which) -> openNeoGeoBiosPicker()).show();
             return;
         }
         if ("arcade".equals(mode) || "neogeo".equals(mode)) {
@@ -5217,7 +5217,7 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmDeleteSave(final File file) {
-        new AlertDialog.Builder(this).setTitle("세이브를 삭제할까요?").setMessage("이 ROM의 .sav 파일과 빠른 저장 파일을 삭제합니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> deleteSave(file)).show();
+        new AppDialog.Builder(this).setTitle("세이브를 삭제할까요?").setMessage("이 ROM의 .sav 파일과 빠른 저장 파일을 삭제합니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> deleteSave(file)).show();
     }
 
     private void deleteSave(File file) {
@@ -5253,7 +5253,7 @@ public final class MainActivity extends Activity {
         editText.setInputType(8193);
         editText.setText(displayGameNameFor(file));
         editText.setSelectAllOnFocus(true);
-        new AlertDialog.Builder(this).setTitle("게임/세이브 이름").setView(editText).setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> applyRename(editText, file, dialogInterface, i)).show();
+        new AppDialog.Builder(this).setTitle("게임/세이브 이름").setView(editText).setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> applyRename(editText, file, dialogInterface, i)).show();
     }
 
     private void applyRename(EditText editText, File file, DialogInterface dialogInterface, int i) {
@@ -5342,7 +5342,7 @@ public final class MainActivity extends Activity {
             labels[i] = displayGameNameFor(files[i]) + (hasSave ? "  · 세이브 있음" : "");
             checked[i] = files[i].equals(preselected);
         }
-        AlertDialog dialog = new AlertDialog.Builder(this)
+        android.app.Dialog dialog = new AppDialog.Builder(this)
                 .setTitle("삭제할 게임 선택")
                 .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> checked[which] = isChecked)
                 .setNegativeButton("취소", null)
@@ -5370,7 +5370,7 @@ public final class MainActivity extends Activity {
         String message = roms
                 ? "선택한 " + files.size() + "개 게임의 ROM을 삭제합니다. 원본 파일과 세이브는 그대로 둡니다."
                 : "선택한 " + files.size() + "개 게임의 .sav 파일과 빠른 저장 파일을 삭제합니다.";
-        new AlertDialog.Builder(this).setTitle(roms ? "ROM을 삭제할까요?" : "세이브를 삭제할까요?").setMessage(message)
+        new AppDialog.Builder(this).setTitle(roms ? "ROM을 삭제할까요?" : "세이브를 삭제할까요?").setMessage(message)
                 .setNegativeButton(17039360, null)
                 .setPositiveButton(17039370, (d, which) -> deleteMany(files, roms)).show();
     }
@@ -5411,7 +5411,22 @@ public final class MainActivity extends Activity {
     }
 
     private void confirmDeleteRom(final File file) {
-        new AlertDialog.Builder(this).setTitle("ROM을 삭제할까요?").setMessage("Mini Emulator 안에 가져온 복사본만 삭제합니다. 원본 파일은 그대로 둡니다.").setNegativeButton(17039360, (DialogInterface.OnClickListener) null).setPositiveButton(17039370, (dialogInterface, i) -> deleteRomConfirmed(file, dialogInterface, i)).show();
+        boolean hasSaves = saveFileFor(file).exists() || stateFileFor(file).exists() || quickSaveDirFor(file).exists();
+        final CheckBox withSaves = new CheckBox(this);
+        withSaves.setText("세이브와 저장 칸도 함께 지우기");
+        withSaves.setTextSize(13.0f);
+        withSaves.setTextColor(Color.rgb(55, 65, 81));
+        new AppDialog.Builder(this).setTitle("ROM을 삭제할까요?")
+                .setMessage(displayGameNameFor(file) + " · " + formatSize(file.length()) + "\n\nMini Emulator 안에 가져온 복사본만 지워요. 원본 파일은 그대로 둡니다."
+                        + (hasSaves ? "\n이 게임의 세이브 · 빠른 저장 · 내 칸은 남아요. 같이 지우려면 아래를 켜 주세요." : ""))
+                .setView(hasSaves ? withSaves : null)
+                .setNegativeButton(17039360, (DialogInterface.OnClickListener) null)
+                .setPositiveButton("삭제", (dialogInterface, i) -> {
+                    if (hasSaves && withSaves.isChecked()) {
+                        deleteSave(file);
+                    }
+                    deleteRomConfirmed(file, dialogInterface, i);
+                }).show();
     }
 
     private void deleteRomConfirmed(File file, DialogInterface dialogInterface, int i) {
@@ -5894,7 +5909,7 @@ public final class MainActivity extends Activity {
             text.setTextIsSelectable(true);
             text.setTextSize(14.0f);
             text.setPadding(dp(22), dp(12), dp(22), 0);
-            new AlertDialog.Builder(this).setTitle(name).setView(text).setPositiveButton("확인", null).show();
+            new AppDialog.Builder(this).setTitle(name).setView(text).setPositiveButton("확인", null).show();
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.setMargins(0, dp(6), 0, 0);
@@ -7252,7 +7267,7 @@ public final class MainActivity extends Activity {
         panel.addView(choose, chooseParams);
         if (present) {
             TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
-            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("PC엔진 CD BIOS 삭제").setMessage("BIOS를 지우면 CD-ROM² 게임을 실행할 수 없어요. HuCard 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("PC엔진 CD BIOS 삭제").setMessage("BIOS를 지우면 CD-ROM² 게임을 실행할 수 없어요. HuCard 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 pceBiosFile().delete();
                 showMessage("PC엔진 CD BIOS를 삭제했습니다.");
@@ -7397,7 +7412,7 @@ public final class MainActivity extends Activity {
         panel.addView(choose, chooseParams);
         if (present) {
             TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
-            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("새턴 BIOS 삭제").setMessage("BIOS를 지우면 새턴 게임을 실행할 수 없어요.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("새턴 BIOS 삭제").setMessage("BIOS를 지우면 새턴 게임을 실행할 수 없어요.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 saturnBiosFile().delete();
                 showMessage("새턴 BIOS를 삭제했습니다.");
@@ -7568,7 +7583,7 @@ public final class MainActivity extends Activity {
         panel.addView(choose, chooseParams);
         if (present) {
             TextView delete = sheetButton("BIOS 모두 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
-            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("메가CD BIOS 삭제").setMessage("BIOS를 지우면 메가CD 게임을 실행할 수 없어요. 32X 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("메가CD BIOS 삭제").setMessage("BIOS를 지우면 메가CD 게임을 실행할 수 없어요. 32X 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 for (String region : MCD_REGIONS) {
                     mcdBiosFile(region).delete();
@@ -8400,7 +8415,7 @@ public final class MainActivity extends Activity {
         panel.addView(choose, chooseParams);
         if (present) {
             TextView delete = sheetButton("키 파일 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
-            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("3DS 키 파일 삭제").setMessage("키를 지우면 복호화된 게임만 실행돼요. 세이브는 그대로 남아요.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("3DS 키 파일 삭제").setMessage("키를 지우면 복호화된 게임만 실행돼요. 세이브는 그대로 남아요.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 n3dsKeysFile().delete();
                 showMessage("3DS 키 파일을 삭제했습니다.");
@@ -8592,7 +8607,7 @@ public final class MainActivity extends Activity {
         panel.addView(choose, chooseParams);
         if (present) {
             TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
-            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("PS1 BIOS 삭제").setMessage("BIOS를 지우면 내장 BIOS로 실행돼요. 대부분 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("PS1 BIOS 삭제").setMessage("BIOS를 지우면 내장 BIOS로 실행돼요. 대부분 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 ps1BiosFile().delete();
                 showMessage("PS1 BIOS를 삭제했습니다.");
@@ -8920,7 +8935,7 @@ public final class MainActivity extends Activity {
         String[] names = {"자동 (" + (set != null ? set.buttons : 6) + "개)", "1개", "2개", "3개", "4개", "5개", "6개"};
         final String key = "naomi:buttons:" + saveBaseNameFor(file);
         int current = settingsPrefs().getInt(key, 0);
-        new AlertDialog.Builder(this).setTitle("조작 버튼 수 · " + displayGameNameFor(file))
+        new AppDialog.Builder(this).setTitle("조작 버튼 수 · " + displayGameNameFor(file))
                 .setSingleChoiceItems(names, Math.max(0, Math.min(6, current)), (d, which) -> {
                     if (which == 0) {
                         settingsPrefs().edit().remove(key).apply();
@@ -9012,7 +9027,7 @@ public final class MainActivity extends Activity {
         panel.addView(choose, chooseParams);
         if (present) {
             TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
-            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("드림캐스트 BIOS 삭제").setMessage("BIOS를 지우면 내장 BIOS로 실행돼요. 대부분 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("드림캐스트 BIOS 삭제").setMessage("BIOS를 지우면 내장 BIOS로 실행돼요. 대부분 게임은 그대로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 dcBiosFile().delete();
                 dcFlashFile().delete();
@@ -9271,7 +9286,7 @@ public final class MainActivity extends Activity {
         panel.addView(choose, chooseParams);
         if (bios != null) {
             TextView delete = sheetButton("BIOS 삭제", Color.rgb(254, 242, 242), Color.rgb(220, 38, 38));
-            delete.setOnClickListener(view -> new AlertDialog.Builder(this).setTitle("PS2 BIOS 삭제").setMessage("BIOS를 지우면 PS2 게임이 Play! 엔진으로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("PS2 BIOS 삭제").setMessage("BIOS를 지우면 PS2 게임이 Play! 엔진으로 실행됩니다.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 File[] files = ps2BiosDir().listFiles();
                 if (files != null) {

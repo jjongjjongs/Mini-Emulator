@@ -323,7 +323,7 @@ final class LayoutEditorView extends FrameLayout {
             resetAll(true, true);
             return;
         }
-        new android.app.AlertDialog.Builder(getContext()).setTitle("초기화")
+        new AppDialog.Builder(getContext()).setTitle("초기화")
                 .setItems(new String[]{"게임 화면만 원래 자리로", "버튼까지 모두 원래대로"}, (d, which) -> resetAll(which == 1, true))
                 .setNegativeButton("취소", null).show();
     }

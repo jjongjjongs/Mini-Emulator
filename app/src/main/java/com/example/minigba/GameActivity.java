@@ -2767,7 +2767,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void showCheatActions(Cheats.Cheat cheat) {
-        new AlertDialog.Builder(this).setTitle(cheat.desc).setItems(new String[]{"고치기", "지우기"}, (d, which) -> {
+        new AppDialog.Builder(this).setTitle(cheat.desc).setItems(new String[]{"고치기", "지우기"}, (d, which) -> {
             if (which == 0) {
                 showCheatEditor(cheat);
             } else {
@@ -4195,7 +4195,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void saveToSlot(int n, String memo, boolean overwrite) {
         final File state = slotFile(n);
         if (state.isFile() && !overwrite) {
-            new AlertDialog.Builder(this).setTitle("내 칸 " + n + "을 덮어쓸까요?")
+            new AppDialog.Builder(this).setTitle("내 칸 " + n + "을 덮어쓸까요?")
                     .setMessage(describeSave(state) + "\n" + saveTimeText(state.lastModified()) + "\n지금 모습으로 바뀌고 이전 것은 되돌릴 수 없어요.")
                     .setNegativeButton("취소", null)
                     .setPositiveButton("덮어쓰기", (d, w) -> saveToSlot(n, memo, true)).show();
@@ -4376,7 +4376,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 // No play time noted.
             }
         }
-        new AlertDialog.Builder(this).setTitle(describeSave(save))
+        new AppDialog.Builder(this).setTitle(describeSave(save))
                 .setMessage(saveTimeText(save.lastModified()) + played + " · " + formatSize(save.length()))
                 .setItems(names.toArray(new String[0]), (d, which) -> {
                     String choice = names.get(which);
@@ -4396,7 +4396,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                             exportSave(save);
                             break;
                         default:
-                            new AlertDialog.Builder(this).setTitle(describeSave(save) + "을 지울까요?")
+                            new AppDialog.Builder(this).setTitle(describeSave(save) + "을 지울까요?")
                                     .setMessage("지운 세이브는 되돌릴 수 없어요.")
                                     .setNegativeButton("취소", null)
                                     .setPositiveButton("지우기", (d2, w2) -> {
@@ -4421,7 +4421,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         input.setText(slotMeta(save)[0]);
         input.setSingleLine(true);
         input.setSelection(input.getText().length());
-        new AlertDialog.Builder(this).setTitle("메모 바꾸기 · 내 칸 " + slotIndex(save)).setView(input)
+        new AppDialog.Builder(this).setTitle("메모 바꾸기 · 내 칸 " + slotIndex(save)).setView(input)
                 .setNegativeButton("취소", null)
                 .setPositiveButton("저장", (d, w) -> {
                     String[] meta = slotMeta(save);
@@ -4894,11 +4894,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         }
         String note = names + "\n지운 세이브는 되돌릴 수 없어요.\n게임 안 세이브(메모리카드·SRAM)는 지워지지 않아요.";
-        new AlertDialog.Builder(this)
+        new AppDialog.Builder(this)
                 .setTitle("세이브 " + ticked.size() + "개를 지울까요?")
                 .setMessage(note)
                 .setNegativeButton("취소", null)
-                .setPositiveButton("삭제", (d, w) -> {
+                .setPositiveButton(ticked.size() + "개 지우기", (d, w) -> {
                     for (File save : ticked) {
                         if (save.equals(auto)) {
                             save.delete();
