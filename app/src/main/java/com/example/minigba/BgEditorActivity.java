@@ -43,6 +43,9 @@ import java.util.List;
 public final class BgEditorActivity extends Activity {
     static final String EXTRA_MODE = "com.example.minigba.BG_MODE";
     static final String EXTRA_MODE_NAME = "com.example.minigba.BG_MODE_NAME";
+    // The game's orientation when it opened the editor (true = landscape): the editor starts
+    // on that one, whichever way the phone itself is held.
+    static final String EXTRA_LANDSCAPE = "com.example.minigba.BG_LANDSCAPE";
     private static final int REQUEST_ADD = 1;
     private static final int REQUEST_REPLACE = 2;
     private static final int ACCENT = Color.rgb(225, 29, 72);
@@ -142,7 +145,9 @@ public final class BgEditorActivity extends Activity {
         if (this.mode == null) this.mode = "all";
         if (this.modeName == null) this.modeName = this.mode;
         this.scope = PhotoBackground.scopeInForce(this, this.mode);
-        this.landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        this.landscape = getIntent().hasExtra(EXTRA_LANDSCAPE)
+                ? getIntent().getBooleanExtra(EXTRA_LANDSCAPE, false)
+                : getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         setRequestedOrientation(this.landscape ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         loadGuide();
         buildUi();

@@ -555,6 +555,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         Intent intent = new Intent(this, BgEditorActivity.class);
         intent.putExtra(BgEditorActivity.EXTRA_MODE, this.gameMode);
         intent.putExtra(BgEditorActivity.EXTRA_MODE_NAME, consoleName());
+        intent.putExtra(BgEditorActivity.EXTRA_LANDSCAPE, this.landscapeMode);
         startActivityForResult(intent, REQUEST_BG_EDITOR);
     }
 
