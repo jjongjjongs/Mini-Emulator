@@ -182,10 +182,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shell.track(frameLayout, frameLayout2);
         addPerfOverlay(root, false);
         setContentView(root);
+        this.screenArea = frameLayout;
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
-        this.screenArea = frameLayout;
     }
 
     private void createLandscapeContent() {
@@ -227,10 +227,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // No case under the picture in full-screen style or the DS's edge-to-edge screens.
         addPerfOverlay(root, full || isDualScreen());
         setContentView(root);
+        this.screenArea = frameLayout2;
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
-        this.screenArea = frameLayout2;
     }
 
     // Once the case is laid out, where its screen and controls are, for the photo
@@ -259,8 +259,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void appendBounds(StringBuilder out, View view, int[] origin) {
         int[] where = new int[2];
         view.getLocationInWindow(where);
+        // getLocationInWindow already includes the view's offset and scale; the size follows.
         out.append(where[0] - origin[0]).append(',').append(where[1] - origin[1]).append(',')
-                .append(where[0] - origin[0] + view.getWidth()).append(',').append(where[1] - origin[1] + view.getHeight());
+                .append(Math.round(where[0] - origin[0] + view.getWidth() * view.getScaleX())).append(',')
+                .append(Math.round(where[1] - origin[1] + view.getHeight() * view.getScaleY()));
     }
 
     private void collectControls(View view, int[] origin, StringBuilder out) {
@@ -1641,11 +1643,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 continue;
             }
             String[] values = entry.substring(eq + 1).split(",");
-            if (values.length != 3) {
+            if (values.length != 3 && values.length != 4) {
                 continue;
             }
             try {
-                map.put(entry.substring(0, eq), new float[]{Float.parseFloat(values[0]), Float.parseFloat(values[1]), Float.parseFloat(values[2])});
+                float scaleX = Float.parseFloat(values[2]);
+                // Older entries have one scale; the game screen may have one per axis.
+                float scaleY = values.length == 4 ? Float.parseFloat(values[3]) : scaleX;
+                map.put(entry.substring(0, eq), new float[]{Float.parseFloat(values[0]), Float.parseFloat(values[1]), scaleX, scaleY});
             } catch (NumberFormatException ignored) {
                 // A damaged entry leaves that control where it was.
             }
@@ -1666,6 +1671,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.layoutIds.clear();
         this.layoutBase.clear();
         java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+        // The game screen's frame first, so it is an item of the editor too (not in the
+        // controller-only screen, which has no frame).
+        if (this.screenArea != null && !isPadScreen()) {
+            this.layoutControls.add(this.screenArea);
+            this.layoutIds.add(SCREEN_LAYOUT_ID);
+            this.layoutBase.add(new float[]{this.screenArea.getTranslationX(), this.screenArea.getTranslationY()});
+        }
         java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
         queue.add(root);
         while (!queue.isEmpty()) {
@@ -1688,7 +1700,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         applyButtonStyle(this.buttonStyle);
     }
 
+    static final String SCREEN_LAYOUT_ID = "Screen#0";
+
     private void applyLayoutEdit(int index, float dxDp, float dyDp, float scale) {
+        applyLayoutEdit(index, dxDp, dyDp, scale, scale);
+    }
+
+    private void applyLayoutEdit(int index, float dxDp, float dyDp, float scaleX, float scaleY) {
         View view = this.layoutControls.get(index);
         float[] base = this.layoutBase.get(index);
         float density = getResources().getDisplayMetrics().density;
@@ -1701,9 +1719,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             view.setTranslationX(view.getTranslationX() + gap[0]);
             view.setTranslationY(view.getTranslationY() + gap[1]);
         }
-        float styled = scale * this.buttonStyle.scale(styleGroup(view));
-        view.setScaleX(styled);
-        view.setScaleY(styled);
+        float group = this.buttonStyle.scale(styleGroup(view));
+        view.setScaleX(scaleX * group);
+        view.setScaleY(scaleY * group);
+        if (view == this.screenArea && this.shell != null) {
+            // The case bezel follows the screen's frame.
+            this.shell.invalidate();
+        }
     }
 
     // Per control, the extra offset "버튼 사이 간격" gives it (pixels); empty when 100%.
@@ -1852,7 +1874,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             java.util.Map<String, float[]> edits = loadLayoutEdits();
             for (int k = 0; k < this.layoutControls.size(); k++) {
                 float[] edit = edits.get(this.layoutIds.get(k));
-                applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1);
+                applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1, edit != null ? edit[3] : 1);
             }
             for (android.view.ViewGroup parent : this.comboParents) {
                 layoutComboZones(parent, true);
@@ -1994,12 +2016,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float[][] edits = new float[this.layoutControls.size()][];
         for (int k = 0; k < edits.length; k++) {
             float[] edit = saved.get(this.layoutIds.get(k));
-            edits[k] = edit != null ? edit.clone() : new float[]{0, 0, 1};
+            edits[k] = edit != null ? edit.clone() : new float[]{0, 0, 1, 1};
         }
-        LayoutEditorView editor = new LayoutEditorView(this, new java.util.ArrayList<>(this.layoutControls), edits, new LayoutEditorView.Listener() {
+        int screenIndex = this.layoutControls.indexOf(this.screenArea);
+        LayoutEditorView editor = new LayoutEditorView(this, new java.util.ArrayList<>(this.layoutControls), edits, screenIndex, new LayoutEditorView.Listener() {
             @Override
-            public void apply(int index, float dxDp, float dyDp, float scale) {
-                applyLayoutEdit(index, dxDp, dyDp, scale);
+            public void apply(int index, float dxDp, float dyDp, float scaleX, float scaleY) {
+                applyLayoutEdit(index, dxDp, dyDp, scaleX, scaleY);
             }
 
             @Override
@@ -2007,11 +2030,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 StringBuilder sb = new StringBuilder();
                 for (int k = 0; k < result.length; k++) {
                     float[] edit = result[k];
-                    if (Math.abs(edit[0]) < 0.5f && Math.abs(edit[1]) < 0.5f && Math.abs(edit[2] - 1) < 0.01f) {
+                    if (Math.abs(edit[0]) < 0.5f && Math.abs(edit[1]) < 0.5f && Math.abs(edit[2] - 1) < 0.01f && Math.abs(edit[3] - 1) < 0.01f) {
                         continue;
                     }
                     sb.append(layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',')
-                            .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f).append(';');
+                            .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f);
+                    if (Math.abs(edit[2] - edit[3]) >= 0.005f) {
+                        sb.append(',').append(Math.round(edit[3] * 100) / 100.0f);
+                    }
+                    sb.append(';');
                 }
                 MainActivity.sharedSettings(GameActivity.this).edit().putString(layoutKey(), sb.toString()).apply();
                 finishLayoutEditor("버튼 배치를 저장했어요.");
@@ -3059,7 +3086,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }), rewindParams);
             LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(52));
             editParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(createSettingRow(RoundIconView.MOVE, RoundIconView.COLOR_MOVE, "버튼 배치 편집",
+            panel.addView(createSettingRow(RoundIconView.MOVE, RoundIconView.COLOR_MOVE, "버튼 · 화면 배치 편집",
                     hasLayoutEdits() ? "바꾼 배치" : "기본 배치", view -> {
                         dialog.dismiss();
                         startLayoutEditor();

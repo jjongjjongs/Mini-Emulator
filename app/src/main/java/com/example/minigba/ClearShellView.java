@@ -134,7 +134,9 @@ final class ClearShellView extends View {
         view.getLocationInWindow(where);
         float left = where[0] - origin[0];
         float top = where[1] - origin[1];
-        return new RectF(left, top, left + view.getWidth(), top + view.getHeight());
+        // A screen the player moved or resized in the layout editor: its location already
+        // includes the offset and scale, so the size takes the scale too.
+        return new RectF(left, top, left + view.getWidth() * view.getScaleX(), top + view.getHeight() * view.getScaleY());
     }
 
     // Whether text drawn straight on this background (the labels under the top icons)
