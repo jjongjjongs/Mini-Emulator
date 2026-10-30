@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = 'Mini Emulator'
 include ':app'
+include ':ownership'

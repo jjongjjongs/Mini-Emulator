@@ -383,6 +383,20 @@ jobs:
             echo "::error::Release APK is not signed with the original MiniGBA key"
             exit 1
           }
+          # The small package-ownership proof for Android developer verification.
+          proof=ownership/build/outputs/apk/release/ownership-release.apk
+          if [ -f "$proof" ]; then
+            certs=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$proof")
+            echo "$certs"
+            echo "$certs" | grep -qi "SHA-256 digest: $EXPECTED_CERT_SHA256" || {
+              echo "::error::Ownership APK is not signed with the original MiniGBA key"
+              exit 1
+            }
+            unzip -p "$proof" assets/adi-registration.properties | grep -q . || {
+              echo "::error::Ownership APK is missing assets/adi-registration.properties"
+              exit 1
+            }
+          fi
 
       - name: Name APKs
         run: |
@@ -391,6 +405,9 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk "dist/Mini-Emulator-$version-debug.apk"
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
             cp app/build/outputs/apk/release/app-release.apk "dist/release/Mini-Emulator-$version.apk"
+          fi
+          if [ -f ownership/build/outputs/apk/release/ownership-release.apk ]; then
+            cp ownership/build/outputs/apk/release/ownership-release.apk "dist/release/Mini-Emulator-ownership-proof.apk"
           fi
           ls -lR dist
 
