@@ -1785,6 +1785,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         doneParams.setMargins(0, dp(14), 0, 0);
         panel.addView(done, doneParams);
         this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
         dialog.setOnDismissListener(d -> {
             this.holdPause = false;
             resumeUnlessExiting();
@@ -7493,6 +7496,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void showScreenShapeSheet(Runnable reopen) {
         this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            // The picture must be in view while its shape changes.
+            this.pauseDialog.dismiss();
+        }
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
         final int aspectBefore = shapeAspectMode();
