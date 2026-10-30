@@ -411,6 +411,9 @@ struct Core {
     uint64_t framesRun = 0;
     // The quick save to resume from once the first frame has run.
     bool resumePending = false;
+    // No automatic quick save for this game (written on leaving, restored on starting):
+    // set for boards whose restored states hang (Sega ST-V on MAME).
+    bool noAutoState = false;
     // PCEE2 shows nothing until its quick save is back: the PS2 boot it waits through
     // would otherwise flash up before the scene the player left.
     std::atomic<bool> hidePicture{false};
@@ -689,7 +692,7 @@ size_t stateHeaderSize(const Core* core) {
 // Play!: its states are slow (40 MB) and not reliable enough to restore on every launch;
 // PS2 games keep their progress on the memory card, and the menu's quick save still works.
 bool autoState(const Core* core) {
-    return core->coreId != "play";
+    return core->coreId != "play" && !core->noAutoState;
 }
 
 namespace crash {
@@ -1343,6 +1346,8 @@ std::atomic<bool> gSpeedFirstStrong{false};
 // clocks and cores), 2 절전 (as 균형, and every other software-drawn picture is left out;
 // PPSSPP's own frame skipping is not used, as it halves the speed under the bridge's pacing).
 std::atomic<int> gPowerMode{0};
+// For the next game created: no automatic quick save (Core::noAutoState).
+std::atomic<bool> gNoAutoState{false};
 // PSP, Dreamcast and PS2 (PCSX2) draw with Vulkan where the device has it, unless Java
 // turned it off for the core (after a crash on it).
 std::atomic<bool> gVulkanAllowed{true};
@@ -2967,6 +2972,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     core->saveDir = jstringToString(env, saveDir);
     core->systemDir = jstringToString(env, systemDir);
     core->coreId = jstringToString(env, coreId);
+    core->noAutoState = gNoAutoState.load();
     crash::install(core->systemDir, core->coreId, core->romPath);
     gN64NativeTiles = core->coreId == "mupen64plus_next" &&
                       n64RomName(core->romPath).find("STARCRAFT") != std::string::npos;
@@ -3505,6 +3511,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFsr(JNIEnv* /*env*/
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPowerMode(JNIEnv* /*env*/, jclass /*cls*/, jint mode) {
     gPowerMode.store(mode < 0 || mode > 2 ? 0 : mode);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNoAutoState(JNIEnv* /*env*/, jclass /*cls*/, jboolean off) {
+    gNoAutoState.store(off == JNI_TRUE);
 }
 
 // {frames run, pictures shown, the frame rate the game is paced at}.

@@ -133,6 +133,17 @@ final class RomsetIndex {
         return !load(context).isEmpty();
     }
 
+    // Whether a set (by name) needs this BIOS in any core's list, e.g. "stvbios".
+    static boolean usesBios(Context context, String setName, String bios) {
+        for (CoreSets sets : load(context).values()) {
+            int at = sets.names.indexOf(setName);
+            if (at >= 0 && bios.equals(sets.bioses.get(at))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Board BIOS archives (neogeo, pgm, psarc95…) that some core lists.
     static boolean isBiosName(Context context, String setName) {
         for (CoreSets sets : load(context).values()) {

@@ -1335,7 +1335,52 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
     private boolean rewindSupported() {
-        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isMame139();
+        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isMame139() && !stvBoard();
+    }
+
+    private Boolean stvBoard;
+
+    // Sega ST-V arcade games (BIOS stvbios): MAME takes their states, but a restored one
+    // leaves a black screen that doesn't move. They get no automatic quick save (always
+    // start from the beginning), no rewind, and a word before a quick save.
+    private boolean stvBoard() {
+        if (this.stvBoard == null) {
+            boolean stv = false;
+            if (this.romPath != null && this.coreId.startsWith("mame") && !isMame139()) {
+                String name = new File(this.romPath).getName().toLowerCase(Locale.US);
+                if (name.endsWith(".zip")) {
+                    stv = RomsetIndex.usesBios(this, name.substring(0, name.length() - 4), "stvbios");
+                }
+            }
+            this.stvBoard = stv;
+        }
+        return this.stvBoard;
+    }
+
+    private static final String STV_NOTE = "이 게임은 이어하기가 안 되는 기판(세가 ST-V)이라, 적용하면 처음부터 다시 시작돼요. 하이스코어 같은 게임 안 기록은 남아요.";
+
+    // Before a quick save on an ST-V game: once per game, a word on what loading it does.
+    private void confirmStvSave(Runnable save) {
+        String key = "stv_save_warned:" + this.saveBaseName;
+        if (!stvBoard() || MainActivity.sharedSettings(this).getBoolean(key, false)) {
+            save.run();
+            return;
+        }
+        android.widget.CheckBox again = new android.widget.CheckBox(this);
+        again.setText("이 게임은 다시 묻지 않기");
+        again.setTextSize(12.5f);
+        again.setTextColor(Color.rgb(55, 65, 81));
+        again.setChecked(true);
+        new AppDialog.Builder(this).setTitle("빠른 저장")
+                .setMessage("세가 ST-V 기판 게임은 저장한 장면을 불러오면 화면이 멈출 수 있어요. 그럴 땐 위쪽 재시작을 누르면 다시 켜져요.\n되감기도 같은 이유로 이 게임에서는 꺼져 있어요.")
+                .setView(again)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("그래도 저장", (d, w) -> {
+                    if (again.isChecked()) {
+                        MainActivity.sharedSettings(this).edit().putBoolean(key, true).apply();
+                    }
+                    save.run();
+                }).show();
     }
 
     private boolean rewindOn() {
@@ -3374,6 +3419,60 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // The first game of a heavy console: a small notice over the top of the screen that
     // doesn't stop the game and goes away by itself; it opens 발열 줄이는 법.
+    private void showStartNotices() {
+        long delay = 0;
+        String stvKey = "stv_notice:" + this.saveBaseName;
+        if (stvBoard() && !MainActivity.sharedSettings(this).getBoolean(stvKey, false)) {
+            MainActivity.sharedSettings(this).edit().putBoolean(stvKey, true).apply();
+            showInfoNotice("처음부터 시작했어요", "세가 ST-V 기판 게임은 이어하기를 하면 화면이 멈춰서, 항상 처음부터 켜요", 6000);
+            delay = 6500;
+        }
+        if (delay == 0) {
+            maybeShowHeatNotice();
+        } else {
+            getWindow().getDecorView().postDelayed(() -> {
+                if (!this.destroyed) maybeShowHeatNotice();
+            }, delay);
+        }
+    }
+
+    private View infoNotice;
+
+    private void showInfoNotice(String title, String detail, long millis) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(14), dp(10), dp(14), dp(10));
+        bar.setBackground(roundRect(Color.rgb(239, 246, 255), dp(18)));
+        bar.setElevation(dp(8));
+        TextView icon = sheetText("i", 15.0f, Color.WHITE, true);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(roundRect(Color.rgb(37, 99, 235), dp(16)));
+        bar.addView(icon, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(sheetText(title, 13.5f, Color.rgb(30, 58, 138), true));
+        texts.addView(sheetText(detail, 11.5f, Color.rgb(30, 64, 175), false));
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, 0, 0);
+        bar.addView(texts, textsParams);
+        bar.setOnClickListener(view -> removeNotice(bar));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        params.setMargins(dp(12), dp(22), dp(12), 0);
+        addContentView(bar, params);
+        this.infoNotice = bar;
+        bar.postDelayed(() -> removeNotice(bar), millis);
+    }
+
+    private void removeNotice(View bar) {
+        if (this.infoNotice == bar) {
+            this.infoNotice = null;
+        }
+        if (bar.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) bar.getParent()).removeView(bar);
+        }
+    }
+
     private void maybeShowHeatNotice() {
         if (!heavySystem() || MainActivity.sharedSettings(this).getBoolean(heatKey(), false)) {
             return;
@@ -3451,7 +3550,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }), marginTop(-1, dp(52), 14));
         }
         if (powerMode() == 0) {
-            panel.addView(createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드 균형", "바꾸기 ›", view -> {
+            panel.addView(createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드 균형", stvBoard() ? "바꾸기 · 처음부터 ›" : "바꾸기 ›", view -> {
                 MainActivity.sharedSettings(this).edit().putInt(powerKey(), 1).commit();
                 holder[0].dismiss();
                 if (menu != null) menu.dismiss();
@@ -3533,11 +3632,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (lightSystem()) {
             note = consoleName() + "처럼 가벼운 기종은 처음부터 균형으로 시작해요. 여기서 직접 고르면 이 게임은 그 값으로 기억돼요.\n" + note;
         }
+        if (stvBoard()) {
+            note = STV_NOTE;
+        }
         final String footer = note;
         return createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", POWER_SHORT[powerMode()] + (powerChosen() ? "" : " · 기본"),
                 view -> showChoiceDialog(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", names, POWER_NOTES,
                         powerMode(), footer,
-                        Color.rgb(236, 253, 243), Color.rgb(22, 101, 52), "적용하고 이어하기", choice -> {
+                        stvBoard() ? Color.rgb(255, 247, 237) : Color.rgb(236, 253, 243), stvBoard() ? Color.rgb(154, 52, 18) : Color.rgb(22, 101, 52),
+                        stvBoard() ? "적용하고 처음부터" : "적용하고 이어하기", choice -> {
                     if (choice == powerMode()) {
                         return;
                     }
@@ -3680,10 +3783,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             rewindParams.setMargins(0, dp(8), 0, 0);
             boolean supported = rewindSupported();
             panel.addView(createSettingRow(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기",
-                    !supported ? "이 기종은 안 돼요" : rewindOn() ? "켜짐" : "꺼짐",
+                    !supported ? (stvBoard() ? "이 기판은 지원 안 함" : "이 기종은 안 돼요") : rewindOn() ? "켜짐" : "꺼짐",
                     view -> {
                         if (!supported) {
-                            Toast.makeText(this, "PS2·새턴·드림캐스트는 상태 저장이 크고 무거워서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
+                            Toast.makeText(this, stvBoard() ? "세가 ST-V 기판은 장면을 되돌리면 화면이 멈춰서 되감기를 쓸 수 없어요."
+                                    : "PS2·새턴·드림캐스트는 상태 저장이 크고 무거워서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
                             return;
                         }
                         showChoiceDialog(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기", REWIND_NAMES, REWIND_NOTES,
@@ -4040,6 +4144,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setSpeedFirst(speedFirstSupported() && speedFirst());
                     NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
                     NativeGba.setPowerMode(powerMode());
+                    NativeGba.setNoAutoState(stvBoard());
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
                     NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
@@ -4088,7 +4193,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (!this.activityResumed) {
             NativeGba.pause(handle, true);
         }
-        maybeShowHeatNotice();
+        showStartNotices();
     }
 
     private String arcadePreflightError() {
@@ -4295,6 +4400,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createQuickSave(boolean withSram) {
+        if (stvBoard() && !this.stvSaveConfirmed) {
+            confirmStvSave(() -> {
+                this.stvSaveConfirmed = true;
+                createQuickSave(withSram);
+                this.stvSaveConfirmed = false;
+            });
+            return;
+        }
         final long handle = this.nativeHandle;
         if (handle == 0) {
             return;
@@ -4512,7 +4625,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "빠른 저장 " + slotNumber(save);
     }
 
+    private boolean stvSaveConfirmed;
+
     private void saveToSlot(int n, String memo, boolean overwrite) {
+        if (stvBoard() && !this.stvSaveConfirmed) {
+            confirmStvSave(() -> {
+                this.stvSaveConfirmed = true;
+                saveToSlot(n, memo, overwrite);
+                this.stvSaveConfirmed = false;
+            });
+            return;
+        }
         final File state = slotFile(n);
         if (state.isFile() && !overwrite) {
             new AppDialog.Builder(this).setTitle("내 칸 " + n + "을 덮어쓸까요?")

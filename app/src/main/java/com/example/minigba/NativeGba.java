@@ -69,6 +69,9 @@ final class NativeGba {
     // "전원 모드" for the next game created: 0 성능, 1 균형, 2 절전.
     static native void setPowerMode(int mode);
 
+    // For the next game created: no quick save written on leaving or restored on starting.
+    static native void setNoAutoState(boolean off);
+
     // {frames run, pictures shown, the frame rate the game is paced at}, for the FPS readout.
     static native double[] frameStats(long handle);
 
