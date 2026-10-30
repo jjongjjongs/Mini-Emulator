@@ -69,6 +69,9 @@ final class NativeGba {
     // "전원 모드" for the next game created: 0 성능, 1 균형, 2 절전.
     static native void setPowerMode(int mode);
 
+    // N64 rendering scale for the next game created: 1 (320x240) or 2 (640x480).
+    static native void setN64Scale(int scale);
+
     // For the next game created: no quick save written on leaving or restored on starting.
     static native void setNoAutoState(boolean off);
 

@@ -100,6 +100,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         CrashReports.installJavaHandler(this);
         registerPadListener();
+        registerThermalListener();
         CrashReports.noteGame(this, this.gameMode, this.coreId, this.romPath == null ? "" : new File(this.romPath).getName());
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -1357,7 +1358,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return this.stvBoard;
     }
 
-    private static final String STV_NOTE = "이 게임은 이어하기가 안 되는 기판(세가 ST-V)이라, 적용하면 처음부터 다시 시작돼요. 하이스코어 같은 게임 안 기록은 남아요.";
 
     // Before a quick save on an ST-V game: once per game, a word on what loading it does.
     private void confirmStvSave(Runnable save) {
@@ -1658,6 +1658,142 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         };
         manager.registerInputDeviceListener(this.padListener, new android.os.Handler(android.os.Looper.getMainLooper()));
+    }
+
+    // ---- 발열 단계: the system's thermal status (Android 10+), shown in the performance
+    // readout and acted on per the 뜨거워지면 setting ----
+    private Object thermalListener;
+    private boolean heatWarned;
+    private boolean heatRestWarned;
+    private static final String[] HEAT_ACTION_NAMES = {"알려 주기", "자동으로 균형", "그대로 두기"};
+    private static final String[] HEAT_ACTION_NOTES = {
+            "\"뜨거움\" 단계가 되면 위에 알림. 한 게임에 한 번만",
+            "알림 없이 균형으로 낮추고 짧게 알려요. 직접 성능을 고른 게임도 포함",
+            "아무것도 하지 않아요"};
+
+    private int heatAction() {
+        int value = MainActivity.sharedSettings(this).getInt("heat_action", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private void registerThermalListener() {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            return;
+        }
+        android.os.PowerManager manager = getSystemService(android.os.PowerManager.class);
+        if (manager == null) {
+            return;
+        }
+        android.os.PowerManager.OnThermalStatusChangedListener listener = this::onThermalStatus;
+        try {
+            manager.addThermalStatusListener(getMainExecutor(), listener);
+            this.thermalListener = listener;
+        } catch (RuntimeException e) {
+            // No thermal service: the readout shows temperatures only.
+        }
+    }
+
+    private void unregisterThermalListener() {
+        if (android.os.Build.VERSION.SDK_INT < 29 || this.thermalListener == null) {
+            return;
+        }
+        android.os.PowerManager manager = getSystemService(android.os.PowerManager.class);
+        if (manager != null) {
+            try {
+                manager.removeThermalStatusListener((android.os.PowerManager.OnThermalStatusChangedListener) this.thermalListener);
+            } catch (RuntimeException e) {
+                // Already gone.
+            }
+        }
+        this.thermalListener = null;
+    }
+
+    // 0 보통, 1 약간, 2 뜨거움 (MODERATE), 3 심각 (SEVERE and above).
+    private int thermalStatus = -1;
+
+    private void onThermalStatus(int status) {
+        this.thermalStatus = status;
+        int level = Math.max(0, Math.min(3, status));
+        PerfOverlayView.thermalLevel = level;
+        if (this.destroyed || this.nativeHandle == 0 || heatAction() == 2) {
+            return;
+        }
+        if (level >= 2 && powerMode() == 0 && !this.heatWarned) {
+            this.heatWarned = true;
+            if (heatAction() == 1) {
+                setPowerModeNow(1);
+                showHeatBar("폰이 뜨거워져서 균형으로 바꿨어요", "느려지면 설정 › 전원 모드에서 성능으로 되돌리세요", null, null);
+            } else {
+                showHeatBar("폰이 뜨거워지고 있어요", "휴대폰이 곧 스스로 속도를 낮출 수 있어요. 균형으로 바꾸면 덜 뜨거워져요", "균형으로 바꾸기", () -> {
+                    setPowerModeNow(1);
+                    Toast.makeText(this, "균형으로 바꿨어요.", Toast.LENGTH_SHORT).show();
+                });
+            }
+        } else if (level >= 3 && !this.heatRestWarned) {
+            this.heatRestWarned = true;
+            showHeatBar("폰이 많이 뜨거워요", "잠시 쉬어 주세요. 휴대폰이 스스로 속도를 크게 낮출 수 있어요", null, null);
+        }
+    }
+
+    // An orange notice over the top of the screen; the game keeps running. With an action
+    // it has two buttons and stays 12 seconds, otherwise 7.
+    private void showHeatBar(String title, String detail, String actionText, Runnable action) {
+        hideHeatBanner();
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        bar.setPadding(dp(14), dp(12), dp(12), dp(12));
+        bar.setBackground(roundRect(Color.rgb(255, 247, 237), dp(18)));
+        bar.setElevation(dp(8));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(new RoundIconView(this, RoundIconView.PERF, HEAT_ORANGE), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(sheetText(title, 13.5f, Color.rgb(154, 52, 18), true));
+        texts.addView(sheetText(detail, 11.5f, Color.rgb(154, 52, 18), false));
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, 0, 0);
+        top.addView(texts, textsParams);
+        bar.addView(top);
+        if (action != null) {
+            LinearLayout buttons = new LinearLayout(this);
+            TextView later = dialogButton("괜찮아요", Color.WHITE, Color.rgb(154, 52, 18));
+            later.setTextSize(12.5f);
+            later.setOnClickListener(view -> hideHeatBanner());
+            buttons.addView(later, new LinearLayout.LayoutParams(0, dp(38), 1.0f));
+            TextView act = dialogButton(actionText, HEAT_ORANGE, Color.WHITE);
+            act.setTextSize(12.5f);
+            act.setOnClickListener(view -> {
+                hideHeatBanner();
+                action.run();
+            });
+            LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(0, dp(38), 1.4f);
+            actParams.setMargins(dp(8), 0, 0, 0);
+            buttons.addView(act, actParams);
+            bar.addView(buttons, marginTop(-1, -2, 10));
+        } else {
+            bar.setOnClickListener(view -> hideHeatBanner());
+        }
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        params.setMargins(dp(12), dp(22), dp(12), 0);
+        addContentView(bar, params);
+        this.heatBanner = bar;
+        bar.postDelayed(() -> {
+            if (this.heatBanner == bar) hideHeatBanner();
+        }, action != null ? 12000 : 7000);
+    }
+
+    private LinearLayout createHeatActionRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, HEAT_ORANGE, "뜨거워지면", HEAT_ACTION_NAMES[heatAction()], null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, HEAT_ORANGE, "뜨거워지면", HEAT_ACTION_NAMES, HEAT_ACTION_NOTES,
+                heatAction(), "모든 게임에 같이 적용돼요. 휴대폰이 알려 주는 발열 단계(보통 · 약간 · 뜨거움 · 심각)를 써요. 성능 표시를 켜면 온도 옆에 단계 색이 보여요.",
+                Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putInt("heat_action", choice).apply();
+            value.setText(HEAT_ACTION_NAMES[choice] + "  ›");
+        }));
+        return row;
     }
 
     private void unregisterPadListener() {
@@ -3539,9 +3675,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setBackground(roundRect(Color.WHITE, dp(24)));
         panel.addView(sheetHeader(RoundIconView.PERF, HEAT_ORANGE, "발열 줄이는 법", this.gameTitle + " · " + heatSystemName(), null));
         final android.app.Dialog[] holder = new android.app.Dialog[1];
-        int scale = isPsp() ? pspScale() : isN3ds() ? n3dsScale() : 1;
+        int scale = isPsp() ? pspScale() : isN3ds() ? n3dsScale() : isN64() ? n64Scale() : 1;
         if (scale > 1) {
-            final String key = (isPsp() ? "psp_scale:" : "n3ds_scale:") + this.saveBaseName;
+            final String key = (isPsp() ? "psp_scale:" : isN3ds() ? "n3ds_scale:" : "n64_scale:") + this.saveBaseName;
             panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 1배로", "지금 " + scale + "배 · 바꾸기 ›", view -> {
                 MainActivity.sharedSettings(this).edit().putInt(key, 1).commit();
                 holder[0].dismiss();
@@ -3550,12 +3686,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }), marginTop(-1, dp(52), 14));
         }
         if (powerMode() == 0) {
-            panel.addView(createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드 균형", stvBoard() ? "바꾸기 · 처음부터 ›" : "바꾸기 ›", view -> {
-                MainActivity.sharedSettings(this).edit().putInt(powerKey(), 1).commit();
-                holder[0].dismiss();
-                if (menu != null) menu.dismiss();
-                relaunchGame();
-            }), marginTop(-1, dp(52), scale > 1 ? 8 : 14));
+            LinearLayout power = createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드 균형", "바꾸기 ›", null);
+            power.setOnClickListener(view -> {
+                setPowerModeNow(1);
+                power.setVisibility(View.GONE);
+                Toast.makeText(this, "균형으로 바꿨어요. 느려지면 설정 › 전원 모드에서 되돌리세요.", Toast.LENGTH_SHORT).show();
+            });
+            panel.addView(power, marginTop(-1, dp(52), scale > 1 ? 8 : 14));
         }
         if (!perfOverlayOn()) {
             LinearLayout perf = createSettingRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시 켜기", "켜기 ›", null);
@@ -3571,7 +3708,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (powerMode() == 0) {
             notes.add("균형으로 바꿔서 게임이 느려지면 설정 › 전원 모드에서 성능으로 되돌리세요.");
         }
-        if (!isPsp() && !isN3ds()) {
+        if (!isPsp() && !isN3ds() && !isN64()) {
             notes.add("이 기종은 앱에서 화질을 바꾸는 설정이 없어요. 오래 할 땐 중간에 쉬어 주세요.");
         }
         for (String text : notes) {
@@ -3628,26 +3765,35 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private LinearLayout createPowerRow(android.app.Dialog menu) {
         String[] names = POWER_NAMES.clone();
         names[defaultPowerMode()] += " · " + consoleName() + " 기본";
-        String note = "이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).\n성능 표시를 켜 두면 온도와 배터리 소모가 어떻게 달라지는지 바로 볼 수 있어요.";
+        String note = "이 게임에만 적용 · 바로 적용돼요. 게임을 다시 켜지 않아서 지금 장면 그대로 이어져요.\n성능 표시를 켜 두면 온도와 배터리 소모가 어떻게 달라지는지 바로 볼 수 있어요.";
         if (lightSystem()) {
             note = consoleName() + "처럼 가벼운 기종은 처음부터 균형으로 시작해요. 여기서 직접 고르면 이 게임은 그 값으로 기억돼요.\n" + note;
         }
-        if (stvBoard()) {
-            note = STV_NOTE;
-        }
         final String footer = note;
-        return createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", POWER_SHORT[powerMode()] + (powerChosen() ? "" : " · 기본"),
-                view -> showChoiceDialog(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", names, POWER_NOTES,
-                        powerMode(), footer,
-                        stvBoard() ? Color.rgb(255, 247, 237) : Color.rgb(236, 253, 243), stvBoard() ? Color.rgb(154, 52, 18) : Color.rgb(22, 101, 52),
-                        stvBoard() ? "적용하고 처음부터" : "적용하고 이어하기", choice -> {
-                    if (choice == powerMode()) {
-                        return;
-                    }
-                    MainActivity.sharedSettings(this).edit().putInt(powerKey(), choice).commit();
-                    menu.dismiss();
-                    relaunchGame();
-                }));
+        LinearLayout row = createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", powerValueText(), null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", names, POWER_NOTES,
+                powerMode(), footer, Color.rgb(236, 253, 243), Color.rgb(22, 101, 52), "적용", choice -> {
+            if (choice == powerMode() && powerChosen()) {
+                return;
+            }
+            setPowerModeNow(choice);
+            value.setText(powerValueText() + "  ›");
+        }));
+        return row;
+    }
+
+    private String powerValueText() {
+        return POWER_SHORT[powerMode()] + (powerChosen() ? "" : " · 기본");
+    }
+
+    // Saves the game's power mode and switches the running engine to it at once (the
+    // engine picks it up on its next frame; no restart).
+    private void setPowerModeNow(int mode) {
+        MainActivity.sharedSettings(this).edit().putInt(powerKey(), mode).commit();
+        if (!isMame139()) {
+            NativeGba.setPowerMode(mode);
+        }
     }
 
     // Lines follow the game's picture size, which can change (menus, resolution switches),
@@ -3938,6 +4084,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     @Override
     protected void onDestroy() {
         unregisterPadListener();
+        unregisterThermalListener();
         this.adhocBeacon.stop();
         if (this.directLink != null) {
             if (this.menuExiting) {
@@ -4173,6 +4320,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
                     NativeGba.setPowerMode(powerMode());
                     NativeGba.setNoAutoState(stvBoard());
+                    NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
                     NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
@@ -4223,6 +4371,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         // The game's own frame rate is known now (50 for PAL games).
         applyFrameRate();
+        // A phone already hot when the game started (the status came before the engine).
+        if (this.thermalStatus >= 2) {
+            onThermalStatus(this.thermalStatus);
+        }
         showStartNotices();
     }
 
@@ -5749,6 +5901,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             heatParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createSettingRow(RoundIconView.PERF, HEAT_ORANGE, "발열 줄이는 법", "", view -> showHeatTips(dialog)), heatParams);
         }
+        if (!isMame139()) {
+            LinearLayout.LayoutParams heatActionParams = new LinearLayout.LayoutParams(-1, dp(52));
+            heatActionParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createHeatActionRow(), heatActionParams);
+        }
         if (isPadScreen()) {
             LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(-1, dp(52));
             speedParams.setMargins(0, dp(12), 0, 0);
@@ -5782,6 +5939,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
             scaleParams.setMargins(0, dp(12), 0, 0);
             panel.addView(createN3dsScaleRow(dialog), scaleParams);
+        }
+        if (isN64()) {
+            LinearLayout.LayoutParams scaleParams = new LinearLayout.LayoutParams(-1, dp(52));
+            scaleParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(createN64ScaleRow(dialog), scaleParams);
         }
         if (isWonderSwan()) {
             LinearLayout.LayoutParams tallParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -5905,6 +6067,31 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         return;
                     }
                     MainActivity.sharedSettings(this).edit().putInt("psp_scale:" + this.saveBaseName, choice + 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // N64 rendering scale, per game: GLideN64 at the console's 320x240 or twice that.
+    private static final String[] N64_SCALE_NAMES = {"1배 · 320×240", "2배 · 640×480"};
+    private static final String[] N64_SCALE_SHORT = {"1배 · 가벼움", "2배 · 기본"};
+    private static final String[] N64_SCALE_NOTES = {"N64 원래 해상도. 가장 가볍고 시원해요", "지금처럼 선명하게 (기본)"};
+
+    private int n64Scale() {
+        return MainActivity.sharedSettings(this).getInt("n64_scale:" + this.saveBaseName, 2) == 1 ? 1 : 2;
+    }
+
+    private LinearLayout createN64ScaleRow(android.app.Dialog menu) {
+        String[] names = N64_SCALE_NAMES.clone();
+        names[1] += " · N64 기본";
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", N64_SCALE_SHORT[n64Scale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", names, N64_SCALE_NOTES,
+                        n64Scale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요 (2~3초).\n1배에 FSR 업스케일을 같이 켜면 덜 뭉개져 보여요.",
+                        Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
+                    if (choice + 1 == n64Scale()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("n64_scale:" + this.saveBaseName, choice + 1).commit();
                     menu.dismiss();
                     relaunchGame();
                 }));

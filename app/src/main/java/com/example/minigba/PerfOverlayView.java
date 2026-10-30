@@ -20,6 +20,11 @@ import java.io.FileReader;
 // draws the bare text along the top edge instead. Touches pass through. GameActivity feeds
 // it frame counts once a second.
 final class PerfOverlayView extends View {
+    // The system's thermal status (GameActivity): 0 보통, 1 약간, 2 뜨거움, 3 심각; -1 unknown.
+    static volatile int thermalLevel = -1;
+    private static final String[] THERMAL_NAMES = {"보통", "약간", "뜨거움", "심각"};
+    private static final int[] THERMAL_COLORS = {Color.rgb(74, 222, 128), Color.rgb(250, 204, 21), Color.rgb(251, 146, 60), Color.rgb(248, 113, 113)};
+
     private final View target;
     private final boolean flat;
     private final int[] mine = new int[2];
@@ -140,6 +145,8 @@ final class PerfOverlayView extends View {
         float pad = 5 * this.density;
         String tail = this.drain.isEmpty() ? this.line2 : this.line2 + " ";
         String head = this.line1 + "   ";
+        int level = thermalLevel;
+        String heat = level >= 0 && level <= 3 ? "● " + THERMAL_NAMES[level] + " " : "";
         float baseline = text.getTextSize() * 0.95f;
         float lineHeight = text.getTextSize() + 4 * this.density;
         float x;
@@ -150,7 +157,7 @@ final class PerfOverlayView extends View {
             y = top + 2 * this.density + baseline;
         } else {
             // On the case just under the picture.
-            float width = text.measureText(head) + text.measureText(tail) + text.measureText(this.drain) + 2 * pad;
+            float width = text.measureText(head) + text.measureText(heat) + text.measureText(tail) + text.measureText(this.drain) + 2 * pad;
             float boxTop = bottom + 3 * this.density;
             float boxLeft = Math.max(2 * this.density, left + 2 * this.density);
             RectF rect = new RectF(boxLeft, boxTop, boxLeft + width, boxTop + lineHeight + 2 * this.density);
@@ -161,6 +168,11 @@ final class PerfOverlayView extends View {
         text.setColor(this.fpsColor);
         canvas.drawText(head, x, y, text);
         x += text.measureText(head);
+        if (!heat.isEmpty()) {
+            text.setColor(THERMAL_COLORS[level]);
+            canvas.drawText(heat, x, y, text);
+            x += text.measureText(heat);
+        }
         text.setColor(Color.rgb(229, 231, 235));
         canvas.drawText(tail, x, y, text);
         if (!this.drain.isEmpty()) {

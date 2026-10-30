@@ -1370,6 +1370,8 @@ std::atomic<bool> gWsTall{false};
 // it draws them above native resolution (StarCraft 64); they run at the N64's own
 // 320x240, with texture reads kept inside each tile. Set from the ROM header before the game starts.
 std::atomic<bool> gN64NativeTiles{false};
+// N64 rendering scale for the next game created: 1 = the console's 320x240, 2 = 640x480.
+std::atomic<int> gN64Scale{2};
 
 // The internal name in an N64 ROM header (0x20, 20 bytes), whatever byte order the dump
 // uses: .z64 big-endian, .v64 byte-swapped, .n64 word-swapped.
@@ -1487,7 +1489,7 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mupen64plus-rdp-plugin") == 0) return "gliden64";
     if (strcmp(key, "mupen64plus-rsp-plugin") == 0) return "hle";
     if (strcmp(key, "mupen64plus-cpucore") == 0) return "dynamic_recompiler";
-    if (strcmp(key, "mupen64plus-43screensize") == 0) return gN64NativeTiles.load() ? "320x240" : "640x480";
+    if (strcmp(key, "mupen64plus-43screensize") == 0) return gN64NativeTiles.load() || gN64Scale.load() == 1 ? "320x240" : "640x480";
     if (strcmp(key, "mupen64plus-alt-map") == 0) return "True";
     // Continuous coordinates between 2D rectangles keeps most upscaled 2D seamless.
     if (strcmp(key, "mupen64plus-CorrectTexrectCoords") == 0) return gN64NativeTiles.load() ? "Force" : "Auto";
@@ -2495,6 +2497,20 @@ void pinToFastCores() {
     }
 }
 
+// Back to every core, for the system to place (균형 · 절전 after 성능).
+void unpinCores() {
+    long cpus = sysconf(_SC_NPROCESSORS_CONF);
+    if (cpus <= 1 || cpus > CPU_SETSIZE) {
+        return;
+    }
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (long cpu = 0; cpu < cpus; ++cpu) {
+        CPU_SET(static_cast<int>(cpu), &set);
+    }
+    sched_setaffinity(0, sizeof(set), &set);
+}
+
 // Android's performance hints (API 33+): the emulation thread reports how long each frame
 // took against the time it has, and the system raises the CPU clocks before frames run
 // late instead of after. Looked up at run time, as the app also runs on older Android.
@@ -2744,17 +2760,31 @@ void runLoop(Core* core) {
     // and the game ran a few percent slow (the audio queue drained, the music dragged).
     // Above the app's other threads, as audio and video depend on this one keeping time.
     setpriority(PRIO_PROCESS, 0, -10);
-    // 균형 and 절전 leave the cores and clocks to the system.
-    bool performance = gPowerMode.load() == 0;
-    if (performance) {
+    // 성능 pins the fast cores; 균형 and 절전 leave the cores to the system. All three tell
+    // the system how long each frame took against the time it has (performance hints),
+    // which in 균형 lets it pick the lowest clocks that keep the game on time. The mode can
+    // change while the game runs (the pause menu, the heat notice): it is checked each frame.
+    int powerMode = gPowerMode.load();
+    if (powerMode == 0) {
         pinToFastCores();
     }
     PerformanceHint hint;
-    if (performance) {
-        hint.open(static_cast<int64_t>(1e9 / core->fps));
-    }
+    hint.open(static_cast<int64_t>(1e9 / core->fps));
     auto deadline = std::chrono::steady_clock::now();
     while (core->running.load()) {
+        int nowMode = gPowerMode.load();
+        if (nowMode != powerMode) {
+            if (nowMode == 0) {
+                pinToFastCores();
+            } else if (powerMode == 0) {
+                unpinCores();
+            }
+            if ((nowMode == 2) != (powerMode == 2)) {
+                // mGBA's own frame skipping follows 절전.
+                gVariablesUpdated.store(true);
+            }
+            powerMode = nowMode;
+        }
         auto workStart = std::chrono::steady_clock::now();
         bool ran = false;
         if (core->hwReady) {
@@ -3511,6 +3541,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFsr(JNIEnv* /*env*/
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPowerMode(JNIEnv* /*env*/, jclass /*cls*/, jint mode) {
     gPowerMode.store(mode < 0 || mode > 2 ? 0 : mode);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN64Scale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
+    gN64Scale.store(scale == 1 ? 1 : 2);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNoAutoState(JNIEnv* /*env*/, jclass /*cls*/, jboolean off) {
