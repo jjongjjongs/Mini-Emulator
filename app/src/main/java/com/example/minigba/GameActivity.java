@@ -4019,10 +4019,38 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         showBackExitDialog();
     }
 
+    // Tells the system the game's picture changes at the game's own rate (60 or 50 frames
+    // a second, not the 120 Hz a phone screen can run at), so the screen can drop to it and
+    // use less power and heat. Android 11+.
+    private void applyFrameRate() {
+        SurfaceHolder holder = this.activeSurfaceHolder;
+        if (android.os.Build.VERSION.SDK_INT < 30 || holder == null) {
+            return;
+        }
+        Surface surface = holder.getSurface();
+        if (surface == null || !surface.isValid()) {
+            return;
+        }
+        float fps = 60f;
+        long handle = this.nativeHandle;
+        if (handle != 0) {
+            double[] stats = NativeGba.frameStats(handle);
+            if (stats != null && stats.length >= 3 && stats[2] >= 20 && stats[2] <= 120) {
+                fps = (float) stats[2];
+            }
+        }
+        try {
+            surface.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+        } catch (RuntimeException e) {
+            // A surface going away as it is set: the next one gets it.
+        }
+    }
+
     @Override
     public void surfaceCreated(SurfaceHolder surfaceHolder) {
         this.surfaceReady = true;
         this.activeSurfaceHolder = surfaceHolder;
+        applyFrameRate();
         if (isMame139()) {
             Emulator.attachSurface(surfaceHolder);
             startCore(surfaceHolder.getSurface());
@@ -4193,6 +4221,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (!this.activityResumed) {
             NativeGba.pause(handle, true);
         }
+        // The game's own frame rate is known now (50 for PAL games).
+        applyFrameRate();
         showStartNotices();
     }
 
