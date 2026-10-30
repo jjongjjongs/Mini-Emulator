@@ -1438,6 +1438,16 @@ const char* fixedVariable(const char* key) {
         // No dithering or hardware mipmapping (anisotropic filtering is already off).
         if (strcmp(key, "pcsx2_dithering") == 0) return "0";
         if (strcmp(key, "pcsx2_mipmapping") == 0) return "disabled";
+        // N64 (GLideN64): no copying the frame and depth buffers back to the console's
+        // memory (Async and Software by default; a few effects such as in-game photos or
+        // pictures in pictures need them), and repeated frames not drawn again.
+        if (strcmp(key, "mupen64plus-EnableCopyColorToRDRAM") == 0) return "Off";
+        if (strcmp(key, "mupen64plus-EnableCopyDepthToRDRAM") == 0) return "Off";
+        if (strcmp(key, "mupen64plus-FrameDuping") == 0) return "True";
+        // Dreamcast / Naomi: no audio DSP (reverb and echo; on by default), and frames
+        // skipped only while the game runs late (threaded rendering is on).
+        if (strcmp(key, "reicast_enable_dsp") == 0) return "disabled";
+        if (strcmp(key, "reicast_auto_skip_frame") == 0) return "some";
     }
     // PS2: VU1 on a thread of its own (the core's default, stated so it stays that way).
     if (strcmp(key, "pcsx2_mtvu") == 0) return "enabled";

@@ -3685,6 +3685,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 relaunchGame();
             }), marginTop(-1, dp(52), 14));
         }
+        if (speedFirstSupported() && !speedFirst()) {
+            panel.addView(createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선 켜기", "켜기 ›", view -> {
+                MainActivity.sharedSettings(this).edit().putBoolean(speedFirstKey(), true).commit();
+                holder[0].dismiss();
+                if (menu != null) menu.dismiss();
+                relaunchGame();
+            }), marginTop(-1, dp(52), scale > 1 ? 8 : 14));
+        }
         if (powerMode() == 0) {
             LinearLayout power = createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드 균형", "바꾸기 ›", null);
             power.setOnClickListener(view -> {
@@ -5925,7 +5933,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             wifiParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createWifiRow(dialog), wifiParams);
         }
-        if ("pcee2".equals(this.coreId)) {
+        if ("pcee2".equals(this.coreId) || isN64() || isDreamcast()) {
             LinearLayout.LayoutParams fastParams = new LinearLayout.LayoutParams(-1, dp(52));
             fastParams.setMargins(0, dp(12), 0, 0);
             panel.addView(createFastRow(dialog), fastParams);
@@ -6141,7 +6149,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean speedFirstSupported() {
-        return isPsp() || "pcee2".equals(this.coreId);
+        return isPsp() || "pcee2".equals(this.coreId) || isN64() || isDreamcast();
     }
 
     // PSP kept its 0.0.106 key.
@@ -6670,6 +6678,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private LinearLayout createFastRow(android.app.Dialog menu) {
         String changes = isPsp()
                 ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n· 텍스처 비등방성 필터를 꺼요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
+                : isN64()
+                ? "· 화면 내용을 CPU 쪽 메모리로 되돌려 복사하는 작업(색 · 깊이)을 꺼요\n· 같은 화면이 반복되면 다시 그리지 않아요\n게임에 따라 일부 효과(화면 속 화면, 사진 찍기, 렌즈 효과 등)가 빠질 수 있어요."
+                : isDreamcast()
+                ? "· 사운드 DSP(울림 · 에코 효과) 흉내를 꺼요\n· 늦어질 때만 화면을 한 장씩 건너뛰어 그려요\n게임에 따라 소리 울림이 빠질 수 있어요."
                 : "· PS2 CPU를 75%(강하게는 60%)로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
         boolean ps2 = "pcee2".equals(this.coreId);
         int level = speedFirstLevel();
