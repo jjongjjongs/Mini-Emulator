@@ -99,6 +99,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isNds() ? "nds" : "arcade";
         }
         CrashReports.installJavaHandler(this);
+        registerPadListener();
         CrashReports.noteGame(this, this.gameMode, this.coreId, this.romPath == null ? "" : new File(this.romPath).getName());
         String str = this.romPath;
         String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
@@ -1588,7 +1589,239 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // A strip at the bottom for ten seconds: "되돌리기" brings the previous look back.
+    // ---- 게임패드 자동 전환: a controller hides the touch controls and grows the picture ----
+    private android.hardware.input.InputManager.InputDeviceListener padListener;
+    private boolean padMode;
+    private boolean padLeaveCancelled;
+
+    private void registerPadListener() {
+        android.hardware.input.InputManager manager = (android.hardware.input.InputManager) getSystemService(INPUT_SERVICE);
+        if (manager == null) return;
+        this.padListener = new android.hardware.input.InputManager.InputDeviceListener() {
+            @Override
+            public void onInputDeviceAdded(int deviceId) {
+                getWindow().getDecorView().postDelayed(() -> onPadsChanged(), 300);
+            }
+
+            @Override
+            public void onInputDeviceRemoved(int deviceId) {
+                getWindow().getDecorView().postDelayed(() -> onPadsChanged(), 300);
+            }
+
+            @Override
+            public void onInputDeviceChanged(int deviceId) {
+            }
+        };
+        manager.registerInputDeviceListener(this.padListener, new android.os.Handler(android.os.Looper.getMainLooper()));
+    }
+
+    private void unregisterPadListener() {
+        android.hardware.input.InputManager manager = (android.hardware.input.InputManager) getSystemService(INPUT_SERVICE);
+        if (manager != null && this.padListener != null) {
+            manager.unregisterInputDeviceListener(this.padListener);
+        }
+        this.padListener = null;
+    }
+
+    private boolean padPref(String key) {
+        return MainActivity.sharedSettings(this).getBoolean(key, true);
+    }
+
+    /** 0 follows the general setting, 1 always shows the touch controls, 2 always hides them. */
+    private int padAutoForGame() {
+        return MainActivity.sharedSettings(this).getInt("pad_auto:" + this.saveBaseName, 0);
+    }
+
+    private boolean padAutoHides() {
+        int game = padAutoForGame();
+        return game == 2 || (game == 0 && padPref("pad_auto_hide"));
+    }
+
+    private void onPadsChanged() {
+        if (this.destroyed || isPadScreen() || isMame139()) return;
+        boolean connected = PadMapping.firstController() != null;
+        if (connected && !this.padMode) {
+            this.padLeaveCancelled = true;
+            enterPadMode(true);
+        } else if (!connected && this.padMode) {
+            if (padPref("pad_auto_restore")) {
+                scheduleLeavePadMode();
+            }
+        }
+    }
+
+    private void enterPadMode(boolean announce) {
+        if (!padAutoHides() || this.layoutControls.isEmpty()) return;
+        this.padMode = true;
+        setTouchControlsShown(false);
+        applyButtonStyle(this.buttonStyle);
+        if (announce && padPref("pad_auto_toast")) {
+            android.view.InputDevice device = PadMapping.firstController();
+            showActionBar("🎮 " + (device != null ? device.getName() : "게임패드") + " 연결 · 터치 버튼을 숨겼어요", "터치 보이기", this::leavePadModeNow);
+        }
+    }
+
+    private void leavePadModeNow() {
+        if (!this.padMode) return;
+        this.padMode = false;
+        setTouchControlsShown(true);
+        applyButtonStyle(this.buttonStyle);
+    }
+
+    private void scheduleLeavePadMode() {
+        this.padLeaveCancelled = false;
+        if (padPref("pad_auto_toast")) {
+            showActionBar("🎮 패드가 빠졌어요 · 터치 버튼으로 돌아갑니다", "취소", () -> this.padLeaveCancelled = true);
+        }
+        getWindow().getDecorView().postDelayed(() -> {
+            if (!this.padLeaveCancelled && PadMapping.firstController() == null) {
+                hideUndoBar();
+                leavePadModeNow();
+            }
+        }, 3000);
+    }
+
+    // Everything in the layout editor's list but the screen, and the combo zones between
+    // the face buttons; the top icons and the DS touch screen stay.
+    private void setTouchControlsShown(boolean shown) {
+        float alpha = shellStyle() == ClearShellView.STYLE_PHOTO ? 1.0f - PhotoBackground.buttonAlpha(this, this.gameMode) / 100f : 1.0f;
+        for (View view : this.layoutControls) {
+            if (view == this.screenArea) continue;
+            if (shown) {
+                view.setVisibility(View.VISIBLE);
+                view.animate().alpha(alpha).setDuration(180).start();
+            } else {
+                view.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+                    if (this.padMode) view.setVisibility(View.INVISIBLE);
+                }).start();
+            }
+        }
+        for (android.view.ViewGroup parent : this.comboParents) {
+            for (int k = 0; k < parent.getChildCount(); k++) {
+                View child = parent.getChildAt(k);
+                if (child instanceof ComboZoneView) {
+                    child.setVisibility(shown ? View.VISIBLE : View.INVISIBLE);
+                }
+            }
+        }
+    }
+
+    // How much bigger the picture goes while the controls are hidden: to the phone's width
+    // in portrait (top edge kept), to the phone in landscape (centred). 1 when off.
+    private float padGrowFor(View screen, float scaleX, float scaleY) {
+        if (!this.padMode || !padPref("pad_auto_grow") || screen.getWidth() == 0) return 1.0f;
+        View root = screen.getRootView();
+        if (root == null || root.getWidth() == 0) return 1.0f;
+        float widthFit = root.getWidth() / (screen.getWidth() * scaleX);
+        if (!this.landscapeMode) {
+            return Math.max(1.0f, Math.min(1.6f, widthFit));
+        }
+        float heightFit = root.getHeight() / (screen.getHeight() * scaleY);
+        return Math.max(1.0f, Math.min(1.5f, Math.min(widthFit, heightFit)));
+    }
+
+    private void showPadAutoSheet(Runnable reopen) {
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(16), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("게임패드 자동 전환");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        panel.addView(title);
+        android.view.InputDevice device = PadMapping.firstController();
+        TextView sub = new TextView(this);
+        sub.setText(device != null ? device.getName() + " 연결됨" : "연결된 게임패드 없음 · 꽂으면 아래 설정대로 바뀌어요");
+        sub.setTextSize(11.5f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        panel.addView(sub);
+        panel.addView(shapeSection("꽂으면 자동으로"));
+        panel.addView(shapeToggle("터치 버튼 숨기기", "방향키 · 버튼 · 스틱이 사라져요. 위쪽 저장 · 메뉴 아이콘은 남아요", padPref("pad_auto_hide"), on -> {
+            prefs.edit().putBoolean("pad_auto_hide", on).apply();
+            onPadModeSettingChanged();
+        }));
+        panel.addView(shapeToggle("화면 키우기", "버튼이 비운 자리까지 게임 화면을 넓혀요 (세로: 위쪽 고정, 가로: 가운데)", padPref("pad_auto_grow"), on -> {
+            prefs.edit().putBoolean("pad_auto_grow", on).apply();
+            if (this.padMode) applyButtonStyle(this.buttonStyle);
+        }));
+        panel.addView(shapeToggle("빼면 원래 배치로 돌아오기", "끄면 알림의 \"터치 보이기\"나 다음 실행 때 돌아와요", padPref("pad_auto_restore"), on -> prefs.edit().putBoolean("pad_auto_restore", on).apply()));
+        panel.addView(shapeToggle("전환할 때 알림 띄우기", "", padPref("pad_auto_toast"), on -> prefs.edit().putBoolean("pad_auto_toast", on).apply()));
+        panel.addView(shapeSection("이 게임만"));
+        LinearLayout chips = new LinearLayout(this);
+        final TextView[] chipViews = new TextView[3];
+        String[] names = {"기본 설정 따름", "항상 터치 보이기", "항상 숨기기"};
+        for (int i = 0; i < 3; i++) {
+            final int value = i;
+            TextView chip = shapeChip(names[i], padAutoForGame() == i);
+            chip.setOnClickListener(view -> {
+                if (value == 0) prefs.edit().remove("pad_auto:" + this.saveBaseName).apply();
+                else prefs.edit().putInt("pad_auto:" + this.saveBaseName, value).apply();
+                for (int k = 0; k < 3; k++) setShapeChip(chipViews[k], k == value);
+                onPadModeSettingChanged();
+            });
+            chipViews[i] = chip;
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+            chipParams.setMargins(i == 0 ? 0 : dp(6), 0, 0, 0);
+            chips.addView(chip, chipParams);
+        }
+        panel.addView(chips);
+        TextView note = new TextView(this);
+        note.setText("버튼 없는 \"게임패드 모드\" 화면 모드와는 별개예요. 평소엔 터치로, 패드를 꽂았을 때만 큰 화면으로 쓰고 싶을 때 켜 두세요.");
+        note.setTextSize(10.5f);
+        note.setTextColor(Color.rgb(122, 130, 140));
+        note.setPadding(dp(2), dp(8), 0, 0);
+        panel.addView(note);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        TextView done = dialogButton("완료", Color.rgb(225, 29, 72), Color.WHITE);
+        done.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(-1, dp(46));
+        doneParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(done, doneParams);
+        this.holdPause = true;
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            resumeUnlessExiting();
+        });
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400)), -2);
+        }
+        dialog.show();
+    }
+
+    // A setting changed while a pad is (or is not) connected: match the controls to it.
+    private void onPadModeSettingChanged() {
+        boolean connected = PadMapping.firstController() != null;
+        if (connected && padAutoHides() && !this.padMode) {
+            enterPadMode(false);
+        } else if ((!connected || !padAutoHides()) && this.padMode) {
+            leavePadModeNow();
+        }
+    }
+
     private void showUndoBar() {
+        showActionBar("프리셋을 적용했어요", "되돌리기", () -> {
+            Presets.Preset previous = Presets.read(Presets.dir(this, Presets.UNDO_ID));
+            if (previous != null) {
+                applyPreset(previous);
+            }
+        });
+    }
+
+    // A strip at the bottom for ten seconds with one action on it.
+    private void showActionBar(String message, String action, Runnable onAction) {
         hideUndoBar();
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -1599,22 +1832,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         background.setCornerRadius(dp(12));
         bar.setBackground(background);
         TextView text = new TextView(this);
-        text.setText("프리셋을 적용했어요");
+        text.setText(message);
         text.setTextSize(12.5f);
         text.setTextColor(Color.WHITE);
         bar.addView(text, new LinearLayout.LayoutParams(0, -2, 1.0f));
         TextView undo = new TextView(this);
-        undo.setText("되돌리기");
+        undo.setText(action);
         undo.setTextSize(13.0f);
         undo.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         undo.setTextColor(Color.rgb(255, 143, 168));
         undo.setPadding(dp(12), dp(6), dp(12), dp(6));
         undo.setOnClickListener(view -> {
             hideUndoBar();
-            Presets.Preset previous = Presets.read(Presets.dir(this, Presets.UNDO_ID));
-            if (previous != null) {
-                applyPreset(previous);
-            }
+            onAction.run();
         });
         bar.addView(undo);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
@@ -1698,6 +1928,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         loadButtonStyle();
         applyButtonStyle(this.buttonStyle);
+        // A controller already connected (or still connected after a rebuild) keeps the
+        // touch controls hidden; the growth needs the layout, so it comes a moment later.
+        root.post(() -> {
+            if (this.destroyed) return;
+            if (this.padMode) {
+                setTouchControlsShown(false);
+                applyButtonStyle(this.buttonStyle);
+            } else if (PadMapping.firstController() != null && !isPadScreen() && !isMame139()) {
+                enterPadMode(false);
+            }
+        });
     }
 
     static final String SCREEN_LAYOUT_ID = "Screen#0";
@@ -1722,9 +1963,35 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float group = this.buttonStyle.scale(styleGroup(view));
         view.setScaleX(scaleX * group);
         view.setScaleY(scaleY * group);
-        if (view == this.screenArea && this.shell != null) {
-            // The case bezel follows the screen's frame.
-            this.shell.invalidate();
+        if (view == this.screenArea) {
+            // 게임패드 자동 전환: the picture grows into the room the hidden controls leave,
+            // keeping its top edge in portrait and its centre in landscape.
+            float grow = padGrowFor(view, scaleX * group, scaleY * group);
+            if (grow > 1.0f) {
+                float sx = scaleX * group * grow;
+                float sy = scaleY * group * grow;
+                view.setScaleX(sx);
+                view.setScaleY(sy);
+                View root = view.getRootView();
+                float centerX = view.getLeft() + view.getWidth() / 2f + view.getTranslationX();
+                int[] origin = new int[2];
+                int[] rootOrigin = new int[2];
+                ((View) view.getParent()).getLocationInWindow(origin);
+                root.getLocationInWindow(rootOrigin);
+                float rootCenterX = rootOrigin[0] + root.getWidth() / 2f - origin[0];
+                view.setTranslationX(view.getTranslationX() + (rootCenterX - centerX));
+                if (!this.landscapeMode) {
+                    view.setTranslationY(view.getTranslationY() + (grow - 1.0f) * view.getHeight() * scaleY * group / 2f);
+                } else {
+                    float centerY = view.getTop() + view.getHeight() / 2f + view.getTranslationY();
+                    float rootCenterY = rootOrigin[1] + root.getHeight() / 2f - origin[1];
+                    view.setTranslationY(view.getTranslationY() + (rootCenterY - centerY));
+                }
+            }
+            if (this.shell != null) {
+                // The case bezel follows the screen's frame.
+                this.shell.invalidate();
+            }
         }
     }
 
@@ -2849,6 +3116,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenFilters.clear();
         this.screenFilters.add(filter);
         parent.addView(filter, new FrameLayout.LayoutParams(-1, -1));
+        // 화면 모양: the frame the picture sits in, and the corner mask over it.
+        this.screenFrame = parent;
+        ScreenMaskView mask = new ScreenMaskView(this);
+        this.screenMask = mask;
+        parent.addView(mask, new FrameLayout.LayoutParams(-1, -1));
+        parent.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) {
+                v.post(this::applyScreenShape);
+            }
+        });
+        parent.post(this::applyScreenShape);
         updateScreenFilters();
     }
 
@@ -2953,13 +3231,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int filter = screenFilter();
         long handle = this.nativeHandle;
         int[] size = handle != 0 && filter >= 2 && filter <= 3 ? NativeGba.frameSize(handle) : null;
+        boolean integer = shapeScaleMode() == 1;
+        if (integer) {
+            applyScreenShape();
+        }
         for (ScreenFilterView view : this.screenFilters) {
             view.setFilter(filter);
             if (size != null && size.length == 2) {
                 view.setGameSize(size[0], size[1]);
             }
             view.removeCallbacks(this.screenFilterPoll);
-            if (filter >= 2 && filter <= 3 && !this.destroyed) {
+            if (((filter >= 2 && filter <= 3) || integer) && !this.destroyed) {
                 view.postDelayed(this.screenFilterPoll, 500);
             }
         }
@@ -3019,6 +3301,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     updateScreenFilters();
                     reopen.run();
                 })), filterParams);
+        if (!isPadScreen()) {
+            LinearLayout.LayoutParams shapeParams = new LinearLayout.LayoutParams(-1, dp(52));
+            shapeParams.setMargins(0, dp(8), 0, 0);
+            String shapeShown = (shapeScaleMode() == 1 ? "픽셀 정확" : "맞춤") + (shapeAspectMode() != 0 ? " · " + SHAPE_ASPECT_NAMES[shapeAspectMode()] : "")
+                    + (shapeCornerDp() > 0 ? " · 둥근 " + shapeCornerDp() : "");
+            panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_FILTER, "화면 모양", shapeShown, view -> {
+                dialog.dismiss();
+                showScreenShapeSheet(reopen);
+            }), shapeParams);
+        }
         if (!isPadScreen()) {
             // The controller-only screen has no case behind it.
             LinearLayout.LayoutParams styleParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -3114,6 +3406,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));
         padParams.setMargins(0, dp(8), 0, 0);
         panel.addView(createPadMappingRow(reopen), padParams);
+        if (!isPadScreen() && !isMame139()) {
+            LinearLayout.LayoutParams autoParams = new LinearLayout.LayoutParams(-1, dp(52));
+            autoParams.setMargins(0, dp(8), 0, 0);
+            String autoShown = padAutoForGame() == 1 ? "이 게임은 항상 터치" : padAutoForGame() == 2 ? "이 게임은 항상 숨김" : padPref("pad_auto_hide") ? "꽂으면 터치 숨김" : "꺼짐";
+            panel.addView(createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_MOVE, "게임패드 자동 전환", autoShown, view -> {
+                dialog.dismiss();
+                showPadAutoSheet(reopen);
+            }), autoParams);
+        }
 
         TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
         close.setOnClickListener(view -> dialog.dismiss());
@@ -3210,6 +3511,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     protected void onDestroy() {
+        unregisterPadListener();
         this.adhocBeacon.stop();
         if (this.directLink != null) {
             if (this.menuExiting) {
@@ -7103,7 +7405,334 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // ---- 화면 모양: 픽셀 정확 · 비율 · 모서리 · 테두리 ----
+    private static final String[] SHAPE_ASPECT_NAMES = {"원본", "4:3", "16:9", "8:7"};
+    private FrameLayout screenFrame;
+    private ScreenMaskView screenMask;
+
+    // Settings live per console, or per game once "이 게임에만" was turned on for it.
+    private String shapeScope() {
+        String game = "shape:game:" + this.saveBaseName;
+        return MainActivity.sharedSettings(this).getBoolean(game + ":on", false) ? game : "shape:" + this.gameMode;
+    }
+
+    private int shapeInt(String key, int fallback) {
+        return MainActivity.sharedSettings(this).getInt(shapeScope() + ":" + key, fallback);
+    }
+
+    /** 0 fit the frame (as always), 1 whole-number multiples of the game's pixels. */
+    private int shapeScaleMode() {
+        return is3d() || isMame139() ? 0 : shapeInt("scale", 0);
+    }
+
+    private int shapeAspectMode() {
+        return isDualScreen() ? 0 : Math.max(0, Math.min(SHAPE_ASPECT_NAMES.length - 1, shapeInt("aspect", 0)));
+    }
+
+    private int shapeCornerDp() {
+        return Math.max(0, Math.min(24, shapeInt("corner", 0)));
+    }
+
+    private boolean shapeBorder() {
+        return shapeInt("border", 0) == 1;
+    }
+
     private float screenAspect() {
+        float base = baseScreenAspect();
+        switch (shapeAspectMode()) {
+            case 1: return 4.0f / 3.0f;
+            case 2: return 16.0f / 9.0f;
+            case 3: return 8.0f / 7.0f;
+            default: return base;
+        }
+    }
+
+    /**
+     * Sizes the picture inside its frame: the whole frame, or in 픽셀 정확 mode the largest
+     * whole multiple of the game's frame that fits, centred; the filter and the corner mask
+     * follow it.
+     */
+    private void applyScreenShape() {
+        SurfaceView surface = this.surfaceView;
+        FrameLayout frame = this.screenFrame;
+        if (surface == null || frame == null || !(surface.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        int width = -1;
+        int height = -1;
+        long handle = this.nativeHandle;
+        if (shapeScaleMode() == 1 && handle != 0 && frame.getWidth() > 0) {
+            int[] size = NativeGba.frameSize(handle);
+            int availableWidth = frame.getWidth() - frame.getPaddingLeft() - frame.getPaddingRight();
+            int availableHeight = frame.getHeight() - frame.getPaddingTop() - frame.getPaddingBottom();
+            if (size != null && size.length == 2 && size[0] > 0 && size[1] > 0 && availableWidth > 0 && availableHeight > 0) {
+                int k = Math.max(1, Math.min(availableWidth / size[0], availableHeight / size[1]));
+                width = Math.min(availableWidth, size[0] * k);
+                height = Math.min(availableHeight, size[1] * k);
+            }
+        }
+        java.util.List<View> boxed = new java.util.ArrayList<>();
+        boxed.add(surface);
+        boxed.addAll(this.screenFilters);
+        if (this.screenMask != null) boxed.add(this.screenMask);
+        for (View view : boxed) {
+            if (!(view.getLayoutParams() instanceof FrameLayout.LayoutParams)) continue;
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) view.getLayoutParams();
+            if (params.width != width || params.height != height || params.gravity != Gravity.CENTER) {
+                params.width = width;
+                params.height = height;
+                params.gravity = Gravity.CENTER;
+                view.setLayoutParams(params);
+            }
+        }
+        if (this.screenMask != null) {
+            this.screenMask.setShape(dp(shapeCornerDp()), shapeBorder(), Color.rgb(18, 22, 32));
+            this.screenMask.bringToFront();
+        }
+    }
+
+    private void showScreenShapeSheet(Runnable reopen) {
+        this.holdPause = true;
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        final int aspectBefore = shapeAspectMode();
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            if (shapeAspectMode() != aspectBefore) {
+                rebuildContent();
+            }
+            resumeUnlessExiting();
+        });
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(16), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("화면 모양");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        int[] size = this.nativeHandle != 0 ? NativeGba.frameSize(this.nativeHandle) : null;
+        sub.setText(consoleName() + (size != null && size.length == 2 && size[0] > 0 ? " · " + size[0] + "×" + size[1] : "") + " · 바꾸면 바로 적용돼요");
+        sub.setTextSize(11.5f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        panel.addView(sub);
+        final String scope = shapeScope();
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+
+        if (!is3d() && !isMame139()) {
+            panel.addView(shapeSection("배율"));
+            LinearLayout row = new LinearLayout(this);
+            final TextView[] chips = new TextView[2];
+            String[] names = {"맞춤 (틀에 맞게)", "픽셀 정확 (정수 배)"};
+            for (int i = 0; i < 2; i++) {
+                final int mode = i;
+                TextView chip = shapeChip(names[i], shapeScaleMode() == i);
+                chip.setOnClickListener(view -> {
+                    prefs.edit().putInt(scope + ":scale", mode).apply();
+                    for (int k = 0; k < 2; k++) setShapeChip(chips[k], k == mode);
+                    applyScreenShape();
+                    updateScreenFilters();
+                });
+                chips[i] = chip;
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+                chipParams.setMargins(i == 0 ? 0 : dp(6), 0, 0, 0);
+                row.addView(chip, chipParams);
+            }
+            panel.addView(row);
+            TextView hint = new TextView(this);
+            hint.setText("픽셀 정확: 틀에 들어가는 가장 큰 정수 배로 도트를 고르게 키워요. 남는 가장자리는 어두운 틀 색이고, 스캔라인 · LCD 격자 필터와 정확히 맞물려요.");
+            hint.setTextSize(10.5f);
+            hint.setTextColor(Color.rgb(122, 130, 140));
+            hint.setPadding(dp(2), dp(4), 0, 0);
+            panel.addView(hint);
+        }
+        if (!isDualScreen()) {
+            panel.addView(shapeSection("비율"));
+            LinearLayout row = new LinearLayout(this);
+            final TextView[] chips = new TextView[SHAPE_ASPECT_NAMES.length];
+            for (int i = 0; i < SHAPE_ASPECT_NAMES.length; i++) {
+                final int mode = i;
+                TextView chip = shapeChip(SHAPE_ASPECT_NAMES[i], shapeAspectMode() == i);
+                chip.setOnClickListener(view -> {
+                    prefs.edit().putInt(scope + ":aspect", mode).apply();
+                    for (int k = 0; k < chips.length; k++) setShapeChip(chips[k], k == mode);
+                });
+                chips[i] = chip;
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+                chipParams.setMargins(i == 0 ? 0 : dp(6), 0, 0, 0);
+                row.addView(chip, chipParams);
+            }
+            panel.addView(row);
+            TextView hint = new TextView(this);
+            hint.setText("그림을 늘리지 않고 틀의 비율을 바꿔요. 창을 닫을 때 적용돼요 (4:3은 PS1 · 아케이드, 8:7은 슈퍼패미컴 실기 느낌).");
+            hint.setTextSize(10.5f);
+            hint.setTextColor(Color.rgb(122, 130, 140));
+            hint.setPadding(dp(2), dp(4), 0, 0);
+            panel.addView(hint);
+        }
+        panel.addView(shapeSection("모서리 둥글기"));
+        LinearLayout sliderRow = new LinearLayout(this);
+        sliderRow.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView value = new TextView(this);
+        value.setText(shapeCornerDp() + "dp");
+        value.setTextSize(12.0f);
+        value.setTextColor(Color.rgb(122, 130, 140));
+        value.setGravity(Gravity.END);
+        android.widget.SeekBar bar = new android.widget.SeekBar(this);
+        bar.setMax(24);
+        bar.setProgress(shapeCornerDp());
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
+                value.setText(progress + "dp");
+                if (fromUser) {
+                    prefs.edit().putInt(scope + ":corner", progress).apply();
+                    applyScreenShape();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+        });
+        sliderRow.addView(bar, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        sliderRow.addView(value, new LinearLayout.LayoutParams(dp(44), -2));
+        panel.addView(sliderRow);
+        panel.addView(shapeToggle("화면 테두리 선", "얇은 어두운 선으로 화면과 케이스 경계를 또렷하게", shapeBorder(), on -> {
+            prefs.edit().putInt(scope + ":border", on ? 1 : 0).apply();
+            applyScreenShape();
+        }));
+        final String gameScope = "shape:game:" + this.saveBaseName;
+        panel.addView(shapeToggle("이 게임에만 적용", "켜면 지금 값이 이 게임의 설정으로 복사돼요", prefs.getBoolean(gameScope + ":on", false), on -> {
+            android.content.SharedPreferences.Editor edit = prefs.edit();
+            if (on) {
+                for (String key : new String[]{"scale", "aspect", "corner", "border"}) {
+                    edit.putInt(gameScope + ":" + key, shapeInt(key, 0));
+                }
+                edit.putBoolean(gameScope + ":on", true);
+            } else {
+                edit.remove(gameScope + ":on");
+            }
+            edit.apply();
+            dialog.dismiss();
+            showScreenShapeSheet(reopen);
+        }));
+        LinearLayout actions = new LinearLayout(this);
+        TextView reset = dialogButton("초기화", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        reset.setOnClickListener(view -> {
+            android.content.SharedPreferences.Editor edit = prefs.edit();
+            for (String key : new String[]{"scale", "aspect", "corner", "border"}) {
+                edit.remove(scope + ":" + key);
+            }
+            edit.apply();
+            applyScreenShape();
+            updateScreenFilters();
+            dialog.dismiss();
+            showScreenShapeSheet(reopen);
+        });
+        TextView done = dialogButton("완료", Color.rgb(225, 29, 72), Color.WHITE);
+        done.setOnClickListener(view -> dialog.dismiss());
+        actions.addView(reset, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(0, dp(46), 1.0f);
+        doneParams.setMargins(dp(8), 0, 0, 0);
+        actions.addView(done, doneParams);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, -2);
+        actionsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(actions, actionsParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            android.graphics.Rect screen = screenRectInWindow();
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            if (!this.landscapeMode && screen != null) {
+                // Below the picture, so the corners and pixels can be watched while changing.
+                window.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                android.view.WindowManager.LayoutParams params = window.getAttributes();
+                params.y = Math.min(screen.bottom + dp(6), metrics.heightPixels - dp(380));
+                window.setAttributes(params);
+                window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(400)), Math.min(dp(420), metrics.heightPixels - params.y - dp(8)));
+            } else {
+                window.setGravity(Gravity.CENTER);
+                window.setLayout(Math.min(metrics.widthPixels - dp(40), dp(430)), Math.min(metrics.heightPixels - dp(24), dp(420)));
+            }
+        }
+        dialog.show();
+    }
+
+    private TextView shapeSection(String text) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(11.5f);
+        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        view.setTextColor(Color.rgb(85, 95, 110));
+        view.setPadding(0, dp(12), 0, dp(6));
+        return view;
+    }
+
+    private TextView shapeChip(String text, boolean on) {
+        TextView chip = new TextView(this);
+        chip.setText(text);
+        chip.setTextSize(11.5f);
+        chip.setGravity(Gravity.CENTER);
+        chip.setMaxLines(1);
+        setShapeChip(chip, on);
+        return chip;
+    }
+
+    private void setShapeChip(TextView chip, boolean on) {
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setCornerRadius(dp(17));
+        background.setColor(on ? Color.rgb(255, 241, 243) : Color.WHITE);
+        background.setStroke(dp(on ? 2 : 1), on ? Color.rgb(225, 29, 72) : Color.rgb(214, 218, 226));
+        chip.setBackground(background);
+        chip.setTextColor(on ? Color.rgb(159, 18, 57) : Color.rgb(31, 41, 51));
+        chip.setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
+    }
+
+    private interface BoolSetter {
+        void set(boolean on);
+    }
+
+    private View shapeToggle(String name, String note, boolean on, BoolSetter setter) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, dp(2));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView label = new TextView(this);
+        label.setText(name);
+        label.setTextSize(13.0f);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        texts.addView(label);
+        TextView small = new TextView(this);
+        small.setText(note);
+        small.setTextSize(10.5f);
+        small.setTextColor(Color.rgb(122, 130, 140));
+        texts.addView(small);
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.Switch sw = new android.widget.Switch(this);
+        sw.setChecked(on);
+        sw.setOnCheckedChangeListener((view, checked) -> setter.set(checked));
+        row.addView(sw, new LinearLayout.LayoutParams(-2, -2));
+        return row;
+    }
+
+    private float baseScreenAspect() {
         if (isN3ds()) {
             // 400x240 over 320x240 as Citra lays them out, like the DS: stacked (the lower
             // one centred) or side by side.
