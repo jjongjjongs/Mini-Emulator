@@ -24,6 +24,7 @@ final class TouchButton extends View {
     static final int STYLE_ARCADE_GREEN = 7;
     static final int STYLE_SNES_BLUE = 8;
     static final int STYLE_PURPLE = 9;
+    static final int STYLE_PINK = 10;
     private final int button;
     private final Paint fill;
     private final Paint highlight;
@@ -209,6 +210,9 @@ final class TouchButton extends View {
             case STYLE_PURPLE:
                 // WonderSwan Y pad.
                 return new int[]{Color.rgb(167, 139, 250), Color.rgb(124, 58, 237), Color.rgb(76, 29, 149)};
+            case STYLE_PINK:
+                // DS MIC button.
+                return new int[]{Color.rgb(244, 114, 182), Color.rgb(219, 39, 119), Color.rgb(131, 24, 67)};
             default:
                 // GBA A/B and anything else round: smoky black.
                 return new int[]{Color.rgb(58, 58, 63), Color.rgb(20, 20, 22), Color.rgb(0, 0, 0)};

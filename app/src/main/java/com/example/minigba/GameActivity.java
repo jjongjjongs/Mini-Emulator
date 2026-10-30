@@ -669,6 +669,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addLandscapeArcadeButton(frameLayout, "A", 1, 18, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_RED);
                 addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
                 addLandscapeArcadeButton(frameLayout, "Y", 2048, 114, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_GREEN);
+                if (isNds()) {
+                    // The microphone in the lower right corner, under B and above START.
+                    addButton(frameLayout, "MIC", kL3, Gravity.BOTTOM | Gravity.END, dp(10), dp(60), dp(46), dp(46), TouchButton.STYLE_PINK);
+                }
             } else {
                 // Master System: 2 is libretro A, 1 is B (Genesis Plus GX's two-button pad).
                 boolean sms = isMasterSystem();
@@ -1012,6 +1016,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             targets.add(new PadMapping.Target(256, "R", shoulderRight));
             targets.add(new PadMapping.Target(4, "SELECT", middle));
             targets.add(new PadMapping.Target(8, "START", middle));
+            if (isNds()) {
+                targets.add(new PadMapping.Target(kL3, "MIC", middle));
+            }
         } else if (isPadLayout()) {
             // GBA, NES, Master System, PC Engine: two face buttons, shoulders on the GBA.
             boolean sms = isMasterSystem();
@@ -1793,6 +1800,226 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용", choice -> {
             MainActivity.sharedSettings(this).edit().putInt("heat_action", choice).apply();
             value.setText(HEAT_ACTION_NAMES[choice] + "  ›");
+        }));
+        return row;
+    }
+
+    // ---- DS microphone: the MIC button (L3) and the phone's mic ----
+    private static final int REQUEST_MIC = 4101;
+    private static final String[] MIC_INPUT_NAMES = {"실제 마이크", "후 불기 소리 (내장)", "끔"};
+    private static final String[] MIC_INPUT_NOTES = {
+            "휴대폰 마이크로 말하거나 불어요. 닌텐독스처럼 목소리를 알아듣는 게임은 이걸로",
+            "마이크 없이 MIC 버튼만 누르면 \"후\" 부는 소리가 들어가요. 촛불 끄기 · 바람 불기용",
+            "게임에 아무 소리도 넣지 않아요"};
+    private static final String[] MIC_BUTTON_NAMES = {"누르는 동안", "눌러서 켜고 끄기", "항상 켜기"};
+    private static final String[] MIC_BUTTON_NOTES = {
+            "MIC 버튼을 누르고 있는 동안만 (기본)",
+            "한 번 누르면 켜지고, 다시 누르면 꺼져요",
+            "버튼 없이 게임 중 계속 켜 둬요 · 배터리를 조금 더 써요"};
+    private final MicCapture micCapture = new MicCapture();
+    private boolean micButtonDown;
+    private boolean micToggled;
+    private boolean micAsking;
+    private boolean micRefused;
+    private View micBadge;
+    private MicLevelView micLevel;
+    private TextView micBadgeText;
+    private final Runnable micPoll = this::pollMic;
+
+    private int dsMicInput() {
+        int value = MainActivity.sharedSettings(this).getInt("ds_mic_input", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private int dsMicButton() {
+        int value = MainActivity.sharedSettings(this).getInt("ds_mic_button", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private void onMicButton(boolean down) {
+        if (!isNds() || down == this.micButtonDown) {
+            return;
+        }
+        this.micButtonDown = down;
+        if (down) {
+            this.micToggled = !this.micToggled;
+        }
+    }
+
+    // Whether the game hears something now, as the core's own MIC button mode decides it.
+    private boolean micWanted() {
+        switch (dsMicButton()) {
+            case 1: return this.micToggled;
+            case 2: return true;
+            default: return this.micButtonDown;
+        }
+    }
+
+    private void startMicPoll() {
+        if (!isNds() || this.destroyed || this.nativeHandle == 0) {
+            return;
+        }
+        View decor = getWindow().getDecorView();
+        decor.removeCallbacks(this.micPoll);
+        decor.post(this.micPoll);
+    }
+
+    private void stopMicPoll() {
+        getWindow().getDecorView().removeCallbacks(this.micPoll);
+        this.micCapture.stop();
+        showMicBadge(false, 0f);
+    }
+
+    // Every 50 ms while a DS game runs: records only while the core has the mic on, and
+    // shows "듣는 중" with the level.
+    private void pollMic() {
+        if (this.destroyed || !this.activityResumed || this.nativeHandle == 0) {
+            return;
+        }
+        int input = dsMicInput();
+        boolean paused = this.pauseDialog != null && this.pauseDialog.isShowing();
+        if (input == 0) {
+            boolean on = NativeGba.isDsMicOn() && !paused;
+            if (on && !this.micCapture.isRunning()) {
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    if (!this.micCapture.start()) {
+                        Toast.makeText(this, "마이크를 열지 못했어요. 다른 앱이 마이크를 쓰고 있는지 확인해 주세요.", Toast.LENGTH_SHORT).show();
+                    }
+                } else if (!this.micAsking && !this.micRefused) {
+                    askMicPermission();
+                }
+            } else if (!on && this.micCapture.isRunning()) {
+                this.micCapture.stop();
+            }
+            showMicBadge(this.micCapture.isRunning(), this.micCapture.level());
+        } else if (input == 1) {
+            this.micCapture.stop();
+            boolean on = micWanted() && !paused;
+            showMicBadge(on, on ? 0.75f : 0f);
+        } else {
+            this.micCapture.stop();
+            showMicBadge(false, 0f);
+        }
+        getWindow().getDecorView().postDelayed(this.micPoll, 50);
+    }
+
+    private void showMicBadge(boolean shown, float level) {
+        if (!shown) {
+            if (this.micBadge != null && this.micBadge.getParent() instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) this.micBadge.getParent()).removeView(this.micBadge);
+            }
+            this.micBadge = null;
+            return;
+        }
+        if (this.micBadge == null || this.micBadge.getParent() == null) {
+            LinearLayout badge = new LinearLayout(this);
+            badge.setOrientation(LinearLayout.HORIZONTAL);
+            badge.setGravity(Gravity.CENTER_VERTICAL);
+            badge.setPadding(dp(14), dp(6), dp(14), dp(6));
+            badge.setBackground(roundRect(Color.argb(235, 219, 39, 119), dp(18)));
+            badge.setElevation(dp(6));
+            TextView text = sheetText("", 12.0f, Color.WHITE, true);
+            badge.addView(text);
+            MicLevelView meter = new MicLevelView(this);
+            LinearLayout.LayoutParams meterParams = new LinearLayout.LayoutParams(dp(60), dp(20));
+            meterParams.setMargins(dp(8), 0, 0, 0);
+            badge.addView(meter, meterParams);
+            // Touches go through to the game.
+            badge.setClickable(false);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            params.setMargins(0, dp(this.landscapeMode ? 12 : 64), 0, 0);
+            addContentView(badge, params);
+            this.micBadge = badge;
+            this.micBadgeText = text;
+            this.micLevel = meter;
+        }
+        this.micBadgeText.setText(dsMicInput() == 1 ? "🎤 후 부는 중" : "🎤 듣는 중");
+        this.micLevel.setLevel(level);
+    }
+
+    // The first time the game wants the phone's mic: what it is for, then the system's own
+    // permission request.
+    private void askMicPermission() {
+        this.micAsking = true;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        panel.addView(sheetHeader(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크를 쓸까요?", this.gameTitle + " · DS", null));
+        TextView body = sheetText("이 게임은 목소리나 바람(후 불기)으로 하는 장면이 있어요. MIC 버튼을 누르고 있는 동안만 소리를 게임에 넘겨요. 녹음하거나 어디에 보내지 않아요.",
+                13.0f, Color.rgb(55, 65, 81), false);
+        body.setLineSpacing(0, 1.2f);
+        panel.addView(body, marginTop(-1, -2, 12));
+        TextView hint = sheetText("다음에 휴대폰이 마이크 권한을 물어요. \"앱 사용 중에만 허용\"을 눌러 주세요.", 11.5f, Color.rgb(157, 23, 77), false);
+        hint.setPadding(dp(12), dp(10), dp(12), dp(10));
+        hint.setBackground(roundRect(Color.rgb(253, 242, 248), dp(12)));
+        panel.addView(hint, marginTop(-1, -2, 10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView later = dialogButton("나중에", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        buttons.addView(later, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView allow = dialogButton("마이크 켜기", Color.rgb(219, 39, 119), Color.WHITE);
+        LinearLayout.LayoutParams allowParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+        allowParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(allow, allowParams);
+        panel.addView(buttons, marginTop(-1, -2, 14));
+        final android.app.Dialog dialog = cardDialog(panel, 0);
+        final boolean[] asked = {false};
+        later.setOnClickListener(view -> dialog.dismiss());
+        allow.setOnClickListener(view -> {
+            asked[0] = true;
+            dialog.dismiss();
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, REQUEST_MIC);
+        });
+        dialog.setOnDismissListener(d -> {
+            if (!asked[0]) {
+                // 나중에: not asked again until the next game.
+                this.micAsking = false;
+                this.micRefused = true;
+            }
+        });
+        dialog.show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_MIC) {
+            return;
+        }
+        this.micAsking = false;
+        boolean granted = grantResults.length > 0 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (!granted) {
+            this.micRefused = true;
+            Toast.makeText(this, "마이크 권한이 없어서 게임에 소리가 들어가지 않아요. 일시정지 › 게임기 › 마이크 소리에서 \"후 불기 소리\"로 바꿀 수 있어요.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private LinearLayout createMicInputRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크 소리", MIC_INPUT_NAMES[dsMicInput()], null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크 소리", MIC_INPUT_NAMES, MIC_INPUT_NOTES,
+                dsMicInput(), "모든 DS 게임에 같이 적용 · 바로 바뀌어요.\n게임 화면의 MIC 버튼(또는 게임패드에 붙인 버튼)을 누를 때 들어가요.",
+                Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putInt("ds_mic_input", choice).apply();
+            NativeGba.setDsMic(choice, dsMicButton());
+            if (choice == 0) {
+                this.micRefused = false;
+            }
+            value.setText(MIC_INPUT_NAMES[choice] + "  ›");
+        }));
+        return row;
+    }
+
+    private LinearLayout createMicButtonRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, Color.rgb(219, 39, 119), "MIC 버튼 방식", MIC_BUTTON_NAMES[dsMicButton()], null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, Color.rgb(219, 39, 119), "MIC 버튼 방식", MIC_BUTTON_NAMES, MIC_BUTTON_NOTES,
+                dsMicButton(), "모든 DS 게임에 같이 적용 · 바로 바뀌어요.",
+                Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putInt("ds_mic_button", choice).apply();
+            NativeGba.setDsMic(dsMicInput(), choice);
+            this.micToggled = false;
+            value.setText(MIC_BUTTON_NAMES[choice] + "  ›");
         }));
         return row;
     }
@@ -3981,6 +4208,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.activityResumed = false;
         onRewindHeld(false);
+        stopMicPoll();
         long j = this.nativeHandle;
         if (j != 0) {
             NativeGba.pause(j, true);
@@ -4001,6 +4229,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             Emulator.resume();
             return;
         }
+        startMicPoll();
         long j = this.nativeHandle;
         if (j != 0) {
             // Back from a file picker opened over the pause menu: stay paused under it.
@@ -4041,6 +4270,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     protected void onDestroy() {
         unregisterPadListener();
         unregisterThermalListener();
+        stopMicPoll();
         this.adhocBeacon.stop();
         if (this.directLink != null) {
             if (this.menuExiting) {
@@ -4277,6 +4507,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setPowerMode(powerMode());
                     NativeGba.setNoAutoState(stvBoard());
                     NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
+                    if (isNds()) {
+                        NativeGba.setDsMic(dsMicInput(), dsMicButton());
+                    }
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
                     NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
@@ -4327,6 +4560,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         // The game's own frame rate is known now (50 for PAL games).
         applyFrameRate();
+        startMicPoll();
         // A phone already hot when the game started (the status came before the engine).
         if (this.thermalStatus >= 2) {
             onThermalStatus(this.thermalStatus);
@@ -5637,6 +5871,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addButton(frameLayout, "A", 1, 8388693, dp(18), dp(102), dp(52), dp(52), TouchButton.STYLE_DARK);
                 addButton(frameLayout, "B", 2, 8388693, dp(68), dp(50), dp(52), dp(52), TouchButton.STYLE_DARK);
                 addButton(frameLayout, "Y", 2048, 8388693, dp(118), dp(102), dp(52), dp(52), TouchButton.STYLE_DARK);
+                // The microphone (held to talk or blow), between the D-pad and the diamond.
+                TouchButton mic = new TouchButton(this, "MIC", kL3, this::setButtonPressed, TouchButton.STYLE_PINK);
+                FrameLayout.LayoutParams micParams = new FrameLayout.LayoutParams(dp(46), dp(46));
+                micParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                micParams.setMargins(0, 0, 0, dp(58));
+                mic.setTranslationX(dp(-20));
+                frameLayout.addView(mic, micParams);
                 addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
                 addCenterButton(frameLayout, startLabel(), 8, 66, 14);
                 return;
@@ -5741,6 +5982,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void updateInput() {
+        onMicButton((this.buttonMask & kL3) != 0);
         if (isMame139()) {
             Emulator.setMiniInput(this.buttonMask);
             return;
@@ -6066,6 +6308,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isNds()) {
             panel.addView(createDsNetRow(dialog), tabRowParams(panel));
+            panel.addView(createMicInputRow(), tabRowParams(panel));
+            panel.addView(createMicButtonRow(), tabRowParams(panel));
         }
         if (isWonderSwan()) {
             panel.addView(createWonderSwanTallRow(dialog), tabRowParams(panel));

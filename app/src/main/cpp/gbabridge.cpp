@@ -1348,6 +1348,11 @@ std::atomic<bool> gSpeedFirstStrong{false};
 std::atomic<int> gPowerMode{0};
 // For the next game created: no automatic quick save (Core::noAutoState).
 std::atomic<bool> gNoAutoState{false};
+// DS microphone (melonDS DS): what the emulated mic hears (0 the phone's mic, 1 the
+// built-in blowing sound, 2 silence) and how its button (L3) works (0 hold, 1 toggle,
+// 2 always on). Read as core options; a change is passed on at once.
+std::atomic<int> gDsMicInput{0};
+std::atomic<int> gDsMicButton{0};
 // PSP, Dreamcast and PS2 (PCSX2) draw with Vulkan where the device has it, unless Java
 // turned it off for the core (after a crash on it).
 std::atomic<bool> gVulkanAllowed{true};
@@ -1467,6 +1472,16 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "melonds_screen_layout1") == 0) return gNdsLayout.load() == 2 ? "left-right" : "top-bottom";
     if (strcmp(key, "melonds_screen_gap") == 0) return gNdsLayout.load() == 0 ? "4" : "0";
     if (strcmp(key, "melonds_touch_mode") == 0) return "touch";
+    // The app shows its own "듣는 중" badge.
+    if (strcmp(key, "melonds_show_mic_state") == 0) return "disabled";
+    if (strcmp(key, "melonds_mic_input") == 0) {
+        int input = gDsMicInput.load();
+        return input == 1 ? "blow" : input == 2 ? "silence" : "microphone";
+    }
+    if (strcmp(key, "melonds_mic_input_active") == 0) {
+        int button = gDsMicButton.load();
+        return button == 1 ? "toggle" : button == 2 ? "always" : "hold";
+    }
     // 3DS (Citra): OpenGL ES with hardware shaders, both screens stacked or side by side
     // (the same choice as the DS), touched with a finger (no pointer drawn, the right
     // stick is only the C stick), saves under <save dir>/Citra/, Korean system language.
@@ -1577,6 +1592,100 @@ retro_proc_address_t RETRO_CALLCONV hwProcAddress(const char* sym) {
     return reinterpret_cast<retro_proc_address_t>(fn);
 }
 
+// ---- The microphone (libretro's microphone interface, for melonDS DS) ----
+// The app records the phone's microphone itself (MicCapture.java, only while the game's
+// mic is on) and pushes 16-bit mono samples here; the core reads them back each frame.
+}  // namespace
+
+struct retro_microphone {
+    bool active = false;
+};
+
+namespace {
+
+namespace mic {
+constexpr unsigned kRate = 44100;
+// About a quarter of a second; older samples are dropped so the game hears the voice now.
+constexpr size_t kMaxQueued = kRate / 4;
+std::mutex mutex;
+std::deque<int16_t> queue;
+retro_microphone* opened = nullptr;
+
+retro_microphone_t* RETRO_CALLCONV open(const retro_microphone_params_t* /*params*/) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (opened != nullptr) {
+        return nullptr;
+    }
+    opened = new retro_microphone();
+    queue.clear();
+    return opened;
+}
+
+void RETRO_CALLCONV close(retro_microphone_t* microphone) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (microphone != nullptr && microphone == opened) {
+        delete opened;
+        opened = nullptr;
+        queue.clear();
+    }
+}
+
+bool RETRO_CALLCONV params(const retro_microphone_t* microphone, retro_microphone_params_t* out) {
+    if (microphone == nullptr || out == nullptr) {
+        return false;
+    }
+    out->rate = kRate;
+    return true;
+}
+
+bool RETRO_CALLCONV setState(retro_microphone_t* microphone, bool state) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (microphone == nullptr || microphone != opened) {
+        return false;
+    }
+    if (state && !microphone->active) {
+        queue.clear();
+    }
+    microphone->active = state;
+    return true;
+}
+
+bool RETRO_CALLCONV getState(const retro_microphone_t* microphone) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return microphone != nullptr && microphone == opened && microphone->active;
+}
+
+// Hands over what has come in; the rest of the frame's samples are silence (the phone's
+// recording runs on its own clock), so the core never waits.
+int RETRO_CALLCONV read(retro_microphone_t* microphone, int16_t* samples, size_t count) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (microphone == nullptr || microphone != opened || samples == nullptr) {
+        return -1;
+    }
+    if (!microphone->active) {
+        return -1;
+    }
+    size_t take = std::min(count, queue.size());
+    for (size_t k = 0; k < take; ++k) {
+        samples[k] = queue.front();
+        queue.pop_front();
+    }
+    std::fill(samples + take, samples + count, static_cast<int16_t>(0));
+    return static_cast<int>(count);
+}
+
+void push(const int16_t* samples, size_t count) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (opened == nullptr || !opened->active) {
+        return;
+    }
+    queue.insert(queue.end(), samples, samples + count);
+    while (queue.size() > kMaxQueued) {
+        queue.pop_front();
+    }
+}
+}  // namespace mic
+
 bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
     Core* core = gCore;
     if (core == nullptr) {
@@ -1623,6 +1732,18 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (dsnet::mode() == 0) return false;
             dsnet::setCallback(static_cast<const retro_netpacket_callback*>(data));
             return true;
+        case RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE: {
+            if (data == nullptr || core->coreId != "melonds") return false;
+            auto* interface = static_cast<retro_microphone_interface*>(data);
+            if (interface->interface_version != RETRO_MICROPHONE_INTERFACE_VERSION) return false;
+            interface->open_mic = mic::open;
+            interface->close_mic = mic::close;
+            interface->get_params = mic::params;
+            interface->set_mic_state = mic::setState;
+            interface->get_mic_state = mic::getState;
+            interface->read_mic = mic::read;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
             if (data == nullptr) return false;
             static_cast<retro_log_callback*>(data)->log = logCallback;
@@ -3551,6 +3672,33 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFsr(JNIEnv* /*env*/
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPowerMode(JNIEnv* /*env*/, jclass /*cls*/, jint mode) {
     gPowerMode.store(mode < 0 || mode > 2 ? 0 : mode);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDsMic(JNIEnv* /*env*/, jclass /*cls*/, jint input, jint button) {
+    int newInput = input >= 0 && input <= 2 ? input : 0;
+    int newButton = button >= 0 && button <= 2 ? button : 0;
+    if (gDsMicInput.exchange(newInput) != newInput | gDsMicButton.exchange(newButton) != newButton) {
+        gVariablesUpdated.store(true);
+    }
+}
+
+JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_isDsMicOn(JNIEnv* /*env*/, jclass /*cls*/) {
+    std::lock_guard<std::mutex> lock(mic::mutex);
+    return mic::opened != nullptr && mic::opened->active ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_pushMic(JNIEnv* env, jclass /*cls*/, jshortArray samples, jint count) {
+    if (samples == nullptr || count <= 0) {
+        return;
+    }
+    jsize length = env->GetArrayLength(samples);
+    size_t n = static_cast<size_t>(std::min<jint>(count, length));
+    jshort* data = env->GetShortArrayElements(samples, nullptr);
+    if (data == nullptr) {
+        return;
+    }
+    mic::push(reinterpret_cast<const int16_t*>(data), n);
+    env->ReleaseShortArrayElements(samples, data, JNI_ABORT);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN64Scale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {

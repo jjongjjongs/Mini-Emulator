@@ -69,6 +69,16 @@ final class NativeGba {
     // "전원 모드" for the next game created: 0 성능, 1 균형, 2 절전.
     static native void setPowerMode(int mode);
 
+    // DS microphone: what the game's mic hears (0 the phone's mic, 1 the built-in blowing
+    // sound, 2 silence) and how the MIC button works (0 hold, 1 toggle, 2 always).
+    static native void setDsMic(int input, int button);
+
+    // Whether the DS game's microphone is on (the core opened it and the MIC button allows).
+    static native boolean isDsMicOn();
+
+    // Microphone samples (16-bit mono, 44.1 kHz) for the DS game.
+    static native void pushMic(short[] samples, int count);
+
     // N64 rendering scale for the next game created: 1 (320x240) or 2 (640x480).
     static native void setN64Scale(int scale);
 
