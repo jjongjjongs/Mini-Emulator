@@ -29,6 +29,7 @@
             android:name="com.example.minigba.BgEditorActivity"
             android:process=":game"
             android:exported="false"
+            android:screenOrientation="behind"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
         <activity
             android:name="com.example.minigba.MainActivity"
