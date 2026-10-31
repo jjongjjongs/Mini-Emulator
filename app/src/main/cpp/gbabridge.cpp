@@ -1427,6 +1427,10 @@ std::string n64RomName(const std::string& path) {
 // Dolphin's port 1 device for Wii games: remote + nunchuk (3<<8 | joypad), remote held
 // sideways (2<<8) or classic controller (4<<8). Set per game before it starts.
 std::atomic<int> gWiiDevice{(3 << 8) | RETRO_DEVICE_JOYPAD};
+// GameCube / Wii resolution (1-3) and picture shape (0 the game's, 1 4:3, 2 stretched 16:9,
+// 3 widescreen hack) for the next game.
+std::atomic<int> gDolphinScale{1};
+std::atomic<int> gDolphinAspect{0};
 
 // Core options the app pins regardless of what the core reports as default.
 void applyWiiuLayout(Core* core) {
@@ -1498,6 +1502,11 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "mupen64plus-EnableCopyColorToRDRAM") == 0) return "Off";
         if (strcmp(key, "mupen64plus-EnableCopyDepthToRDRAM") == 0) return "Off";
         if (strcmp(key, "mupen64plus-FrameDuping") == 0) return "True";
+        // GameCube / Wii: the console's CPU at 80%, the cheapest texture cache checks and
+        // no waiting for the disc drive.
+        if (strcmp(key, "dolphin_cpu_clock_rate") == 0) return "0.80";
+        if (strcmp(key, "dolphin_texture_cache_accuracy") == 0) return "128";
+        if (strcmp(key, "dolphin_fast_disc_speed") == 0) return "enabled";
         // Dreamcast / Naomi: no audio DSP (reverb and echo; on by default), and frames
         // skipped only while the game runs late (threaded rendering is on).
         if (strcmp(key, "reicast_enable_dsp") == 0) return "disabled";
@@ -1598,7 +1607,18 @@ const char* fixedVariable(const char* key) {
     // background (a missing effect for a moment instead of a stutter); the Wii remote's
     // pointer follows a finger on the screen; no on-screen messages.
     if (strcmp(key, "dolphin_renderer") == 0) return "Hardware";
-    if (strcmp(key, "dolphin_efb_scale") == 0) return "1";
+    // Resolution (1-3x of 640x528) and picture shape, per game.
+    if (strcmp(key, "dolphin_efb_scale") == 0) {
+        static const char* scales[] = {"1", "2", "3"};
+        int scale = gDolphinScale.load();
+        return scales[scale >= 1 && scale <= 3 ? scale - 1 : 0];
+    }
+    if (strcmp(key, "dolphin_aspect_ratio") == 0) {
+        // 0 as the game says, 1 4:3, 2 stretched to 16:9, 3 drawn wide (the hack below).
+        int aspect = gDolphinAspect.load();
+        return aspect == 1 ? "2" : aspect >= 2 ? "1" : "0";
+    }
+    if (strcmp(key, "dolphin_widescreen_hack") == 0) return gDolphinAspect.load() == 3 ? "enabled" : "disabled";
     if (strcmp(key, "dolphin_shader_compilation_mode") == 0) return "3";
     if (strcmp(key, "dolphin_ir_mode") == 0) return "2";
     if (strcmp(key, "dolphin_osd_enabled") == 0) return "disabled";
@@ -3649,6 +3669,11 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setCheats(
         }
         return true;
     }) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDolphinVideo(JNIEnv* /*env*/, jclass /*cls*/, jint scale, jint aspect) {
+    gDolphinScale.store(scale >= 1 && scale <= 3 ? scale : 1);
+    gDolphinAspect.store(aspect >= 0 && aspect <= 3 ? aspect : 0);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiControl(JNIEnv* /*env*/, jclass /*cls*/, jint type) {

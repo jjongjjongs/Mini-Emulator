@@ -4547,6 +4547,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setNoAutoState(stvBoard());
                     if (isDolphin()) {
                         NativeGba.setWiiControl(wiiControl());
+                        NativeGba.setDolphinVideo(dolphinScale(), dolphinAspect());
                     }
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
@@ -6099,7 +6100,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 게임기 탭: settings only some consoles have.
     private boolean hasDeviceTab() {
-        return isPsp() || isNds() || isWonderSwan() || isWiiU() || (isDolphin() && isWiiGame());
+        return isPsp() || isNds() || isWonderSwan() || isWiiU() || isDolphin();
     }
 
     // The pause menu: one card with tabs (기본 · 성능 · 화면 · 조작 · 게임기), a content area
@@ -6367,7 +6368,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else if (isN64()) {
             panel.addView(createN64ScaleRow(dialog), tabRowParams(panel));
         }
-        if (speedFirstSupported()) {
+        if (speedFirstSupported() && !isDolphin()) {
             panel.addView(createFastRow(dialog), tabRowParams(panel));
         }
         if (heavySystem()) {
@@ -6392,8 +6393,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isWonderSwan()) {
             panel.addView(createWonderSwanTallRow(dialog), tabRowParams(panel));
         }
-        if (isDolphin() && isWiiGame()) {
-            panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
+        if (isDolphin()) {
+            if (isWiiGame()) {
+                panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
+            }
+            panel.addView(createDolphinScaleRow(dialog), tabRowParams(panel));
+            panel.addView(createDolphinAspectRow(dialog), tabRowParams(panel));
+            panel.addView(createFastRow(dialog), tabRowParams(panel));
         }
         if (isWiiU()) {
             panel.addView(createWiiuViewRow(dialog), tabRowParams(panel));
@@ -6611,7 +6617,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean speedFirstSupported() {
-        return isPsp() || "pcee2".equals(this.coreId) || isN64() || isDreamcast();
+        return isPsp() || "pcee2".equals(this.coreId) || isN64() || isDreamcast() || isDolphin();
     }
 
     // PSP kept its 0.0.106 key.
@@ -7387,6 +7393,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n· 텍스처 비등방성 필터를 꺼요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
                 : isN64()
                 ? "· 화면 내용을 CPU 쪽 메모리로 되돌려 복사하는 작업(색 · 깊이)을 꺼요\n· 같은 화면이 반복되면 다시 그리지 않아요\n게임에 따라 일부 효과(화면 속 화면, 사진 찍기, 렌즈 효과 등)가 빠질 수 있어요."
+                : isDolphin()
+                ? "· 게임기 CPU를 80%로 낮춰 계산을 줄여요\n· 텍스처 변경 검사를 가장 가볍게 해요\n· 디스크 읽기를 기다리지 않아요 (로딩이 빨라져요)\n게임에 따라 게임 속도가 느려지거나 텍스처가 잠깐 깨질 수 있어요."
                 : isDreamcast()
                 ? "· 사운드 DSP(울림 · 에코 효과) 흉내를 꺼요\n· 늦어질 때만 화면을 한 장씩 건너뛰어 그려요\n게임에 따라 소리 울림이 빠질 수 있어요."
                 : "· PS2 CPU를 75%(강하게는 60%)로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
@@ -8321,6 +8329,52 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.wiiDisc = wii;
         return wii;
+    }
+
+    // GameCube / Wii resolution and picture shape, per game.
+    private static final String[] DOLPHIN_SCALE_NAMES = {"1배 · 640×528", "2배 · 720p급", "3배 · 1080p급"};
+    private static final String[] DOLPHIN_SCALE_SHORT = {"1배 (기본)", "2배", "3배"};
+    private static final String[] DOLPHIN_SCALE_NOTES = {"게임기 원래 해상도. 가장 빠름 (기본)", "선명. 성능 좋은 폰 · 게임큐브 게임용", "가장 선명. 무거워요 · Wii 게임은 끊길 수 있어요"};
+    private static final String[] DOLPHIN_ASPECT_NAMES = {"게임대로", "4:3", "16:9로 늘리기", "와이드 (16:9로 그리기)"};
+    private static final String[] DOLPHIN_ASPECT_NOTES = {"게임이 정한 비율 · 게임큐브 4:3, Wii 16:9 (기본)", "옛날 TV 비율로 고정", "4:3 화면을 옆으로 늘려요 (그림이 넓적해져요)",
+            "게임을 16:9로 넓게 그려요 · 일부 게임은 화면 끝이 깨지거나 메뉴가 늘어나요"};
+
+    private int dolphinScale() {
+        int scale = MainActivity.sharedSettings(this).getInt("gc_scale:" + this.saveBaseName, 1);
+        return scale >= 1 && scale <= 3 ? scale : 1;
+    }
+
+    private int dolphinAspect() {
+        int aspect = MainActivity.sharedSettings(this).getInt("gc_aspect:" + this.saveBaseName, 0);
+        return aspect >= 0 && aspect <= 3 ? aspect : 0;
+    }
+
+    private LinearLayout createDolphinScaleRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", DOLPHIN_SCALE_SHORT[dolphinScale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", DOLPHIN_SCALE_NAMES, DOLPHIN_SCALE_NOTES,
+                        dolphinScale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요 (2~3초).\n뜨거워지거나 끊기면 1배로 돌려 주세요.",
+                        Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
+                    if (choice + 1 == dolphinScale()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("gc_scale:" + this.saveBaseName, choice + 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    private LinearLayout createDolphinAspectRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.ROTATE, Color.rgb(15, 118, 110), "화면 비율", DOLPHIN_ASPECT_NAMES[dolphinAspect()],
+                view -> showChoiceDialog(RoundIconView.ROTATE, Color.rgb(15, 118, 110), "화면 비율", DOLPHIN_ASPECT_NAMES, DOLPHIN_ASPECT_NOTES,
+                        dolphinAspect(), "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요. 화면 틀도 그 비율로 바뀌어요.",
+                        Color.rgb(236, 253, 245), Color.rgb(17, 94, 89), "적용하고 이어하기", choice -> {
+                    if (choice == dolphinAspect()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("gc_aspect:" + this.saveBaseName, choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
     }
 
     private int wiiControl() {
@@ -9598,8 +9652,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isWonderSwan()) {
             return wonderSwanTall() ? 144.0f / 224.0f : 224.0f / 144.0f;
         }
-        if (isDolphin() && isWiiGame()) {
-            return 16.0f / 9.0f;
+        if (isDolphin()) {
+            int aspect = dolphinAspect();
+            return aspect == 1 ? 4.0f / 3.0f : aspect >= 2 || isWiiGame() ? 16.0f / 9.0f : 4.0f / 3.0f;
         }
         if (isNeoGeoPocket()) {
             return 160.0f / 152.0f;

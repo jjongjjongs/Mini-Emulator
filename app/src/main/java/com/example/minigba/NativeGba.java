@@ -134,4 +134,8 @@ final class NativeGba {
     static native void setWonderSwanTall(boolean tall);
 
     static native void setWiiControl(int type);
+
+    // GameCube / Wii: resolution (1-3) and picture shape (0 the game's, 1 4:3, 2 16:9
+    // stretched, 3 widescreen hack) for the next game.
+    static native void setDolphinVideo(int scale, int aspect);
 }
