@@ -430,6 +430,10 @@ struct Core {
     std::atomic<double> pacedFps{0};
     // PCEE2 (patched): whether its GS has presented a game picture yet.
     bool (*pcee2HasPicture)() = nullptr;
+    // Cemu (cores/patches/cemu-mini-layout.patch): where the TV and GamePad pictures go.
+    void (*cemuSetLayout)(int, int, const float*, const float*) = nullptr;
+    // A negotiation interface handed over before SET_HW_RENDER made the Vulkan host.
+    const retro_hw_render_context_negotiation_interface* pendingNegotiation = nullptr;
     // While a restored quick save is still on trial, the frame its marker comes off at.
     uint64_t resumeTrialEnd = 0;
 
@@ -623,6 +627,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "pcee2") return "libpcee2_libretro_android.so";
     if (coreId == "melonds") return "libmelondsds_libretro_android.so";
     if (coreId == "citra") return "libcitra_libretro_android.so";
+    if (coreId == "cemu") return "libcemu_libretro_android.so";
     if (coreId == "mupen64plus_next") return "libmupen64plus_next_libretro_android.so";
     if (coreId == "flycast") return "libflycast_libretro_android.so";
     if (coreId == "wswan") return "libmednafen_wswan_libretro_android.so";
@@ -642,10 +647,16 @@ bool loadSymbol(void* library, T& target, const char* name) {
     return true;
 }
 
+void applyWiiuLayout(Core* core);
+
 bool loadCoreSymbols(Core* core) {
     void* lib = core->library;
     if (core->coreId == "pcee2") {
         core->pcee2HasPicture = reinterpret_cast<bool (*)()>(dlsym(lib, "retro_pcee2_has_picture"));
+    }
+    if (core->coreId == "cemu") {
+        core->cemuSetLayout = reinterpret_cast<void (*)(int, int, const float*, const float*)>(dlsym(lib, "retro_mini_set_layout"));
+        applyWiiuLayout(core);
     }
     return loadSymbol(lib, core->retroSetEnvironment, "retro_set_environment") &&
            loadSymbol(lib, core->retroSetVideoRefresh, "retro_set_video_refresh") &&
@@ -692,7 +703,8 @@ size_t stateHeaderSize(const Core* core) {
 // Play!: its states are slow (40 MB) and not reliable enough to restore on every launch;
 // PS2 games keep their progress on the memory card, and the menu's quick save still works.
 bool autoState(const Core* core) {
-    return core->coreId != "play" && !core->noAutoState;
+    // Cemu cannot serialize its state at all.
+    return core->coreId != "play" && core->coreId != "cemu" && !core->noAutoState;
 }
 
 namespace crash {
@@ -1348,6 +1360,16 @@ std::atomic<bool> gSpeedFirstStrong{false};
 std::atomic<int> gPowerMode{0};
 // For the next game created: no automatic quick save (Core::noAutoState).
 std::atomic<bool> gNoAutoState{false};
+// Wii U (Cemu): where the TV and GamePad pictures go in the output, as fractions of it
+// (x, y, width, height; a zero width hides one), and whether the output is two TV heights
+// tall (portrait, the screens one above the other). Kept for the next game and applied to
+// the running one at once.
+std::mutex gWiiuLayoutMutex;
+int gWiiuStack = 1;
+float gWiiuTv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+float gWiiuPad[4] = {0.70f, 0.0f, 0.30f, 0.30f};
+// Internal resolution option value ("0.5x", "0.75x", "native", "1.5x").
+std::string gWiiuResolution = "native";
 // DS microphone (melonDS DS): what the emulated mic hears (0 the phone's mic, 1 the
 // built-in blowing sound, 2 silence) and how its button (L3) works (0 hold, 1 toggle,
 // 2 always on). Read as core options; a change is passed on at once.
@@ -1358,6 +1380,8 @@ std::atomic<int> gDsMicButton{0};
 std::atomic<bool> gVulkanAllowed{true};
 
 bool vulkanFor(const std::string& coreId) {
+    // Cemu has no OpenGL ES renderer, so it takes Vulkan whatever the setting.
+    if (coreId == "cemu") return vkhw::available();
     return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2") && gVulkanAllowed.load() && vkhw::available();
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
@@ -1401,7 +1425,28 @@ std::string n64RomName(const std::string& path) {
 }
 
 // Core options the app pins regardless of what the core reports as default.
+void applyWiiuLayout(Core* core) {
+    if (core == nullptr || core->cemuSetLayout == nullptr) return;
+    std::lock_guard<std::mutex> lock(gWiiuLayoutMutex);
+    core->cemuSetLayout(1, gWiiuStack, gWiiuTv, gWiiuPad);
+}
+
 const char* fixedVariable(const char* key) {
+    // Wii U (Cemu): Vulkan; the app places both screens itself (the layout patch), so the
+    // core's own layout is one that draws both and its switching combination is off.
+    if (strcmp(key, "cemu_gpu_api") == 0) return "Vulkan";
+    if (strcmp(key, "cemu_number_of_screen_layouts") == 0) return "1";
+    if (strcmp(key, "cemu_screen_layout1") == 0) return "Picture in Picture";
+    if (strcmp(key, "cemu_next_screen_layout_button") == 0) return "Disabled";
+    if (strcmp(key, "cemu_drc_position") == 0) return "normal";
+    if (strcmp(key, "cemu_async_shader_compile") == 0) return "enabled";
+    if (strcmp(key, "cemu_show_game_fps") == 0) return "disabled";
+    if (strcmp(key, "cemu_internal_resolution") == 0) {
+        static std::string value;
+        std::lock_guard<std::mutex> lock(gWiiuLayoutMutex);
+        value = gWiiuResolution;
+        return value.c_str();
+    }
     if (strcmp(key, "mgba_use_bios") == 0) return "ON";
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
@@ -1764,6 +1809,10 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
                 if (core->vk == nullptr) {
                     return false;
                 }
+                if (core->pendingNegotiation != nullptr) {
+                    vkhw::setNegotiation(core->vk, core->pendingNegotiation);
+                    core->pendingNegotiation = nullptr;
+                }
                 core->hw = *hw;
                 core->hwRender = true;
                 return true;
@@ -1784,6 +1833,12 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         }
         case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE: {
             auto* iface = static_cast<const retro_hw_render_context_negotiation_interface*>(data);
+            if (iface != nullptr && core->vk == nullptr && vulkanFor(core->coreId) &&
+                iface->interface_type == RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) {
+                // Cemu hands it over before asking for Vulkan; it is used once the host exists.
+                core->pendingNegotiation = iface;
+                return true;
+            }
             if (iface == nullptr || core->vk == nullptr || iface->interface_type != RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN) {
                 return false;
             }
@@ -2373,7 +2428,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
-                       core->coreId == "yabasanshiro" || core->coreId == "citra";
+                       core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -3703,6 +3758,28 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_pushMic(JNIEnv* env, j
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN64Scale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gN64Scale.store(scale == 1 ? 1 : 2);
+}
+
+// Wii U: where the TV and GamePad pictures go (fractions of the output) and whether the
+// output is two TV heights tall; takes effect at once in the running game.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiuLayout(JNIEnv* env, jclass /*cls*/, jint stack, jfloatArray tv, jfloatArray pad) {
+    {
+        std::lock_guard<std::mutex> lock(gWiiuLayoutMutex);
+        gWiiuStack = stack == 2 ? 2 : 1;
+        if (tv != nullptr && env->GetArrayLength(tv) >= 4) env->GetFloatArrayRegion(tv, 0, 4, gWiiuTv);
+        if (pad != nullptr && env->GetArrayLength(pad) >= 4) env->GetFloatArrayRegion(pad, 0, 4, gWiiuPad);
+    }
+    applyWiiuLayout(gCore);
+}
+
+// Wii U internal resolution for the next game ("0.5x", "0.75x", "native", "1.5x").
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiuResolution(JNIEnv* env, jclass /*cls*/, jstring value) {
+    const char* text = value ? env->GetStringUTFChars(value, nullptr) : nullptr;
+    {
+        std::lock_guard<std::mutex> lock(gWiiuLayoutMutex);
+        gWiiuResolution = text && *text ? text : "native";
+    }
+    if (text) env->ReleaseStringUTFChars(value, text);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNoAutoState(JNIEnv* /*env*/, jclass /*cls*/, jboolean off) {

@@ -85,6 +85,13 @@ final class NativeGba {
     // For the next game created: no quick save written on leaving or restored on starting.
     static native void setNoAutoState(boolean off);
 
+    // Wii U: where the TV and GamePad pictures go, as fractions of the output (x, y, width,
+    // height; a zero width hides one); stack 2 makes the output two TV heights tall.
+    static native void setWiiuLayout(int stack, float[] tv, float[] pad);
+
+    // Wii U internal resolution for the next game ("0.5x", "0.75x", "native", "1.5x").
+    static native void setWiiuResolution(String value);
+
     // {frames run, pictures shown, the frame rate the game is paced at}, for the FPS readout.
     static native double[] frameStats(long handle);
 

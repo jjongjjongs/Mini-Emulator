@@ -293,6 +293,24 @@ jobs:
           path: app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
           key: citra-${{ hashFiles('cores/build-citra.sh', 'cores/patches/citra-*.patch') }}
 
+      # Cemu (Wii U) is built by the "Build Cemu core" workflow; without its cache the APK
+      # ships without it and the Wii U mode says the engine is missing.
+      - name: Restore Cemu core
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so
+            app/src/main/assets/cemu_resources.zip
+          key: cemu-${{ hashFiles('cores/build-cemu.sh', 'cores/patches/cemu-*.patch') }}
+
+      - name: Report Cemu core
+        run: |
+          if [ -f app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so app/src/main/assets/cemu_resources.zip
+          else
+            echo "::warning::Cemu core not in the cache; this APK has no Wii U engine"
+          fi
+
       - name: Report PCEE2 core
         run: |
           if [ -f app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so ]; then

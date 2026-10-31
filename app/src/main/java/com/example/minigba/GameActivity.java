@@ -96,7 +96,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         applyScreenFilterToNative(screenFilter());
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : "arcade";
         }
         CrashReports.installJavaHandler(this);
         registerPadListener();
@@ -134,6 +134,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         setNdsLayout(0);
+        this.wiiuPadWindow = null;
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
@@ -212,6 +213,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         attachTouchScreen(surfaceView);
         frameLayout2.addView(this.surfaceView, new FrameLayout.LayoutParams(-1, -1, 17));
         addScreenFilter(frameLayout2);
+        addWiiuPadWindow(frameLayout2);
         frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(dp(320), dp(214), 17));
         addLandscapeControls(frameLayout);
         addLandscapeCornerButtons(frameLayout);
@@ -398,7 +400,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         float aspect = screenAspect();
         // The 3DS controls are taller: the circle pad sits above the D-pad.
-        int tallest = height - dp(64) - screenTop - dp(20) - dp(isN3ds() ? 352 : 268) - padding;
+        int tallest = height - dp(64) - screenTop - dp(20) - dp(isN3ds() || isWiiU() ? 352 : 268) - padding;
         int screenWidth = Math.max(dp(200), Math.min(width - minSide * 2, Math.round(tallest * aspect)));
         int side = (width - screenWidth) / 2;
         int screenHeight = Math.round(screenWidth / aspect) + padding;
@@ -428,7 +430,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             int statusId = getResources().getIdentifier("status_bar_height", "dimen", "android");
             int statusBar = statusId > 0 ? getResources().getDimensionPixelSize(statusId) : dp(24);
-            int tallest = metrics.heightPixels - statusBar - dp(64) - dp(18) - dp(36) - dp(isN3ds() ? 352 : 272) - padding;
+            int tallest = metrics.heightPixels - statusBar - dp(64) - dp(18) - dp(36) - dp(isN3ds() || isWiiU() ? 352 : 272) - padding;
             int widest = Math.max(dp(200), Math.round(tallest * screenAspect()));
             if (screenWidth > widest) {
                 side += (screenWidth - widest) / 2;
@@ -603,6 +605,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
+        if (isWiiU()) {
+            addWiiuLandscapeControls(frameLayout);
+            return;
+        }
         if (isSaturn()) {
             addSaturnLandscapeControls(frameLayout);
             return;
@@ -949,7 +955,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int shoulderLeft = PadMapping.GROUP_SHOULDER_LEFT;
         int shoulderRight = PadMapping.GROUP_SHOULDER_RIGHT;
         int middle = PadMapping.GROUP_MIDDLE;
-        if (isSonyPad()) {
+        if (isWiiU()) {
+            targets.add(new PadMapping.Target(1024, "X", face));
+            targets.add(new PadMapping.Target(1, "A", face));
+            targets.add(new PadMapping.Target(2, "B", face));
+            targets.add(new PadMapping.Target(2048, "Y", face));
+            targets.add(new PadMapping.Target(512, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(kL2, "ZL", shoulderLeft));
+            targets.add(new PadMapping.Target(256, "R", shoulderRight));
+            targets.add(new PadMapping.Target(kR2, "ZR", shoulderRight));
+            targets.add(new PadMapping.Target(kL3, "L3", PadMapping.GROUP_STICK_LEFT));
+            targets.add(new PadMapping.Target(kR3, "R3", PadMapping.GROUP_STICK_RIGHT));
+            targets.add(new PadMapping.Target(4, "−", middle));
+            targets.add(new PadMapping.Target(8, "+", middle));
+        } else if (isSonyPad()) {
             targets.add(new PadMapping.Target(1024, "△", face));
             targets.add(new PadMapping.Target(1, "○", face));
             targets.add(new PadMapping.Target(2, "×", face));
@@ -1073,6 +1092,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "gba": return isGameBoy() ? "게임보이" : "GBA";
             case "nds": return "닌텐도 DS";
             case "3ds": return "닌텐도 3DS";
+            case "wiiu": return "Wii U";
             case "snes": return "슈퍼패미컴";
             case "nes": return "패미컴";
             case "md": return "메가드라이브";
@@ -1344,7 +1364,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
     private boolean rewindSupported() {
-        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isMame139() && !stvBoard();
+        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isWiiU() && !isMame139() && !stvBoard();
     }
 
     private Boolean stvBoard;
@@ -1493,7 +1513,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private static boolean isLayoutControl(View view) {
         return view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView
-                || view instanceof ArcadeJoystickView || view instanceof SpeedButtonView || view instanceof RewindButtonView;
+                || view instanceof ArcadeJoystickView || view instanceof SpeedButtonView || view instanceof RewindButtonView
+                || view instanceof WiiuPadWindowView;
     }
 
     // Saved per console, screen direction and screen style.
@@ -2375,6 +2396,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float group = this.buttonStyle.scale(styleGroup(view));
         view.setScaleX(scaleX * group);
         view.setScaleY(scaleY * group);
+        if (view instanceof WiiuPadWindowView) {
+            // The core draws the GamePad picture where the window now is.
+            view.post(this::applyWiiuLayout);
+        }
         if (view == this.screenArea) {
             // 게임패드 자동 전환: the picture grows into the room the hidden controls leave,
             // keeping its top edge in portrait and its centre in landscape.
@@ -3760,7 +3785,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return true;
         }
         switch (this.gameMode) {
-            case "ps2": case "3ds": case "ss": case "psp": case "dc": case "naomi": case "n64":
+            case "ps2": case "3ds": case "ss": case "psp": case "dc": case "naomi": case "n64": case "wiiu":
                 return true;
             default:
                 return false;
@@ -3785,6 +3810,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // doesn't stop the game and goes away by itself; it opens 발열 줄이는 법.
     private void showStartNotices() {
         long delay = 0;
+        if (isWiiU() && !MainActivity.sharedSettings(this).getBoolean("wiiu_notice", false)) {
+            MainActivity.sharedSettings(this).edit().putBoolean("wiiu_notice", true).apply();
+            new AppDialog.Builder(this).setTitle("Wii U 모드 · 실험적")
+                    .setMessage("• 이어하기가 없어요\n나가면 다음엔 타이틀부터예요. 게임 안에서 저장해 주세요. 되감기 · 세이브 슬롯도 없어요.\n\n"
+                            + "• 처음엔 끊겨요\n장면마다 셰이더를 처음 만들 때 잠깐 멈춰요. 한 번 지나간 곳은 다음부터 부드러워요.\n\n"
+                            + "• 뜨거워질 수 있어요\n전원 모드는 '성능'으로 시작해요. 뜨거우면 게임기 탭에서 해상도를 낮춰 보세요.")
+                    .setPositiveButton("알겠어요", null).show();
+            return;
+        }
         String stvKey = "stv_notice:" + this.saveBaseName;
         if (stvBoard() && !MainActivity.sharedSettings(this).getBoolean(stvKey, false)) {
             MainActivity.sharedSettings(this).edit().putBoolean(stvKey, true).apply();
@@ -4140,7 +4174,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
             comboParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createComboRow(refresh), comboParams);
-            if (isDualShock()) {
+            if (isDualShock() || isWiiU()) {
                 LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(-1, dp(52));
                 rightParams.setMargins(0, dp(8), 0, 0);
                 panel.addView(createStickRow(true, refresh), rightParams);
@@ -4506,6 +4540,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
                     NativeGba.setPowerMode(powerMode());
                     NativeGba.setNoAutoState(stvBoard());
+                    if (isWiiU()) {
+                        NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
+                        applyWiiuLayout();
+                    }
                     NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
                     if (isNds()) {
                         NativeGba.setDsMic(dsMicInput(), dsMicButton());
@@ -4647,6 +4685,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Above START at the bottom of the right column.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
             speedParams.setMargins(0, 0, dp(127), dp(62));
+        } else if (isWiiU()) {
+            // Above + in the right column.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(14), dp(52));
         } else if (isDualScreen()) {
             // The DS screens run the full height, so the button sits beside START instead.
             speedParams.gravity = Gravity.BOTTOM | Gravity.END;
@@ -4773,6 +4815,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createQuickSave(boolean withSram) {
+        if (isWiiU()) {
+            showWiiuNoStates();
+            return;
+        }
         if (stvBoard() && !this.stvSaveConfirmed) {
             confirmStvSave(() -> {
                 this.stvSaveConfirmed = true;
@@ -5000,7 +5046,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean stvSaveConfirmed;
 
+    private void showWiiuNoStates() {
+        Toast.makeText(this, "Wii U는 엔진이 장면 저장을 지원하지 않아요. 게임 안에서 저장해 주세요.", Toast.LENGTH_LONG).show();
+    }
+
     private void saveToSlot(int n, String memo, boolean overwrite) {
+        if (isWiiU()) {
+            showWiiuNoStates();
+            return;
+        }
         if (stvBoard() && !this.stvSaveConfirmed) {
             confirmStvSave(() -> {
                 this.stvSaveConfirmed = true;
@@ -5414,6 +5468,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private boolean holdPause;
 
     private void showLoadList() {
+        if (isWiiU()) {
+            showWiiuNoStates();
+            return;
+        }
         this.holdPause = true;
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
@@ -5774,6 +5832,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
+        if (isWiiU()) {
+            addWiiuControls(frameLayout);
+            return;
+        }
         if (isSaturn()) {
             addSaturnControls(frameLayout);
             return;
@@ -6025,7 +6087,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 게임기 탭: settings only some consoles have.
     private boolean hasDeviceTab() {
-        return isPsp() || isNds() || isWonderSwan();
+        return isPsp() || isNds() || isWonderSwan() || isWiiU();
     }
 
     // The pause menu: one card with tabs (기본 · 성능 · 화면 · 조작 · 게임기), a content area
@@ -6202,9 +6264,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // Indices follow onGameMenuItemSelected: 1 save, 2 load, 3 in-game save, 4 reset,
         // 5 rotate, 6 exit, 7 screenshot, 8 whole-screen capture.
         java.util.List<View> tiles = new java.util.ArrayList<>();
-        tiles.add(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", isMame139() ? null : "길게: 내 칸"));
-        tiles.add(createMenuTile(dialog, 2, RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", lastQuickSaveText()));
-        tiles.add(createMenuTile(dialog, 3, RoundIconView.CARD, RoundIconView.COLOR_CARD, "세이브 저장", null));
+        // Wii U: the engine keeps no states; the game's own saves are written as it makes them.
+        if (!isWiiU()) {
+            tiles.add(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", isMame139() ? null : "길게: 내 칸"));
+            tiles.add(createMenuTile(dialog, 2, RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", lastQuickSaveText()));
+            tiles.add(createMenuTile(dialog, 3, RoundIconView.CARD, RoundIconView.COLOR_CARD, "세이브 저장", null));
+        }
         tiles.add(createMenuTile(dialog, 4, RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null));
         tiles.add(createMenuTile(dialog, 5, RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, this.landscapeMode ? "세로 화면" : "가로 화면", null));
         if (!isMame139()) {
@@ -6315,6 +6380,61 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isWonderSwan()) {
             panel.addView(createWonderSwanTallRow(dialog), tabRowParams(panel));
         }
+        if (isWiiU()) {
+            panel.addView(createWiiuViewRow(dialog), tabRowParams(panel));
+            panel.addView(createWiiuResolutionRow(dialog), tabRowParams(panel));
+            TextView note = new TextView(this);
+            note.setText("Wii U는 엔진이 장면을 저장하지 못해서 이어하기 · 되감기 · 세이브 슬롯이 없어요. 게임 안에서 저장해 주세요.\n"
+                    + "가로 화면의 게임패드 작은 창은 '버튼 배치 편집'에서 옮기고 크기를 바꿀 수 있어요.");
+            note.setTextSize(12.0f);
+            note.setLineSpacing(0.0f, 1.25f);
+            note.setTextColor(Color.rgb(7, 89, 133));
+            note.setPadding(dp(12), dp(10), dp(12), dp(10));
+            note.setBackground(roundRect(Color.rgb(224, 242, 254), dp(13)));
+            panel.addView(note, tabRowParams(panel));
+        }
+    }
+
+    // ---- Wii U settings rows ----
+    private static final String[] WIIU_RES_VALUES = {"0.5x", "0.75x", "native", "1.5x"};
+    private static final String[] WIIU_RES_NAMES = {"0.5배 (가벼움)", "0.75배", "1배 · 720p (기본)", "1.5배 · 1080p"};
+    private static final String[] WIIU_RES_NOTES = {"화질은 떨어지지만 가장 빠르고 덜 뜨거워요", "조금 가볍게", "Wii U 원래 해상도", "선명하지만 무거워요 · 최신 기기용"};
+
+    private int wiiuResolution() {
+        int value = MainActivity.sharedSettings(this).getInt("wiiu_res:" + this.saveBaseName, 2);
+        return value >= 0 && value < WIIU_RES_VALUES.length ? value : 2;
+    }
+
+    private LinearLayout createWiiuViewRow(android.app.Dialog menu) {
+        String[] names = this.landscapeMode ? WIIU_VIEW_LANDSCAPE : WIIU_VIEW_PORTRAIT;
+        String[] notes = this.landscapeMode
+                ? new String[]{"TV 화면을 크게, 게임패드는 구석 작은 창 (터치 가능)", "TV 화면만", "게임패드 화면만 크게 (지도 · 메뉴 볼 때)"}
+                : new String[]{"위 TV · 아래 게임패드 (터치 가능)", "TV 화면만 크게", "게임패드 화면만 크게"};
+        return createSettingRow(RoundIconView.DS, RoundIconView.COLOR_DS, "게임패드 화면", wiiuViewName(),
+                view -> showChoiceDialog(RoundIconView.DS, RoundIconView.COLOR_DS, "게임패드 화면", names, notes, wiiuView(),
+                        "화면의 '화면 전환' 버튼으로도 차례대로 바꿀 수 있어요. 세로 · 가로 따로 기억해요.",
+                        Color.rgb(224, 242, 254), Color.rgb(7, 89, 133), "적용", choice -> {
+                    if (choice == wiiuView()) {
+                        return;
+                    }
+                    menu.dismiss();
+                    setWiiuView(choice);
+                }));
+    }
+
+    private LinearLayout createWiiuResolutionRow(android.app.Dialog menu) {
+        int current = wiiuResolution();
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", WIIU_RES_NAMES[current],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", WIIU_RES_NAMES, WIIU_RES_NOTES, current,
+                        "이 게임에만 적용돼요. 바꾸면 게임이 다시 켜지고, Wii U는 이어하기가 없어서 타이틀부터 시작해요. 먼저 게임 안에서 저장해 주세요.",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 다시 켜기", choice -> {
+                    if (choice == current) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("wiiu_res:" + this.saveBaseName, choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
     }
 
     // PSP system language, per game. PSP games pick their text (and some their keyboard)
@@ -7901,9 +8021,212 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "citra".equals(this.coreId);
     }
 
-    // DS and 3DS: two screens stacked in portrait, the lower one touched with a finger.
+    private boolean isWiiU() {
+        return "cemu".equals(this.coreId);
+    }
+
+    // ---- Wii U: the TV picture and the GamePad's ----
+    // Portrait: 0 the TV over the GamePad, 1 TV only, 2 GamePad only. Landscape: 0 the TV with
+    // the GamePad in a small window (WiiuPadWindowView), 1 TV only, 2 GamePad only.
+    private static final String[] WIIU_VIEW_PORTRAIT = {"위아래", "TV만", "게임패드만"};
+    private static final String[] WIIU_VIEW_LANDSCAPE = {"작은 창", "TV만", "게임패드만"};
+    private WiiuPadWindowView wiiuPadWindow;
+
+    private int wiiuView() {
+        int value = MainActivity.sharedSettings(this).getInt(this.landscapeMode ? "wiiu_view_l" : "wiiu_view_p", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private void setWiiuView(int view) {
+        MainActivity.sharedSettings(this).edit().putInt(this.landscapeMode ? "wiiu_view_l" : "wiiu_view_p", view).apply();
+        if (this.landscapeMode) {
+            if (this.wiiuPadWindow != null) {
+                this.wiiuPadWindow.setVisibility(view == 0 ? View.VISIBLE : View.GONE);
+            }
+            applyWiiuLayout();
+        } else {
+            // The screen's shape changes with it (two pictures tall or one).
+            applyWiiuLayout();
+            rebuildContent();
+        }
+    }
+
+    private String wiiuViewName() {
+        return (this.landscapeMode ? WIIU_VIEW_LANDSCAPE : WIIU_VIEW_PORTRAIT)[wiiuView()];
+    }
+
+    // Tells the core where to draw both pictures, as fractions of its output.
+    private void applyWiiuLayout() {
+        if (!isWiiU()) {
+            return;
+        }
+        float[] none = {0f, 0f, 0f, 0f};
+        float[] whole = {0f, 0f, 1f, 1f};
+        int view = wiiuView();
+        if (view == 1) {
+            NativeGba.setWiiuLayout(1, whole, none);
+        } else if (view == 2) {
+            NativeGba.setWiiuLayout(1, none, whole);
+        } else if (!this.landscapeMode) {
+            NativeGba.setWiiuLayout(2, new float[]{0f, 0f, 1f, 0.5f}, new float[]{0f, 0.5f, 1f, 0.5f});
+        } else {
+            NativeGba.setWiiuLayout(1, whole, wiiuPadRect());
+        }
+    }
+
+    // The window's rectangle over the picture, from where the layout editor left it.
+    private float[] wiiuPadRect() {
+        WiiuPadWindowView window = this.wiiuPadWindow;
+        SurfaceView surface = this.surfaceView;
+        if (window == null || surface == null || window.getWidth() <= 0 || surface.getWidth() <= 0 || surface.getHeight() <= 0) {
+            return new float[]{0.68f, 0.02f, 0.30f, 0.30f};
+        }
+        float width = window.getWidth() * window.getScaleX();
+        float height = window.getHeight() * window.getScaleY();
+        float left = window.getLeft() + window.getTranslationX() + window.getWidth() * (1f - window.getScaleX()) / 2f - (surface.getLeft() + surface.getTranslationX());
+        float top = window.getTop() + window.getTranslationY() + window.getHeight() * (1f - window.getScaleY()) / 2f - (surface.getTop() + surface.getTranslationY());
+        float w = Math.max(0.05f, Math.min(1f, width / surface.getWidth()));
+        float h = Math.max(0.05f, Math.min(1f, height / surface.getHeight()));
+        float x = Math.max(0f, Math.min(1f - w, left / surface.getWidth()));
+        float y = Math.max(0f, Math.min(1f - h, top / surface.getHeight()));
+        return new float[]{x, y, w, h};
+    }
+
+    // Landscape: the GamePad window in the top right corner of the picture, 30% of its width.
+    private void addWiiuPadWindow(FrameLayout screenFrame) {
+        this.wiiuPadWindow = null;
+        if (!isWiiU()) {
+            return;
+        }
+        WiiuPadWindowView window = new WiiuPadWindowView(this, this::onWiiuPadTouch);
+        window.setVisibility(wiiuView() == 0 ? View.VISIBLE : View.GONE);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(120), dp(68), Gravity.TOP | Gravity.END);
+        screenFrame.addView(window, params);
+        this.wiiuPadWindow = window;
+        screenFrame.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> {
+            int width = Math.round((r - l) * 0.30f);
+            int height = Math.round(width * 9f / 16f);
+            int margin = Math.round((r - l) * 0.012f);
+            FrameLayout.LayoutParams now = (FrameLayout.LayoutParams) window.getLayoutParams();
+            if (width > 0 && (now.width != width || now.height != height || now.topMargin != margin)) {
+                now.width = width;
+                now.height = height;
+                now.setMargins(0, margin, margin, 0);
+                window.post(() -> {
+                    window.setLayoutParams(now);
+                    window.post(this::applyWiiuLayout);
+                });
+            } else {
+                window.post(this::applyWiiuLayout);
+            }
+        });
+    }
+
+    // A touch on the window is a touch on the GamePad's screen, at that place in the picture.
+    private void onWiiuPadTouch(WiiuPadWindowView window, float x, float y, boolean pressed) {
+        long handle = this.nativeHandle;
+        SurfaceView surface = this.surfaceView;
+        if (handle == 0 || surface == null || surface.getWidth() <= 0 || surface.getHeight() <= 0) {
+            return;
+        }
+        float pivotX = window.getWidth() / 2f;
+        float pivotY = window.getHeight() / 2f;
+        float parentX = window.getLeft() + window.getTranslationX() + pivotX + (x - pivotX) * window.getScaleX();
+        float parentY = window.getTop() + window.getTranslationY() + pivotY + (y - pivotY) * window.getScaleY();
+        float fx = Math.max(0f, Math.min(1f, (parentX - surface.getLeft() - surface.getTranslationX()) / surface.getWidth()));
+        float fy = Math.max(0f, Math.min(1f, (parentY - surface.getTop() - surface.getTranslationY()) / surface.getHeight()));
+        NativeGba.setPointer(handle, Math.round((fx * 2f - 1f) * 32767f), Math.round((fy * 2f - 1f) * 32767f), pressed);
+    }
+
+    // "화면 전환": the next of the three views.
+    private TextView createWiiuSwitchButton() {
+        TextView button = new TextView(this);
+        button.setText("화면 전환");
+        button.setTextSize(11.0f);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setTextColor(Color.rgb(203, 213, 225));
+        button.setGravity(Gravity.CENTER);
+        button.setBackground(roundRect(Color.argb(210, 55, 65, 81), dp(15)));
+        button.setOnClickListener(view -> {
+            int next = (wiiuView() + 1) % 3;
+            setWiiuView(next);
+            Toast.makeText(this, "화면: " + (this.landscapeMode ? WIIU_VIEW_LANDSCAPE : WIIU_VIEW_PORTRAIT)[next], Toast.LENGTH_SHORT).show();
+        });
+        return button;
+    }
+
+    // Portrait, under the two pictures: ZL L and R ZR along the top, the left stick over the
+    // D-pad, the diamond over the right stick, − + and the stick clicks between them, as on
+    // the GamePad.
+    private void addWiiuControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "ZL", kL2, Gravity.TOP | Gravity.START, dp(14), dp(8), dp(52), dp(40), 2);
+        addButton(frameLayout, "L", 512, Gravity.TOP | Gravity.START, dp(72), dp(8), dp(52), dp(40), 2);
+        addButton(frameLayout, "R", 256, Gravity.TOP | Gravity.END, dp(72), dp(8), dp(52), dp(40), 2);
+        addButton(frameLayout, "ZR", kR2, Gravity.TOP | Gravity.END, dp(14), dp(8), dp(52), dp(40), 2);
+        addFastForwardButton(frameLayout);
+        FrameLayout.LayoutParams leftStick = new FrameLayout.LayoutParams(dp(92), dp(92), Gravity.BOTTOM | Gravity.START);
+        leftStick.setMargins(dp(24), 0, 0, dp(200));
+        frameLayout.addView(leftStick(), leftStick);
+        FrameLayout.LayoutParams pad = new FrameLayout.LayoutParams(dp(108), dp(108), Gravity.BOTTOM | Gravity.START);
+        pad.setMargins(dp(16), 0, 0, dp(66));
+        frameLayout.addView(createDirectionControl(), pad);
+        addButton(frameLayout, "X", 1024, Gravity.BOTTOM | Gravity.END, dp(76), dp(254), dp(48), dp(48), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, Gravity.BOTTOM | Gravity.END, dp(28), dp(208), dp(48), dp(48), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, Gravity.BOTTOM | Gravity.END, dp(124), dp(208), dp(48), dp(48), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, Gravity.BOTTOM | Gravity.END, dp(76), dp(162), dp(48), dp(48), TouchButton.STYLE_DARK);
+        FrameLayout.LayoutParams rightStick = new FrameLayout.LayoutParams(dp(92), dp(92), Gravity.BOTTOM | Gravity.END);
+        rightStick.setMargins(0, 0, dp(32), dp(52));
+        frameLayout.addView(rightStick(), rightStick);
+        for (int k = 0; k < 2; k++) {
+            TouchButton key = new TouchButton(this, k == 0 ? "−" : "+", k == 0 ? 4 : 8, this::setButtonPressed);
+            FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(44), dp(30), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            keyParams.setMargins(0, 0, 0, dp(96));
+            key.setTranslationX(dp(k == 0 ? -28 : 28));
+            frameLayout.addView(key, keyParams);
+            TouchButton click = new TouchButton(this, k == 0 ? "L3" : "R3", k == 0 ? kL3 : kR3, this::setButtonPressed, TouchButton.STYLE_DARK);
+            FrameLayout.LayoutParams clickParams = new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            clickParams.setMargins(0, 0, 0, dp(140));
+            click.setTranslationX(dp(k == 0 ? -28 : 28));
+            frameLayout.addView(click, clickParams);
+        }
+        FrameLayout.LayoutParams switchParams = new FrameLayout.LayoutParams(dp(84), dp(30), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        switchParams.setMargins(0, 0, 0, dp(20));
+        frameLayout.addView(createWiiuSwitchButton(), switchParams);
+    }
+
+    // Landscape, in the columns beside the TV picture: ZL L / R ZR at the top, the left stick
+    // and the D-pad on the left, the diamond and the right stick on the right.
+    private void addWiiuLandscapeControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "ZL", kL2, Gravity.TOP | Gravity.START, dp(14), dp(62), dp(50), dp(36), 2);
+        addButton(frameLayout, "L", 512, Gravity.TOP | Gravity.START, dp(70), dp(62), dp(50), dp(36), 2);
+        addButton(frameLayout, "R", 256, Gravity.TOP | Gravity.END, dp(70), dp(62), dp(50), dp(36), 2);
+        addButton(frameLayout, "ZR", kR2, Gravity.TOP | Gravity.END, dp(14), dp(62), dp(50), dp(36), 2);
+        FrameLayout.LayoutParams leftStick = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.TOP | Gravity.START);
+        leftStick.setMargins(dp(16), dp(112), 0, 0);
+        frameLayout.addView(leftStick(), leftStick);
+        FrameLayout.LayoutParams pad = new FrameLayout.LayoutParams(dp(104), dp(104), Gravity.BOTTOM | Gravity.START);
+        pad.setMargins(dp(60), 0, 0, dp(52));
+        frameLayout.addView(createDirectionControl(), pad);
+        addButton(frameLayout, "X", 1024, Gravity.TOP | Gravity.END, dp(62), dp(108), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, Gravity.TOP | Gravity.END, dp(18), dp(146), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, Gravity.TOP | Gravity.END, dp(106), dp(146), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, Gravity.TOP | Gravity.END, dp(62), dp(184), dp(44), dp(44), TouchButton.STYLE_DARK);
+        FrameLayout.LayoutParams rightStick = new FrameLayout.LayoutParams(dp(88), dp(88), Gravity.BOTTOM | Gravity.END);
+        rightStick.setMargins(0, 0, dp(100), dp(54));
+        frameLayout.addView(rightStick(), rightStick);
+        addButton(frameLayout, "−", 4, Gravity.BOTTOM | Gravity.START, dp(14), dp(12), dp(44), dp(30));
+        addButton(frameLayout, "+", 8, Gravity.BOTTOM | Gravity.END, dp(14), dp(12), dp(44), dp(30));
+        addButton(frameLayout, "L3", kL3, Gravity.TOP | Gravity.START, dp(118), dp(112), dp(36), dp(36), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "R3", kR3, Gravity.BOTTOM | Gravity.END, dp(18), dp(100), dp(36), dp(36), TouchButton.STYLE_DARK);
+        FrameLayout.LayoutParams switchParams = new FrameLayout.LayoutParams(dp(80), dp(30), Gravity.BOTTOM | Gravity.START);
+        switchParams.setMargins(dp(66), 0, 0, dp(12));
+        frameLayout.addView(createWiiuSwitchButton(), switchParams);
+    }
+
+    // DS, 3DS and Wii U: two screens stacked in portrait, the lower one touched with a finger
+    // (on the Wii U the GamePad's).
     private boolean isDualScreen() {
-        return isNds() || isN3ds();
+        return isNds() || isN3ds() || isWiiU();
     }
 
     // DS: a finger on the game screen is the stylus. Positions go to the core in libretro
@@ -8574,11 +8897,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean hasLeftStick() {
-        return isSonyPad() || isN64() || (isDreamcast() && !isNaomi()) || isN3ds();
+        return isSonyPad() || isN64() || (isDreamcast() && !isNaomi()) || isN3ds() || isWiiU();
     }
 
     private LinearLayout createStickRow(boolean right, Runnable reopen) {
-        String name = right ? "오른쪽 스틱 감도" : isDualShock() ? "왼쪽 스틱 감도" : "스틱 감도";
+        String name = right ? "오른쪽 스틱 감도" : isDualShock() || isWiiU() ? "왼쪽 스틱 감도" : "스틱 감도";
         String shown = StickSensitivityDialog.format(stickSensitivity(right)) + (stickSensitivityOwn(right) ? " · 이 게임" : "");
         return createSettingRow(RoundIconView.STICK, RoundIconView.COLOR_STICK, name, shown,
                 view -> StickSensitivityDialog.show(this, name, stickSensitivity(right), stickSensitivityAll(right), this.gameTitle, (value, thisGame) -> {
@@ -8989,6 +9312,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private float baseScreenAspect() {
+        if (isWiiU()) {
+            // The TV over the GamePad in portrait (both 16:9), one of them otherwise.
+            return this.ndsLayout == 0 && wiiuView() == 0 ? 1280.0f / 1440.0f : 1280.0f / 720.0f;
+        }
         if (isN3ds()) {
             // 400x240 over 320x240 as Citra lays them out, like the DS: stacked (the lower
             // one centred) or side by side.
@@ -9028,6 +9355,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "pcee2":
             case "melonds":
             case "citra":
+            case "cemu":
             case "mupen64plus_next":
             case "flycast":
             case "wswan":
