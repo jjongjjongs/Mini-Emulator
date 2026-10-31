@@ -1,0 +1,79 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 서명 정보는 저장소에 올리지 않습니다. 프로젝트 루트에 keystore.properties를 두면
+// release 빌드가 그 키로 서명됩니다. (.gitignore에 포함되어 있음)
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+android {
+    namespace 'com.example.minigba'
+    compileSdk 34
+    ndkVersion '26.1.10909125'
+
+    defaultConfig {
+        applicationId 'com.example.minigba.gbaonly'
+        minSdk 24
+        targetSdk 34
+        versionCode 220
+        versionName '0.0.220'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    packaging {
+        jniLibs {
+            // Compress the emulator cores in the APK; Android unpacks them when installing.
+            useLegacyPackaging true
+        }
+    }
+}
+
+dependencies {
+    // xdelta patches compressed with LZMA (RomPatcher).
+    implementation 'org.tukaani:xz:1.9'
+}

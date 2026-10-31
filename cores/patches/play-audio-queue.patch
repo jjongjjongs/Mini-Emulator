@@ -1,0 +1,38 @@
+diff --git a/Source/ui_libretro/SH_LibreAudio.cpp b/Source/ui_libretro/SH_LibreAudio.cpp
+index 42067f7..35c1c3b 100644
+--- a/Source/ui_libretro/SH_LibreAudio.cpp
++++ b/Source/ui_libretro/SH_LibreAudio.cpp
+@@ -11,20 +11,29 @@ CSoundHandler* CSH_LibreAudio::HandlerFactory()
+ 	return new CSH_LibreAudio();
+ }
+ 
++// The VM writes several blocks per frame and the frontend takes them once per frame, so the
++// blocks are queued; keeping only the last one dropped most of the sound and it crackled.
++// Samples are interleaved stereo; at most a second is kept if nobody collects them.
++static constexpr size_t MAX_QUEUED_SAMPLES = 44100 * 2;
++
+ void CSH_LibreAudio::Write(int16* buffer, unsigned int sampleCount, unsigned int sampleRate)
+ {
+ 	std::lock_guard<std::mutex> lock(m_buffer_lock);
+-	m_buffer.resize(sampleCount * sizeof(int16));
+-	memcpy(m_buffer.data(), buffer, sampleCount * sizeof(int16));
++	m_buffer.insert(m_buffer.end(), buffer, buffer + sampleCount);
++	if(m_buffer.size() > MAX_QUEUED_SAMPLES)
++	{
++		size_t excess = (m_buffer.size() - MAX_QUEUED_SAMPLES + 1) & ~size_t(1);
++		m_buffer.erase(m_buffer.begin(), m_buffer.begin() + excess);
++	}
+ }
+ 
+ void CSH_LibreAudio::ProcessBuffer()
+ {
++	std::lock_guard<std::mutex> lock(m_buffer_lock);
+ 	if(!m_buffer.empty())
+ 	{
+-		std::lock_guard<std::mutex> lock(m_buffer_lock);
+ 		if(g_set_audio_sample_batch_cb)
+-			g_set_audio_sample_batch_cb(m_buffer.data(), m_buffer.size() / (2 * sizeof(int16)));
++			g_set_audio_sample_batch_cb(m_buffer.data(), m_buffer.size() / 2);
+ 		m_buffer.clear();
+ 	}
+ }

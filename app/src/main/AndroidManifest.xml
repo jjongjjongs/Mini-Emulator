@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- DS games that listen (Nintendogs, blowing): only while the MIC button is on. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation"/>
+    <application
+        android:theme="@style/AppTheme"
+        android:label="@string/app_name"
+        android:icon="@drawable/ic_launcher"
+        android:allowBackup="false"
+        android:appCategory="game"
+        android:isGame="true"
+        android:allowNativeHeapPointerTagging="false"
+        android:supportsRtl="true"
+        android:extractNativeLibs="true"
+        android:resizeableActivity="true"
+        android:roundIcon="@drawable/ic_launcher_round">
+        <activity
+            android:name="com.example.minigba.GameActivity"
+            android:process=":game"
+            android:exported="false"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
+        <activity
+            android:name="com.example.minigba.BgEditorActivity"
+            android:process=":game"
+            android:exported="false"
+            android:screenOrientation="behind"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
+        <activity
+            android:name="com.example.minigba.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- 꾸미기 프리셋 파일(.mepreset)을 메신저 · 파일 앱에서 열기 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:host="*"/>
+                <data android:mimeType="*/*"/>
+                <data android:pathPattern=".*\\.mepreset"/>
+                <data android:pathPattern=".*\\..*\\.mepreset"/>
+                <data android:pathPattern=".*\\..*\\..*\\.mepreset"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.mepreset"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="application/x-mepreset"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

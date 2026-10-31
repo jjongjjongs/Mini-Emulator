@@ -1,0 +1,28 @@
+diff --git a/src/core/hle/service/am/am.cpp b/src/core/hle/service/am/am.cpp
+index cf68e34..dc038be 100644
+--- a/src/core/hle/service/am/am.cpp
++++ b/src/core/hle/service/am/am.cpp
+@@ -325,8 +325,8 @@ bool CIAFile::Close() const {
+     // Install aborted
+     if (!complete) {
+         LOG_ERROR(Service_AM, "CIAFile closed prematurely, aborting install...");
+-        FileUtil::DeleteDir(GetTitlePath(media_type, container.GetTitleMetadata().GetTitleID()));
+-        return true;
++        FileUtil::DeleteDirRecursively(GetTitlePath(media_type, container.GetTitleMetadata().GetTitleID()));
++        return false;
+     }
+ 
+     // Clean up older content data if we installed newer content on top
+@@ -458,7 +458,11 @@ InstallStatus InstallCIA(const std::string& path,
+             }
+             total_bytes_read += bytes_read;
+         }
+-        installFile.Close();
++        if (!installFile.Close()) {
++            // Fewer or shorter contents than the TMD lists: a cut or trimmed CIA.
++            LOG_ERROR(Service_AM, "CIA {} is incomplete; nothing was installed.", path);
++            return InstallStatus::ErrorAborted;
++        }
+ 
+         LOG_INFO(Service_AM, "Installed {} successfully.", path);
+ 

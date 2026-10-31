@@ -1,0 +1,459 @@
+name: Build APK
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a GitHub release with this tag (e.g. v0.0.2). Leave empty to only build.'
+        required: false
+        default: ''
+      delete_release:
+        description: 'Delete the GitHub release and tag with this name (e.g. v0.0.7) instead of building.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  delete-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.delete_release != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.delete_release }}
+        run: gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+
+  build:
+    if: github.event_name != 'workflow_dispatch' || inputs.delete_release == ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;26.1.10909125" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Cache emulator cores
+        id: cores-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libfbneo_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmame2003_plus_libretro_android.so
+          key: cores-${{ hashFiles('cores/build-cores.sh') }}
+
+      - name: Build emulator cores
+        if: steps.cores-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-cores.sh
+
+      # Saved right after the build, so a later failing step does not throw away this long build.
+      - name: Restore MAME 2010 core
+        id: mame2010-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libmame2010_libretro_android.so
+          key: mame2010-${{ hashFiles('cores/build-mame2010.sh', 'cores/patches/mame2010-*.patch') }}
+
+      - name: Build MAME 2010 core
+        if: steps.mame2010-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-mame2010.sh
+
+      - name: Save MAME 2010 core
+        if: steps.mame2010-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libmame2010_libretro_android.so
+          key: mame2010-${{ hashFiles('cores/build-mame2010.sh', 'cores/patches/mame2010-*.patch') }}
+
+      # Saved right after the build, so a later failing step does not throw away this long build.
+      - name: Restore MAME 2015 core
+        id: mame2015-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libmame2015_libretro_android.so
+          key: mame2015-${{ hashFiles('cores/build-mame2015.sh', 'cores/patches/mame2015-*.patch') }}
+
+      - name: Build MAME 2015 core
+        if: steps.mame2015-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-mame2015.sh
+
+      - name: Save MAME 2015 core
+        if: steps.mame2015-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libmame2015_libretro_android.so
+          key: mame2015-${{ hashFiles('cores/build-mame2015.sh', 'cores/patches/mame2015-*.patch') }}
+
+      - name: Restore Snes9x core
+        id: snes9x-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libsnes9x_libretro_android.so
+          key: snes9x-${{ hashFiles('cores/build-snes9x.sh') }}
+
+      - name: Build Snes9x core
+        if: steps.snes9x-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-snes9x.sh
+
+      - name: Save Snes9x core
+        if: steps.snes9x-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libsnes9x_libretro_android.so
+          key: snes9x-${{ hashFiles('cores/build-snes9x.sh') }}
+
+      - name: Restore Famicom, Mega Drive and PC Engine cores
+        id: consoles-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libfceumm_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libgenesis_plus_gx_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmednafen_pce_fast_libretro_android.so
+          key: consoles-${{ hashFiles('cores/build-consoles.sh') }}
+
+      - name: Build Famicom, Mega Drive and PC Engine cores
+        if: steps.consoles-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-consoles.sh
+
+      - name: Save Famicom, Mega Drive and PC Engine cores
+        if: steps.consoles-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libfceumm_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libgenesis_plus_gx_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmednafen_pce_fast_libretro_android.so
+          key: consoles-${{ hashFiles('cores/build-consoles.sh') }}
+
+      - name: Restore WonderSwan and Neo Geo Pocket cores
+        id: handhelds-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libmednafen_wswan_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmednafen_ngp_libretro_android.so
+          key: handhelds-${{ hashFiles('cores/build-handhelds.sh') }}
+
+      - name: Build WonderSwan and Neo Geo Pocket cores
+        if: steps.handhelds-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-handhelds.sh
+
+      - name: Save WonderSwan and Neo Geo Pocket cores
+        if: steps.handhelds-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libmednafen_wswan_libretro_android.so
+            app/src/main/jniLibs/arm64-v8a/libmednafen_ngp_libretro_android.so
+          key: handhelds-${{ hashFiles('cores/build-handhelds.sh') }}
+
+      - name: Restore PicoDrive core
+        id: picodrive-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libpicodrive_libretro_android.so
+          key: picodrive-${{ hashFiles('cores/build-picodrive.sh') }}
+
+      - name: Build PicoDrive core
+        if: steps.picodrive-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-picodrive.sh
+
+      - name: Save PicoDrive core
+        if: steps.picodrive-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libpicodrive_libretro_android.so
+          key: picodrive-${{ hashFiles('cores/build-picodrive.sh') }}
+
+      - name: Restore Saturn core
+        id: saturn-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libyabasanshiro_libretro_android.so
+          key: saturn-${{ hashFiles('cores/build-saturn.sh') }}
+
+      - name: Build Saturn core
+        if: steps.saturn-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-saturn.sh
+
+      - name: Save Saturn core
+        if: steps.saturn-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libyabasanshiro_libretro_android.so
+          key: saturn-${{ hashFiles('cores/build-saturn.sh') }}
+
+      - name: Restore PPSSPP core
+        id: ppsspp-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libppsspp_libretro_android.so
+            app/src/main/assets/ppsspp_system.zip
+          key: ppsspp-${{ hashFiles('cores/build-ppsspp.sh', 'cores/patches/ppsspp-*.patch') }}
+
+      - name: Build PPSSPP core
+        if: steps.ppsspp-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-ppsspp.sh
+
+      - name: Save PPSSPP core
+        if: steps.ppsspp-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libppsspp_libretro_android.so
+            app/src/main/assets/ppsspp_system.zip
+          key: ppsspp-${{ hashFiles('cores/build-ppsspp.sh', 'cores/patches/ppsspp-*.patch') }}
+
+      - name: Restore PCSX ReARMed core
+        id: pcsx-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libpcsx_rearmed_libretro_android.so
+          key: pcsx-${{ hashFiles('cores/build-pcsx.sh') }}
+
+      - name: Build PCSX ReARMed core
+        if: steps.pcsx-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-pcsx.sh
+
+      - name: Save PCSX ReARMed core
+        if: steps.pcsx-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libpcsx_rearmed_libretro_android.so
+          key: pcsx-${{ hashFiles('cores/build-pcsx.sh') }}
+
+      - name: Restore Play! core
+        id: play-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so
+          key: play-${{ hashFiles('cores/build-play.sh', 'cores/patches/play-*.patch') }}
+
+      - name: Build Play! core
+        if: steps.play-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" ./cores/build-play.sh
+
+      - name: Save Play! core
+        if: steps.play-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so
+          key: play-${{ hashFiles('cores/build-play.sh', 'cores/patches/play-*.patch') }}
+
+      # PCEE2 (PCSX2) is built by the "Build PCEE2 core" workflow; without its cache the
+      # APK ships without it and PS2 games run on Play!.
+      - name: Restore PCEE2 core
+        id: pcee2-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so
+            app/src/main/assets/pcsx2_resources.zip
+          key: pcee2-${{ hashFiles('cores/build-pcee2.sh', 'cores/patches/pcee2-*.patch') }}
+
+      - name: Restore melonDS DS core
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libmelondsds_libretro_android.so
+          key: melonds-${{ hashFiles('cores/build-melonds.sh', 'cores/patches/melonds-*.patch') }}
+
+      - name: Restore Nintendo 64 core
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libmupen64plus_next_libretro_android.so
+          key: mupen64-${{ hashFiles('cores/build-mupen64.sh', 'cores/patches/mupen64-*.patch') }}
+
+      - name: Restore Dreamcast core
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so
+          key: flycast-${{ hashFiles('cores/build-flycast.sh', 'cores/patches/flycast-*.patch') }}
+
+      - name: Restore Citra core
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
+          key: citra-${{ hashFiles('cores/build-citra.sh', 'cores/patches/citra-*.patch') }}
+
+      # Cemu (Wii U) is built by the "Build Cemu core" workflow; without its cache the APK
+      # ships without it and the Wii U mode says the engine is missing.
+      - name: Restore Cemu core
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so
+            app/src/main/assets/cemu_resources.zip
+          key: cemu-${{ hashFiles('cores/build-cemu.sh', 'cores/patches/cemu-*.patch') }}
+
+      - name: Report Cemu core
+        run: |
+          if [ -f app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so app/src/main/assets/cemu_resources.zip
+          else
+            echo "::warning::Cemu core not in the cache; this APK has no Wii U engine"
+          fi
+      - name: Restore GameCube and Wii core
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libdolphin_libretro_android.so
+            app/src/main/assets/dolphin_sys.zip
+          key: dolphin-${{ hashFiles('cores/build-dolphin.sh', 'cores/patches/dolphin-*.patch') }}
+
+      - name: Report PCEE2 core
+        run: |
+          if [ -f app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so app/src/main/assets/pcsx2_resources.zip
+          else
+            echo "::warning::PCEE2 core not in the cache; this APK runs PS2 games on Play! only"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libmelondsds_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libmelondsds_libretro_android.so
+          else
+            echo "::warning::melonDS DS core not in the cache; DS games cannot run in this APK"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libmupen64plus_next_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libmupen64plus_next_libretro_android.so
+          else
+            echo "::warning::Nintendo 64 core not in the cache; N64 games cannot run in this APK"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libdolphin_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libdolphin_libretro_android.so app/src/main/assets/dolphin_sys.zip
+          else
+            echo "::warning::GameCube/Wii core not in the cache; GameCube and Wii games cannot run in this APK"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libflycast_libretro_android.so
+          else
+            echo "::warning::Dreamcast core not in the cache; Dreamcast games cannot run in this APK"
+          fi
+          if [ -f app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
+          else
+            echo "::warning::Citra core not in the cache; 3DS games cannot run in this APK"
+          fi
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Native bridge host test
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lld llvm libvulkan-dev > /dev/null
+          ./native-test/run.sh
+
+      # Release signing needs these repository secrets:
+      #   KEYSTORE_BASE64  base64 of minigba-release.jks
+      #   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+      - name: Build signed release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '' }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            if [ "$IS_TAG" = "true" ]; then
+              echo "::error::Release tags need the keystore secrets"
+              exit 1
+            fi
+            echo "Keystore secrets not set; skipping the release build"
+            exit 0
+          fi
+          mkdir -p release
+          echo "$KEYSTORE_BASE64" | base64 -d > release/minigba-release.jks
+          {
+            echo "storeFile=release/minigba-release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          ./gradlew --no-daemon assembleRelease
+          rm -f keystore.properties release/minigba-release.jks
+
+      # Updates only install over the existing app when signed by the same key.
+      - name: Check APK contents
+        run: |
+          for apk in app/build/outputs/apk/*/*.apk; do
+            for entry in assets/romsets.bin assets/titles.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so lib/arm64-v8a/libmame2015_libretro_android.so lib/arm64-v8a/libsnes9x_libretro_android.so lib/arm64-v8a/libfceumm_libretro_android.so lib/arm64-v8a/libgenesis_plus_gx_libretro_android.so lib/arm64-v8a/libmednafen_pce_fast_libretro_android.so lib/arm64-v8a/libmednafen_wswan_libretro_android.so lib/arm64-v8a/libmednafen_ngp_libretro_android.so lib/arm64-v8a/libpicodrive_libretro_android.so lib/arm64-v8a/libyabasanshiro_libretro_android.so lib/arm64-v8a/libppsspp_libretro_android.so assets/ppsspp_system.zip lib/arm64-v8a/libpcsx_rearmed_libretro_android.so lib/arm64-v8a/libplay_libretro_android.so; do
+              unzip -l "$apk" | grep -q " $entry\$" || { echo "::error::$apk is missing $entry"; exit 1; }
+            done
+          done
+
+      - name: Check release signing certificate
+        env:
+          EXPECTED_CERT_SHA256: 9ee14763d21fbb7c085a1e92e487255a1a5e89260259c7812ded52d28535e8e4
+        run: |
+          apk=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -n 1)
+          if [ -z "$apk" ]; then
+            echo "No release APK"
+            exit 0
+          fi
+          certs=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk")
+          echo "$certs"
+          echo "$certs" | grep -qi "SHA-256 digest: $EXPECTED_CERT_SHA256" || {
+            echo "::error::Release APK is not signed with the original MiniGBA key"
+            exit 1
+          }
+          # The small package-ownership proof for Android developer verification.
+          proof=ownership/build/outputs/apk/release/ownership-release.apk
+          if [ -f "$proof" ]; then
+            certs=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$proof")
+            echo "$certs"
+            echo "$certs" | grep -qi "SHA-256 digest: $EXPECTED_CERT_SHA256" || {
+              echo "::error::Ownership APK is not signed with the original MiniGBA key"
+              exit 1
+            }
+            unzip -p "$proof" assets/adi-registration.properties | grep -q . || {
+              echo "::error::Ownership APK is missing assets/adi-registration.properties"
+              exit 1
+            }
+          fi
+
+      - name: Name APKs
+        run: |
+          version=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" app/build.gradle)
+          mkdir -p dist/release
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/Mini-Emulator-$version-debug.apk"
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk "dist/release/Mini-Emulator-$version.apk"
+          fi
+          if [ -f ownership/build/outputs/apk/release/ownership-release.apk ]; then
+            cp ownership/build/outputs/apk/release/ownership-release.apk "dist/release/Mini-Emulator-ownership-proof.apk"
+          fi
+          ls -lR dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mini-Emulator-apk
+          path: dist/**/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Mini Emulator ${{ inputs.release_tag || github.ref_name }}
+          # Only the signed APK; the debug build cannot update an installed copy.
+          files: dist/release/Mini-Emulator-*.apk
+          fail_on_unmatched_files: true

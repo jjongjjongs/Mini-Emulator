@@ -1,0 +1,10183 @@
+package com.example.minigba;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.View;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+import com.example.minigba.ArcadeJoystickView;
+import com.example.minigba.DPadView;
+import com.example.minigba.SpeedButtonView;
+import com.example.minigba.TouchButton;
+import com.seleuco.mame4droid.Emulator;
+import java.io.File;
+import java.io.IOException;
+import java.util.Locale;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+public final class GameActivity extends Activity implements SurfaceHolder.Callback {
+    static final String EXTRA_CORE_ID = "com.example.minigba.CORE_ID";
+    static final String EXTRA_ROM_PATH = "com.example.minigba.ROM_PATH";
+    static final String EXTRA_SAVE_BASE_NAME = "com.example.minigba.SAVE_BASE_NAME";
+    static final String EXTRA_TITLE = "com.example.minigba.TITLE";
+    static final String EXTRA_MODE = "com.example.minigba.MODE";
+    static final String SESSION_START = "game_session_start";
+    static final String SESSION_CLOSED = "game_session_closed";
+    private static final String MENU_CONTINUE = "계속하기";
+    private static final String MENU_SAVE_STATE = "빠른 저장";
+    private static final String MENU_LOAD_STATE = "빠른 저장 불러오기";
+    private static final String MENU_SAVE_SRAM = "게임 내 세이브 저장";
+    private static final String MENU_RESET = "재시작";
+    private static final String MENU_EXIT = "ROM 목록으로 나가기";
+    private static final String MENU_SHOT = "스크린샷";
+    private static final String MENU_SHOT_FULL = "전체 화면 스크린샷";
+    private static final String PREFS_SETTINGS = "settings";
+    private static final String PREF_ORIENTATION_MODE = "orientation_mode";
+    private SurfaceHolder activeSurfaceHolder;
+    private AudioSink audioSink;
+    private int buttonMask;
+    private String coreId;
+    private String gameMode;
+    private String[] menuItems = new String[0];
+    private SpeedButtonView fastForwardButton;
+    // PSP landscape controls, placed beside the screen once its size is known.
+    private View[] pspSideViews;
+    private boolean landscapeMode;
+    private boolean menuExiting;
+    private long nativeHandle;
+    // Calls that wait for the engine (loading, saving, stopping) run here, never on the UI
+    // thread, so a slow or stuck engine cannot freeze the buttons and the back key. Loading a
+    // MAME set recurses deeply, hence the large stack (the main thread it replaces has 8 MB).
+    private final java.util.concurrent.ExecutorService coreWorker =
+            java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> new Thread(null, runnable, "core-worker", 16L * 1024 * 1024));
+    private boolean coreStarting;
+    private volatile boolean destroyed;
+    private boolean activityResumed;
+    private static final int LANDSCAPE_SHIFT_DP = 12;
+    private String romPath;
+    private String saveBaseName;
+    private String gameTitle = "";
+    private int speedPercent = 100;
+    private boolean surfaceReady;
+    private SurfaceView surfaceView;
+
+    @Override
+    protected void onCreate(Bundle bundle) {
+        super.onCreate(bundle);
+        boolean z = MainActivity.sharedSettings(this).getInt("orientation_mode", 0) == 1;
+        this.landscapeMode = z;
+        setRequestedOrientation(z ? 6 : 1);
+        requestWindowFeature(1);
+        getWindow().setFlags(1024, 1024);
+        this.romPath = getIntent().getStringExtra("com.example.minigba.ROM_PATH");
+        // Marks a game session; closing the game clears it. If the game process ends any
+        // other way the game list asks the system why (MainActivity.showUnexpectedGameExit).
+        String stringExtra = getIntent().getStringExtra("com.example.minigba.CORE_ID");
+        MainActivity.sharedSettings(this).edit().putLong(SESSION_START, System.currentTimeMillis()).putBoolean(SESSION_CLOSED, false).commit();
+        this.coreId = stringExtra;
+        Haptics.setLevel(this, hapticLevel());
+        if (stringExtra == null) {
+            this.coreId = "gba";
+        }
+        applyScreenFilterToNative(screenFilter());
+        this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
+        if (this.gameMode == null) {
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : "arcade";
+        }
+        CrashReports.installJavaHandler(this);
+        registerPadListener();
+        registerThermalListener();
+        CrashReports.noteGame(this, this.gameMode, this.coreId, this.romPath == null ? "" : new File(this.romPath).getName());
+        String str = this.romPath;
+        String lowerCase = str == null ? "" : str.toLowerCase(Locale.US);
+        if (!isSupportedGameFile(lowerCase)) {
+            showFatalError("지원하지 않는 파일입니다");
+            return;
+        }
+        String titleExtra = getIntent().getStringExtra(EXTRA_TITLE);
+        this.gameTitle = titleExtra != null ? titleExtra : (this.romPath == null ? "" : baseNameWithoutExtension(new File(this.romPath).getName()));
+        String stringExtra2 = getIntent().getStringExtra("com.example.minigba.SAVE_BASE_NAME");
+        this.saveBaseName = stringExtra2;
+        if (stringExtra2 == null || stringExtra2.trim().isEmpty()) {
+            this.saveBaseName = baseNameWithoutExtension(new File(this.romPath).getName());
+        }
+        rotateAutoSaves();
+        this.audioSink = new AudioSink();
+        if ("pcee2".equals(this.coreId)) {
+            // PS2's speed wobbles frame to frame on heavy games; 140 ms covers most of it.
+            this.audioSink.setFloorMs(140);
+        }
+        if (this.landscapeMode && motionActive()) {
+            // Tilting must not turn the screen over, so landscape is fixed one way from the
+            // start. Asking for that once the game's picture existed (0.0.214) made the
+            // phone lay the screen out again, and the picture stopped while the sound went on.
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        }
+        if (this.landscapeMode) {
+            createLandscapeContent();
+        } else {
+            createPortraitContent();
+        }
+    }
+
+    private void createPortraitContent() {
+        if (isPadScreen()) {
+            createPadContent();
+            return;
+        }
+        setNdsLayout(0);
+        this.wiiuPadWindow = null;
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(1);
+        linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
+        boolean full = isFullScreenStyle();
+        int dp = full ? 0 : dp(4);
+        int dp2 = full ? 0 : dp(2);
+        FrameLayout frameLayout = new FrameLayout(this);
+        frameLayout.setBackgroundColor(Color.rgb(18, 22, 32));
+        frameLayout.setPadding(0, dp, 0, dp2);
+        SurfaceView surfaceView = new SurfaceView(this);
+        this.surfaceView = surfaceView;
+        surfaceView.getHolder().addCallback(this);
+        attachTouchScreen(surfaceView);
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(-1, -1);
+        layoutParams.gravity = 17;
+        frameLayout.addView(this.surfaceView, layoutParams);
+        addScreenFilter(frameLayout);
+        // Frame style leaves room around the screen for the case's bezel and its screws;
+        // full style runs the screen edge to edge.
+        int[] frame = portraitScreen(dp(34), dp(4) + dp(2));
+        int[] screen = full ? portraitScreen(dp(6), 0) : frame;
+        int side = screen[0];
+        LinearLayout.LayoutParams layoutParams2 = new LinearLayout.LayoutParams(-1, screen[1]);
+        layoutParams2.setMargins(side, full ? dp(6) : dp(18), side, 0);
+        linearLayout.addView(frameLayout, layoutParams2);
+        FrameLayout frameLayout2 = new FrameLayout(this);
+        frameLayout2.setBackgroundColor(0);
+        addControls(frameLayout2);
+        applyButtonAlpha(frameLayout2, null);
+        LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
+        // The controls start where the frame style puts them, whatever the style.
+        controlsParams.topMargin = full ? Math.max(dp(10), dp(18) + frame[1] + dp(36) - dp(6) - screen[1]) : dp(36);
+        if (isDualScreen()) {
+            // The DS screens grow into whatever the controls leave, so the bezel under them is short.
+            controlsParams.topMargin = dp(20);
+            final int screenTop = layoutParams2.topMargin;
+            final int minSide = full ? dp(6) : dp(34);
+            final int padding = full ? 0 : dp(4) + dp(2);
+            linearLayout.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitNdsPortrait(frameLayout, r - l, b - t, screenTop, minSide, padding));
+        }
+        linearLayout.addView(frameLayout2, controlsParams);
+        FrameLayout root = new FrameLayout(this);
+        ClearShellView shell = createShell(false);
+        this.shell = shell;
+        root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
+        shell.setThinBezel(full);
+        shell.track(frameLayout, frameLayout2);
+        addPerfOverlay(root, false);
+        setContentView(root);
+        this.screenArea = frameLayout;
+        addMotionBadges(frameLayout);
+        addGcLanBadge(frameLayout);
+        addWiimmfiBadge(frameLayout);
+        installComboZones(root);
+        applyLayoutEdits(root);
+        recordLayoutGuide(root, frameLayout, false);
+    }
+
+    private void createLandscapeContent() {
+        if (isPadScreen()) {
+            createPadContent();
+            return;
+        }
+        setNdsLayout(1);
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(1);
+        FrameLayout frameLayout = new FrameLayout(this);
+        final boolean full = isFullScreenStyle();
+        final int i = full ? 1 : 0;
+        // The DS screens run from the top edge to the bottom edge, without a bezel.
+        int dp = full || isDualScreen() ? 0 : dp(2);
+        final FrameLayout frameLayout2 = new FrameLayout(this);
+        frameLayout2.setBackgroundColor(Color.rgb(18, 22, 32));
+        frameLayout2.setPadding(dp, dp, dp, dp);
+        SurfaceView surfaceView = new SurfaceView(this);
+        this.surfaceView = surfaceView;
+        surfaceView.getHolder().addCallback(this);
+        attachTouchScreen(surfaceView);
+        frameLayout2.addView(this.surfaceView, new FrameLayout.LayoutParams(-1, -1, 17));
+        addScreenFilter(frameLayout2);
+        addWiiuPadWindow(frameLayout2);
+        frameLayout.addView(frameLayout2, new FrameLayout.LayoutParams(dp(320), dp(214), 17));
+        addLandscapeControls(frameLayout);
+        addLandscapeCornerButtons(frameLayout);
+        applyButtonAlpha(frameLayout, frameLayout2);
+        frameLayout.addOnLayoutChangeListener((view, i2, i3, i4, i5, i6, i7, i8, i9) -> fitLandscapeScreen(i, frameLayout2, view, i2, i3, i4, i5, i6, i7, i8, i9));
+        linearLayout.addView(frameLayout, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        FrameLayout root = new FrameLayout(this);
+        ClearShellView shell = createShell(true);
+        this.shell = shell;
+        root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
+        shell.setThinBezel(full);
+        shell.setCompactBezel(!full && (isDualShock() || isDualScreen()));
+        shell.track(isDualScreen() ? null : frameLayout2, frameLayout);
+        // No case under the picture in full-screen style or the DS's edge-to-edge screens.
+        addPerfOverlay(root, full || isDualScreen());
+        setContentView(root);
+        this.screenArea = frameLayout2;
+        addMotionBadges(frameLayout2);
+        addGcLanBadge(frameLayout2);
+        addWiimmfiBadge(frameLayout2);
+        installComboZones(root);
+        applyLayoutEdits(root);
+        recordLayoutGuide(root, frameLayout2, true);
+    }
+
+    // Once the case is laid out, where its screen and controls are, for the photo
+    // background editor's guide: "guide:<mode>:<orient>" = "W,H|screen l,t,r,b|kind:label:l,t,r,b;...".
+    private void recordLayoutGuide(final FrameLayout root, final View screen, final boolean landscape) {
+        root.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (root.getWidth() == 0 || root.getHeight() == 0 || screen.getWidth() == 0) {
+                    return;
+                }
+                root.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                int[] origin = new int[2];
+                root.getLocationInWindow(origin);
+                StringBuilder out = new StringBuilder();
+                out.append(root.getWidth()).append(',').append(root.getHeight()).append('|');
+                appendBounds(out, screen, origin);
+                out.append('|');
+                collectControls(root, origin, out);
+                MainActivity.sharedSettings(GameActivity.this).edit()
+                        .putString("guide:" + gameMode + ":" + (landscape ? "land" : "port"), out.toString()).apply();
+            }
+        });
+    }
+
+    private void appendBounds(StringBuilder out, View view, int[] origin) {
+        int[] where = new int[2];
+        view.getLocationInWindow(where);
+        // getLocationInWindow already includes the view's offset and scale; the size follows.
+        out.append(where[0] - origin[0]).append(',').append(where[1] - origin[1]).append(',')
+                .append(Math.round(where[0] - origin[0] + view.getWidth() * view.getScaleX())).append(',')
+                .append(Math.round(where[1] - origin[1] + view.getHeight() * view.getScaleY()));
+    }
+
+    private void collectControls(View view, int[] origin, StringBuilder out) {
+        if (view.getVisibility() != View.VISIBLE || view instanceof SurfaceView) {
+            return;
+        }
+        String kind = null;
+        String label = "";
+        if (view instanceof AnalogStickView) {
+            kind = "stick";
+        } else if (view instanceof DPadView || view instanceof ArcadeJoystickView) {
+            kind = "pad";
+        } else if (view instanceof TouchButton) {
+            kind = "button";
+            label = ((TouchButton) view).label();
+        } else if (view instanceof SpeedButtonView || view instanceof RewindButtonView) {
+            kind = "pill";
+        }
+        if (kind != null && view.getWidth() > 0) {
+            out.append(kind).append(':').append(label.replace(':', ' ').replace(';', ' ')).append(':');
+            appendBounds(out, view, origin);
+            out.append(';');
+            return;
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                collectControls(group.getChildAt(i), origin, out);
+            }
+        }
+    }
+
+    // "프레임" (the default) draws the case's bezel around the screen; "전체 화면" drops it
+    // and makes the screen as large as fits beside the controls.
+    private boolean isGbaWideFull() {
+        return this.coreId.equals("gba") && this.landscapeMode && isFullScreenStyle();
+    }
+
+    private boolean isFullScreenStyle() {
+        return "full".equals(MainActivity.sharedSettings(this).getString("screen_style", "frame"));
+    }
+
+    // "게임패드": for a physical controller. No touch controls or case, only the game screen;
+    // the menu button shows for a moment after a tap, or SELECT + START opens the menu.
+    private boolean isPadScreen() {
+        return "pad".equals(MainActivity.sharedSettings(this).getString("screen_style", "frame"));
+    }
+
+    private int ndsLayout;
+
+    private void setNdsLayout(int layout) {
+        if (isDualScreen()) {
+            this.ndsLayout = layout;
+            NativeGba.setNdsLayout(this.nativeHandle, layout);
+        }
+    }
+
+    private View padMenuButton;
+    private final Runnable hidePadMenuButton = () -> {
+        if (this.padMenuButton != null) {
+            this.padMenuButton.setVisibility(View.GONE);
+        }
+    };
+
+    private void createPadContent() {
+        // DS screens side by side in landscape: with no buttons beside them they get twice the size.
+        setNdsLayout(this.landscapeMode ? 2 : 0);
+        this.fastForwardButton = null;
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+        SurfaceView surfaceView = new SurfaceView(this);
+        this.surfaceView = surfaceView;
+        surfaceView.getHolder().addCallback(this);
+        attachTouchScreen(surfaceView);
+        root.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        addScreenFilter(root);
+        this.shell = null;
+        addPerfOverlay(root, true);
+        root.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitPadScreen(surfaceView, r - l, b - t));
+        RoundIconView menu = new RoundIconView(this, RoundIconView.MENU, RoundIconView.COLOR_MENU);
+        menu.setAlpha(0.8f);
+        menu.setContentDescription("메뉴");
+        menu.setOnClickListener(view -> showGameMenu());
+        menu.setVisibility(View.GONE);
+        FrameLayout.LayoutParams menuParams = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.END);
+        menuParams.setMargins(0, dp(12), dp(12), 0);
+        root.addView(menu, menuParams);
+        this.padMenuButton = menu;
+        setContentView(root);
+    }
+
+    // The game picture as large as fits, centred on black.
+    private void fitPadScreen(View screen, int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        float aspect = screenAspect();
+        int screenWidth = Math.min(width, Math.round(height * aspect));
+        int screenHeight = Math.min(height, Math.round(screenWidth / aspect));
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) screen.getLayoutParams();
+        if (params.width != screenWidth || params.height != screenHeight) {
+            params.width = screenWidth;
+            params.height = screenHeight;
+            screen.post(() -> screen.setLayoutParams(params));
+        }
+    }
+
+    private void showPadMenuButton() {
+        View menu = this.padMenuButton;
+        if (menu == null || !isPadScreen()) {
+            return;
+        }
+        menu.setVisibility(View.VISIBLE);
+        menu.removeCallbacks(this.hidePadMenuButton);
+        menu.postDelayed(this.hidePadMenuButton, 3000);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+            showPadMenuButton();
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
+    // Sizes the stacked DS screens to the height the window really has: the controls keep
+    // dp(268) (L/R, then the D-pad and face buttons, then SELECT/START), the screens get the rest.
+    private void fitNdsPortrait(FrameLayout screenFrame, int width, int height, int screenTop, int minSide, int padding) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        float aspect = screenAspect();
+        // The 3DS controls are taller: the circle pad sits above the D-pad.
+        int tallest = height - dp(64) - screenTop - dp(20) - dp(isN3ds() || isWiiU() ? 352 : 268) - padding;
+        int screenWidth = Math.max(dp(200), Math.min(width - minSide * 2, Math.round(tallest * aspect)));
+        int side = (width - screenWidth) / 2;
+        int screenHeight = Math.round(screenWidth / aspect) + padding;
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) screenFrame.getLayoutParams();
+        if (params.height != screenHeight || params.leftMargin != side || params.rightMargin != side) {
+            params.height = screenHeight;
+            params.leftMargin = side;
+            params.rightMargin = side;
+            screenFrame.post(() -> screenFrame.setLayoutParams(params));
+        }
+    }
+
+    // Side margin and height of the portrait screen for a side margin and vertical padding.
+    private int[] portraitScreen(int side, int padding) {
+        int screenWidth = Math.max(dp(200), getResources().getDisplayMetrics().widthPixels - side * 2);
+        if (isGameBoy() || isGameGear() || isNeoGeoPocket() || (isWonderSwan() && wonderSwanTall())) {
+            // A nearly square (or upright) screen would push the controls off a short phone.
+            int widest = Math.round(dp(isWonderSwan() ? 330 : 250) * screenAspect());
+            if (screenWidth > widest) {
+                side += (screenWidth - widest) / 2;
+                screenWidth = widest;
+            }
+        }
+        if (isDualScreen()) {
+            // The tall stacked DS screens would push the D-pad and face buttons off the
+            // bottom, so they stop where the controls need dp(272) under the bezel.
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            int statusId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            int statusBar = statusId > 0 ? getResources().getDimensionPixelSize(statusId) : dp(24);
+            int tallest = metrics.heightPixels - statusBar - dp(64) - dp(18) - dp(36) - dp(isN3ds() || isWiiU() ? 352 : 272) - padding;
+            int widest = Math.max(dp(200), Math.round(tallest * screenAspect()));
+            if (screenWidth > widest) {
+                side += (screenWidth - widest) / 2;
+                screenWidth = widest;
+            }
+        }
+        return new int[]{side, Math.max(dp(176), Math.round(screenWidth / screenAspect()) + padding)};
+    }
+
+    // Background picked in the game settings (ClearShellView.STYLE_*), for all games.
+    private int shellStyle() {
+        int value = MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_CLEAR);
+        return value >= 0 && value < ClearShellView.STYLE_NAMES.length ? value : ClearShellView.STYLE_CLEAR;
+    }
+
+    // The mode's colour on the mode picker, and the colour of the console's own plastic.
+    private int[] shellColors() {
+        if (this.coreId.equals("gba")) return new int[]{Color.rgb(22, 185, 207), Color.rgb(91, 79, 168)};
+        if (isSnes()) return new int[]{Color.rgb(84, 92, 168), Color.rgb(200, 201, 207)};
+        if (isN3ds()) return new int[]{Color.rgb(225, 29, 72), Color.rgb(52, 56, 66)};
+        if (isNds()) return new int[]{Color.rgb(219, 39, 119), Color.rgb(52, 56, 66)};
+        if (isNes()) return new int[]{Color.rgb(196, 42, 52), Color.rgb(170, 34, 42)};
+        if (isN64()) return new int[]{Color.rgb(22, 163, 74), Color.rgb(45, 47, 52)};
+        if (isNaomi()) return new int[]{Color.rgb(13, 148, 136), Color.rgb(28, 28, 32)};
+        if (isDreamcast()) return new int[]{Color.rgb(202, 138, 4), Color.rgb(228, 230, 233)};
+        if (isMasterSystem()) return new int[]{Color.rgb(162, 28, 175), Color.rgb(30, 30, 33)};
+        if (isMegaCd()) return new int[]{Color.rgb(159, 18, 57), Color.rgb(32, 32, 35)};
+        if (isMegaDrive()) return new int[]{Color.rgb(15, 118, 110), Color.rgb(28, 28, 30)};
+        if (isPcEngine()) return new int[]{Color.rgb(232, 96, 44), Color.rgb(230, 230, 226)};
+        if (isPsp()) return new int[]{Color.rgb(28, 30, 36), Color.rgb(22, 22, 26)};
+        if (isPs1()) return new int[]{Color.rgb(120, 126, 138), Color.rgb(180, 182, 188)};
+        if (isPs2()) return new int[]{Color.rgb(36, 84, 168), Color.rgb(24, 26, 34)};
+        if (isSaturn()) return new int[]{Color.rgb(71, 85, 105), Color.rgb(58, 60, 68)};
+        if (isWonderSwan()) return new int[]{Color.rgb(101, 163, 13), Color.rgb(96, 140, 52)};
+        if (isNeoGeoPocket()) return new int[]{Color.rgb(3, 105, 161), Color.rgb(36, 74, 140)};
+        if (isNeoGeoMode()) return new int[]{Color.rgb(124, 58, 237), Color.rgb(24, 24, 26)};
+        return new int[]{Color.rgb(154, 91, 46), Color.rgb(59, 75, 140)};
+    }
+
+    // Labels drawn straight on the background turn light on the dark styles.
+    private int shellTextColor() {
+        return ClearShellView.darkBackground(shellStyle(), shellColors()[1]) ? Color.rgb(230, 232, 238) : Color.rgb(58, 63, 75);
+    }
+
+    // Clear case behind the controls, tinted per game kind.
+    private ClearShellView createShell(boolean landscape) {
+        int tint;
+        String name;
+        if (this.coreId.equals("gba")) {
+            tint = ClearShellView.TINT_WHITE;
+            name = isGameBoy() ? "GBC" : "GBA";
+        } else if (isSnes()) {
+            tint = ClearShellView.TINT_GRAY;
+            name = "SUPER FAMICOM";
+        } else if (isN3ds()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "NINTENDO 3DS";
+        } else if (isNds()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "NINTENDO DS";
+        } else if (isNes()) {
+            tint = ClearShellView.TINT_CREAM;
+            name = "FAMICOM";
+        } else if (isN64()) {
+            tint = ClearShellView.TINT_GRAY;
+            name = "NINTENDO 64";
+        } else if (isNaomi()) {
+            tint = ClearShellView.TINT_SMOKE;
+            name = "NAOMI";
+        } else if (isDreamcast()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "DREAMCAST";
+        } else if (isMasterSystem()) {
+            tint = ClearShellView.TINT_SMOKE;
+            name = isGameGear() ? "GAME GEAR" : "MASTER SYSTEM";
+        } else if (isMegaDrive()) {
+            tint = ClearShellView.TINT_SMOKE;
+            name = "MEGA DRIVE";
+        } else if (isPcEngine()) {
+            tint = ClearShellView.TINT_WHITE;
+            name = "PC ENGINE";
+        } else if (isPsp()) {
+            tint = ClearShellView.TINT_SMOKE;
+            name = "PSP";
+        } else if (isPs1()) {
+            tint = ClearShellView.TINT_GRAY;
+            name = "PS1";
+        } else if (isPs2()) {
+            tint = ClearShellView.TINT_AQUA;
+            name = "PS2";
+        } else if (isNeoGeoMode()) {
+            tint = ClearShellView.TINT_PURPLE;
+            name = "NEO GEO";
+        } else {
+            tint = ClearShellView.TINT_ORANGE;
+            name = "ARCADE";
+        }
+        int[] colors = shellColors();
+        ClearShellView shell = new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape, shellStyle(), colors[0], colors[1]);
+        if (shellStyle() == ClearShellView.STYLE_PHOTO) {
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            shell.setPhoto(PhotoBackground.load(PhotoBackground.rendered(this, this.gameMode, landscape), metrics.widthPixels, metrics.heightPixels));
+        }
+        return shell;
+    }
+
+    // With a photo background the buttons let it show through as much as the player set.
+    private void applyButtonAlpha(android.view.ViewGroup controls, View except) {
+        if (shellStyle() != ClearShellView.STYLE_PHOTO) {
+            return;
+        }
+        float alpha = 1.0f - PhotoBackground.buttonAlpha(this, this.gameMode) / 100f;
+        for (int i = 0; i < controls.getChildCount(); i++) {
+            View child = controls.getChildAt(i);
+            if (child != except && !(child instanceof SurfaceView)) {
+                child.setAlpha(alpha);
+            }
+        }
+    }
+
+    private static final int REQUEST_BG_EDITOR = 3102;
+
+    private void openBackgroundEditor() {
+        Intent intent = new Intent(this, BgEditorActivity.class);
+        intent.putExtra(BgEditorActivity.EXTRA_MODE, this.gameMode);
+        intent.putExtra(BgEditorActivity.EXTRA_MODE_NAME, consoleName());
+        intent.putExtra(BgEditorActivity.EXTRA_LANDSCAPE, this.landscapeMode);
+        startActivityForResult(intent, REQUEST_BG_EDITOR);
+    }
+
+    private void fitLandscapeScreen(int i, FrameLayout frameLayout, View view, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
+        int width = right - left;
+        int height = bottom - top;
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        boolean full = i == 1;
+        if (isSonyPad() && this.pspSideViews != null) {
+            layoutPspLandscape(frameLayout, width, height);
+            return;
+        }
+        // Pad layouts (GBA, Super Famicom) keep the speed button below the screen.
+        boolean isGba = isPadLayout();
+        int maxWidth = Math.max(dp(240), width - dp(isGbaWideFull() ? 156 : isGba ? 174 : 188) * 2);
+        // GBA keeps the speed button below the screen, so its screen sits at the top.
+        // The bezel takes dp(10) above the screen and dp(26) below it; full style has none.
+        int maxHeight;
+        if (isDualScreen()) {
+            // Stacked DS screens take the full height, edge to edge.
+            maxHeight = Math.max(dp(150), height);
+        } else if (full) {
+            // Room for the thin glass bezel (dp(5) each side) included.
+            maxHeight = Math.max(dp(150), height - (isGba ? dp(13) + dp(5) + dp(46) : dp(12) + dp(10)));
+        } else {
+            maxHeight = Math.max(dp(150), height - (isGba ? dp(18) + dp(26) + dp(46) : dp(12) + dp(36)));
+        }
+        float aspect = screenAspect();
+        int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
+        int screenHeight = Math.round(screenWidth / aspect);
+        FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
+        int topMargin = isDualScreen() ? 0 : isGba ? dp(full ? 13 : 18) : 0;
+        // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
+        int bottomMargin = isGba || full ? 0 : dp(16);
+        if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
+            layoutParams.width = screenWidth;
+            layoutParams.height = screenHeight;
+            layoutParams.gravity = isGba ? (Gravity.TOP | Gravity.CENTER_HORIZONTAL) : Gravity.CENTER;
+            layoutParams.topMargin = topMargin;
+            layoutParams.bottomMargin = bottomMargin;
+            frameLayout.setLayoutParams(layoutParams);
+        }
+    }
+
+    private void addLandscapeControls(FrameLayout frameLayout) {
+        if (isDolphin()) {
+            addDolphinLandscapeControls(frameLayout);
+            return;
+        }
+        if (isWiiU()) {
+            addWiiuLandscapeControls(frameLayout);
+            return;
+        }
+        if (isSaturn()) {
+            addSaturnLandscapeControls(frameLayout);
+            return;
+        }
+        if (isWonderSwan()) {
+            addWonderSwanLandscapeControls(frameLayout);
+            return;
+        }
+        if (isNeoGeoPocket()) {
+            addNeoGeoPocketLandscapeControls(frameLayout);
+            return;
+        }
+        if (isN64()) {
+            addN64LandscapeControls(frameLayout);
+            return;
+        }
+        if (isNaomi()) {
+            addNaomiLandscapeControls(frameLayout);
+            return;
+        }
+        if (isDreamcast()) {
+            addDreamcastLandscapeControls(frameLayout);
+            return;
+        }
+        if (isN3ds()) {
+            addN3dsLandscapeControls(frameLayout);
+            return;
+        }
+        View createDirectionControl = createDirectionControl();
+        boolean isGba = isPadLayout();
+        // GBA in full-screen style moves its D-pad and A/B a little outward so the wide
+        // screen can grow until it meets the speed button.
+        boolean wideGba = isGbaWideFull();
+        if (isSonyPad()) {
+            addPspLandscapeControls(frameLayout, createDirectionControl);
+            return;
+        }
+        int padSize = 150;
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(padSize), dp(padSize));
+        layoutParams.gravity = 8388627;
+        layoutParams.setMargins(wideGba ? 0 : dp(12), 0, 0, 0);
+        // Everything sits a little lower to leave the top corners to the round buttons;
+        // the PSP's D-pad goes up instead, with the analog stick under it.
+        createDirectionControl.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
+        frameLayout.addView(createDirectionControl, layoutParams);
+        if (isGba) {
+            if (hasShoulders()) {
+                addButton(frameLayout, "L", 512, 8388659, dp(18), dp(66), dp(104), dp(40), 2);
+                addButton(frameLayout, "R", 256, 8388661, dp(18), dp(66), dp(104), dp(40), 2);
+            }
+            if (hasTurboPair()) {
+                String[] labels = turboLabels();
+                int style = isPcEngine() ? TouchButton.STYLE_ACTION : TouchButton.STYLE_ARCADE_RED;
+                addLandscapeArcadeButton(frameLayout, labels[0], 1, 20, 0, 60, style);
+                addLandscapeArcadeButton(frameLayout, labels[1], 2, 92, 14, 60, style);
+                addLandscapeArcadeButton(frameLayout, labels[2], 1024, 29, -56, 42, style);
+                addLandscapeArcadeButton(frameLayout, labels[3], 2048, 101, -42, 42, style);
+            } else if (isMegaDrive()) {
+                addMegaDriveButtons(frameLayout, true);
+            } else if (isSnes() || isDualScreen()) {
+                // X on top, A right, B bottom, Y left, in the Super Famicom colours (DS: dark).
+                boolean ds = isDualScreen();
+                addLandscapeArcadeButton(frameLayout, "X", 1024, 66, -48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_SNES_BLUE);
+                addLandscapeArcadeButton(frameLayout, "A", 1, 18, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_RED);
+                addLandscapeArcadeButton(frameLayout, "B", 2, 66, 48, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
+                addLandscapeArcadeButton(frameLayout, "Y", 2048, 114, 0, 50, ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_GREEN);
+                if (isNds()) {
+                    // The microphone in the lower right corner, under B and above START.
+                    addButton(frameLayout, "MIC", kL3, Gravity.BOTTOM | Gravity.END, dp(10), dp(60), dp(46), dp(46), TouchButton.STYLE_PINK);
+                }
+            } else {
+                // Master System: 2 is libretro A, 1 is B (Genesis Plus GX's two-button pad).
+                boolean sms = isMasterSystem();
+                addLandscapeActionButton(frameLayout, sms ? "2" : "A", 1, dp(wideGba ? 22 : 26), -dp(42), sms ? TouchButton.STYLE_DARK : 3);
+                addLandscapeActionButton(frameLayout, sms ? "1" : "B", 2, dp(wideGba ? 78 : 92), dp(42), sms ? TouchButton.STYLE_DARK : 3);
+            }
+        } else if (isNeoGeoMode()) {
+            // Diamond with equal spacing; the right edge matches the joystick's left margin.
+            addLandscapeArcadeButton(frameLayout, "C", 1024, 64, -52, 50, TouchButton.STYLE_ARCADE_GREEN);
+            addLandscapeArcadeButton(frameLayout, "D", 2048, 12, 0, 50, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "B", 2, 64, 52, 50, TouchButton.STYLE_ARCADE_YELLOW);
+            addLandscapeArcadeButton(frameLayout, "A", 1, 116, 0, 50, TouchButton.STYLE_ARCADE_RED);
+        } else {
+            // 3x2 grid: D E F on top, A B C below.
+            addLandscapeArcadeButton(frameLayout, "A", 1, 120, 27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "B", 2, 66, 27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "C", 1024, 12, 27, 46, TouchButton.STYLE_ARCADE_BLUE);
+            addLandscapeArcadeButton(frameLayout, "D", 2048, 120, -27, 46, TouchButton.STYLE_ARCADE_RED);
+            addLandscapeArcadeButton(frameLayout, "E", 4096, 66, -27, 46, TouchButton.STYLE_ARCADE_RED);
+            addLandscapeArcadeButton(frameLayout, "F", 8192, 12, -27, 46, TouchButton.STYLE_ARCADE_RED);
+        }
+        if (isMasterSystem()) {
+            // No SELECT: START sits under the D-pad, the speed button under 1 and 2.
+            addButton(frameLayout, startLabel(), 8, 8388691, dp(42), dp(18), dp(94), dp(34));
+            return;
+        }
+        addButton(frameLayout, selectLabel(), 4, 8388691, dp(42), dp(18), dp(94), dp(34));
+        addButton(frameLayout, startLabel(), 8, 8388693, dp(42), dp(18), dp(94), dp(34));
+    }
+
+    private View createDirectionControl() {
+        if (!isPadLayout()) {
+            return new ArcadeJoystickView(this, this::onDirectionChanged);
+        }
+        DPadView pad = new DPadView(this, this::onDirectionChanged);
+        pad.setLight(isPs1());
+        return pad;
+    }
+
+    private void onDirectionChanged(int i) {
+        this.touchDirection = i;
+        applyDirections();
+    }
+
+    // The D-pad bits are the touch pad's and the controller's together.
+    private int touchDirection;
+    private int padKeyDirection;
+    private int padHatDirection;
+    private int padStickDirection;
+
+    private void applyDirections() {
+        int directions = this.touchDirection | this.padKeyDirection | this.padHatDirection | this.padStickDirection;
+        this.buttonMask = directions | (this.buttonMask & (-241));
+        updateInput();
+    }
+
+    // ---- Physical controllers (Bluetooth / USB) ----
+    // Face buttons go by position, as on the touch pads: bottom/right/left/top are the
+    // libretro B/A/Y/X (arcade sets: A/B/C/D, with E/F on the shoulders).
+    private int padButtons;
+
+    private static boolean isControllerEvent(android.view.InputEvent event) {
+        int source = event.getSource();
+        return (source & android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD
+                || (source & android.view.InputDevice.SOURCE_JOYSTICK) == android.view.InputDevice.SOURCE_JOYSTICK;
+    }
+
+    private int padButtonBit(int keyCode) {
+        boolean arcade = !isPadLayout();
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BUTTON_A: return arcade ? 1 : 2;
+            case KeyEvent.KEYCODE_BUTTON_B: return arcade ? 2 : 1;
+            case KeyEvent.KEYCODE_BUTTON_X: return arcade ? 1024 : 2048;
+            case KeyEvent.KEYCODE_BUTTON_Y: return arcade ? 2048 : 1024;
+            case KeyEvent.KEYCODE_BUTTON_L1: return arcade ? 4096 : 512;
+            case KeyEvent.KEYCODE_BUTTON_R1: return arcade ? 8192 : 256;
+            case KeyEvent.KEYCODE_BUTTON_L2: return kL2;
+            case KeyEvent.KEYCODE_BUTTON_R2: return kR2;
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return 65536;
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return 131072;
+            case KeyEvent.KEYCODE_BUTTON_SELECT: return 4;
+            case KeyEvent.KEYCODE_BUTTON_START: return 8;
+            default: return 0;
+        }
+    }
+
+    private static int padDirectionBit(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return 16;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return 32;
+            case KeyEvent.KEYCODE_DPAD_UP: return 64;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return 128;
+            default: return 0;
+        }
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (!isControllerEvent(event)) {
+            return super.dispatchKeyEvent(event);
+        }
+        int keyCode = event.getKeyCode();
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        if (keyCode == KeyEvent.KEYCODE_BUTTON_MODE) {
+            if (!down) {
+                openMenuFromController();
+            }
+            return true;
+        }
+        int direction;
+        int bit;
+        android.util.SparseIntArray table = padMapFor(event.getDevice());
+        if (table != null) {
+            // The player's own table for this controller.
+            int bits = table.get(keyCode);
+            if (bits == 0) {
+                return PadMapping.isMappableKey(keyCode) || super.dispatchKeyEvent(event);
+            }
+            direction = bits & PadMapping.DPAD_BITS;
+            bit = bits & ~PadMapping.DPAD_BITS;
+        } else {
+            direction = padDirectionBit(keyCode);
+            bit = padButtonBit(keyCode);
+        }
+        if (direction != 0) {
+            this.padKeyDirection = down ? this.padKeyDirection | direction : this.padKeyDirection & ~direction;
+            applyDirections();
+            if (bit == 0) {
+                return true;
+            }
+        }
+        if (bit == 0) {
+            return super.dispatchKeyEvent(event);
+        }
+        if (event.getRepeatCount() > 0) {
+            return true;
+        }
+        this.padButtons = down ? this.padButtons | bit : this.padButtons & ~bit;
+        if ((this.padButtons & 12) == 12) {
+            // SELECT + START together open the menu instead of reaching the game.
+            openMenuFromController();
+            return true;
+        }
+        setButtonPressed(bit, down);
+        return true;
+    }
+
+    // The menu dialog takes the key events from here on, so let go of everything first.
+    private void openMenuFromController() {
+        releaseController();
+        showGameMenu();
+    }
+
+    private void releaseController() {
+        this.padButtons = 0;
+        this.padTriggers = 0;
+        this.padKeyDirection = 0;
+        this.padHatDirection = 0;
+        this.padStickDirection = 0;
+        this.buttonMask = 0;
+        this.touchDirection = 0;
+        java.util.Arrays.fill(this.buttonHolds, 0);
+        updateInput();
+        if (isSonyPad() || isN64() || isDreamcast()) {
+            onAnalogChanged(0, 0);
+            onAnalogRightChanged(0, 0);
+        }
+    }
+
+    // ---- "게임패드 버튼 설정": the player's own table for a controller ----
+    // Effective tables by controller descriptor; null when the controller keeps the defaults.
+    private final java.util.Map<String, android.util.SparseIntArray> padMaps = new java.util.HashMap<>();
+    private final java.util.Set<String> padMapDefaults = new java.util.HashSet<>();
+    // Axis sources (triggers, stick directions) held right now, by source.
+    private final android.util.SparseBooleanArray padAxisHeld = new android.util.SparseBooleanArray();
+
+    private void invalidatePadMaps() {
+        this.padMaps.clear();
+        this.padMapDefaults.clear();
+        this.padAxisHeld.clear();
+        releaseController();
+    }
+
+    private android.util.SparseIntArray padMapFor(android.view.InputDevice device) {
+        String descriptor = PadMapping.descriptor(device);
+        android.util.SparseIntArray table = this.padMaps.get(descriptor);
+        if (table != null) {
+            return table;
+        }
+        if (this.padMapDefaults.contains(descriptor)) {
+            return null;
+        }
+        android.util.SparseIntArray custom = PadMappingDialog.customFor(MainActivity.sharedSettings(this), this.saveBaseName, this.gameMode, descriptor);
+        if (custom.size() == 0) {
+            this.padMapDefaults.add(descriptor);
+            return null;
+        }
+        table = PadMapping.effective(padDefaults(), custom);
+        this.padMaps.put(descriptor, table);
+        return table;
+    }
+
+    // Axis inputs through the player's table: each mapped axis direction is a button that is
+    // down past 0.6. Sticks still move the console's sticks where it has them.
+    private void applyMappedAxes(android.view.MotionEvent event, android.util.SparseIntArray table, float x, float y) {
+        if (hasLeftStick()) {
+            onAnalogChanged(x, y);
+            onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+        }
+        int directions = 0;
+        for (int k = 0; k < table.size(); k++) {
+            int source = table.keyAt(k);
+            if (!PadMapping.isAxisSource(source)) {
+                continue;
+            }
+            int axis = PadMapping.axisOf(source);
+            float value = event.getAxisValue(axis);
+            if (axis == android.view.MotionEvent.AXIS_LTRIGGER) {
+                value = Math.max(value, event.getAxisValue(android.view.MotionEvent.AXIS_BRAKE));
+            } else if (axis == android.view.MotionEvent.AXIS_RTRIGGER) {
+                value = Math.max(value, event.getAxisValue(android.view.MotionEvent.AXIS_GAS));
+            }
+            boolean pressed = PadMapping.axisNegative(source) ? value < -0.6f : value > 0.6f;
+            int bits = table.valueAt(k);
+            if (pressed) {
+                directions |= bits & PadMapping.DPAD_BITS;
+            }
+            int buttons = bits & ~PadMapping.DPAD_BITS;
+            if (buttons != 0 && this.padAxisHeld.get(source) != pressed) {
+                this.padAxisHeld.put(source, pressed);
+                setButtonPressed(buttons, pressed);
+            }
+        }
+        if (directions != this.padHatDirection || this.padStickDirection != 0) {
+            this.padHatDirection = directions;
+            this.padStickDirection = 0;
+            applyDirections();
+        }
+    }
+
+    // {source, bit} pairs the console uses with no changes: the key table above, the hat and
+    // trigger axes, and the left stick as a D-pad where the console has no stick.
+    private int[][] padDefaults() {
+        java.util.List<int[]> pairs = new java.util.ArrayList<>();
+        int[] keys = {KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_Y,
+                KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_L2, KeyEvent.KEYCODE_BUTTON_R2,
+                KeyEvent.KEYCODE_BUTTON_THUMBL, KeyEvent.KEYCODE_BUTTON_THUMBR, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_START,
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT};
+        for (int key : keys) {
+            int bit = padButtonBit(key) | padDirectionBit(key);
+            if (bit != 0) {
+                pairs.add(new int[]{key, bit});
+            }
+        }
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_LTRIGGER, false), kL2});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_RTRIGGER, false), kR2});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_X, false), PadMapping.DPAD_RIGHT});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_X, true), PadMapping.DPAD_LEFT});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_Y, false), PadMapping.DPAD_DOWN});
+        pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_HAT_Y, true), PadMapping.DPAD_UP});
+        if (!hasLeftStick()) {
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_X, false), PadMapping.DPAD_RIGHT});
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_X, true), PadMapping.DPAD_LEFT});
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_Y, false), PadMapping.DPAD_DOWN});
+            pairs.add(new int[]{PadMapping.axisSource(android.view.MotionEvent.AXIS_Y, true), PadMapping.DPAD_UP});
+        }
+        return pairs.toArray(new int[0][]);
+    }
+
+    // The console's buttons as the picture shows them, with the bits the core reads.
+    private java.util.List<PadMapping.Target> padTargets() {
+        java.util.List<PadMapping.Target> targets = new java.util.ArrayList<>();
+        int face = PadMapping.GROUP_FACE;
+        int shoulderLeft = PadMapping.GROUP_SHOULDER_LEFT;
+        int shoulderRight = PadMapping.GROUP_SHOULDER_RIGHT;
+        int middle = PadMapping.GROUP_MIDDLE;
+        if (isDolphin()) {
+            int control = isWiiGame() ? wiiControl() : -1;
+            if (control == -1) {
+                // GameCube pad as Dolphin reads it: the triggers are L2 / R2, Z is R.
+                targets.add(new PadMapping.Target(1, "A", face));
+                targets.add(new PadMapping.Target(2, "B", face));
+                targets.add(new PadMapping.Target(1024, "X", face));
+                targets.add(new PadMapping.Target(2048, "Y", face));
+                targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+                targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+                targets.add(new PadMapping.Target(256, "Z", shoulderRight));
+                targets.add(new PadMapping.Target(8, "START", middle));
+            } else if (control == 1) {
+                // Remote held sideways: 1 and 2 are the core's B and A.
+                targets.add(new PadMapping.Target(2, "1", face));
+                targets.add(new PadMapping.Target(1, "2", face));
+                targets.add(new PadMapping.Target(1024, "A", face));
+                targets.add(new PadMapping.Target(2048, "B", face));
+                targets.add(new PadMapping.Target(kR2, "흔들기", shoulderRight));
+                targets.add(new PadMapping.Target(4, "−", middle));
+                targets.add(new PadMapping.Target(DOLPHIN_HOME, "HOME", middle));
+                targets.add(new PadMapping.Target(8, "+", middle));
+            } else if (control == 2) {
+                // Classic controller: L / R are L2 / R2, ZL / ZR are L / R.
+                targets.add(new PadMapping.Target(1, "a", face));
+                targets.add(new PadMapping.Target(2, "b", face));
+                targets.add(new PadMapping.Target(1024, "x", face));
+                targets.add(new PadMapping.Target(2048, "y", face));
+                targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+                targets.add(new PadMapping.Target(512, "ZL", shoulderLeft));
+                targets.add(new PadMapping.Target(256, "ZR", shoulderRight));
+                targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+                targets.add(new PadMapping.Target(4, "−", middle));
+                targets.add(new PadMapping.Target(DOLPHIN_HOME, "HOME", middle));
+                targets.add(new PadMapping.Target(8, "+", middle));
+            } else {
+                // Remote + nunchuk: C / Z are X / Y, 1 / 2 START / SELECT, − / + L / R.
+                targets.add(new PadMapping.Target(1, "A", face));
+                targets.add(new PadMapping.Target(2, "B", face));
+                targets.add(new PadMapping.Target(1024, "C", face));
+                targets.add(new PadMapping.Target(2048, "Z", face));
+                targets.add(new PadMapping.Target(8, "1", face));
+                targets.add(new PadMapping.Target(4, "2", face));
+                targets.add(new PadMapping.Target(kR2, "흔들기", shoulderRight));
+                targets.add(new PadMapping.Target(kL2, "눈차크 흔들기", shoulderLeft));
+                targets.add(new PadMapping.Target(512, "−", middle));
+                targets.add(new PadMapping.Target(DOLPHIN_HOME, "HOME", middle));
+                targets.add(new PadMapping.Target(256, "+", middle));
+            }
+        } else if (isWiiU()) {
+            targets.add(new PadMapping.Target(1024, "X", face));
+            targets.add(new PadMapping.Target(1, "A", face));
+            targets.add(new PadMapping.Target(2, "B", face));
+            targets.add(new PadMapping.Target(2048, "Y", face));
+            targets.add(new PadMapping.Target(512, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(kL2, "ZL", shoulderLeft));
+            targets.add(new PadMapping.Target(256, "R", shoulderRight));
+            targets.add(new PadMapping.Target(kR2, "ZR", shoulderRight));
+            targets.add(new PadMapping.Target(kL3, "L3", PadMapping.GROUP_STICK_LEFT));
+            targets.add(new PadMapping.Target(kR3, "R3", PadMapping.GROUP_STICK_RIGHT));
+            targets.add(new PadMapping.Target(4, "−", middle));
+            targets.add(new PadMapping.Target(8, "+", middle));
+        } else if (isSonyPad()) {
+            targets.add(new PadMapping.Target(1024, "△", face));
+            targets.add(new PadMapping.Target(1, "○", face));
+            targets.add(new PadMapping.Target(2, "×", face));
+            targets.add(new PadMapping.Target(2048, "□", face));
+            targets.add(new PadMapping.Target(512, isDualShock() ? "L1" : "L", shoulderLeft));
+            targets.add(new PadMapping.Target(256, isDualShock() ? "R1" : "R", shoulderRight));
+            if (isDualShock()) {
+                targets.add(new PadMapping.Target(kL2, "L2", shoulderLeft));
+                targets.add(new PadMapping.Target(kR2, "R2", shoulderRight));
+                targets.add(new PadMapping.Target(kL3, "L3", PadMapping.GROUP_STICK_LEFT));
+                targets.add(new PadMapping.Target(kR3, "R3", PadMapping.GROUP_STICK_RIGHT));
+            }
+            targets.add(new PadMapping.Target(4, "SELECT", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isN64()) {
+            targets.add(new PadMapping.Target(N64_A, "A", face));
+            targets.add(new PadMapping.Target(N64_B, "B", face));
+            targets.add(new PadMapping.Target(N64_C_UP, "C▲", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_C_RIGHT, "C▶", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_C_DOWN, "C▼", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_C_LEFT, "C◀", PadMapping.GROUP_C));
+            targets.add(new PadMapping.Target(N64_L, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(N64_Z, "Z", shoulderLeft));
+            targets.add(new PadMapping.Target(N64_R, "R", shoulderRight));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isSaturn()) {
+            for (int k = 0; k < SATURN_LABELS.length; k++) {
+                targets.add(new PadMapping.Target(SATURN_BITS[k], SATURN_LABELS[k], face));
+            }
+            targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isNaomi()) {
+            int count = naomiButtons();
+            for (int k = 0; k < count && k < 6; k++) {
+                targets.add(new PadMapping.Target(NAOMI_BITS[k], String.valueOf(k + 1), face));
+            }
+            targets.add(new PadMapping.Target(4, "COIN", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+            targets.add(new PadMapping.Target(kL3, "TEST", middle));
+            targets.add(new PadMapping.Target(kR3, "SERVICE", middle));
+        } else if (isDreamcast()) {
+            targets.add(new PadMapping.Target(1024, "Y", face));
+            targets.add(new PadMapping.Target(1, "B", face));
+            targets.add(new PadMapping.Target(2, "A", face));
+            targets.add(new PadMapping.Target(2048, "X", face));
+            targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isMegaDrive()) {
+            String[] labels = {"A", "B", "C", "X", "Y", "Z"};
+            int[] bits = {2048, 2, 1, 512, 1024, 256};
+            for (int k = 0; k < 6; k++) {
+                targets.add(new PadMapping.Target(bits[k], labels[k], face));
+            }
+            targets.add(new PadMapping.Target(4, "MODE", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        } else if (isSnes() || isDualScreen()) {
+            targets.add(new PadMapping.Target(1024, "X", face));
+            targets.add(new PadMapping.Target(1, "A", face));
+            targets.add(new PadMapping.Target(2, "B", face));
+            targets.add(new PadMapping.Target(2048, "Y", face));
+            targets.add(new PadMapping.Target(512, "L", shoulderLeft));
+            targets.add(new PadMapping.Target(256, "R", shoulderRight));
+            targets.add(new PadMapping.Target(4, "SELECT", middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+            if (isNds()) {
+                targets.add(new PadMapping.Target(kL3, "MIC", middle));
+            }
+        } else if (isPadLayout()) {
+            // GBA, NES, Master System, PC Engine: two face buttons, shoulders on the GBA.
+            boolean sms = isMasterSystem();
+            String[] pair = turboLabels();
+            targets.add(new PadMapping.Target(1, sms ? "2" : pair[0], face));
+            targets.add(new PadMapping.Target(2, sms ? "1" : pair[1], face));
+            if (hasShoulders()) {
+                targets.add(new PadMapping.Target(512, "L", shoulderLeft));
+                targets.add(new PadMapping.Target(256, "R", shoulderRight));
+            }
+            if (!sms) {
+                targets.add(new PadMapping.Target(4, selectLabel(), middle));
+            }
+            targets.add(new PadMapping.Target(8, startLabel(), middle));
+        } else if (isWonderSwan() || isNeoGeoPocket()) {
+            targets.add(new PadMapping.Target(1, "A", face));
+            targets.add(new PadMapping.Target(2, "B", face));
+            targets.add(new PadMapping.Target(8, isWonderSwan() ? "START" : "OPTION", middle));
+        } else {
+            // Neo Geo and arcade sets: A B C D, with E F on the six-button games.
+            String[] labels = {"A", "B", "C", "D", "E", "F"};
+            int[] bits = {1, 2, 1024, 2048, 4096, 8192};
+            for (int k = 0; k < (isNeoGeoMode() ? 4 : 6); k++) {
+                targets.add(new PadMapping.Target(bits[k], labels[k], face));
+            }
+            targets.add(new PadMapping.Target(4, selectLabel(), middle));
+            targets.add(new PadMapping.Target(8, "START", middle));
+        }
+        targets.add(new PadMapping.Target(PadMapping.DPAD_UP, "▲", PadMapping.GROUP_DPAD));
+        targets.add(new PadMapping.Target(PadMapping.DPAD_RIGHT, "▶", PadMapping.GROUP_DPAD));
+        targets.add(new PadMapping.Target(PadMapping.DPAD_DOWN, "▼", PadMapping.GROUP_DPAD));
+        targets.add(new PadMapping.Target(PadMapping.DPAD_LEFT, "◀", PadMapping.GROUP_DPAD));
+        return targets;
+    }
+
+    // Which pad picture the button-setting screen draws.
+    private String padSheetStyle() {
+        if (isDolphin()) {
+            if (!isWiiGame()) return "gc";
+            int control = wiiControl();
+            return control == 1 ? "wiisw" : control == 2 ? "wiicc" : "wiinc";
+        }
+        if (isWiiU()) return "wiiu";
+        if (isSonyPad()) return "ps";
+        if (isSnes()) return "sfc";
+        if (isN64()) return "n64";
+        if (isMegaDrive()) return "md";
+        if (isSaturn()) return "ss";
+        if (isNaomi()) return "arcade";
+        if (isDreamcast()) return "dc";
+        if (this.coreId.equals("gba") || isDualScreen() || isWonderSwan() || isNeoGeoPocket()) return "gba";
+        if (isPadLayout()) return "fc";
+        return "arcade";
+    }
+
+    private String consoleName() {
+        switch (this.gameMode) {
+            case "gba": return isGameBoy() ? "게임보이" : "GBA";
+            case "nds": return "닌텐도 DS";
+            case "3ds": return "닌텐도 3DS";
+            case "gc": return isWiiGame() ? "Wii" : "게임큐브";
+            case "wiiu": return "Wii U";
+            case "snes": return "슈퍼패미컴";
+            case "nes": return "패미컴";
+            case "md": return "메가드라이브";
+            case "mcd": return "메가CD";
+            case "sms": return "마스터시스템";
+            case "pce": return "PC엔진";
+            case "n64": return "닌텐도 64";
+            case "psp": return "PSP";
+            case "ps1": return "PS1";
+            case "ps2": return "PS2";
+            case "ss": return "새턴";
+            case "dc": return "드림캐스트";
+            case "naomi": return "Naomi · Atomiswave";
+            case "ws": return "원더스완";
+            case "ngp": return "네오지오 포켓";
+            case "neogeo": return "Neo Geo";
+            default: return "아케이드";
+        }
+    }
+
+    private LinearLayout createPadMappingRow(Runnable reopen) {
+        android.view.InputDevice device = PadMapping.firstController();
+        String shown;
+        if (device == null) {
+            shown = "게임패드 없음";
+        } else {
+            boolean custom = PadMappingDialog.hasCustom(MainActivity.sharedSettings(this), this.saveBaseName, this.gameMode, PadMapping.descriptor(device));
+            shown = (custom ? "바꾼 설정" : "기본") + " · " + device.getName();
+        }
+        return createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_PAD, "게임패드 버튼 설정", shown, view -> {
+            android.view.InputDevice now = PadMapping.firstController();
+            if (now == null) {
+                Toast.makeText(this, "블루투스나 USB 게임패드를 먼저 연결해 주세요.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            releaseController();
+            // The picture is wide: the screen turns landscape while it is open, then goes back.
+            final int previous = getRequestedOrientation();
+            setRequestedOrientation(6);
+            PadMappingDialog.show(this, padTargets(), padDefaults(), this.saveBaseName, this.gameMode, consoleName(), this.gameTitle,
+                    padSheetStyle(), now, new PadMappingDialog.Listener() {
+                        @Override
+                        public void onChanged() {
+                            invalidatePadMaps();
+                        }
+
+                        @Override
+                        public void onClosed() {
+                            setRequestedOrientation(previous);
+                        }
+                    });
+        });
+    }
+
+    private static float padAxis(android.view.MotionEvent event, int axis) {
+        android.view.InputDevice device = event.getDevice();
+        float value = event.getAxisValue(axis);
+        if (device != null) {
+            android.view.InputDevice.MotionRange range = device.getMotionRange(axis, event.getSource());
+            if (range != null && Math.abs(value) <= Math.max(range.getFlat(), 0.12f)) {
+                return 0;
+            }
+        }
+        return Math.abs(value) <= 0.12f ? 0 : value;
+    }
+
+    private static int directionsFor(float x, float y, float threshold) {
+        int bits = 0;
+        if (x > threshold) bits |= 16;
+        if (x < -threshold) bits |= 32;
+        if (y < -threshold) bits |= 64;
+        if (y > threshold) bits |= 128;
+        return bits;
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+        if (!isControllerEvent(event) || event.getActionMasked() != android.view.MotionEvent.ACTION_MOVE) {
+            return super.dispatchGenericMotionEvent(event);
+        }
+        float x = padAxis(event, android.view.MotionEvent.AXIS_X);
+        float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
+        android.util.SparseIntArray table = padMapFor(event.getDevice());
+        if (table != null) {
+            applyMappedAxes(event, table, x, y);
+            return true;
+        }
+        int hat = directionsFor(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X), event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y), 0.5f);
+        int stick = 0;
+        if (isSonyPad() || isN64() || isDreamcast()) {
+            // PSP / PS1 / PS2 / N64 / Dreamcast read the sticks as sticks.
+            onAnalogChanged(x, y);
+            onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+        } else {
+            stick = directionsFor(x, y, 0.5f);
+        }
+        if (hat != this.padHatDirection || stick != this.padStickDirection) {
+            this.padHatDirection = hat;
+            this.padStickDirection = stick;
+            applyDirections();
+        }
+        // Analog triggers (pads that report L2/R2 only as axes).
+        float l2 = Math.max(event.getAxisValue(android.view.MotionEvent.AXIS_LTRIGGER), event.getAxisValue(android.view.MotionEvent.AXIS_BRAKE));
+        float r2 = Math.max(event.getAxisValue(android.view.MotionEvent.AXIS_RTRIGGER), event.getAxisValue(android.view.MotionEvent.AXIS_GAS));
+        setTrigger(kL2, l2 > 0.5f);
+        setTrigger(kR2, r2 > 0.5f);
+        return true;
+    }
+
+    private int padTriggers;
+
+    private void setTrigger(int bit, boolean pressed) {
+        if (((this.padTriggers & bit) != 0) == pressed) {
+            return;
+        }
+        this.padTriggers = pressed ? this.padTriggers | bit : this.padTriggers & ~bit;
+        if (!pressed && (this.padButtons & bit) != 0) {
+            return;
+        }
+        setButtonPressed(bit, pressed);
+    }
+
+    private void addLandscapeActionButton(FrameLayout frameLayout, String str, int i, int i2, int i3) {
+        addLandscapeActionButton(frameLayout, str, i, i2, i3, 3);
+    }
+
+    private void addLandscapeActionButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4) {
+        TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed, i4);
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(66), dp(66));
+        layoutParams.gravity = 8388629;
+        layoutParams.setMargins(0, 0, i2, 0);
+        touchButton.setTranslationY(i3 + dp(LANDSCAPE_SHIFT_DP));
+        frameLayout.addView(touchButton, layoutParams);
+    }
+
+    // How many touches (a button, a combo zone, a controller key) hold each button bit, so
+    // letting go of one does not release a button another still holds.
+    private final int[] buttonHolds = new int[32];
+
+    private void setButtonPressed(int i, boolean z) {
+        int held = 0;
+        for (int b = 0; b < 32; b++) {
+            if ((i & (1 << b)) != 0) {
+                this.buttonHolds[b] = Math.max(0, this.buttonHolds[b] + (z ? 1 : -1));
+            }
+            if (this.buttonHolds[b] > 0) {
+                held |= 1 << b;
+            }
+        }
+        // The D-pad bits come from applyDirections.
+        this.buttonMask = (this.buttonMask & 0xF0) | (held & ~0xF0);
+        updateInput();
+    }
+
+    // ---- 버튼 사이 동시 입력: zones between neighbouring face buttons press both ----
+    private static final String[] COMBO_NAMES = {"꺼짐", "좁게", "넓게"};
+    private static final String[] COMBO_NOTES = {"손가락 하나 = 버튼 하나 (기본)", "버튼 사이 빈틈을 누르면 두 버튼 같이", "버튼 가장자리만 눌러도 같이 · 격투 게임용"};
+    // Face buttons: A, B, X/C, Y/D, E, F.
+    private static final int FACE_BITS = 1 | 2 | 1024 | 2048 | 4096 | 8192;
+    private final java.util.List<android.view.ViewGroup> comboParents = new java.util.ArrayList<>();
+    // The face-button positions each parent's zones were laid out for.
+    private final java.util.Map<android.view.ViewGroup, String> comboSignatures = new java.util.HashMap<>();
+
+    private int comboLevel() {
+        int level = MainActivity.sharedSettings(this).getInt("combo_level", 0);
+        return level >= 0 && level <= 2 ? level : 0;
+    }
+
+    // Finds the face buttons of the content just built and keeps zones between them in place.
+    private void installComboZones(View root) {
+        this.comboParents.clear();
+        this.comboSignatures.clear();
+        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (view instanceof TouchButton && (((TouchButton) view).bit() & FACE_BITS) != 0
+                    && view.getParent() instanceof FrameLayout && !this.comboParents.contains((android.view.ViewGroup) view.getParent())) {
+                this.comboParents.add((android.view.ViewGroup) view.getParent());
+            }
+            if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup group = (android.view.ViewGroup) view;
+                for (int k = 0; k < group.getChildCount(); k++) {
+                    queue.add(group.getChildAt(k));
+                }
+            }
+        }
+        for (android.view.ViewGroup parent : this.comboParents) {
+            parent.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> parent.post(() -> layoutComboZones(parent, false)));
+        }
+    }
+
+    private void layoutComboZones(android.view.ViewGroup parent, boolean force) {
+        java.util.List<TouchButton> buttons = new java.util.ArrayList<>();
+        java.util.List<View> zones = new java.util.ArrayList<>();
+        StringBuilder signature = new StringBuilder().append(comboLevel());
+        for (int k = 0; k < parent.getChildCount(); k++) {
+            View child = parent.getChildAt(k);
+            if (child instanceof ComboZoneView) {
+                zones.add(child);
+            } else if (child instanceof TouchButton && (((TouchButton) child).bit() & FACE_BITS) != 0 && child.getWidth() > 0) {
+                buttons.add((TouchButton) child);
+                signature.append(',').append(child.getLeft() + (int) child.getTranslationX()).append(':').append(child.getTop() + (int) child.getTranslationY());
+            }
+        }
+        // Adding the zones lays the parent out again; leave them be when nothing moved.
+        if (!force && signature.toString().equals(this.comboSignatures.get(parent))) {
+            return;
+        }
+        this.comboSignatures.put(parent, signature.toString());
+        for (View zone : zones) {
+            parent.removeView(zone);
+        }
+        int level = comboLevel();
+        if (level == 0) {
+            return;
+        }
+        for (int i = 0; i < buttons.size(); i++) {
+            for (int j = i + 1; j < buttons.size(); j++) {
+                TouchButton a = buttons.get(i);
+                TouchButton b = buttons.get(j);
+                float ax = a.getLeft() + a.getTranslationX() + a.getWidth() / 2.0f;
+                float ay = a.getTop() + a.getTranslationY() + a.getHeight() / 2.0f;
+                float bx = b.getLeft() + b.getTranslationX() + b.getWidth() / 2.0f;
+                float by = b.getTop() + b.getTranslationY() + b.getHeight() / 2.0f;
+                float size = Math.max(Math.max(a.getWidth(), a.getHeight()), Math.max(b.getWidth(), b.getHeight()));
+                // Neighbours only: a diamond's sides, not its opposite corners.
+                if (Math.hypot(ax - bx, ay - by) > size * 1.6f) {
+                    continue;
+                }
+                int zoneSize = Math.round(size * (level == 1 ? 0.5f : 0.95f));
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(zoneSize, zoneSize, Gravity.TOP | Gravity.START);
+                params.leftMargin = Math.round((ax + bx) / 2 - zoneSize / 2.0f);
+                params.topMargin = Math.round((ay + by) / 2 - zoneSize / 2.0f);
+                parent.addView(new ComboZoneView(this, a, b, this::setButtonPressed), params);
+            }
+        }
+    }
+
+    private LinearLayout createComboRow(Runnable onChanged) {
+        return createSettingRow(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "버튼 사이 동시 입력", COMBO_NAMES[comboLevel()],
+                view -> showChoiceDialog(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "버튼 사이 동시 입력", COMBO_NAMES, COMBO_NOTES,
+                        comboLevel(), "모든 게임에 바로 적용돼요.\n손가락 두 개로 각각 누르는 건 설정과 상관없이 항상 돼요.",
+                        Color.rgb(255, 247, 232), Color.rgb(138, 90, 0), "적용", choice -> {
+                    MainActivity.sharedSettings(this).edit().putInt("combo_level", choice).apply();
+                    for (android.view.ViewGroup parent : this.comboParents) {
+                        layoutComboZones(parent, true);
+                    }
+                    onChanged.run();
+                }));
+    }
+
+
+    // ---- 되감기 (rewind) ----
+    private static final int REWIND_BESIDE = 0;
+    private static final int REWIND_LEFT = 1;
+    private static final int REWIND_BELOW = 2;
+    private static final int REWIND_MIRROR = 3;
+    private static final String[] REWIND_NAMES = {"꺼짐", "켜짐"};
+    private static final String[] REWIND_NOTES = {"되감기 버튼 없음 (기본)", "버튼을 누르고 있는 동안 거꾸로"};
+    private TextView rewindBadge;
+    private final Runnable rewindBadgeUpdate = new Runnable() {
+        @Override
+        public void run() {
+            updateRewindBadge();
+        }
+    };
+    private boolean rewindHeld;
+
+    // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
+    private boolean rewindSupported() {
+        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isWiiU() && !isDolphin() && !isMame139() && !stvBoard();
+    }
+
+    private Boolean stvBoard;
+
+    // Sega ST-V arcade games (BIOS stvbios): MAME takes their states, but a restored one
+    // leaves a black screen that doesn't move. They get no automatic quick save (always
+    // start from the beginning), no rewind, and a word before a quick save.
+    private boolean stvBoard() {
+        if (this.stvBoard == null) {
+            boolean stv = false;
+            if (this.romPath != null && this.coreId.startsWith("mame") && !isMame139()) {
+                String name = new File(this.romPath).getName().toLowerCase(Locale.US);
+                if (name.endsWith(".zip")) {
+                    stv = RomsetIndex.usesBios(this, name.substring(0, name.length() - 4), "stvbios");
+                }
+            }
+            this.stvBoard = stv;
+        }
+        return this.stvBoard;
+    }
+
+
+    // Before a quick save on an ST-V game: once per game, a word on what loading it does.
+    private void confirmStvSave(Runnable save) {
+        String key = "stv_save_warned:" + this.saveBaseName;
+        if (!stvBoard() || MainActivity.sharedSettings(this).getBoolean(key, false)) {
+            save.run();
+            return;
+        }
+        android.widget.CheckBox again = new android.widget.CheckBox(this);
+        again.setText("이 게임은 다시 묻지 않기");
+        again.setTextSize(12.5f);
+        again.setTextColor(Color.rgb(55, 65, 81));
+        again.setChecked(true);
+        new AppDialog.Builder(this).setTitle("빠른 저장")
+                .setMessage("세가 ST-V 기판 게임은 저장한 장면을 불러오면 화면이 멈출 수 있어요. 그럴 땐 위쪽 재시작을 누르면 다시 켜져요.\n되감기도 같은 이유로 이 게임에서는 꺼져 있어요.")
+                .setView(again)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("그래도 저장", (d, w) -> {
+                    if (again.isChecked()) {
+                        MainActivity.sharedSettings(this).edit().putBoolean(key, true).apply();
+                    }
+                    save.run();
+                }).show();
+    }
+
+    private boolean rewindOn() {
+        return rewindSupported() && MainActivity.sharedSettings(this).getBoolean("rewind_enabled", false);
+    }
+
+    // Puts the rewind button by the speed button: centred as a pair (BESIDE), to its left in
+    // the same row (LEFT, optionally narrowing the speed button), centred under it (BELOW), or
+    // at the mirrored spot on the other side (MIRROR, for a bottom-right speed button).
+    private void addRewindButton(FrameLayout parent, View speed, FrameLayout.LayoutParams speedParams, int placement, int widthDp, boolean narrowSpeed) {
+        if (!rewindOn()) {
+            return;
+        }
+        RewindButtonView rewind = new RewindButtonView(this, this::onRewindHeld);
+        int width = dp(widthDp);
+        int gap = dp(6);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, speedParams.height, speedParams.gravity);
+        if (placement == REWIND_BESIDE) {
+            params.setMargins(speedParams.leftMargin, speedParams.topMargin, speedParams.rightMargin, speedParams.bottomMargin);
+            speed.setTranslationX(speed.getTranslationX() - (width + gap) / 2.0f);
+            rewind.setTranslationX((speedParams.width + gap) / 2.0f);
+        } else if (placement == REWIND_LEFT) {
+            if (narrowSpeed) {
+                speedParams.width = width;
+                speed.setLayoutParams(speedParams);
+            }
+            params.setMargins(0, speedParams.topMargin, speedParams.rightMargin + speedParams.width + gap, speedParams.bottomMargin);
+        } else if (placement == REWIND_MIRROR) {
+            params.gravity = Gravity.BOTTOM | Gravity.START;
+            params.setMargins(speedParams.rightMargin, 0, 0, speedParams.bottomMargin);
+        } else {
+            params.setMargins(speedParams.leftMargin, speedParams.topMargin + speedParams.height + dp(8), speedParams.rightMargin, 0);
+        }
+        parent.addView(rewind, params);
+    }
+
+    private void onRewindHeld(boolean held) {
+        if (this.rewindHeld == held) {
+            return;
+        }
+        this.rewindHeld = held;
+        long handle = this.nativeHandle;
+        if (handle != 0) {
+            NativeGba.setRewinding(handle, held);
+        }
+        updateRewindBadge();
+    }
+
+    // "◀◀ 되감는 중 · 3초 전" over the top of the screen while the button is held.
+    private void updateRewindBadge() {
+        TextView badge = this.rewindBadge;
+        if (!this.rewindHeld) {
+            if (badge != null) {
+                badge.removeCallbacks(this.rewindBadgeUpdate);
+                badge.setVisibility(View.GONE);
+            }
+            return;
+        }
+        if (badge == null || !badge.isAttachedToWindow()) {
+            badge = new TextView(this);
+            badge.setTextColor(Color.WHITE);
+            badge.setTextSize(13.0f);
+            badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            badge.setPadding(dp(14), dp(7), dp(14), dp(7));
+            android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+            background.setColor(Color.argb(220, 76, 29, 149));
+            background.setCornerRadius(dp(16));
+            badge.setBackground(background);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            params.setMargins(0, dp(this.landscapeMode ? 12 : 72), 0, 0);
+            addContentView(badge, params);
+            this.rewindBadge = badge;
+        }
+        long handle = this.nativeHandle;
+        int seconds = handle == 0 ? 0 : Math.round(NativeGba.rewoundSeconds(handle));
+        badge.setText(seconds > 0 ? "◀◀  되감는 중 · " + seconds + "초 전" : "◀◀  되감는 중");
+        badge.setVisibility(View.VISIBLE);
+        badge.removeCallbacks(this.rewindBadgeUpdate);
+        badge.postDelayed(this.rewindBadgeUpdate, 250);
+    }
+
+    // Builds the screen again (a setting that adds or removes buttons changed).
+    private void rebuildContent() {
+        releaseController();
+        onRewindHeld(false);
+        if (this.landscapeMode) {
+            createLandscapeContent();
+        } else {
+            createPortraitContent();
+        }
+    }
+
+    // ---- 버튼 배치 편집 (layout editor) ----
+    private final java.util.List<View> layoutControls = new java.util.ArrayList<>();
+    private final java.util.List<String> layoutIds = new java.util.ArrayList<>();
+    private final java.util.List<float[]> layoutBase = new java.util.ArrayList<>();
+    private LayoutEditorView layoutEditor;
+    // "버튼 꾸미기" in force for this console or game and screen direction.
+    private ButtonStyle buttonStyle = new ButtonStyle();
+    // The game screen's frame, where the 버튼 꾸미기 window sits so the buttons stay in view.
+    private View screenArea;
+
+    private static boolean isLayoutControl(View view) {
+        return view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView
+                || view instanceof ArcadeJoystickView || view instanceof SpeedButtonView || view instanceof RewindButtonView
+                || view instanceof WiiuPadWindowView;
+    }
+
+    // Saved per console, screen direction and screen style.
+    private String layoutKey() {
+        return "layout:" + layoutConsole() + ":" + (this.landscapeMode ? "L" : "P") + ":" + (isFullScreenStyle() ? "full" : "frame");
+    }
+
+    private String layoutConsole() {
+        return isGameGear() ? "gg" : isMasterSystem() ? "sms" : isGameBoy() ? "gb" : this.coreId;
+    }
+
+    // ---- 꾸미기 프리셋 ----
+    private View undoBar;
+
+    private void openPresetDialog() {
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        String[] summary = {
+                ClearShellView.STYLE_NAMES[shellStyle()],
+                PhotoBackground.rendered(this, this.gameMode, this.landscapeMode) != null ? "있음" : "없음",
+                PhotoBackground.buttonAlpha(this, this.gameMode) + "%",
+                buttonStyleSummary(),
+                hasLayoutEdits() ? "바꾼 배치" : "기본 배치",
+                (is3d() ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
+        };
+        PresetDialog presets = new PresetDialog(this, consoleName(), this.landscapeMode, summary, presetListener());
+        this.presetDialog = presets;
+        presets.show(screenRectInWindow());
+    }
+
+    private PresetDialog presetDialog;
+    private static final int REQUEST_PRESET_FILE = 3103;
+
+    private PresetDialog.Listener presetListener() {
+        return new PresetDialog.Listener() {
+            @Override
+            public Presets.Preset onSave(String id, String name, int scope, boolean[] items) throws java.io.IOException {
+                return Presets.capture(GameActivity.this, id, name, gameMode, consoleName(), layoutConsole(), landscapeMode, scope, items);
+            }
+
+            @Override
+            public void onApply(Presets.Preset preset) {
+                applyPreset(preset);
+            }
+
+            @Override
+            public void onShare(Presets.Preset preset) {
+                sharePreset(preset);
+            }
+
+            @Override
+            public void onImportFile() {
+                // The window closed; the game stays held until the picker comes back.
+                holdPause = true;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/octet-stream", "application/zip", "application/x-mepreset"});
+                // Opens in 다운로드/Mini Emulator, where "파일로 저장" puts the files.
+                intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                        android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",
+                                "primary:" + android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER));
+                try {
+                    startActivityForResult(intent, REQUEST_PRESET_FILE);
+                } catch (android.content.ActivityNotFoundException e) {
+                    Toast.makeText(GameActivity.this, "파일 선택 앱이 없어요.", Toast.LENGTH_SHORT).show();
+                    holdPause = false;
+                    resumeUnlessExiting();
+                }
+            }
+
+            @Override
+            public void onClosed() {
+                presetDialog = null;
+                if (!holdPause) return;
+                holdPause = false;
+                resumeUnlessExiting();
+            }
+        };
+    }
+
+    // "파일로 저장": straight into 다운로드/Mini Emulator, where "파일에서 가져오기" opens.
+    private void sharePreset(Presets.Preset preset) {
+        try {
+            android.net.Uri uri = Presets.exportFile(this, preset);
+            String name = Presets.fileName(preset);
+            if ("content".equals(uri.getScheme())) {
+                try (android.database.Cursor cursor = getContentResolver().query(uri, new String[]{android.provider.MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst() && cursor.getString(0) != null) {
+                        name = cursor.getString(0);
+                    }
+                } catch (RuntimeException ignored) {
+                    // The requested name will do.
+                }
+                Toast.makeText(this, "다운로드 › " + MainActivity.DOWNLOAD_FOLDER + " 폴더에 저장했어요\n" + name, Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "파일로 저장했어요: " + uri.getPath(), Toast.LENGTH_LONG).show();
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "저장하지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void importPresetFile(android.net.Uri uri) {
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new java.io.IOException("파일을 열 수 없어요");
+            Presets.Preset preset = Presets.importZip(this, in);
+            this.holdPause = true;
+            PresetDialog presets = new PresetDialog(this, consoleName(), this.landscapeMode, null, presetListener());
+            this.presetDialog = presets;
+            presets.showImport(preset);
+            presets.show(screenRectInWindow());
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "가져오지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            this.holdPause = false;
+            resumeUnlessExiting();
+        }
+    }
+
+    /** Keeps the current look as the undo preset, writes the preset's settings and rebuilds. */
+    private void applyPreset(Presets.Preset preset) {
+        boolean undo = Presets.UNDO_ID.equals(preset.id);
+        try {
+            if (!undo) {
+                Presets.capture(this, Presets.UNDO_ID, "되돌리기용", this.gameMode, consoleName(), layoutConsole(), this.landscapeMode,
+                        Presets.SCOPE_BOTH, new boolean[]{true, true, true, true, true, true});
+            }
+            boolean[] orientations = {preset.hasOrientation(false), preset.hasOrientation(true)};
+            String skipped = Presets.apply(this, preset, this.gameMode, layoutConsole(), orientations);
+            if (undo) {
+                Presets.delete(this, Presets.UNDO_ID);
+            }
+            rebuildContent();
+            applyScreenFilterToNative(screenFilter());
+            updateScreenFilters();
+            Toast.makeText(this, (undo ? "적용 전 모습으로 되돌렸어요." : "\"" + preset.name + "\"을 " + consoleName() + "에 적용했어요.")
+                    + (skipped != null ? "\n" + skipped : ""), Toast.LENGTH_SHORT).show();
+            if (!undo) {
+                showUndoBar();
+            }
+        } catch (java.io.IOException e) {
+            Toast.makeText(this, "적용하지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // A strip at the bottom for ten seconds: "되돌리기" brings the previous look back.
+    // ---- 게임패드 자동 전환: a controller hides the touch controls and grows the picture ----
+    private android.hardware.input.InputManager.InputDeviceListener padListener;
+    private boolean padMode;
+    private boolean padLeaveCancelled;
+
+    private void registerPadListener() {
+        android.hardware.input.InputManager manager = (android.hardware.input.InputManager) getSystemService(INPUT_SERVICE);
+        if (manager == null) return;
+        this.padListener = new android.hardware.input.InputManager.InputDeviceListener() {
+            @Override
+            public void onInputDeviceAdded(int deviceId) {
+                getWindow().getDecorView().postDelayed(() -> onPadsChanged(), 300);
+            }
+
+            @Override
+            public void onInputDeviceRemoved(int deviceId) {
+                getWindow().getDecorView().postDelayed(() -> onPadsChanged(), 300);
+            }
+
+            @Override
+            public void onInputDeviceChanged(int deviceId) {
+            }
+        };
+        manager.registerInputDeviceListener(this.padListener, new android.os.Handler(android.os.Looper.getMainLooper()));
+    }
+
+    // ---- 발열 단계: the system's thermal status (Android 10+), shown in the performance
+    // readout and acted on per the 뜨거워지면 setting ----
+    private Object thermalListener;
+    private boolean heatWarned;
+    private boolean heatRestWarned;
+    private static final String[] HEAT_ACTION_NAMES = {"알려 주기", "자동으로 균형", "그대로 두기"};
+    private static final String[] HEAT_ACTION_NOTES = {
+            "\"뜨거움\" 단계가 되면 위에 알림. 한 게임에 한 번만",
+            "알림 없이 균형으로 낮추고 짧게 알려요. 직접 성능을 고른 게임도 포함",
+            "아무것도 하지 않아요"};
+
+    private int heatAction() {
+        int value = MainActivity.sharedSettings(this).getInt("heat_action", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private void registerThermalListener() {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            return;
+        }
+        android.os.PowerManager manager = getSystemService(android.os.PowerManager.class);
+        if (manager == null) {
+            return;
+        }
+        android.os.PowerManager.OnThermalStatusChangedListener listener = this::onThermalStatus;
+        try {
+            manager.addThermalStatusListener(getMainExecutor(), listener);
+            this.thermalListener = listener;
+        } catch (RuntimeException e) {
+            // No thermal service: the readout shows temperatures only.
+        }
+    }
+
+    private void unregisterThermalListener() {
+        if (android.os.Build.VERSION.SDK_INT < 29 || this.thermalListener == null) {
+            return;
+        }
+        android.os.PowerManager manager = getSystemService(android.os.PowerManager.class);
+        if (manager != null) {
+            try {
+                manager.removeThermalStatusListener((android.os.PowerManager.OnThermalStatusChangedListener) this.thermalListener);
+            } catch (RuntimeException e) {
+                // Already gone.
+            }
+        }
+        this.thermalListener = null;
+    }
+
+    // 0 보통, 1 약간, 2 뜨거움 (MODERATE), 3 심각 (SEVERE and above).
+    private int thermalStatus = -1;
+
+    private void onThermalStatus(int status) {
+        this.thermalStatus = status;
+        int level = Math.max(0, Math.min(3, status));
+        PerfOverlayView.thermalLevel = level;
+        if (this.destroyed || this.nativeHandle == 0 || heatAction() == 2) {
+            return;
+        }
+        if (level >= 2 && powerMode() == 0 && !this.heatWarned) {
+            this.heatWarned = true;
+            if (heatAction() == 1) {
+                setPowerModeNow(1);
+                showHeatBar("폰이 뜨거워져서 균형으로 바꿨어요", "느려지면 설정 › 전원 모드에서 성능으로 되돌리세요", null, null);
+            } else {
+                showHeatBar("폰이 뜨거워지고 있어요", "휴대폰이 곧 스스로 속도를 낮출 수 있어요. 균형으로 바꾸면 덜 뜨거워져요", "균형으로 바꾸기", () -> {
+                    setPowerModeNow(1);
+                    Toast.makeText(this, "균형으로 바꿨어요.", Toast.LENGTH_SHORT).show();
+                });
+            }
+        } else if (level >= 3 && !this.heatRestWarned) {
+            this.heatRestWarned = true;
+            showHeatBar("폰이 많이 뜨거워요", "잠시 쉬어 주세요. 휴대폰이 스스로 속도를 크게 낮출 수 있어요", null, null);
+        }
+    }
+
+    // An orange notice over the top of the screen; the game keeps running. With an action
+    // it has two buttons and stays 12 seconds, otherwise 7.
+    private void showHeatBar(String title, String detail, String actionText, Runnable action) {
+        hideHeatBanner();
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        bar.setPadding(dp(14), dp(12), dp(12), dp(12));
+        bar.setBackground(roundRect(Color.rgb(255, 247, 237), dp(18)));
+        bar.setElevation(dp(8));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(new RoundIconView(this, RoundIconView.PERF, HEAT_ORANGE), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(sheetText(title, 13.5f, Color.rgb(154, 52, 18), true));
+        texts.addView(sheetText(detail, 11.5f, Color.rgb(154, 52, 18), false));
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, 0, 0);
+        top.addView(texts, textsParams);
+        bar.addView(top);
+        if (action != null) {
+            LinearLayout buttons = new LinearLayout(this);
+            TextView later = dialogButton("괜찮아요", Color.WHITE, Color.rgb(154, 52, 18));
+            later.setTextSize(12.5f);
+            later.setOnClickListener(view -> hideHeatBanner());
+            buttons.addView(later, new LinearLayout.LayoutParams(0, dp(38), 1.0f));
+            TextView act = dialogButton(actionText, HEAT_ORANGE, Color.WHITE);
+            act.setTextSize(12.5f);
+            act.setOnClickListener(view -> {
+                hideHeatBanner();
+                action.run();
+            });
+            LinearLayout.LayoutParams actParams = new LinearLayout.LayoutParams(0, dp(38), 1.4f);
+            actParams.setMargins(dp(8), 0, 0, 0);
+            buttons.addView(act, actParams);
+            bar.addView(buttons, marginTop(-1, -2, 10));
+        } else {
+            bar.setOnClickListener(view -> hideHeatBanner());
+        }
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        params.setMargins(dp(12), dp(22), dp(12), 0);
+        addContentView(bar, params);
+        this.heatBanner = bar;
+        bar.postDelayed(() -> {
+            if (this.heatBanner == bar) hideHeatBanner();
+        }, action != null ? 12000 : 7000);
+    }
+
+    private LinearLayout createHeatActionRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, HEAT_ORANGE, "뜨거워지면", HEAT_ACTION_NAMES[heatAction()], null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, HEAT_ORANGE, "뜨거워지면", HEAT_ACTION_NAMES, HEAT_ACTION_NOTES,
+                heatAction(), "모든 게임에 같이 적용돼요. 휴대폰이 알려 주는 발열 단계(보통 · 약간 · 뜨거움 · 심각)를 써요. 성능 표시를 켜면 온도 옆에 단계 색이 보여요.",
+                Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putInt("heat_action", choice).apply();
+            value.setText(HEAT_ACTION_NAMES[choice] + "  ›");
+        }));
+        return row;
+    }
+
+    // ---- DS microphone: the MIC button (L3) and the phone's mic ----
+    private static final int REQUEST_MIC = 4101;
+    private static final String[] MIC_INPUT_NAMES = {"실제 마이크", "후 불기 소리 (내장)", "끔"};
+    private static final String[] MIC_INPUT_NOTES = {
+            "휴대폰 마이크로 말하거나 불어요. 닌텐독스처럼 목소리를 알아듣는 게임은 이걸로",
+            "마이크 없이 MIC 버튼만 누르면 \"후\" 부는 소리가 들어가요. 촛불 끄기 · 바람 불기용",
+            "게임에 아무 소리도 넣지 않아요"};
+    private static final String[] MIC_BUTTON_NAMES = {"누르는 동안", "눌러서 켜고 끄기", "항상 켜기"};
+    private static final String[] MIC_BUTTON_NOTES = {
+            "MIC 버튼을 누르고 있는 동안만 (기본)",
+            "한 번 누르면 켜지고, 다시 누르면 꺼져요",
+            "버튼 없이 게임 중 계속 켜 둬요 · 배터리를 조금 더 써요"};
+    private final MicCapture micCapture = new MicCapture();
+    private boolean micButtonDown;
+    private boolean micToggled;
+    private boolean micAsking;
+    private boolean micRefused;
+    private View micBadge;
+    private MicLevelView micLevel;
+    private TextView micBadgeText;
+    private final Runnable micPoll = this::pollMic;
+
+    private int dsMicInput() {
+        int value = MainActivity.sharedSettings(this).getInt("ds_mic_input", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private int dsMicButton() {
+        int value = MainActivity.sharedSettings(this).getInt("ds_mic_button", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private void onMicButton(boolean down) {
+        if (!isNds() || down == this.micButtonDown) {
+            return;
+        }
+        this.micButtonDown = down;
+        if (down) {
+            this.micToggled = !this.micToggled;
+        }
+    }
+
+    // Whether the game hears something now, as the core's own MIC button mode decides it.
+    private boolean micWanted() {
+        switch (dsMicButton()) {
+            case 1: return this.micToggled;
+            case 2: return true;
+            default: return this.micButtonDown;
+        }
+    }
+
+    private void startMicPoll() {
+        if (!isNds() || this.destroyed || this.nativeHandle == 0) {
+            return;
+        }
+        View decor = getWindow().getDecorView();
+        decor.removeCallbacks(this.micPoll);
+        decor.post(this.micPoll);
+    }
+
+    private void stopMicPoll() {
+        getWindow().getDecorView().removeCallbacks(this.micPoll);
+        this.micCapture.stop();
+        showMicBadge(false, 0f);
+    }
+
+    // Every 50 ms while a DS game runs: records only while the core has the mic on, and
+    // shows "듣는 중" with the level.
+    private void pollMic() {
+        if (this.destroyed || !this.activityResumed || this.nativeHandle == 0) {
+            return;
+        }
+        int input = dsMicInput();
+        boolean paused = this.pauseDialog != null && this.pauseDialog.isShowing();
+        if (input == 0) {
+            boolean on = NativeGba.isDsMicOn() && !paused;
+            if (on && !this.micCapture.isRunning()) {
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    if (!this.micCapture.start()) {
+                        Toast.makeText(this, "마이크를 열지 못했어요. 다른 앱이 마이크를 쓰고 있는지 확인해 주세요.", Toast.LENGTH_SHORT).show();
+                    }
+                } else if (!this.micAsking && !this.micRefused) {
+                    askMicPermission();
+                }
+            } else if (!on && this.micCapture.isRunning()) {
+                this.micCapture.stop();
+            }
+            showMicBadge(this.micCapture.isRunning(), this.micCapture.level());
+        } else if (input == 1) {
+            this.micCapture.stop();
+            boolean on = micWanted() && !paused;
+            showMicBadge(on, on ? 0.75f : 0f);
+        } else {
+            this.micCapture.stop();
+            showMicBadge(false, 0f);
+        }
+        getWindow().getDecorView().postDelayed(this.micPoll, 50);
+    }
+
+    private void showMicBadge(boolean shown, float level) {
+        if (!shown) {
+            if (this.micBadge != null && this.micBadge.getParent() instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) this.micBadge.getParent()).removeView(this.micBadge);
+            }
+            this.micBadge = null;
+            return;
+        }
+        if (this.micBadge == null || this.micBadge.getParent() == null) {
+            LinearLayout badge = new LinearLayout(this);
+            badge.setOrientation(LinearLayout.HORIZONTAL);
+            badge.setGravity(Gravity.CENTER_VERTICAL);
+            badge.setPadding(dp(14), dp(6), dp(14), dp(6));
+            badge.setBackground(roundRect(Color.argb(235, 219, 39, 119), dp(18)));
+            badge.setElevation(dp(6));
+            TextView text = sheetText("", 12.0f, Color.WHITE, true);
+            badge.addView(text);
+            MicLevelView meter = new MicLevelView(this);
+            LinearLayout.LayoutParams meterParams = new LinearLayout.LayoutParams(dp(60), dp(20));
+            meterParams.setMargins(dp(8), 0, 0, 0);
+            badge.addView(meter, meterParams);
+            // Touches go through to the game.
+            badge.setClickable(false);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            params.setMargins(0, dp(this.landscapeMode ? 12 : 64), 0, 0);
+            addContentView(badge, params);
+            this.micBadge = badge;
+            this.micBadgeText = text;
+            this.micLevel = meter;
+        }
+        this.micBadgeText.setText(dsMicInput() == 1 ? "🎤 후 부는 중" : "🎤 듣는 중");
+        this.micLevel.setLevel(level);
+    }
+
+    // The first time the game wants the phone's mic: what it is for, then the system's own
+    // permission request.
+    private void askMicPermission() {
+        this.micAsking = true;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        panel.addView(sheetHeader(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크를 쓸까요?", this.gameTitle + " · DS", null));
+        TextView body = sheetText("이 게임은 목소리나 바람(후 불기)으로 하는 장면이 있어요. MIC 버튼을 누르고 있는 동안만 소리를 게임에 넘겨요. 녹음하거나 어디에 보내지 않아요.",
+                13.0f, Color.rgb(55, 65, 81), false);
+        body.setLineSpacing(0, 1.2f);
+        panel.addView(body, marginTop(-1, -2, 12));
+        TextView hint = sheetText("다음에 휴대폰이 마이크 권한을 물어요. \"앱 사용 중에만 허용\"을 눌러 주세요.", 11.5f, Color.rgb(157, 23, 77), false);
+        hint.setPadding(dp(12), dp(10), dp(12), dp(10));
+        hint.setBackground(roundRect(Color.rgb(253, 242, 248), dp(12)));
+        panel.addView(hint, marginTop(-1, -2, 10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView later = dialogButton("나중에", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        buttons.addView(later, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView allow = dialogButton("마이크 켜기", Color.rgb(219, 39, 119), Color.WHITE);
+        LinearLayout.LayoutParams allowParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+        allowParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(allow, allowParams);
+        panel.addView(buttons, marginTop(-1, -2, 14));
+        final android.app.Dialog dialog = cardDialog(panel, 0);
+        final boolean[] asked = {false};
+        later.setOnClickListener(view -> dialog.dismiss());
+        allow.setOnClickListener(view -> {
+            asked[0] = true;
+            dialog.dismiss();
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, REQUEST_MIC);
+        });
+        dialog.setOnDismissListener(d -> {
+            if (!asked[0]) {
+                // 나중에: not asked again until the next game.
+                this.micAsking = false;
+                this.micRefused = true;
+            }
+        });
+        dialog.show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_MIC) {
+            return;
+        }
+        this.micAsking = false;
+        boolean granted = grantResults.length > 0 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (!granted) {
+            this.micRefused = true;
+            Toast.makeText(this, "마이크 권한이 없어서 게임에 소리가 들어가지 않아요. 일시정지 › 게임기 › 마이크 소리에서 \"후 불기 소리\"로 바꿀 수 있어요.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private LinearLayout createMicInputRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크 소리", MIC_INPUT_NAMES[dsMicInput()], null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크 소리", MIC_INPUT_NAMES, MIC_INPUT_NOTES,
+                dsMicInput(), "모든 DS 게임에 같이 적용 · 바로 바뀌어요.\n게임 화면의 MIC 버튼(또는 게임패드에 붙인 버튼)을 누를 때 들어가요.",
+                Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putInt("ds_mic_input", choice).apply();
+            NativeGba.setDsMic(choice, dsMicButton());
+            if (choice == 0) {
+                this.micRefused = false;
+            }
+            value.setText(MIC_INPUT_NAMES[choice] + "  ›");
+        }));
+        return row;
+    }
+
+    private LinearLayout createMicButtonRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, Color.rgb(219, 39, 119), "MIC 버튼 방식", MIC_BUTTON_NAMES[dsMicButton()], null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, Color.rgb(219, 39, 119), "MIC 버튼 방식", MIC_BUTTON_NAMES, MIC_BUTTON_NOTES,
+                dsMicButton(), "모든 DS 게임에 같이 적용 · 바로 바뀌어요.",
+                Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putInt("ds_mic_button", choice).apply();
+            NativeGba.setDsMic(dsMicInput(), choice);
+            this.micToggled = false;
+            value.setText(MIC_BUTTON_NAMES[choice] + "  ›");
+        }));
+        return row;
+    }
+
+    private void unregisterPadListener() {
+        android.hardware.input.InputManager manager = (android.hardware.input.InputManager) getSystemService(INPUT_SERVICE);
+        if (manager != null && this.padListener != null) {
+            manager.unregisterInputDeviceListener(this.padListener);
+        }
+        this.padListener = null;
+    }
+
+    private boolean padPref(String key) {
+        return MainActivity.sharedSettings(this).getBoolean(key, true);
+    }
+
+    /** 0 follows the general setting, 1 always shows the touch controls, 2 always hides them. */
+    private int padAutoForGame() {
+        return MainActivity.sharedSettings(this).getInt("pad_auto:" + this.saveBaseName, 0);
+    }
+
+    private boolean padAutoHides() {
+        int game = padAutoForGame();
+        return game == 2 || (game == 0 && padPref("pad_auto_hide"));
+    }
+
+    private void onPadsChanged() {
+        if (this.destroyed || isPadScreen() || isMame139()) return;
+        boolean connected = PadMapping.firstController() != null;
+        if (connected && !this.padMode) {
+            this.padLeaveCancelled = true;
+            enterPadMode(true);
+        } else if (!connected && this.padMode) {
+            if (padPref("pad_auto_restore")) {
+                scheduleLeavePadMode();
+            }
+        }
+    }
+
+    private void enterPadMode(boolean announce) {
+        if (!padAutoHides() || this.layoutControls.isEmpty()) return;
+        this.padMode = true;
+        setTouchControlsShown(false);
+        applyButtonStyle(this.buttonStyle);
+        if (announce && padPref("pad_auto_toast")) {
+            android.view.InputDevice device = PadMapping.firstController();
+            showActionBar("🎮 " + (device != null ? device.getName() : "게임패드") + " 연결 · 터치 버튼을 숨겼어요", "터치 보이기", this::leavePadModeNow);
+        }
+    }
+
+    private void leavePadModeNow() {
+        if (!this.padMode) return;
+        this.padMode = false;
+        setTouchControlsShown(true);
+        applyButtonStyle(this.buttonStyle);
+    }
+
+    private void scheduleLeavePadMode() {
+        this.padLeaveCancelled = false;
+        if (padPref("pad_auto_toast")) {
+            showActionBar("🎮 패드가 빠졌어요 · 터치 버튼으로 돌아갑니다", "취소", () -> this.padLeaveCancelled = true);
+        }
+        getWindow().getDecorView().postDelayed(() -> {
+            if (!this.padLeaveCancelled && PadMapping.firstController() == null) {
+                hideUndoBar();
+                leavePadModeNow();
+            }
+        }, 3000);
+    }
+
+    // Everything in the layout editor's list but the screen, and the combo zones between
+    // the face buttons; the top icons and the DS touch screen stay.
+    private void setTouchControlsShown(boolean shown) {
+        float alpha = shellStyle() == ClearShellView.STYLE_PHOTO ? 1.0f - PhotoBackground.buttonAlpha(this, this.gameMode) / 100f : 1.0f;
+        for (View view : this.layoutControls) {
+            if (view == this.screenArea) continue;
+            if (shown) {
+                view.setVisibility(View.VISIBLE);
+                view.animate().alpha(alpha).setDuration(180).start();
+            } else {
+                view.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+                    if (this.padMode) view.setVisibility(View.INVISIBLE);
+                }).start();
+            }
+        }
+        for (android.view.ViewGroup parent : this.comboParents) {
+            for (int k = 0; k < parent.getChildCount(); k++) {
+                View child = parent.getChildAt(k);
+                if (child instanceof ComboZoneView) {
+                    child.setVisibility(shown ? View.VISIBLE : View.INVISIBLE);
+                }
+            }
+        }
+    }
+
+    // How much bigger the picture goes while the controls are hidden: to the phone's width
+    // in portrait (top edge kept), to the phone in landscape (centred). 1 when off.
+    private float padGrowFor(View screen, float scaleX, float scaleY) {
+        if (!this.padMode || !padPref("pad_auto_grow") || screen.getWidth() == 0) return 1.0f;
+        View root = screen.getRootView();
+        if (root == null || root.getWidth() == 0) return 1.0f;
+        float widthFit = root.getWidth() / (screen.getWidth() * scaleX);
+        if (!this.landscapeMode) {
+            return Math.max(1.0f, Math.min(1.6f, widthFit));
+        }
+        float heightFit = root.getHeight() / (screen.getHeight() * scaleY);
+        return Math.max(1.0f, Math.min(1.5f, Math.min(widthFit, heightFit)));
+    }
+
+    private void showPadAutoSheet(Runnable reopen) {
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(16), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("게임패드 자동 전환");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        panel.addView(title);
+        android.view.InputDevice device = PadMapping.firstController();
+        TextView sub = new TextView(this);
+        sub.setText(device != null ? device.getName() + " 연결됨" : "연결된 게임패드 없음 · 꽂으면 아래 설정대로 바뀌어요");
+        sub.setTextSize(11.5f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        panel.addView(sub);
+        panel.addView(shapeSection("꽂으면 자동으로"));
+        panel.addView(shapeToggle("터치 버튼 숨기기", "방향키 · 버튼 · 스틱이 사라져요. 위쪽 저장 · 메뉴 아이콘은 남아요", padPref("pad_auto_hide"), on -> {
+            prefs.edit().putBoolean("pad_auto_hide", on).apply();
+            onPadModeSettingChanged();
+        }));
+        panel.addView(shapeToggle("화면 키우기", "버튼이 비운 자리까지 게임 화면을 넓혀요 (세로: 위쪽 고정, 가로: 가운데)", padPref("pad_auto_grow"), on -> {
+            prefs.edit().putBoolean("pad_auto_grow", on).apply();
+            if (this.padMode) applyButtonStyle(this.buttonStyle);
+        }));
+        panel.addView(shapeToggle("빼면 원래 배치로 돌아오기", "끄면 알림의 \"터치 보이기\"나 다음 실행 때 돌아와요", padPref("pad_auto_restore"), on -> prefs.edit().putBoolean("pad_auto_restore", on).apply()));
+        panel.addView(shapeToggle("전환할 때 알림 띄우기", "", padPref("pad_auto_toast"), on -> prefs.edit().putBoolean("pad_auto_toast", on).apply()));
+        panel.addView(shapeSection("이 게임만"));
+        LinearLayout chips = new LinearLayout(this);
+        final TextView[] chipViews = new TextView[3];
+        String[] names = {"기본 설정 따름", "항상 터치 보이기", "항상 숨기기"};
+        for (int i = 0; i < 3; i++) {
+            final int value = i;
+            TextView chip = shapeChip(names[i], padAutoForGame() == i);
+            chip.setOnClickListener(view -> {
+                if (value == 0) prefs.edit().remove("pad_auto:" + this.saveBaseName).apply();
+                else prefs.edit().putInt("pad_auto:" + this.saveBaseName, value).apply();
+                for (int k = 0; k < 3; k++) setShapeChip(chipViews[k], k == value);
+                onPadModeSettingChanged();
+            });
+            chipViews[i] = chip;
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+            chipParams.setMargins(i == 0 ? 0 : dp(6), 0, 0, 0);
+            chips.addView(chip, chipParams);
+        }
+        panel.addView(chips);
+        TextView note = new TextView(this);
+        note.setText("버튼 없는 \"게임패드 모드\" 화면 모드와는 별개예요. 평소엔 터치로, 패드를 꽂았을 때만 큰 화면으로 쓰고 싶을 때 켜 두세요.");
+        note.setTextSize(10.5f);
+        note.setTextColor(Color.rgb(122, 130, 140));
+        note.setPadding(dp(2), dp(8), 0, 0);
+        panel.addView(note);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        TextView done = dialogButton("완료", Color.rgb(225, 29, 72), Color.WHITE);
+        done.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(-1, dp(46));
+        doneParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(done, doneParams);
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            resumeUnlessExiting();
+        });
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400)), -2);
+        }
+        dialog.show();
+    }
+
+    // A setting changed while a pad is (or is not) connected: match the controls to it.
+    private void onPadModeSettingChanged() {
+        boolean connected = PadMapping.firstController() != null;
+        if (connected && padAutoHides() && !this.padMode) {
+            enterPadMode(false);
+        } else if ((!connected || !padAutoHides()) && this.padMode) {
+            leavePadModeNow();
+        }
+    }
+
+    private void showUndoBar() {
+        showActionBar("프리셋을 적용했어요", "되돌리기", () -> {
+            Presets.Preset previous = Presets.read(Presets.dir(this, Presets.UNDO_ID));
+            if (previous != null) {
+                applyPreset(previous);
+            }
+        });
+    }
+
+    // A strip at the bottom for ten seconds with one action on it.
+    private void showActionBar(String message, String action, Runnable onAction) {
+        hideUndoBar();
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(14), dp(8), dp(8), dp(8));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.argb(235, 31, 36, 48));
+        background.setCornerRadius(dp(12));
+        bar.setBackground(background);
+        TextView text = new TextView(this);
+        text.setText(message);
+        text.setTextSize(12.5f);
+        text.setTextColor(Color.WHITE);
+        bar.addView(text, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView undo = new TextView(this);
+        undo.setText(action);
+        undo.setTextSize(13.0f);
+        undo.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        undo.setTextColor(Color.rgb(255, 143, 168));
+        undo.setPadding(dp(12), dp(6), dp(12), dp(6));
+        undo.setOnClickListener(view -> {
+            hideUndoBar();
+            onAction.run();
+        });
+        bar.addView(undo);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        params.setMargins(dp(16), 0, dp(16), dp(24));
+        addContentView(bar, params);
+        this.undoBar = bar;
+        bar.postDelayed(() -> {
+            if (this.undoBar == bar) hideUndoBar();
+        }, 10000);
+    }
+
+    private void hideUndoBar() {
+        View bar = this.undoBar;
+        this.undoBar = null;
+        if (bar != null && bar.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) bar.getParent()).removeView(bar);
+        }
+    }
+
+    private java.util.Map<String, float[]> loadLayoutEdits() {
+        java.util.Map<String, float[]> map = new java.util.HashMap<>();
+        String saved = MainActivity.sharedSettings(this).getString(layoutKey(), "");
+        for (String entry : saved.split(";")) {
+            int eq = entry.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String[] values = entry.substring(eq + 1).split(",");
+            if (values.length != 3 && values.length != 4) {
+                continue;
+            }
+            try {
+                float scaleX = Float.parseFloat(values[2]);
+                // Older entries have one scale; the game screen may have one per axis.
+                float scaleY = values.length == 4 ? Float.parseFloat(values[3]) : scaleX;
+                map.put(entry.substring(0, eq), new float[]{Float.parseFloat(values[0]), Float.parseFloat(values[1]), scaleX, scaleY});
+            } catch (NumberFormatException ignored) {
+                // A damaged entry leaves that control where it was.
+            }
+        }
+        return map;
+    }
+
+    private boolean hasLayoutEdits() {
+        return !loadLayoutEdits().isEmpty();
+    }
+
+    // Finds the controls just built, names them (kind, button bit, n-th of the same) so a saved
+    // layout still fits when another button comes or goes, and applies the saved moves.
+    private void applyLayoutEdits(View root) {
+        this.controlsGeneration++;
+        this.gapOffsets.clear();
+        this.layoutControls.clear();
+        this.layoutIds.clear();
+        this.layoutBase.clear();
+        java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+        // The game screen's frame first, so it is an item of the editor too (not in the
+        // controller-only screen, which has no frame).
+        if (this.screenArea != null && !isPadScreen()) {
+            this.layoutControls.add(this.screenArea);
+            this.layoutIds.add(SCREEN_LAYOUT_ID);
+            this.layoutBase.add(new float[]{this.screenArea.getTranslationX(), this.screenArea.getTranslationY()});
+        }
+        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (isLayoutControl(view)) {
+                String kind = view.getClass().getSimpleName() + (view instanceof TouchButton ? "." + ((TouchButton) view).bit() : "");
+                int count = seen.containsKey(kind) ? seen.get(kind) : 0;
+                seen.put(kind, count + 1);
+                this.layoutControls.add(view);
+                this.layoutIds.add(kind + "#" + count);
+                this.layoutBase.add(new float[]{view.getTranslationX(), view.getTranslationY()});
+            } else if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup group = (android.view.ViewGroup) view;
+                for (int k = 0; k < group.getChildCount(); k++) {
+                    queue.add(group.getChildAt(k));
+                }
+            }
+        }
+        loadButtonStyle();
+        applyButtonStyle(this.buttonStyle);
+        // A controller already connected (or still connected after a rebuild) keeps the
+        // touch controls hidden; the growth needs the layout, so it comes a moment later.
+        root.post(() -> {
+            if (this.destroyed) return;
+            if (this.padMode) {
+                setTouchControlsShown(false);
+                applyButtonStyle(this.buttonStyle);
+            } else if (PadMapping.firstController() != null && !isPadScreen() && !isMame139()) {
+                enterPadMode(false);
+            }
+        });
+    }
+
+    static final String SCREEN_LAYOUT_ID = "Screen#0";
+
+    private void applyLayoutEdit(int index, float dxDp, float dyDp, float scale) {
+        applyLayoutEdit(index, dxDp, dyDp, scale, scale);
+    }
+
+    private void applyLayoutEdit(int index, float dxDp, float dyDp, float scaleX, float scaleY) {
+        View view = this.layoutControls.get(index);
+        float[] base = this.layoutBase.get(index);
+        float density = getResources().getDisplayMetrics().density;
+        view.setTranslationX(base[0] + dxDp * density);
+        view.setTranslationY(base[1] + dyDp * density);
+        // The group size from "버튼 꾸미기" multiplies whatever the layout editor set, and
+        // "버튼 사이 간격" adds its spread.
+        float[] gap = index < this.gapOffsets.size() ? this.gapOffsets.get(index) : null;
+        if (gap != null) {
+            view.setTranslationX(view.getTranslationX() + gap[0]);
+            view.setTranslationY(view.getTranslationY() + gap[1]);
+        }
+        float group = this.buttonStyle.scale(styleGroup(view));
+        view.setScaleX(scaleX * group);
+        view.setScaleY(scaleY * group);
+        if (view instanceof WiiuPadWindowView) {
+            // The core draws the GamePad picture where the window now is.
+            view.post(this::applyWiiuLayout);
+        }
+        if (view == this.screenArea) {
+            // 게임패드 자동 전환: the picture grows into the room the hidden controls leave,
+            // keeping its top edge in portrait and its centre in landscape.
+            float grow = padGrowFor(view, scaleX * group, scaleY * group);
+            if (grow > 1.0f) {
+                float sx = scaleX * group * grow;
+                float sy = scaleY * group * grow;
+                view.setScaleX(sx);
+                view.setScaleY(sy);
+                View root = view.getRootView();
+                float centerX = view.getLeft() + view.getWidth() / 2f + view.getTranslationX();
+                int[] origin = new int[2];
+                int[] rootOrigin = new int[2];
+                ((View) view.getParent()).getLocationInWindow(origin);
+                root.getLocationInWindow(rootOrigin);
+                float rootCenterX = rootOrigin[0] + root.getWidth() / 2f - origin[0];
+                view.setTranslationX(view.getTranslationX() + (rootCenterX - centerX));
+                if (!this.landscapeMode) {
+                    view.setTranslationY(view.getTranslationY() + (grow - 1.0f) * view.getHeight() * scaleY * group / 2f);
+                } else {
+                    float centerY = view.getTop() + view.getHeight() / 2f + view.getTranslationY();
+                    float rootCenterY = rootOrigin[1] + root.getHeight() / 2f - origin[1];
+                    view.setTranslationY(view.getTranslationY() + (rootCenterY - centerY));
+                }
+            }
+            if (this.shell != null) {
+                // The case bezel follows the screen's frame.
+                this.shell.invalidate();
+            }
+        }
+    }
+
+    // Per control, the extra offset "버튼 사이 간격" gives it (pixels); empty when 100%.
+    private final java.util.List<float[]> gapOffsets = new java.util.ArrayList<>();
+
+    /**
+     * Spreads the A·B·X·Y group and the SELECT·START pair about their own centres by the
+     * gap percent. Needs the controls laid out; before that it arranges to run once they are.
+     */
+    private void computeGapOffsets(Runnable then) {
+        this.gapOffsets.clear();
+        float gap = this.buttonStyle.gap / 100.0f;
+        if (Math.abs(gap - 1.0f) < 0.005f || this.layoutControls.isEmpty()) {
+            then.run();
+            return;
+        }
+        for (View view : this.layoutControls) {
+            if (view.getWidth() == 0 && isGapControl(view)) {
+                final View probe = view;
+                probe.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        if (probe.getWidth() == 0) return;
+                        probe.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                        computeGapOffsets(then);
+                    }
+                });
+                return;
+            }
+        }
+        java.util.Map<String, float[]> edits = loadLayoutEdits();
+        // Two groups, each spread about its centre: round action buttons, and centre keycaps.
+        for (int group = 0; group < 2; group++) {
+            java.util.List<Integer> members = new java.util.ArrayList<>();
+            float sumX = 0, sumY = 0;
+            for (int k = 0; k < this.layoutControls.size(); k++) {
+                View view = this.layoutControls.get(k);
+                if (!(view instanceof TouchButton)) continue;
+                TouchButton button = (TouchButton) view;
+                boolean action = !button.isKeycap();
+                boolean pill = button.isKeycap() && !button.isShoulder();
+                if (group == 0 ? !action : !pill) continue;
+                members.add(k);
+                float[] center = editedCenter(k, edits);
+                sumX += center[0];
+                sumY += center[1];
+            }
+            if (members.size() < 2) continue;
+            float cx = sumX / members.size();
+            float cy = sumY / members.size();
+            for (int k : members) {
+                float[] center = editedCenter(k, edits);
+                float dx = (center[0] - cx) * (gap - 1.0f);
+                float dy = group == 0 ? (center[1] - cy) * (gap - 1.0f) : 0;
+                // Stays inside its parent.
+                View view = this.layoutControls.get(k);
+                View parent = (View) view.getParent();
+                float half = view.getWidth() / 2.0f * this.buttonStyle.scale(styleGroup(view));
+                float halfH = view.getHeight() / 2.0f * this.buttonStyle.scale(styleGroup(view));
+                dx = Math.max(half - center[0], Math.min(parent.getWidth() - half - center[0], dx));
+                dy = Math.max(halfH - center[1], Math.min(parent.getHeight() - halfH - center[1], dy));
+                while (this.gapOffsets.size() <= k) this.gapOffsets.add(null);
+                this.gapOffsets.set(k, new float[]{dx, dy});
+            }
+        }
+        then.run();
+    }
+
+    private static boolean isGapControl(View view) {
+        return view instanceof TouchButton;
+    }
+
+    // The control's centre in its parent with the layout editor's move applied (gap excluded).
+    private float[] editedCenter(int index, java.util.Map<String, float[]> edits) {
+        View view = this.layoutControls.get(index);
+        float[] base = this.layoutBase.get(index);
+        float[] edit = edits.get(this.layoutIds.get(index));
+        float density = getResources().getDisplayMetrics().density;
+        float tx = base[0] + (edit != null ? edit[0] * density : 0);
+        float ty = base[1] + (edit != null ? edit[1] * density : 0);
+        return new float[]{view.getLeft() + view.getWidth() / 2.0f + tx, view.getTop() + view.getHeight() / 2.0f + ty};
+    }
+
+    /** The controls on this screen as (id, name, role) for "버튼마다 따로 고르기". */
+    private java.util.List<String[]> styleControlNames() {
+        java.util.List<String[]> names = new java.util.ArrayList<>();
+        int sticks = 0;
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            View view = this.layoutControls.get(k);
+            String name;
+            int role;
+            if (view instanceof TouchButton) {
+                TouchButton button = (TouchButton) view;
+                name = button.label();
+                role = button.isKeycap() ? ButtonStyle.ROLE_PILL : ButtonStyle.roleOf(name);
+            } else if (view instanceof DPadView) {
+                name = "방향키";
+                role = ButtonStyle.ROLE_DPAD;
+            } else if (view instanceof AnalogStickView) {
+                name = ++sticks == 1 ? "스틱" : "오른쪽 스틱";
+                role = ButtonStyle.ROLE_DPAD;
+            } else {
+                continue;
+            }
+            names.add(new String[]{this.layoutIds.get(k), name, String.valueOf(role)});
+        }
+        return names;
+    }
+
+    // ---- 버튼 꾸미기 (button style) ----
+    private static int styleGroup(View view) {
+        if (view instanceof DPadView) return ButtonStyle.GROUP_DPAD;
+        if (view instanceof AnalogStickView || view instanceof ArcadeJoystickView) return ButtonStyle.GROUP_STICK;
+        if (view instanceof TouchButton) return ((TouchButton) view).isKeycap() ? ButtonStyle.GROUP_SHOULDER : ButtonStyle.GROUP_ACTION;
+        return ButtonStyle.GROUP_NONE;
+    }
+
+    private boolean hasOwnButtonStyle() {
+        return this.saveBaseName != null && ButtonStyle.exists(this, ButtonStyle.gameScope(this.saveBaseName), this.landscapeMode);
+    }
+
+    private void loadButtonStyle() {
+        this.buttonStyle = ButtonStyle.load(this, this.gameMode, this.saveBaseName, this.landscapeMode);
+    }
+
+    /** Draws the controls just built (or rebuilt) with the style in force, sizes included. */
+    // Bumped whenever the controls are rebuilt, so a gap pass waiting on layout can tell.
+    private int controlsGeneration;
+
+    private void applyButtonStyle(ButtonStyle style) {
+        this.buttonStyle = style;
+        final int generation = this.controlsGeneration;
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            View view = this.layoutControls.get(k);
+            String key = this.layoutIds.get(k);
+            if (view instanceof TouchButton) {
+                ((TouchButton) view).setStyle(style, key);
+            } else if (view instanceof DPadView) {
+                ((DPadView) view).setStyle(style, key);
+            } else if (view instanceof AnalogStickView) {
+                ((AnalogStickView) view).setStyle(style, key);
+            }
+        }
+        computeGapOffsets(() -> {
+            if (generation != this.controlsGeneration) return;
+            java.util.Map<String, float[]> edits = loadLayoutEdits();
+            for (int k = 0; k < this.layoutControls.size(); k++) {
+                float[] edit = edits.get(this.layoutIds.get(k));
+                applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1, edit != null ? edit[3] : 1);
+            }
+            for (android.view.ViewGroup parent : this.comboParents) {
+                layoutComboZones(parent, true);
+            }
+        });
+    }
+
+    // ---- "화면의 버튼을 눌러 고르기" ----
+    private ButtonPickOverlay pickOverlay;
+
+    /** The id of the control under a window point, or null. */
+    private String styleControlAt(float x, float y) {
+        int[] origin = new int[2];
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            View view = this.layoutControls.get(k);
+            if (!(view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView)) continue;
+            view.getLocationInWindow(origin);
+            // getLocationInWindow includes translation and scale about the centre.
+            float w = view.getWidth() * view.getScaleX();
+            float h = view.getHeight() * view.getScaleY();
+            if (x >= origin[0] && x <= origin[0] + w && y >= origin[1] && y <= origin[1] + h) {
+                return this.layoutIds.get(k);
+            }
+        }
+        return null;
+    }
+
+    private void startButtonPick(ButtonPickOverlay.Listener listener) {
+        stopButtonPick();
+        ButtonPickOverlay overlay = new ButtonPickOverlay(this, screenRectInWindow(), this::styleControlAt, listener);
+        addContentView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        this.pickOverlay = overlay;
+    }
+
+    private void stopButtonPick() {
+        ButtonPickOverlay overlay = this.pickOverlay;
+        this.pickOverlay = null;
+        if (overlay != null && overlay.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) overlay.getParent()).removeView(overlay);
+        }
+    }
+
+    private String buttonStyleSummary() {
+        ButtonStyle style = this.buttonStyle;
+        String name = style.isDefault() ? "기본" : ButtonStyle.THEME_NAMES[style.theme].replace(" (케이스 색)", "");
+        if (!style.isDefault() && (style.sizeAll != 100 || style.sizes[0] != 100 || style.sizes[1] != 100 || style.sizes[2] != 100 || style.sizes[3] != 100 || style.gap != 100)) {
+            name += " · 크기 조절";
+        }
+        return hasOwnButtonStyle() ? name + " (이 게임)" : name;
+    }
+
+    private void openButtonStyleDialog() {
+        if (this.layoutControls.isEmpty()) {
+            Toast.makeText(this, "이 화면에는 꾸밀 버튼이 없어요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        final boolean landscape = this.landscapeMode;
+        final String modeScope = this.gameMode;
+        final String gameScope = this.saveBaseName != null ? ButtonStyle.gameScope(this.saveBaseName) : null;
+        new ButtonStyleDialog(this, this.buttonStyle, hasOwnButtonStyle(), landscape, consoleName(), styleControlNames(), new ButtonStyleDialog.Listener() {
+            @Override
+            public void onChange(ButtonStyle style) {
+                applyButtonStyle(style);
+            }
+
+            @Override
+            public void onPickStart(ButtonPickOverlay.Listener picked) {
+                startButtonPick(picked);
+            }
+
+            @Override
+            public void onPickStop() {
+                stopButtonPick();
+            }
+
+            @Override
+            public void onDone(ButtonStyle style, boolean perGame) {
+                if (perGame && gameScope != null) {
+                    ButtonStyle.save(GameActivity.this, gameScope, landscape, style);
+                } else {
+                    if (gameScope != null) ButtonStyle.clear(GameActivity.this, gameScope, landscape);
+                    ButtonStyle.save(GameActivity.this, modeScope, landscape, style);
+                }
+                applyButtonStyle(style);
+                Toast.makeText(GameActivity.this, perGame && gameScope != null ? "이 게임의 버튼 꾸미기를 저장했어요." : consoleName() + " 버튼 꾸미기를 저장했어요.", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onCopyToOther(ButtonStyle style, boolean perGame) {
+                ButtonStyle.save(GameActivity.this, perGame && gameScope != null ? gameScope : modeScope, !landscape, style);
+            }
+
+            @Override
+            public void onReset(boolean perGame) {
+                if (perGame && gameScope != null) {
+                    ButtonStyle.clear(GameActivity.this, gameScope, landscape);
+                } else {
+                    if (gameScope != null) ButtonStyle.clear(GameActivity.this, gameScope, landscape);
+                    ButtonStyle.clear(GameActivity.this, modeScope, landscape);
+                }
+                loadButtonStyle();
+                applyButtonStyle(buttonStyle);
+                Toast.makeText(GameActivity.this, "버튼을 기본 모습으로 되돌렸어요.", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onClosed() {
+                stopButtonPick();
+                holdPause = false;
+                resumeUnlessExiting();
+            }
+        }).show(screenRectInWindow());
+    }
+
+    /** Where the game screen is on the window, or null before layout. */
+    private android.graphics.Rect screenRectInWindow() {
+        View screen = this.screenArea;
+        if (screen == null || screen.getWidth() == 0) {
+            return null;
+        }
+        int[] origin = new int[2];
+        screen.getLocationInWindow(origin);
+        return new android.graphics.Rect(origin[0], origin[1], origin[0] + screen.getWidth(), origin[1] + screen.getHeight());
+    }
+
+    private void startLayoutEditor() {
+        if (this.layoutControls.isEmpty() || this.layoutEditor != null) {
+            return;
+        }
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        java.util.Map<String, float[]> saved = loadLayoutEdits();
+        float[][] edits = new float[this.layoutControls.size()][];
+        for (int k = 0; k < edits.length; k++) {
+            float[] edit = saved.get(this.layoutIds.get(k));
+            edits[k] = edit != null ? edit.clone() : new float[]{0, 0, 1, 1};
+        }
+        int screenIndex = this.layoutControls.indexOf(this.screenArea);
+        LayoutEditorView editor = new LayoutEditorView(this, new java.util.ArrayList<>(this.layoutControls), edits, screenIndex, new LayoutEditorView.Listener() {
+            @Override
+            public void apply(int index, float dxDp, float dyDp, float scaleX, float scaleY) {
+                applyLayoutEdit(index, dxDp, dyDp, scaleX, scaleY);
+            }
+
+            @Override
+            public void onSave(float[][] result) {
+                StringBuilder sb = new StringBuilder();
+                for (int k = 0; k < result.length; k++) {
+                    float[] edit = result[k];
+                    if (Math.abs(edit[0]) < 0.5f && Math.abs(edit[1]) < 0.5f && Math.abs(edit[2] - 1) < 0.01f && Math.abs(edit[3] - 1) < 0.01f) {
+                        continue;
+                    }
+                    sb.append(layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',')
+                            .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f);
+                    if (Math.abs(edit[2] - edit[3]) >= 0.005f) {
+                        sb.append(',').append(Math.round(edit[3] * 100) / 100.0f);
+                    }
+                    sb.append(';');
+                }
+                MainActivity.sharedSettings(GameActivity.this).edit().putString(layoutKey(), sb.toString()).apply();
+                finishLayoutEditor("버튼 배치를 저장했어요.");
+            }
+
+            @Override
+            public void onCancel() {
+                finishLayoutEditor(null);
+            }
+        });
+        addContentView(editor, new FrameLayout.LayoutParams(-1, -1));
+        this.layoutEditor = editor;
+    }
+
+    private void finishLayoutEditor(String message) {
+        LayoutEditorView editor = this.layoutEditor;
+        this.layoutEditor = null;
+        if (editor != null && editor.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) editor.getParent()).removeView(editor);
+        }
+        // Moved buttons shift the groups' centres, so the gap spread is taken again.
+        applyButtonStyle(this.buttonStyle);
+        if (message != null) {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        }
+        this.holdPause = false;
+        resumeUnlessExiting();
+    }
+
+
+    // ---- 치트 코드 ----
+    private static final int REQUEST_CHEAT_FILE = 3101;
+    private static final int CHEAT_RED = Color.rgb(225, 29, 72);
+    private static final int CHEAT_GREEN = Color.rgb(5, 150, 105);
+    private java.util.List<Cheats.Cheat> cheatList;
+    private android.app.Dialog cheatDialog;
+    private TextView cheatSubtitle;
+    private TextView cheatRowValue;
+    private boolean cheatSearching;
+    private String cheatError;
+
+    private boolean cheatsSupported() {
+        return !isMame139() && this.romPath != null && Cheats.supported(this.gameMode);
+    }
+
+    private File romFile() {
+        return new File(this.romPath);
+    }
+
+    private java.util.List<Cheats.Cheat> cheats() {
+        if (this.cheatList == null) {
+            this.cheatList = cheatsSupported() ? Cheats.load(this, romFile()) : new java.util.ArrayList<>();
+        }
+        return this.cheatList;
+    }
+
+    private String cheatSummary() {
+        if (!cheatsSupported()) {
+            return "지원 안 함";
+        }
+        int on = Cheats.countOn(cheats());
+        return on == 0 ? "꺼짐" : on + "개 켜짐";
+    }
+
+    // Saves the list and hands the codes that are on to the engine.
+    private void cheatsChanged() {
+        Cheats.save(this, romFile(), cheats());
+        applyCheats();
+        if (this.cheatSubtitle != null) {
+            this.cheatSubtitle.setText(cheatSubtitleText());
+        }
+        if (this.cheatRowValue != null) {
+            this.cheatRowValue.setText(cheatSummary() + "  ›");
+        }
+    }
+
+    private String cheatSubtitleText() {
+        int on = Cheats.countOn(cheats());
+        return this.gameTitle + (on > 0 ? " · 켜진 것 " + on + "개" : "");
+    }
+
+    private void applyCheats() {
+        final long handle = this.nativeHandle;
+        if (handle == 0 || !cheatsSupported()) {
+            return;
+        }
+        final String[] codes = Cheats.enabledCodes(cheats(), this.gameMode);
+        // Nothing was ever set for this game: leave the engine alone.
+        if (codes.length == 0 && !Cheats.file(this, romFile()).exists()) {
+            return;
+        }
+        coreWorker.execute(() -> NativeGba.setCheats(handle, codes));
+    }
+
+    // How codes look on this console; shown under the code box.
+    private String cheatFormatNote() {
+        switch (this.gameMode) {
+            case "gba": return isGameBoy() ? "게임보이: 게임지니 · 게임샤크 (예: 01FF16D0)" : "GBA: 게임샤크 · 액션리플레이 · 코드브레이커 (예: 82025D7C 423F)";
+            case "snes": return "슈퍼패미컴: 게임지니 · 프로액션리플레이 (예: 7E0DBE09)";
+            case "nes": return "패미컴: 게임지니 (예: SXIOPO)";
+            case "md": return "메가드라이브: 게임지니 · 프로액션리플레이 (예: FF0FC4:0009)";
+            case "sms": return "마스터시스템·게임기어: 게임지니 · 프로액션리플레이";
+            case "mcd": return "메가CD·32X: 게임지니 · 프로액션리플레이 (예: FF0FC4:0009)";
+            case "ss": return "새턴: 액션리플레이 (예: 1606BB4C 0063)";
+            case "pce": return "PC엔진: 주소:값 형식";
+            case "nds": return "DS: 액션리플레이 (예: 221D2B0C 000000FF)";
+            case "n64": return "N64: 게임샤크 (예: 8033B21E 0008)";
+            case "ps1": return "PS1: 게임샤크 (예: 800B1234 FFFF)";
+            case "psp": return "PSP: CWCheat (예: _L 0x20123456 0x0000270F)";
+            case "ws": return "원더스완: RAM 주소:값 (예: 1E24:09)";
+            case "ngp": return "네오지오 포켓: 주소:값 (예: 09F8:04)";
+            default: return "";
+        }
+    }
+
+    private static android.graphics.drawable.GradientDrawable roundRect(int color, int radius) {
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(radius);
+        return drawable;
+    }
+
+    private TextView sheetText(String text, float size, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(color);
+        if (bold) {
+            view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        }
+        return view;
+    }
+
+    // Icon, title and a one-line subtitle (returned through the subtitle holder).
+    private LinearLayout sheetHeader(int icon, int color, String title, String subtitle, TextView[] subtitleOut) {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        titles.addView(sheetText(title, 17.0f, Color.rgb(31, 41, 51), true));
+        TextView sub = sheetText(subtitle, 12.0f, Color.rgb(122, 130, 140), false);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(sub);
+        if (subtitleOut != null) {
+            subtitleOut[0] = sub;
+        }
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        return header;
+    }
+
+    private EditText searchBox(String hint) {
+        EditText box = new EditText(this);
+        box.setHint(hint);
+        box.setSingleLine(true);
+        box.setTextSize(13.5f);
+        box.setTextColor(Color.rgb(31, 41, 51));
+        box.setHintTextColor(Color.rgb(154, 161, 170));
+        box.setPadding(dp(12), 0, dp(12), 0);
+        box.setBackground(roundRect(Color.rgb(241, 243, 245), dp(12)));
+        return box;
+    }
+
+    private void onTextChanged(EditText box, Runnable action) {
+        box.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable text) {
+                action.run();
+            }
+        });
+    }
+
+    // A white card dialog; heightShare > 0 gives it that share of the screen height.
+    private android.app.Dialog cardDialog(View content, float heightShare) {
+        android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setContentView(content);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400));
+            window.setLayout(width, heightShare > 0 ? Math.round(getResources().getDisplayMetrics().heightPixels * heightShare) : -2);
+        }
+        return dialog;
+    }
+
+    private LinearLayout.LayoutParams marginTop(int width, int height, int topDp) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
+        params.setMargins(0, dp(topDp), 0, 0);
+        return params;
+    }
+
+    // The cheat list (or the "not found" page), opened from the pause menu.
+    private void showCheatSheet() {
+        if (this.cheatDialog != null && this.cheatDialog.isShowing()) {
+            this.cheatDialog.dismiss();
+        }
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        TextView[] subtitle = new TextView[1];
+        panel.addView(sheetHeader(RoundIconView.CHEAT, CHEAT_RED, "치트 코드", cheatSubtitleText(), subtitle));
+        this.cheatSubtitle = subtitle[0];
+        String source = Cheats.source(this, romFile());
+        if (source == null && !this.cheatSearching && this.cheatError == null) {
+            startCheatSearch();
+        }
+        final android.app.Dialog dialog;
+        if ("-".equals(source) && cheats().isEmpty() && !this.cheatSearching) {
+            fillCheatNotFound(panel);
+            dialog = cardDialog(panel, 0);
+        } else {
+            panel.addView(cheatBanner(source), marginTop(-1, -2, 10));
+            EditText search = searchBox("🔍  치트 검색 (이름이 영어예요)");
+            panel.addView(search, marginTop(-1, dp(38), 10));
+            LinearLayout rows = new LinearLayout(this);
+            rows.setOrientation(1);
+            android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+            scroll.addView(rows);
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
+            scrollParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(scroll, scrollParams);
+            Runnable fill = () -> fillCheatRows(rows, search.getText().toString());
+            onTextChanged(search, fill);
+            fill.run();
+            LinearLayout buttons = new LinearLayout(this);
+            buttons.setOrientation(0);
+            TextView add = dialogButton("＋ 직접 입력", Color.rgb(255, 228, 230), Color.rgb(190, 18, 60));
+            add.setTextSize(13.5f);
+            add.setOnClickListener(view -> showCheatEditor(null));
+            buttons.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1.0f));
+            TextView file = dialogButton("파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+            file.setTextSize(13.5f);
+            file.setOnClickListener(view -> openCheatFile());
+            LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(0, dp(44), 1.0f);
+            fileParams.setMargins(dp(8), 0, 0, 0);
+            buttons.addView(file, fileParams);
+            panel.addView(buttons, marginTop(-1, -2, 10));
+            dialog = cardDialog(panel, 0.86f);
+        }
+        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(view -> dialog.dismiss());
+        panel.addView(close, marginTop(-1, dp(46), 10));
+        dialog.setOnDismissListener(d -> {
+            if (this.cheatDialog == dialog) {
+                this.cheatDialog = null;
+                this.cheatSubtitle = null;
+            }
+        });
+        this.cheatDialog = dialog;
+        dialog.show();
+    }
+
+    private View cheatBanner(String source) {
+        LinearLayout banner = new LinearLayout(this);
+        banner.setOrientation(0);
+        banner.setGravity(16);
+        banner.setPadding(dp(11), dp(9), dp(9), dp(9));
+        String title;
+        String detail;
+        int background;
+        int color;
+        if (this.cheatSearching) {
+            title = "치트 모음에서 찾는 중…";
+            detail = "게임 이름으로 찾고 있어요";
+            background = Color.rgb(239, 246, 255);
+            color = Color.rgb(30, 64, 175);
+        } else if (this.cheatError != null && source == null) {
+            title = "치트 모음을 받지 못했어요";
+            detail = this.cheatError;
+            background = Color.rgb(255, 247, 237);
+            color = Color.rgb(154, 52, 18);
+        } else if (!Cheats.hasCollection(this.gameMode)) {
+            title = "이 기종은 치트 모음이 없어요";
+            detail = "직접 입력하거나 파일에서 가져온 치트예요";
+            background = Color.rgb(246, 247, 249);
+            color = Color.rgb(75, 85, 99);
+        } else if (source == null || "-".equals(source)) {
+            title = "치트 모음에 없는 게임이에요";
+            detail = "다른 판을 고르거나 직접 입력해 주세요";
+            background = Color.rgb(246, 247, 249);
+            color = Color.rgb(75, 85, 99);
+        } else {
+            int count = 0;
+            for (Cheats.Cheat cheat : cheats()) {
+                if (!cheat.custom) {
+                    count++;
+                }
+            }
+            title = "치트 모음에서 찾음 · " + count + "개";
+            detail = source.substring(source.indexOf('/') + 1);
+            background = Color.rgb(236, 253, 245);
+            color = Color.rgb(6, 95, 70);
+        }
+        banner.setBackground(roundRect(background, dp(12)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        texts.addView(sheetText(title, 12.5f, color, true));
+        TextView sub = sheetText(detail, 11.5f, color, false);
+        sub.setMaxLines(2);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(sub);
+        banner.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        if (!this.cheatSearching && Cheats.hasCollection(this.gameMode)) {
+            final boolean retry = this.cheatError != null && source == null;
+            TextView action = sheetText(retry ? "다시 시도" : "다른 판 ›", 12.0f, retry ? color : CHEAT_GREEN, true);
+            action.setPadding(dp(10), dp(6), dp(10), dp(6));
+            action.setBackground(roundRect(Color.WHITE, dp(10)));
+            action.setOnClickListener(view -> {
+                if (retry) {
+                    this.cheatError = null;
+                    showCheatSheet();
+                } else {
+                    showCheatVersionPicker();
+                }
+            });
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(-2, -2);
+            actionParams.setMargins(dp(8), 0, 0, 0);
+            banner.addView(action, actionParams);
+        }
+        return banner;
+    }
+
+    private void fillCheatNotFound(LinearLayout panel) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setGravity(1);
+        box.setPadding(dp(14), dp(20), dp(14), dp(20));
+        box.setBackground(roundRect(Color.rgb(246, 247, 249), dp(16)));
+        box.addView(sheetText("✱", 28.0f, Color.rgb(203, 210, 217), true));
+        boolean collection = Cheats.hasCollection(this.gameMode);
+        TextView title = sheetText(collection ? "치트 모음에서 이 게임을 못 찾았어요" : "이 기종은 치트 모음이 없어요", 15.0f, Color.rgb(55, 65, 81), true);
+        title.setGravity(1);
+        box.addView(title);
+        TextView detail = sheetText(collection ? "한글판·일본판처럼 모음에 없는 판일 수 있어요.\n비슷한 판을 직접 고르거나 코드를 입력해 주세요."
+                : "치트 코드를 직접 입력하거나 .cht 파일을 가져와 주세요.", 12.0f, Color.rgb(122, 130, 140), false);
+        detail.setGravity(1);
+        detail.setPadding(0, dp(6), 0, 0);
+        box.addView(detail);
+        panel.addView(box, marginTop(-1, -2, 14));
+        if (collection) {
+            panel.addView(createSettingRow(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "", view -> showCheatVersionPicker()), marginTop(-1, dp(52), 12));
+        }
+        panel.addView(createSettingRow(RoundIconView.CHEAT, CHEAT_RED, "직접 입력", "", view -> showCheatEditor(null)), marginTop(-1, dp(52), collection ? 8 : 12));
+        panel.addView(createSettingRow(RoundIconView.IMPORT, Color.rgb(75, 85, 99), "파일에서 가져오기 (.cht)", "", view -> openCheatFile()), marginTop(-1, dp(52), 8));
+        if (!collection) {
+            return;
+        }
+        TextView note = sheetText("다른 판의 코드는 주소가 달라서 안 먹히거나 엉뚱하게 동작할 수 있어요. 켜보고 이상하면 끄면 돼요.", 11.5f, Color.rgb(154, 52, 18), false);
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(roundRect(Color.rgb(255, 247, 237), dp(12)));
+        panel.addView(note, marginTop(-1, -2, 10));
+    }
+
+    private void fillCheatRows(LinearLayout rows, String query) {
+        rows.removeAllViews();
+        String q = query.trim().toLowerCase(Locale.ROOT);
+        java.util.List<Cheats.Cheat> list = cheats();
+        int shown = 0;
+        for (final Cheats.Cheat cheat : list) {
+            if (!q.isEmpty() && !cheat.desc.toLowerCase(Locale.ROOT).contains(q)) {
+                continue;
+            }
+            shown++;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(8), dp(12), dp(8));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            LinearLayout nameLine = new LinearLayout(this);
+            nameLine.setGravity(16);
+            nameLine.addView(sheetText(cheat.desc, 13.5f, Color.rgb(31, 41, 51), true), new LinearLayout.LayoutParams(0, -2, 1.0f));
+            boolean master = Cheats.isMaster(cheat);
+            if (master || cheat.custom) {
+                TextView badge = sheetText(master ? "먼저 켜기" : "직접 입력", 10.5f, master ? Color.rgb(146, 64, 14) : Color.rgb(190, 18, 60), true);
+                badge.setPadding(dp(6), dp(1), dp(6), dp(1));
+                badge.setBackground(roundRect(master ? Color.rgb(253, 230, 138) : Color.rgb(255, 228, 230), dp(8)));
+                LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, -2);
+                badgeParams.setMargins(dp(6), 0, 0, 0);
+                nameLine.addView(badge, badgeParams);
+            }
+            texts.addView(nameLine);
+            TextView code = sheetText(Cheats.displayCode(cheat.code), 11.0f, Color.rgb(156, 163, 175), false);
+            code.setTypeface(android.graphics.Typeface.MONOSPACE);
+            code.setSingleLine(true);
+            code.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            texts.addView(code);
+            row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            ToggleView toggle = new ToggleView(this, CHEAT_RED);
+            toggle.setOn(cheat.on);
+            LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(dp(44), dp(26));
+            toggleParams.setMargins(dp(10), 0, 0, 0);
+            row.addView(toggle, toggleParams);
+            Runnable paint = () -> {
+                toggle.setOn(cheat.on);
+                row.setBackground(roundRect(cheat.on ? Color.rgb(255, 241, 242) : Color.rgb(246, 247, 249), dp(13)));
+            };
+            paint.run();
+            row.setOnClickListener(view -> setCheatOn(cheat, !cheat.on, paint));
+            row.setOnLongClickListener(view -> {
+                showCheatActions(cheat);
+                return true;
+            });
+            rows.addView(row, marginTop(-1, -2, shown == 1 ? 0 : 6));
+        }
+        if (shown == 0) {
+            String text = !list.isEmpty() ? "‘" + query.trim() + "’ 이름의 치트가 없어요."
+                    : this.cheatSearching ? "찾는 중…" : "아직 치트가 없어요. 직접 입력하거나 파일에서 가져오세요.";
+            TextView empty = sheetText(text, 12.5f, Color.rgb(122, 130, 140), false);
+            empty.setGravity(17);
+            empty.setPadding(0, dp(24), 0, dp(24));
+            rows.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        }
+    }
+
+    // Turning the first cheat of a game on offers a quick save first (asked once per game).
+    private void setCheatOn(Cheats.Cheat cheat, boolean on, Runnable done) {
+        if (on && !Cheats.warned(this, romFile())) {
+            LinearLayout panel = new LinearLayout(this);
+            panel.setOrientation(1);
+            panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+            panel.setBackground(roundRect(Color.WHITE, dp(22)));
+            panel.addView(sheetText("치트를 켜기 전에 저장할까요?", 16.0f, Color.rgb(31, 41, 51), true));
+            TextView body = sheetText("치트는 게임 데이터를 직접 바꿔서 세이브가 망가질 수 있어요. 지금 상태를 빠른 저장 칸에 남겨두면 언제든 돌아올 수 있어요.", 12.5f, Color.rgb(75, 85, 99), false);
+            body.setLineSpacing(0, 1.2f);
+            panel.addView(body, marginTop(-1, -2, 8));
+            panel.addView(sheetText("게임마다 처음 한 번만 물어봐요.", 11.5f, Color.rgb(156, 163, 175), false), marginTop(-1, -2, 6));
+            LinearLayout buttons = new LinearLayout(this);
+            TextView plain = dialogButton("그냥 켜기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+            buttons.addView(plain, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+            TextView save = dialogButton("저장하고 켜기", CHEAT_RED, Color.WHITE);
+            LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+            saveParams.setMargins(dp(10), 0, 0, 0);
+            buttons.addView(save, saveParams);
+            panel.addView(buttons, marginTop(-1, -2, 14));
+            final android.app.Dialog dialog = cardDialog(panel, 0);
+            plain.setOnClickListener(view -> {
+                dialog.dismiss();
+                Cheats.setWarned(this, romFile());
+                setCheatOn(cheat, true, done);
+            });
+            save.setOnClickListener(view -> {
+                dialog.dismiss();
+                Cheats.setWarned(this, romFile());
+                // Queued on the core worker ahead of the cheat change.
+                createQuickSave(false);
+                setCheatOn(cheat, true, done);
+            });
+            dialog.show();
+            return;
+        }
+        cheat.on = on;
+        cheatsChanged();
+        done.run();
+    }
+
+    private void showCheatActions(Cheats.Cheat cheat) {
+        new AppDialog.Builder(this).setTitle(cheat.desc).setItems(new String[]{"고치기", "지우기"}, (d, which) -> {
+            if (which == 0) {
+                showCheatEditor(cheat);
+            } else {
+                cheats().remove(cheat);
+                cheatsChanged();
+                showCheatSheet();
+            }
+        }).show();
+    }
+
+    private int firstCollectionCheat() {
+        int at = 0;
+        while (at < cheats().size() && cheats().get(at).custom) {
+            at++;
+        }
+        return at;
+    }
+
+    // 직접 입력 / 고치기: a name and one code per line.
+    private void showCheatEditor(final Cheats.Cheat editing) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        panel.addView(sheetHeader(RoundIconView.CHEAT, CHEAT_RED, editing == null ? "치트 코드 추가" : "치트 코드 고치기", this.gameTitle, null));
+        panel.addView(sheetText("이름", 12.5f, Color.rgb(55, 65, 81), true), marginTop(-2, -2, 12));
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setTextSize(14.0f);
+        name.setHint("예: 돈 999999");
+        name.setPadding(dp(12), dp(10), dp(12), dp(10));
+        name.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
+        panel.addView(name, marginTop(-1, -2, 6));
+        // Dreamcast · Naomi (and address codes from a file): an address, a value and a size.
+        final boolean byAddress = editing != null ? editing.code.startsWith("@") && !editing.code.contains("+")
+                : Cheats.addressMode(this.gameMode);
+        final String[] oldParts = editing != null && byAddress ? editing.code.substring(1).split(":") : new String[0];
+        EditText address = new EditText(this);
+        EditText value = new EditText(this);
+        final int[] size = {oldParts.length >= 3 ? cheatSize(oldParts[2]) : 4};
+        if (byAddress) {
+            LinearLayout pair = new LinearLayout(this);
+            pair.setOrientation(0);
+            LinearLayout addressColumn = new LinearLayout(this);
+            addressColumn.setOrientation(1);
+            addressColumn.addView(sheetText("주소 (16진수)", 12.5f, Color.rgb(55, 65, 81), true));
+            address.setSingleLine(true);
+            address.setTextSize(14.0f);
+            address.setTypeface(android.graphics.Typeface.MONOSPACE);
+            address.setHint("1EC4C8");
+            address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+                    | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            address.setPadding(dp(12), dp(10), dp(12), dp(10));
+            address.setBackground(roundRect(Color.rgb(255, 241, 242), dp(12)));
+            addressColumn.addView(address, marginTop(-1, -2, 6));
+            pair.addView(addressColumn, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            LinearLayout valueColumn = new LinearLayout(this);
+            valueColumn.setOrientation(1);
+            valueColumn.addView(sheetText("값 (10진수)", 12.5f, Color.rgb(55, 65, 81), true));
+            value.setSingleLine(true);
+            value.setTextSize(14.0f);
+            value.setTypeface(android.graphics.Typeface.MONOSPACE);
+            value.setHint("9999999");
+            value.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            value.setPadding(dp(12), dp(10), dp(12), dp(10));
+            value.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
+            valueColumn.addView(value, marginTop(-1, -2, 6));
+            LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            valueParams.setMargins(dp(8), 0, 0, 0);
+            pair.addView(valueColumn, valueParams);
+            panel.addView(pair, marginTop(-1, -2, 12));
+            panel.addView(sheetText("크기", 12.5f, Color.rgb(55, 65, 81), true), marginTop(-2, -2, 12));
+            LinearLayout sizes = new LinearLayout(this);
+            sizes.setOrientation(0);
+            final TextView[] sizeViews = new TextView[3];
+            final int[] sizeValues = {1, 2, 4};
+            Runnable paintSizes = () -> {
+                for (int k = 0; k < 3; k++) {
+                    boolean on = sizeValues[k] == size[0];
+                    sizeViews[k].setTextColor(on ? Color.WHITE : Color.rgb(55, 65, 81));
+                    sizeViews[k].setBackground(roundRect(on ? CHEAT_RED : Color.rgb(241, 242, 244), dp(10)));
+                }
+            };
+            for (int k = 0; k < 3; k++) {
+                final int bytes = sizeValues[k];
+                TextView option = sheetText(bytes + "바이트", 12.5f, Color.rgb(55, 65, 81), true);
+                option.setGravity(17);
+                option.setOnClickListener(view -> {
+                    size[0] = bytes;
+                    paintSizes.run();
+                });
+                sizeViews[k] = option;
+                LinearLayout.LayoutParams optionParams = new LinearLayout.LayoutParams(0, dp(36), 1.0f);
+                optionParams.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+                sizes.addView(option, optionParams);
+            }
+            paintSizes.run();
+            panel.addView(sizes, marginTop(-1, -2, 6));
+            if (oldParts.length >= 2) {
+                address.setText(oldParts[0]);
+                value.setText(oldParts[1]);
+            }
+        }
+        TextView codeLabel = sheetText("코드 (한 줄에 하나, 여러 줄 가능)", 12.5f, Color.rgb(55, 65, 81), true);
+        panel.addView(codeLabel, marginTop(-2, -2, 12));
+        EditText code = new EditText(this);
+        code.setTextSize(14.0f);
+        code.setTypeface(android.graphics.Typeface.MONOSPACE);
+        code.setMinLines(3);
+        code.setGravity(Gravity.TOP | Gravity.START);
+        code.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        code.setPadding(dp(12), dp(10), dp(12), dp(10));
+        code.setBackground(roundRect(Color.rgb(255, 241, 242), dp(12)));
+        panel.addView(code, marginTop(-1, -2, 6));
+        if (editing != null) {
+            name.setText(editing.desc);
+            code.setText(Cheats.codeForInput(editing.code));
+        }
+        if (byAddress) {
+            codeLabel.setVisibility(View.GONE);
+            code.setVisibility(View.GONE);
+        }
+        TextView note = sheetText(byAddress ? "주소 방식이에요. 켜 두면 앱이 매 프레임 그 주소에 값을 다시 써서 고정해요."
+                : cheatFormatNote() + "\n형식은 엔진이 알아서 구분해요.", 11.5f, Color.rgb(75, 85, 99), false);
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
+        panel.addView(note, marginTop(-1, -2, 10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView ok = dialogButton(editing == null ? "추가" : "저장", CHEAT_RED, Color.WHITE);
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+        okParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(ok, okParams);
+        panel.addView(buttons, marginTop(-1, -2, 14));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        final android.app.Dialog dialog = cardDialog(scroll, 0);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        ok.setOnClickListener(view -> {
+            String codeText;
+            if (byAddress) {
+                long addressValue;
+                long valueValue;
+                try {
+                    String hex = address.getText().toString().trim().replaceFirst("^(0[xX])", "");
+                    addressValue = Long.parseLong(hex, 16);
+                    valueValue = Long.parseLong(value.getText().toString().trim());
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, "주소(16진수)와 값(10진수)을 입력해 주세요.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                long max = size[0] == 4 ? 0xFFFFFFFFL : (1L << (8 * size[0])) - 1;
+                if (addressValue < 0 || addressValue > 0xFFFFFFFFL || valueValue < 0 || valueValue > max) {
+                    Toast.makeText(this, size[0] + "바이트 값은 0~" + max + "까지예요.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                codeText = Cheats.addressCode(addressValue, valueValue, size[0]);
+                // Keep the rest of a collection code (condition, repeat) when only these change.
+                if (oldParts.length > 3) {
+                    StringBuilder rest = new StringBuilder();
+                    for (int k = 3; k < oldParts.length; k++) {
+                        rest.append(':').append(oldParts[k]);
+                    }
+                    codeText += rest;
+                }
+            } else {
+                codeText = Cheats.codeFromInput(code.getText().toString());
+            }
+            if (codeText.isEmpty()) {
+                Toast.makeText(this, "코드를 입력해 주세요.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String nameText = name.getText().toString().trim();
+            dialog.dismiss();
+            if (editing != null) {
+                if (!nameText.isEmpty()) {
+                    editing.desc = nameText;
+                }
+                editing.code = codeText;
+                cheatsChanged();
+                showCheatSheet();
+                return;
+            }
+            // The player's own codes go first, and a new one starts on.
+            Cheats.Cheat cheat = new Cheats.Cheat(nameText.isEmpty() ? "내 치트 " + (firstCollectionCheat() + 1) : nameText, codeText, false, true);
+            cheats().add(firstCollectionCheat(), cheat);
+            Cheats.save(this, romFile(), cheats());
+            setCheatOn(cheat, true, this::showCheatSheet);
+        });
+        dialog.show();
+    }
+
+    private static int cheatSize(String text) {
+        return "1".equals(text) ? 1 : "2".equals(text) ? 2 : 4;
+    }
+
+    private void openCheatFile() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_CHEAT_FILE);
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "파일을 고를 앱이 없어요.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // A .cht file the player picked: its cheats join the player's own (off).
+    private void importCheatFile(android.net.Uri uri) {
+        java.util.List<Cheats.Cheat> found;
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("no stream");
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[16384];
+            int read;
+            while ((read = in.read(buffer)) > 0 && out.size() < 4 * 1024 * 1024) {
+                out.write(buffer, 0, read);
+            }
+            found = Cheats.parse(new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException | RuntimeException e) {
+            found = new java.util.ArrayList<>();
+        }
+        if (found.isEmpty()) {
+            Toast.makeText(this, "이 파일에서 치트를 찾지 못했어요. (.cht 파일인지 확인해 주세요)", Toast.LENGTH_LONG).show();
+            return;
+        }
+        for (Cheats.Cheat cheat : found) {
+            cheat.on = false;
+            cheat.custom = true;
+        }
+        cheats().addAll(firstCollectionCheat(), found);
+        cheatsChanged();
+        Toast.makeText(this, "치트 " + found.size() + "개를 가져왔어요.", Toast.LENGTH_SHORT).show();
+        showCheatSheet();
+    }
+
+    // Looks the game up in the collection and downloads its cheats (once per game).
+    private void startCheatSearch() {
+        if (this.cheatSearching) {
+            return;
+        }
+        this.cheatSearching = true;
+        final File rom = romFile();
+        final String mode = this.gameMode;
+        final String title = this.gameTitle;
+        new Thread(() -> {
+            String error = null;
+            String source = null;
+            java.util.List<Cheats.Cheat> fresh = null;
+            try {
+                Cheats.Source match = Cheats.match(this, rom, mode, title);
+                if (match == null) {
+                    source = "-";
+                } else {
+                    fresh = Cheats.download(match);
+                    source = match.folder + "/" + match.name;
+                }
+            } catch (IOException e) {
+                error = "인터넷 연결을 확인해 주세요.";
+            }
+            final String doneSource = source;
+            final String doneError = error;
+            final java.util.List<Cheats.Cheat> doneCheats = fresh;
+            runOnUiThread(() -> {
+                this.cheatSearching = false;
+                this.cheatError = doneError;
+                if (doneSource != null) {
+                    if (doneCheats != null) {
+                        this.cheatList = Cheats.merge(cheats(), doneCheats);
+                        Cheats.save(this, rom, this.cheatList);
+                    }
+                    Cheats.setSource(this, rom, doneSource);
+                }
+                if (this.cheatDialog != null && this.cheatDialog.isShowing()) {
+                    showCheatSheet();
+                }
+            });
+        }, "cheat-search").start();
+    }
+
+    // 다른 판 고르기: every collection file of this console, searchable.
+    private void showCheatVersionPicker() {
+        final java.util.List<Cheats.Source> all = new java.util.ArrayList<>();
+        for (String folder : Cheats.folders(this.gameMode, romFile().getName().toLowerCase(Locale.US))) {
+            all.addAll(Cheats.sources(this, folder));
+        }
+        String current = Cheats.source(this, romFile());
+        final Cheats.Source[] selected = {null};
+        for (Cheats.Source source : all) {
+            if ((source.folder + "/" + source.name).equals(current)) {
+                selected[0] = source;
+            }
+        }
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        panel.addView(sheetHeader(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "치트 모음 " + all.size() + "개 중에서", null));
+        EditText search = searchBox("🔍  게임 이름 (영어)");
+        // Starts from the first word of the game's (or the chosen file's) English title.
+        String guess = CoverMatcher.title(selected[0] != null ? selected[0].name : romFile().getName().replaceFirst("\\.[^.]+$", ""));
+        if (guess.matches("[a-z0-9 ]+")) {
+            search.setText(guess.split(" ")[0]);
+        }
+        panel.addView(search, marginTop(-1, dp(38), 10));
+        LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(1);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(rows);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
+        scrollParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(scroll, scrollParams);
+        final Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            rows.removeAllViews();
+            String q = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            int shown = 0;
+            for (final Cheats.Source source : all) {
+                if (!q.isEmpty() && !source.name.toLowerCase(Locale.ROOT).contains(q)) {
+                    continue;
+                }
+                if (++shown > 150) {
+                    rows.addView(sheetText("… 더 있어요. 이름을 더 입력해 주세요.", 11.5f, Color.rgb(156, 163, 175), false), marginTop(-1, -2, 8));
+                    break;
+                }
+                boolean on = source == selected[0];
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(0);
+                row.setGravity(16);
+                row.setPadding(dp(12), dp(9), dp(12), dp(9));
+                row.setBackground(roundRect(on ? Color.rgb(236, 253, 245) : Color.rgb(246, 247, 249), dp(13)));
+                View dot = new View(this);
+                android.graphics.drawable.GradientDrawable ring = new android.graphics.drawable.GradientDrawable();
+                ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                ring.setStroke(dp(2), on ? CHEAT_GREEN : Color.rgb(201, 206, 214));
+                ring.setColor(Color.WHITE);
+                dot.setBackground(on ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{ring, innerDot(CHEAT_GREEN)}) : ring);
+                row.addView(dot, new LinearLayout.LayoutParams(dp(20), dp(20)));
+                LinearLayout texts = new LinearLayout(this);
+                texts.setOrientation(1);
+                texts.addView(sheetText(source.name, 12.5f, Color.rgb(31, 41, 51), true));
+                texts.addView(sheetText("치트 " + source.count + "개", 11.0f, Color.rgb(156, 163, 175), false));
+                LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+                textsParams.setMargins(dp(10), 0, 0, 0);
+                row.addView(texts, textsParams);
+                row.setOnClickListener(view -> {
+                    selected[0] = source;
+                    fill[0].run();
+                });
+                rows.addView(row, marginTop(-1, -2, shown == 1 ? 0 : 6));
+            }
+            if (shown == 0) {
+                TextView empty = sheetText("찾는 이름이 없어요.", 12.5f, Color.rgb(122, 130, 140), false);
+                empty.setGravity(17);
+                empty.setPadding(0, dp(24), 0, dp(24));
+                rows.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+            }
+        };
+        onTextChanged(search, fill[0]);
+        fill[0].run();
+        TextView warn = sheetText("판이 다르면 코드가 안 맞을 수 있어요. 직접 입력한 치트는 그대로 남아요.", 11.5f, Color.rgb(154, 52, 18), false);
+        warn.setPadding(dp(12), dp(8), dp(12), dp(8));
+        warn.setBackground(roundRect(Color.rgb(255, 247, 237), dp(12)));
+        panel.addView(warn, marginTop(-1, -2, 10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView ok = dialogButton("이 판으로", CHEAT_GREEN, Color.WHITE);
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+        okParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(ok, okParams);
+        panel.addView(buttons, marginTop(-1, -2, 10));
+        final android.app.Dialog dialog = cardDialog(panel, 0.86f);
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        ok.setOnClickListener(view -> {
+            final Cheats.Source source = selected[0];
+            if (source == null) {
+                Toast.makeText(this, "판을 하나 골라 주세요.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            dialog.dismiss();
+            Toast.makeText(this, "치트를 받는 중…", Toast.LENGTH_SHORT).show();
+            final File rom = romFile();
+            new Thread(() -> {
+                java.util.List<Cheats.Cheat> fresh;
+                try {
+                    fresh = Cheats.download(source);
+                } catch (IOException e) {
+                    fresh = null;
+                }
+                final java.util.List<Cheats.Cheat> done = fresh;
+                runOnUiThread(() -> {
+                    if (done == null) {
+                        Toast.makeText(this, "치트를 받지 못했어요. 인터넷 연결을 확인해 주세요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    this.cheatList = Cheats.merge(cheats(), done);
+                    Cheats.setSource(this, rom, source.folder + "/" + source.name);
+                    this.cheatError = null;
+                    cheatsChanged();
+                    showCheatSheet();
+                });
+            }, "cheat-download").start();
+        });
+        dialog.show();
+    }
+
+    // ---- 설정: screen filter, button vibration, combo zones (all games) ----
+    private static final String[] FILTER_NAMES = {"기본", "선명하게", "스캔라인", "LCD 격자"};
+    private static final String[] FILTER_NOTES = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자"};
+    // 3D engines also get "FSR 업스케일" (filter 4).
+    private static final String[] FILTER_NAMES_3D = {"기본", "선명하게", "스캔라인", "LCD 격자", "FSR 업스케일"};
+    private static final String[] FILTER_NOTES_3D = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자",
+            "낮은 해상도 3D 화면을 또렷하게 키워요 (AMD FSR 1.0)"};
+
+    // Engines that draw with the GPU, where FSR can enlarge the picture.
+    private boolean is3d() {
+        return "ppsspp".equals(this.coreId) || "pcee2".equals(this.coreId) || "play".equals(this.coreId)
+                || "mupen64plus_next".equals(this.coreId) || "flycast".equals(this.coreId) || "yabasanshiro".equals(this.coreId);
+    }
+
+    private void applyScreenFilterToNative(int filter) {
+        NativeGba.setSharpScaling(filter >= 1 && filter <= 3);
+        NativeGba.setFsr(filter == 4);
+    }
+    private static final String[] HAPTIC_NAMES = {"꺼짐", "약하게", "보통", "강하게"};
+    private static final String[] HAPTIC_NOTES = {"진동 없음 (기본)", "살짝 톡", "또렷하게 톡", "확실하게 툭"};
+    private final java.util.List<ScreenFilterView> screenFilters = new java.util.ArrayList<>();
+    private final Runnable screenFilterPoll = new Runnable() {
+        @Override
+        public void run() {
+            updateScreenFilters();
+        }
+    };
+
+    private int screenFilter() {
+        int value = MainActivity.sharedSettings(this).getInt("screen_filter", 0);
+        return value >= 0 && value <= (is3d() ? 4 : 3) ? value : 0;
+    }
+
+    private int hapticLevel() {
+        int value = MainActivity.sharedSettings(this).getInt("haptic_level", 0);
+        return value >= 0 && value <= 3 ? value : 0;
+    }
+
+    private void addScreenFilter(FrameLayout parent) {
+        ScreenFilterView filter = new ScreenFilterView(this, this.surfaceView);
+        this.screenFilters.clear();
+        this.screenFilters.add(filter);
+        parent.addView(filter, new FrameLayout.LayoutParams(-1, -1));
+        // 화면 모양: the frame the picture sits in, and the corner mask over it.
+        this.screenFrame = parent;
+        ScreenMaskView mask = new ScreenMaskView(this);
+        this.screenMask = mask;
+        parent.addView(mask, new FrameLayout.LayoutParams(-1, -1));
+        parent.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) {
+                v.post(this::applyScreenShape);
+            }
+        });
+        parent.post(this::applyScreenShape);
+        updateScreenFilters();
+    }
+
+    // The readout goes on the window root so it can sit on the case under the picture.
+    // flat: the picture fills the window, so the text goes along its top edge instead.
+    private void addPerfOverlay(FrameLayout root, boolean flat) {
+        if (this.perfOverlay != null) {
+            this.perfOverlay.removeCallbacks(this.perfPoll);
+        }
+        this.perfOverlay = new PerfOverlayView(this, this.surfaceView, flat);
+        root.addView(this.perfOverlay, new FrameLayout.LayoutParams(-1, -1));
+        updatePerfOverlay();
+    }
+
+    private ClearShellView shell;
+
+    // ---- 성능 표시 (all games) and 전원 모드 (per game) ----
+
+    private PerfOverlayView perfOverlay;
+    private final Runnable perfPoll = new Runnable() {
+        @Override
+        public void run() {
+            PerfOverlayView view = GameActivity.this.perfOverlay;
+            if (view == null || !perfOverlayOn()) {
+                return;
+            }
+            long handle = GameActivity.this.nativeHandle;
+            view.update(handle != 0 ? NativeGba.frameStats(handle) : null);
+            view.postDelayed(this, 1000);
+        }
+    };
+
+    private boolean perfOverlayOn() {
+        return MainActivity.sharedSettings(this).getBoolean("perf_overlay", false);
+    }
+
+    private void updatePerfOverlay() {
+        PerfOverlayView view = this.perfOverlay;
+        if (view == null) {
+            return;
+        }
+        view.removeCallbacks(this.perfPoll);
+        boolean on = perfOverlayOn();
+        view.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (this.shell != null) {
+            // The readout takes the engraved name's place under the picture.
+            this.shell.setLabelHidden(on);
+        }
+        if (on) {
+            view.restart();
+            view.post(this.perfPoll);
+        }
+    }
+
+    private static final String[] POWER_NAMES = {"성능", "균형", "절전"};
+    private static final String[] POWER_SHORT = {"성능", "균형", "절전"};
+    private static final String[] POWER_NOTES = {
+            "고성능 코어에 붙이고 CPU 속도를 높게 유지. 무거운 기종의 기본",
+            "CPU 속도를 휴대폰에 맡겨요. 가벼운 게임은 이걸로 충분하고 발열이 줄어요",
+            "균형 + 화면을 한 장씩 건너뛰어 그려요 (게임 속도는 그대로). 2D 기기용 · 3D 기기는 균형과 같아요"};
+
+    private String powerKey() {
+        return "power:" + this.saveBaseName;
+    }
+
+    // Light consoles start on 균형: they run at full speed without pinning the fast cores,
+    // and stay cooler (foldables heat up quickly). The rest start on 성능.
+    private boolean lightSystem() {
+        if ("fbneo".equals(this.coreId) || "mame2003plus".equals(this.coreId)) {
+            return true;
+        }
+        switch (this.gameMode) {
+            case "gba": case "snes": case "nes": case "md": case "sms": case "pce":
+            case "ws": case "ngp": case "mcd":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private int defaultPowerMode() {
+        return lightSystem() ? 1 : 0;
+    }
+
+    private int powerMode() {
+        int value = MainActivity.sharedSettings(this).getInt(powerKey(), defaultPowerMode());
+        return value >= 0 && value <= 2 ? value : defaultPowerMode();
+    }
+
+    private boolean powerChosen() {
+        return MainActivity.sharedSettings(this).contains(powerKey());
+    }
+
+    // Consoles whose engines keep a phone's CPU or GPU busy: told about once (발열 안내).
+    private boolean heavySystem() {
+        if ("mame2010".equals(this.coreId) || "mame2015".equals(this.coreId) || "mamearcade".equals(this.coreId)) {
+            return true;
+        }
+        switch (this.gameMode) {
+            case "ps2": case "3ds": case "ss": case "psp": case "dc": case "naomi": case "n64": case "wiiu": case "gc":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private String heatKey() {
+        return "heat_notice:" + ("arcade".equals(this.gameMode) || "neogeo".equals(this.gameMode) ? this.coreId : this.gameMode);
+    }
+
+    private String heatSystemName() {
+        switch (this.coreId) {
+            case "mame2010": return "아케이드 (MAME 2010)";
+            case "mame2015": case "mamearcade": return "아케이드 (MAME 2015)";
+            default: return consoleName();
+        }
+    }
+
+    private View heatBanner;
+
+    // The first game of a heavy console: a small notice over the top of the screen that
+    // doesn't stop the game and goes away by itself; it opens 발열 줄이는 법.
+    private void showStartNotices() {
+        long delay = 0;
+        if (wiimmfiOn() && cheatsSupported() && Cheats.countOn(cheats()) > 0) {
+            // Wiimmfi turns cheaters away; once per session, before going online.
+            new AppDialog.Builder(this).setTitle("치트가 켜져 있어요")
+                    .setMessage("Wiimmfi는 치트를 쓰면 접속을 막아요. 온라인 동안은 꺼 둘까요?")
+                    .setNegativeButton("그대로", null)
+                    .setPositiveButton("치트 끄기", (d, w) -> {
+                        for (Cheats.Cheat cheat : cheats()) {
+                            cheat.on = false;
+                        }
+                        cheatsChanged();
+                        Toast.makeText(this, "치트를 모두 껐어요", Toast.LENGTH_SHORT).show();
+                    }).show();
+            return;
+        }
+        if (gcLanMode() != 0) {
+            String tipKey = "gc_lan_tip:" + this.saveBaseName;
+            if (!MainActivity.sharedSettings(this).getBoolean(tipKey, false)) {
+                MainActivity.sharedSettings(this).edit().putBoolean(tipKey, true).apply();
+                showInfoNotice("LAN 대전 켜짐", "게임 첫 화면에서 LAN 모드를 고르세요. 방장이 먼저 들어가고, 친구들이 뒤따라 들어오면 돼요", 8000);
+                delay = 8500;
+            }
+        }
+        if (motionSupported() && motionInput().available()) {
+            String asked = "motion_asked:" + this.saveBaseName;
+            if (!MainActivity.sharedSettings(this).getBoolean(asked, false)) {
+                MainActivity.sharedSettings(this).edit().putBoolean(asked, true).apply();
+                if (isGbaMotionCart()) {
+                    showInfoNotice(isGameBoy() ? "기울이기 센서 카트리지예요" : "센서 카트리지예요",
+                            "모션이 자동으로 켜졌어요. 휴대폰을 기울이거나 돌리면 게임에 들어가요. 화면의 '가운데로'로 기준을 다시 잡아요", 7000);
+                    delay = 7500;
+                } else {
+                    showMotionPrompt();
+                    return;
+                }
+            }
+        }
+        if (isWiiU() && !MainActivity.sharedSettings(this).getBoolean("wiiu_notice", false)) {
+            MainActivity.sharedSettings(this).edit().putBoolean("wiiu_notice", true).apply();
+            new AppDialog.Builder(this).setTitle("Wii U 모드 · 실험적")
+                    .setMessage("• 이어하기가 없어요\n나가면 다음엔 타이틀부터예요. 게임 안에서 저장해 주세요. 되감기 · 세이브 슬롯도 없어요.\n\n"
+                            + "• 처음엔 끊겨요\n장면마다 셰이더를 처음 만들 때 잠깐 멈춰요. 한 번 지나간 곳은 다음부터 부드러워요.\n\n"
+                            + "• 뜨거워질 수 있어요\n전원 모드는 '성능'으로 시작해요. 뜨거우면 게임기 탭에서 해상도를 낮춰 보세요.")
+                    .setPositiveButton("알겠어요", null).show();
+            return;
+        }
+        String stvKey = "stv_notice:" + this.saveBaseName;
+        if (stvBoard() && !MainActivity.sharedSettings(this).getBoolean(stvKey, false)) {
+            MainActivity.sharedSettings(this).edit().putBoolean(stvKey, true).apply();
+            showInfoNotice("처음부터 시작했어요", "세가 ST-V 기판 게임은 이어하기를 하면 화면이 멈춰서, 항상 처음부터 켜요", 6000);
+            delay = 6500;
+        }
+        if (delay == 0) {
+            maybeShowHeatNotice();
+        } else {
+            getWindow().getDecorView().postDelayed(() -> {
+                if (!this.destroyed) maybeShowHeatNotice();
+            }, delay);
+        }
+    }
+
+    private View infoNotice;
+
+    private void showInfoNotice(String title, String detail, long millis) {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(14), dp(10), dp(14), dp(10));
+        bar.setBackground(roundRect(Color.rgb(239, 246, 255), dp(18)));
+        bar.setElevation(dp(8));
+        TextView icon = sheetText("i", 15.0f, Color.WHITE, true);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(roundRect(Color.rgb(37, 99, 235), dp(16)));
+        bar.addView(icon, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(sheetText(title, 13.5f, Color.rgb(30, 58, 138), true));
+        texts.addView(sheetText(detail, 11.5f, Color.rgb(30, 64, 175), false));
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, 0, 0);
+        bar.addView(texts, textsParams);
+        bar.setOnClickListener(view -> removeNotice(bar));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        params.setMargins(dp(12), dp(22), dp(12), 0);
+        addContentView(bar, params);
+        this.infoNotice = bar;
+        bar.postDelayed(() -> removeNotice(bar), millis);
+    }
+
+    private void removeNotice(View bar) {
+        if (this.infoNotice == bar) {
+            this.infoNotice = null;
+        }
+        if (bar.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) bar.getParent()).removeView(bar);
+        }
+    }
+
+    private void maybeShowHeatNotice() {
+        if (!heavySystem() || MainActivity.sharedSettings(this).getBoolean(heatKey(), false)) {
+            return;
+        }
+        MainActivity.sharedSettings(this).edit().putBoolean(heatKey(), true).apply();
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(14), dp(10), dp(10), dp(10));
+        bar.setBackground(roundRect(Color.rgb(255, 247, 237), dp(18)));
+        bar.setElevation(dp(8));
+        bar.addView(new RoundIconView(this, RoundIconView.PERF, HEAT_ORANGE), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(sheetText("발열이 큰 기종이에요", 13.5f, Color.rgb(154, 52, 18), true));
+        TextView sub = sheetText(heatSystemName() + " · 오래 하면 폰이 뜨거워질 수 있어요", 11.5f, Color.rgb(154, 52, 18), false);
+        sub.setMaxLines(2);
+        texts.addView(sub);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, dp(8), 0);
+        bar.addView(texts, textsParams);
+        TextView open = sheetText("줄이는 법 ›", 12.0f, Color.WHITE, true);
+        open.setPadding(dp(10), dp(7), dp(10), dp(7));
+        open.setBackground(roundRect(HEAT_ORANGE, dp(10)));
+        bar.addView(open);
+        View.OnClickListener show = view -> {
+            hideHeatBanner();
+            showHeatTips(null);
+        };
+        open.setOnClickListener(show);
+        bar.setOnClickListener(show);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        params.setMargins(dp(12), dp(22), dp(12), 0);
+        addContentView(bar, params);
+        this.heatBanner = bar;
+        bar.postDelayed(() -> {
+            if (this.heatBanner == bar) hideHeatBanner();
+        }, 8000);
+    }
+
+    private void hideHeatBanner() {
+        View bar = this.heatBanner;
+        this.heatBanner = null;
+        if (bar != null && bar.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) bar.getParent()).removeView(bar);
+        }
+    }
+
+    private static final int HEAT_ORANGE = Color.rgb(249, 115, 22);
+
+    // 발열 줄이는 법: what can be changed right away for this game (opened from the notice,
+    // or from the pause menu, which is then passed in so a change can close it).
+    private void showHeatTips(android.app.Dialog menu) {
+        if (menu == null) {
+            this.holdPause = true;
+            long handle = this.nativeHandle;
+            if (handle != 0) {
+                NativeGba.pause(handle, true);
+            }
+        }
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        panel.addView(sheetHeader(RoundIconView.PERF, HEAT_ORANGE, "발열 줄이는 법", this.gameTitle + " · " + heatSystemName(), null));
+        final android.app.Dialog[] holder = new android.app.Dialog[1];
+        int scale = isPsp() ? pspScale() : isN3ds() ? n3dsScale() : isN64() ? n64Scale() : 1;
+        if (scale > 1) {
+            final String key = (isPsp() ? "psp_scale:" : isN3ds() ? "n3ds_scale:" : "n64_scale:") + this.saveBaseName;
+            panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 1배로", "지금 " + scale + "배 · 바꾸기 ›", view -> {
+                MainActivity.sharedSettings(this).edit().putInt(key, 1).commit();
+                holder[0].dismiss();
+                if (menu != null) menu.dismiss();
+                relaunchGame();
+            }), marginTop(-1, dp(52), 14));
+        }
+        if (speedFirstSupported() && !speedFirst()) {
+            panel.addView(createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선 켜기", "켜기 ›", view -> {
+                MainActivity.sharedSettings(this).edit().putBoolean(speedFirstKey(), true).commit();
+                holder[0].dismiss();
+                if (menu != null) menu.dismiss();
+                relaunchGame();
+            }), marginTop(-1, dp(52), scale > 1 ? 8 : 14));
+        }
+        if (powerMode() == 0) {
+            LinearLayout power = createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드 균형", "바꾸기 ›", null);
+            power.setOnClickListener(view -> {
+                setPowerModeNow(1);
+                power.setVisibility(View.GONE);
+                Toast.makeText(this, "균형으로 바꿨어요. 느려지면 설정 › 전원 모드에서 되돌리세요.", Toast.LENGTH_SHORT).show();
+            });
+            panel.addView(power, marginTop(-1, dp(52), scale > 1 ? 8 : 14));
+        }
+        if (!perfOverlayOn()) {
+            LinearLayout perf = createSettingRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시 켜기", "켜기 ›", null);
+            perf.setOnClickListener(view -> {
+                MainActivity.sharedSettings(this).edit().putBoolean("perf_overlay", true).commit();
+                updatePerfOverlay();
+                perf.setVisibility(View.GONE);
+                Toast.makeText(this, "게임 화면 왼쪽 위에 온도 · 속도가 보여요.", Toast.LENGTH_SHORT).show();
+            });
+            panel.addView(perf, marginTop(-1, dp(52), 8));
+        }
+        java.util.List<String> notes = new java.util.ArrayList<>();
+        if (powerMode() == 0) {
+            notes.add("균형으로 바꿔서 게임이 느려지면 설정 › 전원 모드에서 성능으로 되돌리세요.");
+        }
+        if (!isPsp() && !isN3ds() && !isN64()) {
+            notes.add("이 기종은 앱에서 화질을 바꾸는 설정이 없어요. 오래 할 땐 중간에 쉬어 주세요.");
+        }
+        for (String text : notes) {
+            TextView note = sheetText(text, 11.5f, Color.rgb(55, 65, 81), false);
+            note.setLineSpacing(0, 1.15f);
+            note.setPadding(dp(12), dp(10), dp(12), dp(10));
+            note.setBackground(roundRect(Color.rgb(246, 247, 249), dp(12)));
+            panel.addView(note, marginTop(-1, -2, 10));
+        }
+        TextView warm = sheetText("충전하면서 하거나 두꺼운 케이스를 끼우면 더 뜨거워져요. 폰이 뜨거워지면 휴대폰이 스스로 속도를 낮춰서 게임이 느려질 수 있어요.",
+                11.5f, Color.rgb(154, 52, 18), false);
+        warm.setLineSpacing(0, 1.15f);
+        warm.setPadding(dp(12), dp(10), dp(12), dp(10));
+        warm.setBackground(roundRect(Color.rgb(255, 247, 237), dp(12)));
+        panel.addView(warm, marginTop(-1, -2, 10));
+        android.widget.CheckBox again = new android.widget.CheckBox(this);
+        again.setText(heatSystemName() + "는 다시 알리지 않기");
+        again.setTextSize(12.5f);
+        again.setTextColor(Color.rgb(55, 65, 81));
+        again.setButtonTintList(android.content.res.ColorStateList.valueOf(HEAT_ORANGE));
+        again.setChecked(MainActivity.sharedSettings(this).getBoolean(heatKey(), false));
+        panel.addView(again, marginTop(-2, -2, 8));
+        TextView close = dialogButton(menu == null ? "닫고 계속하기" : "닫기", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        panel.addView(close, marginTop(-1, dp(46), 10));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        final android.app.Dialog dialog = cardDialog(scroll, 0);
+        holder[0] = dialog;
+        close.setOnClickListener(view -> dialog.dismiss());
+        dialog.setOnDismissListener(d -> {
+            MainActivity.sharedSettings(this).edit().putBoolean(heatKey(), again.isChecked()).apply();
+            if (menu == null) {
+                this.holdPause = false;
+                resumeUnlessExiting();
+            }
+        });
+        dialog.show();
+    }
+
+    private LinearLayout createPerfRow() {
+        LinearLayout row = createSettingRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시", perfOverlayOn() ? "켜짐" : "꺼짐", null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시",
+                new String[]{"꺼짐", "켜짐"}, new String[]{"표시 없음 (기본)", "게임 화면 왼쪽 위에 FPS·속도, 온도, 배터리"},
+                perfOverlayOn() ? 1 : 0, "모든 게임에 같이 적용돼요. 온도는 CPU 센서를 못 읽는 폰에선 배터리 온도로 보여요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+            MainActivity.sharedSettings(this).edit().putBoolean("perf_overlay", choice == 1).commit();
+            value.setText((choice == 1 ? "켜짐" : "꺼짐") + "  ›");
+            updatePerfOverlay();
+        }));
+        return row;
+    }
+
+    private LinearLayout createPowerRow(android.app.Dialog menu) {
+        String[] names = POWER_NAMES.clone();
+        names[defaultPowerMode()] += " · " + consoleName() + " 기본";
+        String note = "이 게임에만 적용 · 바로 적용돼요. 게임을 다시 켜지 않아서 지금 장면 그대로 이어져요.\n성능 표시를 켜 두면 온도와 배터리 소모가 어떻게 달라지는지 바로 볼 수 있어요.";
+        if (lightSystem()) {
+            note = consoleName() + "처럼 가벼운 기종은 처음부터 균형으로 시작해요. 여기서 직접 고르면 이 게임은 그 값으로 기억돼요.\n" + note;
+        }
+        final String footer = note;
+        LinearLayout row = createSettingRow(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", powerValueText(), null);
+        final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
+        row.setOnClickListener(view -> showChoiceDialog(RoundIconView.BATTERY, RoundIconView.COLOR_BATTERY, "전원 모드", names, POWER_NOTES,
+                powerMode(), footer, Color.rgb(236, 253, 243), Color.rgb(22, 101, 52), "적용", choice -> {
+            if (choice == powerMode() && powerChosen()) {
+                return;
+            }
+            setPowerModeNow(choice);
+            value.setText(powerValueText() + "  ›");
+        }));
+        return row;
+    }
+
+    private String powerValueText() {
+        return POWER_SHORT[powerMode()] + (powerChosen() ? "" : " · 기본");
+    }
+
+    // Saves the game's power mode and switches the running engine to it at once (the
+    // engine picks it up on its next frame; no restart).
+    private void setPowerModeNow(int mode) {
+        MainActivity.sharedSettings(this).edit().putInt(powerKey(), mode).commit();
+        if (!isMame139()) {
+            NativeGba.setPowerMode(mode);
+        }
+    }
+
+    // Lines follow the game's picture size, which can change (menus, resolution switches),
+    // so it is checked twice a second while a line filter is on.
+    private void updateScreenFilters() {
+        int filter = screenFilter();
+        long handle = this.nativeHandle;
+        int[] size = handle != 0 && filter >= 2 && filter <= 3 ? NativeGba.frameSize(handle) : null;
+        boolean integer = shapeScaleMode() == 1;
+        if (integer) {
+            applyScreenShape();
+        }
+        for (ScreenFilterView view : this.screenFilters) {
+            view.setFilter(filter);
+            if (size != null && size.length == 2) {
+                view.setGameSize(size[0], size[1]);
+            }
+            view.removeCallbacks(this.screenFilterPoll);
+            if (((filter >= 2 && filter <= 3) || integer) && !this.destroyed) {
+                view.postDelayed(this.screenFilterPoll, 500);
+            }
+        }
+    }
+
+    // 화면 탭: the picture and the case, button looks and layout (all games).
+    private void addScreenTabRows(LinearLayout panel, Runnable refresh) {
+        LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
+        filterParams.setMargins(0, 0, 0, 0);
+        boolean threeD = is3d();
+        panel.addView(createSettingRow(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", (threeD ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
+                view -> showChoiceDialog(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", threeD ? FILTER_NAMES_3D : FILTER_NAMES,
+                        threeD ? FILTER_NOTES_3D : FILTER_NOTES, screenFilter(),
+                        threeD ? "모든 게임에 바로 적용돼요.\nFSR은 3D 기기(PSP·PS2·N64·드림캐스트·새턴)에서만 보여요. 2D 게임에선 '기본'으로 보여요."
+                                : "모든 게임에 바로 적용돼요.\nPSP·PS2·N64·드림캐스트 같은 3D 게임은 'FSR 업스케일'도 고를 수 있어요.",
+                        Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
+                    MainActivity.sharedSettings(this).edit().putInt("screen_filter", choice).apply();
+                    applyScreenFilterToNative(choice);
+                    updateScreenFilters();
+                    refresh.run();
+                })), filterParams);
+        if (!isPadScreen()) {
+            LinearLayout.LayoutParams shapeParams = new LinearLayout.LayoutParams(-1, dp(52));
+            shapeParams.setMargins(0, dp(8), 0, 0);
+            String shapeShown = (shapeScaleMode() == 1 ? "픽셀 정확" : "맞춤") + (shapeAspectMode() != 0 ? " · " + SHAPE_ASPECT_NAMES[shapeAspectMode()] : "")
+                    + (shapeCornerDp() > 0 ? " · 둥근 " + shapeCornerDp() : "");
+            panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_FILTER, "화면 모양", shapeShown, view -> {
+                showScreenShapeSheet(refresh);
+            }), shapeParams);
+        }
+        if (!isPadScreen()) {
+            // The controller-only screen has no case behind it.
+            LinearLayout.LayoutParams styleParams = new LinearLayout.LayoutParams(-1, dp(52));
+            styleParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES[shellStyle()],
+                    view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES, ClearShellView.STYLE_NOTES,
+                            shellStyle(), "모든 게임에 바로 적용돼요. 버튼과 화면 크기는 그대로예요.\n실물 플라스틱·다크 매트·파스텔·네온은 모드마다 색이 달라요.",
+                            Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
+                        if (choice == ClearShellView.STYLE_PHOTO) {
+                            // The editor picks the photo and saves the style when it is applied.
+                            openBackgroundEditor();
+                            return;
+                        }
+                        MainActivity.sharedSettings(this).edit().putInt("shell_style", choice).apply();
+                        rebuildContent();
+                        refresh.run();
+                    })), styleParams);
+        }
+        if (!isPadScreen()) {
+            LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(52));
+            editParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.MOVE, RoundIconView.COLOR_MOVE, "버튼 · 화면 배치 편집",
+                    hasLayoutEdits() ? "바꾼 배치" : "기본 배치", view -> {
+                        startLayoutEditor();
+                    }), editParams);
+            LinearLayout.LayoutParams styleRowParams = new LinearLayout.LayoutParams(-1, dp(52));
+            styleRowParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_FILTER, "버튼 꾸미기",
+                    buttonStyleSummary(), view -> {
+                        openButtonStyleDialog();
+                    }), styleRowParams);
+            LinearLayout.LayoutParams presetRowParams = new LinearLayout.LayoutParams(-1, dp(52));
+            presetRowParams.setMargins(0, dp(8), 0, 0);
+            int presetCount = 0;
+            for (Presets.Preset preset : Presets.list(this)) {
+                if (!Presets.UNDO_ID.equals(preset.id)) presetCount++;
+            }
+            panel.addView(createSettingRow(RoundIconView.STAR, RoundIconView.COLOR_SAVE, "꾸미기 프리셋",
+                    presetCount == 0 ? "저장 · 적용" : "저장된 것 " + presetCount, view -> {
+                        openPresetDialog();
+                    }), presetRowParams);
+        }
+    }
+
+    // 조작 탭: vibration, combos, sticks, rewind and game controllers.
+    private void addControlTabRows(LinearLayout panel, Runnable refresh) {
+        addMotionRows(panel, this.pauseDialog, refresh);
+        if (!isPadScreen()) {
+            LinearLayout.LayoutParams hapticParams = new LinearLayout.LayoutParams(-1, dp(52));
+            hapticParams.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES[hapticLevel()],
+                    view -> showChoiceDialog(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES, HAPTIC_NOTES,
+                            hapticLevel(), "화면 버튼을 누를 때 짧게 진동해요.\n휴대폰이 무음·진동 끔이어도 울릴 수 있어요.",
+                            Color.rgb(243, 240, 255), Color.rgb(91, 33, 182), "적용", choice -> {
+                        MainActivity.sharedSettings(this).edit().putInt("haptic_level", choice).apply();
+                        Haptics.setLevel(this, choice);
+                        Haptics.tap();
+                        refresh.run();
+                    })), hapticParams);
+            LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
+            comboParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createComboRow(refresh), comboParams);
+            if (isDualShock() || isWiiU() || (isDolphin() && (!isWiiGame() || wiiControl() == 2))) {
+                LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(-1, dp(52));
+                rightParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(createStickRow(true, refresh), rightParams);
+            }
+            if (hasLeftStick()) {
+                LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(-1, dp(52));
+                leftParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(createStickRow(false, refresh), leftParams);
+            }
+            LinearLayout.LayoutParams rewindParams = new LinearLayout.LayoutParams(-1, dp(52));
+            rewindParams.setMargins(0, dp(8), 0, 0);
+            boolean supported = rewindSupported();
+            panel.addView(createSettingRow(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기",
+                    !supported ? (stvBoard() ? "이 기판은 지원 안 함" : "이 기종은 안 돼요") : rewindOn() ? "켜짐" : "꺼짐",
+                    view -> {
+                        if (!supported) {
+                            Toast.makeText(this, stvBoard() ? "세가 ST-V 기판은 장면을 되돌리면 화면이 멈춰서 되감기를 쓸 수 없어요."
+                                    : "PS2·새턴·드림캐스트는 상태 저장이 크고 무거워서 되감기를 쓸 수 없어요.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        showChoiceDialog(RoundIconView.REWIND, RoundIconView.COLOR_REWIND, "되감기", REWIND_NAMES, REWIND_NOTES,
+                                rewindOn() ? 1 : 0, "켜면 배속 버튼 옆에 되감기 버튼이 생겨요.\n누르고 있는 동안 최대 약 10초 전까지 거꾸로 가요. 휴대폰 메모리를 조금 더 써요.",
+                                Color.rgb(243, 240, 255), Color.rgb(91, 33, 182), "적용", choice -> {
+                            MainActivity.sharedSettings(this).edit().putBoolean("rewind_enabled", choice == 1).apply();
+                            long handle = this.nativeHandle;
+                            if (handle != 0) {
+                                NativeGba.setRewindEnabled(handle, rewindOn());
+                            }
+                            rebuildContent();
+                            refresh.run();
+                        });
+                    }), rewindParams);
+        }
+
+        LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));
+        padParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createPadMappingRow(refresh), padParams);
+        if (!isPadScreen() && !isMame139()) {
+            LinearLayout.LayoutParams autoParams = new LinearLayout.LayoutParams(-1, dp(52));
+            autoParams.setMargins(0, dp(8), 0, 0);
+            String autoShown = padAutoForGame() == 1 ? "이 게임은 항상 터치" : padAutoForGame() == 2 ? "이 게임은 항상 숨김" : padPref("pad_auto_hide") ? "꽂으면 터치 숨김" : "꺼짐";
+            panel.addView(createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_MOVE, "게임패드 자동 전환", autoShown, view -> {
+                showPadAutoSheet(refresh);
+            }), autoParams);
+        }
+
+    }
+
+    private void addLandscapeArcadeButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int size, int i4) {
+        TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed, i4);
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(size), dp(size));
+        layoutParams.gravity = 8388629;
+        layoutParams.setMargins(0, 0, dp(i2), 0);
+        touchButton.setTranslationY(dp(i3 + LANDSCAPE_SHIFT_DP));
+        frameLayout.addView(touchButton, layoutParams);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        addPlayTime();
+        if (isMame139()) {
+            Emulator.pause();
+            return;
+        }
+        this.activityResumed = false;
+        onRewindHeld(false);
+        stopMicPoll();
+        if (this.motionInput != null) {
+            this.motionInput.stop();
+        }
+        long j = this.nativeHandle;
+        if (j != 0) {
+            NativeGba.pause(j, true);
+            if (!isPs2()) {
+                // The picture for the automatic save the game writes on the way out.
+                captureThumbnail(autoThumbnail());
+            }
+            callCore(NativeGba::saveNow, null, null);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        this.playStart = System.currentTimeMillis();
+        this.activityResumed = true;
+        if (isMame139()) {
+            Emulator.resume();
+            return;
+        }
+        startMicPoll();
+        long j = this.nativeHandle;
+        if (j != 0) {
+            startMotionIfOn();
+            // Back from a file picker opened over the pause menu: stay paused under it.
+            boolean menuOpen = this.holdPause || (this.pauseDialog != null && this.pauseDialog.isShowing());
+            NativeGba.pause(j, menuOpen);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CHEAT_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            importCheatFile(data.getData());
+        }
+        if (requestCode == REQUEST_BG_EDITOR) {
+            // Whatever was applied (or not), draw the case as it now stands.
+            rebuildContent();
+        }
+        if (requestCode == REQUEST_STATE_FILE) {
+            this.holdPause = false;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                loadStateFromUri(data.getData());
+            } else {
+                resumeUnlessExiting();
+            }
+        }
+        if (requestCode == REQUEST_PRESET_FILE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                importPresetFile(data.getData());
+            } else {
+                this.holdPause = false;
+                resumeUnlessExiting();
+            }
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        unregisterPadListener();
+        unregisterThermalListener();
+        stopMicPoll();
+        this.adhocBeacon.stop();
+        if (this.directLink != null) {
+            if (this.menuExiting) {
+                this.directLink.detach();
+            } else {
+                this.directLink.release();
+            }
+        }
+        this.destroyed = true;
+        final boolean finishing = isFinishing();
+        if (isMame139() && finishing) {
+            Emulator.stop();
+        }
+        final long handle = this.nativeHandle;
+        this.nativeHandle = 0L;
+        final AudioSink sink = this.audioSink;
+        // Stopping saves the game and waits for the engine's current frame, so it runs on
+        // the worker after any queued saves. Games run in their own process (see the
+        // manifest), which ends here so the next game starts with a clean engine.
+        coreWorker.execute(() -> {
+            if (handle != 0) {
+                NativeGba.destroy(handle);
+            }
+            if (sink != null) {
+                sink.release();
+            }
+            if (finishing) {
+                MainActivity.sharedSettings(this).edit().putBoolean(SESSION_CLOSED, true).commit();
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }
+        });
+        coreWorker.shutdown();
+        if (finishing) {
+            // An engine stuck inside a frame never returns; leave anyway.
+            Thread watchdog = new Thread(() -> {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ignored) {
+                    // Exit now.
+                }
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }, "exit-watchdog");
+            watchdog.setDaemon(true);
+            watchdog.start();
+        }
+        super.onDestroy();
+    }
+
+    private interface CoreCall {
+        boolean run(long handle);
+    }
+
+    // Runs an engine call on the worker and shows the matching message when it is done.
+    private void callCore(CoreCall call, String okMessage, String failMessage) {
+        final long handle = this.nativeHandle;
+        if (handle == 0 || this.destroyed) {
+            return;
+        }
+        coreWorker.execute(() -> {
+            String message = call.run(handle) ? okMessage : failMessage;
+            if (message != null) {
+                runOnUiThread(() -> {
+                    if (!isFinishing()) {
+                        Toast.makeText(this, message, 0).show();
+                    }
+                });
+            }
+        });
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (this.layoutEditor != null) {
+            // Back leaves the editor without saving: the screen is built again as saved.
+            finishLayoutEditor(null);
+            rebuildContent();
+            return;
+        }
+        showBackExitDialog();
+    }
+
+    // Tells the system the game's picture changes at the game's own rate (60 or 50 frames
+    // a second, not the 120 Hz a phone screen can run at), so the screen can drop to it and
+    // use less power and heat. Android 11+.
+    private void applyFrameRate() {
+        SurfaceHolder holder = this.activeSurfaceHolder;
+        if (android.os.Build.VERSION.SDK_INT < 30 || holder == null) {
+            return;
+        }
+        Surface surface = holder.getSurface();
+        if (surface == null || !surface.isValid()) {
+            return;
+        }
+        float fps = 60f;
+        long handle = this.nativeHandle;
+        if (handle != 0) {
+            double[] stats = NativeGba.frameStats(handle);
+            if (stats != null && stats.length >= 3 && stats[2] >= 20 && stats[2] <= 120) {
+                fps = (float) stats[2];
+            }
+        }
+        try {
+            surface.setFrameRate(fps, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+        } catch (RuntimeException e) {
+            // A surface going away as it is set: the next one gets it.
+        }
+    }
+
+    @Override
+    public void surfaceCreated(SurfaceHolder surfaceHolder) {
+        this.surfaceReady = true;
+        this.activeSurfaceHolder = surfaceHolder;
+        applyFrameRate();
+        if (isMame139()) {
+            Emulator.attachSurface(surfaceHolder);
+            startCore(surfaceHolder.getSurface());
+            return;
+        }
+        long j = this.nativeHandle;
+        if (j == 0) {
+            startCore(surfaceHolder.getSurface());
+        } else {
+            NativeGba.setSurface(j, surfaceHolder.getSurface());
+            // Rebuilt under the pause menu (a setting changed): stay paused until it closes.
+            boolean menuOpen = this.holdPause || (this.pauseDialog != null && this.pauseDialog.isShowing());
+            NativeGba.pause(this.nativeHandle, menuOpen);
+        }
+    }
+
+    @Override
+    public void surfaceChanged(SurfaceHolder surfaceHolder, int i, int i2, int i3) {
+        if (this.surfaceReady) {
+            return;
+        }
+        startCore(surfaceHolder.getSurface());
+    }
+
+    @Override
+    public void surfaceDestroyed(SurfaceHolder surfaceHolder) {
+        if (this.activeSurfaceHolder == surfaceHolder) {
+            this.surfaceReady = false;
+            this.activeSurfaceHolder = null;
+            if (isMame139()) {
+                Emulator.detachSurface(surfaceHolder);
+                return;
+            }
+            long j = this.nativeHandle;
+            if (j != 0) {
+                NativeGba.clearSurface(j);
+            }
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        this.landscapeMode = configuration.orientation == 2;
+        // The controls are rebuilt; whatever the old ones held is let go.
+        releaseController();
+        onRewindHeld(false);
+        if (this.layoutEditor != null) {
+            finishLayoutEditor(null);
+        }
+        if (isMame139()) {
+            Emulator.pause();
+        } else {
+            long j = this.nativeHandle;
+            if (j != 0) {
+                NativeGba.pause(j, true);
+            }
+        }
+        if (this.landscapeMode) {
+            createLandscapeContent();
+        } else {
+            createPortraitContent();
+        }
+    }
+
+    private void startCore(Surface surface) {
+        if ((isMame139() || (this.nativeHandle == 0 && !this.coreStarting)) && surface.isValid()) {
+            if (isMame139()) {
+                try {
+                    Emulator.start(this, this.activeSurfaceHolder, this.romPath);
+                    Emulator.setMiniInput(this.buttonMask);
+                    return;
+                } catch (IOException e) {
+                    showFatalError(e.getMessage());
+                    return;
+                } catch (UnsatisfiedLinkError e2) {
+                    showFatalError("MAME4droid 0.139 엔진 로드 실패: " + e2.getMessage());
+                    return;
+                }
+            }
+            String arcadePreflightError = arcadePreflightError();
+            if (arcadePreflightError != null) {
+                showFatalError(arcadePreflightError);
+                return;
+            }
+            File file = new File(new File(getFilesDir(), "saves"), this.coreId);
+            if (!file.exists() && !file.mkdirs()) {
+                showFatalError("ROM 실행 실패: 세이브 폴더를 만들 수 없습니다");
+                return;
+            }
+            File file2 = new File(getFilesDir(), "system");
+            if (!file2.exists() && !file2.mkdirs()) {
+                showFatalError("ROM 실행 실패: 시스템 폴더를 만들 수 없습니다");
+                return;
+            }
+            // Big arcade sets take seconds to load; do it on the worker so the screen stays live.
+            this.coreStarting = true;
+            final String savePath = file.getAbsolutePath();
+            final String systemPath = file2.getAbsolutePath();
+            coreWorker.execute(() -> {
+                long handle = 0;
+                String error = null;
+                try {
+                    if (isPsp()) {
+                        NativeGba.setPspLanguage(0, pspLanguage());
+                        NativeGba.setPspScale(pspScale());
+                        NativeGba.setN3dsScale(n3dsScale());
+                        int wifi = wifiMultiMode();
+                        String server = wifi == 1 ? hostAddress() : wifi == 2 ? wifiMultiHost() : null;
+                        NativeGba.setPspAdhoc(server == null ? 0 : wifi, server);
+                    }
+                    if (isWonderSwan()) {
+                        NativeGba.setWonderSwanTall(wonderSwanTall());
+                    }
+                    if (isNds()) {
+                        int ds = dsNetMode();
+                        NativeGba.setDsNet(ds == 2 && dsNetHost() == null ? 0 : ds, ds == 2 ? dsNetHost() : null);
+                    }
+                    NativeGba.setSpeedFirst(speedFirstSupported() && speedFirst());
+                    NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
+                    NativeGba.setPowerMode(powerMode());
+                    NativeGba.setNoAutoState(stvBoard());
+                    NativeGba.setMotionEnabled(motionActive());
+                    if (isDolphin()) {
+                        int lan = gcLanMode();
+                        NativeGba.setGcLan(lan == 2 && gcLanHost() == null ? 0 : lan, lan == 2 ? gcLanHost() : null);
+                        NativeGba.setWiiControl(wiiControl());
+                        NativeGba.setDolphinVideo(dolphinScale(), dolphinAspect());
+                        NativeGba.setWiiPointer(isWiiGame() && wiiPointer() == 1);
+                        NativeGba.setWiimmfi(wiimmfiOn());
+                    }
+                    if (isWiiU()) {
+                        NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
+                        applyWiiuLayout();
+                    }
+                    NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
+                    if (isNds()) {
+                        NativeGba.setDsMic(dsMicInput(), dsMicButton());
+                    }
+                    // A crash while on Vulkan turns it off for that engine for good (MainActivity).
+                    NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
+                    handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
+                } catch (RuntimeException e3) {
+                    error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
+                } catch (UnsatisfiedLinkError e4) {
+                    error = "코어 로드 실패: " + e4.getMessage();
+                }
+                if (handle != 0 && this.destroyed) {
+                    NativeGba.destroy(handle);
+                    return;
+                }
+                final long started = handle;
+                final String failure = error;
+                runOnUiThread(() -> onCoreStarted(started, failure, surface));
+            });
+            getWindow().getDecorView().postDelayed(() -> {
+                if (this.coreStarting && !this.destroyed) {
+                    Toast.makeText(this, "게임을 불러오는 중입니다…", 0).show();
+                }
+            }, 800);
+        }
+    }
+
+    private void onCoreStarted(long handle, String error, Surface startSurface) {
+        this.coreStarting = false;
+        if (this.destroyed) {
+            return;
+        }
+        if (handle == 0) {
+            showFatalError(error);
+            return;
+        }
+        this.nativeHandle = handle;
+        startAdhocBeaconIfHosting();
+        shareVpnInviteIfPending();
+        startMotionIfOn();
+        NativeGba.setInput(handle, this.buttonMask);
+        NativeGba.setSpeedPercent(handle, this.speedPercent);
+        NativeGba.setRewindEnabled(handle, rewindOn());
+        applyCheats();
+        // The surface or the activity state may have changed while the game was loading.
+        if (!this.surfaceReady || this.activeSurfaceHolder == null) {
+            NativeGba.clearSurface(handle);
+        } else if (this.activeSurfaceHolder.getSurface() != startSurface) {
+            NativeGba.setSurface(handle, this.activeSurfaceHolder.getSurface());
+        }
+        if (!this.activityResumed) {
+            NativeGba.pause(handle, true);
+        }
+        // The game's own frame rate is known now (50 for PAL games).
+        applyFrameRate();
+        startMicPoll();
+        // A phone already hot when the game started (the status came before the engine).
+        if (this.thermalStatus >= 2) {
+            onThermalStatus(this.thermalStatus);
+        }
+        showStartNotices();
+    }
+
+    private String arcadePreflightError() {
+        if (!"mamearcade".equals(this.coreId) || this.romPath == null || !new File(this.romPath).getName().equalsIgnoreCase("twcup98.zip")) {
+            return null;
+        }
+        File file = new File(this.romPath);
+        File file2 = new File(file.getParentFile(), "stvbios.zip");
+        File file3 = new File(new File(new File(getFilesDir(), "system"), "mame/bios"), "stvbios.zip");
+        String[] strArr = {"epr-23603.ic8", "epr-18022.ic2"};
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 2; i++) {
+            String str = strArr[i];
+            if (!zipContains(file, str) && !zipContains(file2, str) && !zipContains(file3, str)) {
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append(str);
+            }
+        }
+        if (sb.length() == 0) {
+            return null;
+        }
+        return "테크모 월드컵 98 실행에 필요한 ST-V BIOS가 누락됐습니다.\n누락 파일: " + ((Object) sb) + "\n해당 파일이 포함된 stvbios.zip을 아케이드 ROM 가져오기로 추가하세요.";
+    }
+
+    private boolean zipContains(File file, final String str) {
+        if (file == null || !file.isFile()) {
+            return false;
+        }
+        try (ZipFile zipFile = new ZipFile(file)) {
+            if (zipFile.getEntry(str) != null) {
+                return true;
+            }
+            return zipFile.stream().anyMatch(entry -> new File(entry.getName()).getName().equalsIgnoreCase(str));
+        } catch (IOException unused) {
+            return false;
+        }
+    }
+
+    // Portrait: the four round buttons with their names above the game screen.
+    private LinearLayout createTopBar() {
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setOrientation(0);
+        linearLayout.setGravity(16);
+        linearLayout.setPadding(dp(8), dp(4), dp(8), dp(2));
+        linearLayout.addView(createIconButton(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "저장", 40, 11, view -> onSaveClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.addView(createIconButton(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", 40, 11, view -> onResetClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.addView(createIconButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "화면 회전", 40, 11, view -> toggleOrientation()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.addView(createIconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", 40, 11, view -> showGameMenu()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        return linearLayout;
+    }
+
+    // Landscape has no top bar: save/reset sit in the top left corner, rotate/menu in the
+    // top right with the speed button under them (GBA, whose shoulder buttons are there,
+    // gets the speed button below the screen instead).
+    private void addLandscapeCornerButtons(FrameLayout frameLayout) {
+        LinearLayout left = new LinearLayout(this);
+        left.addView(createIconButton(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "저장", 34, 10, view -> onSaveClicked()), new LinearLayout.LayoutParams(dp(48), -2));
+        left.addView(createIconButton(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", 34, 10, view -> onResetClicked()), new LinearLayout.LayoutParams(dp(48), -2));
+        FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        leftParams.setMargins(dp(6), dp(6), 0, 0);
+        frameLayout.addView(left, leftParams);
+
+        LinearLayout right = new LinearLayout(this);
+        right.addView(createIconButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "회전", 34, 10, view -> toggleOrientation()), new LinearLayout.LayoutParams(dp(48), -2));
+        right.addView(createIconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", 34, 10, view -> showGameMenu()), new LinearLayout.LayoutParams(dp(48), -2));
+        FrameLayout.LayoutParams rightParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        rightParams.setMargins(0, dp(6), dp(6), 0);
+        frameLayout.addView(right, rightParams);
+
+        SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
+        this.fastForwardButton = speedButtonView;
+        speedButtonView.setPercent(this.speedPercent);
+        speedButtonView.setContentDescription("배속");
+        FrameLayout.LayoutParams speedParams = new FrameLayout.LayoutParams(dp(80), dp(36));
+        if (isN3ds()) {
+            // Above START at the bottom of the right column.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(127), dp(62));
+        } else if (isWiiU()) {
+            // Above + in the right column.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(14), dp(52));
+        } else if (isDualScreen()) {
+            // The DS screens run the full height, so the button sits beside START instead.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(146), dp(17));
+        } else if (isN64()) {
+            // Under the A button.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(18), dp(12));
+        } else if ((isDreamcast() && !isNaomi()) || isSaturn() || isDolphin()) {
+            // Under the face buttons.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(54), dp(12));
+        } else if (isNeoGeoPocket()) {
+            // Bottom of the right column, rewind beside it.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(16), dp(17));
+        } else if (isMasterSystem()) {
+            // Centred under the 1 and 2 buttons.
+            speedParams.gravity = Gravity.BOTTOM | Gravity.END;
+            speedParams.setMargins(0, 0, dp(52), dp(17));
+        } else if (isPadLayout()) {
+            speedParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            speedParams.setMargins(0, 0, 0, dp(6));
+        } else {
+            speedParams.gravity = Gravity.TOP | Gravity.END;
+            speedParams.setMargins(0, dp(62), dp(14), 0);
+        }
+        frameLayout.addView(speedButtonView, speedParams);
+        if (isDualScreen()) {
+            // The screens fill the middle: the left column, mirroring the speed button.
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_MIRROR, 72, false);
+        } else if (isN64() || isDreamcast() || isMasterSystem()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, true);
+        } else if (isNeoGeoPocket()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, false);
+        } else if (isWonderSwan()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BELOW, 80, false);
+        } else if (isPadLayout()) {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_BESIDE, 66, false);
+        } else {
+            addRewindButton(frameLayout, speedButtonView, speedParams, REWIND_LEFT, 66, false);
+        }
+    }
+
+    // A round coloured icon with its name underneath; the circle darkens while pressed.
+    private LinearLayout createIconButton(int icon, int color, String label, int iconDp, int textSp, View.OnClickListener onClickListener) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setGravity(1);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        box.addView(iconView, new LinearLayout.LayoutParams(dp(iconDp), dp(iconDp)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(textSp);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.setTextColor(shellTextColor());
+        text.setGravity(1);
+        text.setSingleLine(true);
+        box.addView(text, new LinearLayout.LayoutParams(-2, -2));
+        box.setClickable(true);
+        box.setContentDescription(label);
+        box.setOnClickListener(onClickListener);
+        box.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+            }
+            return false;
+        });
+        return box;
+    }
+
+    private void onSaveClicked() {
+        if (isMame139()) {
+            Emulator.saveState();
+            Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
+        } else {
+            // A new quick save slot, and the in-game save as well (PS2 games write their
+            // memory card themselves).
+            createQuickSave(!isPs2());
+        }
+    }
+
+    // ---- Quick save slots: the automatic save (on leaving, resumed from) plus up to
+    // QUICK_SLOTS saves of the player's own, each with a picture of the screen ----
+    private static final int QUICK_SLOTS = 5;
+
+    private File autoStateFile() {
+        return new File(new File(new File(getFilesDir(), "saves"), this.coreId), this.saveBaseName + ".state");
+    }
+
+    private File quickSaveDir() {
+        return new File(new File(new File(new File(getFilesDir(), "saves"), this.coreId), "quicksaves"), this.saveBaseName);
+    }
+
+    private static File thumbnailFor(File state) {
+        String name = state.getName();
+        return new File(state.getParentFile(), name.substring(0, name.length() - ".state".length()) + ".jpg");
+    }
+
+    private File autoThumbnail() {
+        return new File(quickSaveDir(), "auto.jpg");
+    }
+
+    // The player's slots, newest first; each is "<number>.state".
+    private java.util.List<File> quickSaves() {
+        java.util.List<File> slots = new java.util.ArrayList<>();
+        File[] files = quickSaveDir().listFiles((dir, name) -> name.matches("\\d+\\.state"));
+        if (files != null) {
+            slots.addAll(java.util.Arrays.asList(files));
+        }
+        java.util.Collections.sort(slots, (a, b) -> Integer.compare(slotNumber(b), slotNumber(a)));
+        return slots;
+    }
+
+    private static int slotNumber(File state) {
+        try {
+            return Integer.parseInt(state.getName().substring(0, state.getName().indexOf('.')));
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private void createQuickSave(boolean withSram) {
+        if (isWiiU()) {
+            showWiiuNoStates();
+            return;
+        }
+        if (stvBoard() && !this.stvSaveConfirmed) {
+            confirmStvSave(() -> {
+                this.stvSaveConfirmed = true;
+                createQuickSave(withSram);
+                this.stvSaveConfirmed = false;
+            });
+            return;
+        }
+        final long handle = this.nativeHandle;
+        if (handle == 0) {
+            return;
+        }
+        File dir = quickSaveDir();
+        dir.mkdirs();
+        java.util.List<File> slots = quickSaves();
+        int number = slots.isEmpty() ? 1 : slotNumber(slots.get(0)) + 1;
+        final File state = new File(dir, number + ".state");
+        captureThumbnail(thumbnailFor(state));
+        callCore(h -> {
+            boolean saved = NativeGba.saveStateFile(h, state.getAbsolutePath());
+            if (withSram) {
+                NativeGba.saveSramNow(h);
+            }
+            if (saved) {
+                // Keep the newest QUICK_SLOTS; the oldest give way.
+                java.util.List<File> all = quickSaves();
+                for (int k = QUICK_SLOTS; k < all.size(); k++) {
+                    deleteSlot(all.get(k));
+                }
+            } else {
+                thumbnailFor(state).delete();
+            }
+            return saved;
+        }, "빠른 저장 " + number + "에 저장했어요." + (slots.size() >= QUICK_SLOTS ? " (가장 오래된 칸을 바꿨어요)" : ""), "빠른 저장 실패.");
+    }
+
+    private static void deleteSlot(File state) {
+        state.delete();
+        thumbnailFor(state).delete();
+    }
+
+    // A small picture of the game screen, written as JPEG once Android has copied it.
+    private void captureThumbnail(File target) {
+        SurfaceView view = this.surfaceView;
+        if (view == null || view.getWidth() <= 0 || view.getHeight() <= 0 || android.os.Build.VERSION.SDK_INT < 24) {
+            return;
+        }
+        int width = 192;
+        int height = Math.max(1, Math.round(width * view.getHeight() / (float) view.getWidth()));
+        final android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+        try {
+            android.view.PixelCopy.request(view, bitmap, result -> {
+                if (result != android.view.PixelCopy.SUCCESS) {
+                    return;
+                }
+                new Thread(() -> {
+                    target.getParentFile().mkdirs();
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out);
+                    } catch (java.io.IOException ignored) {
+                        // No picture for this save.
+                    }
+                }, "thumbnail").start();
+            }, new android.os.Handler(android.os.Looper.getMainLooper()));
+        } catch (IllegalArgumentException ignored) {
+            // The surface is not ready.
+        }
+    }
+
+    // ---- Play time (per game), auto-save history, fixed slots, screenshots ----
+    private long playStart;
+
+    private String playTimeKey() {
+        return "playtime:" + this.coreId + ":" + this.saveBaseName;
+    }
+
+    private long playTimeSeconds() {
+        return MainActivity.sharedSettings(this).getLong(playTimeKey(), 0) + (this.playStart > 0 ? (System.currentTimeMillis() - this.playStart) / 1000 : 0);
+    }
+
+    private void addPlayTime() {
+        if (this.playStart <= 0 || this.saveBaseName == null) {
+            return;
+        }
+        long seconds = (System.currentTimeMillis() - this.playStart) / 1000;
+        this.playStart = 0;
+        if (seconds > 0) {
+            android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+            prefs.edit().putLong(playTimeKey(), prefs.getLong(playTimeKey(), 0) + seconds).apply();
+        }
+    }
+
+    static String playTimeText(long seconds) {
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+        if (hours > 0) {
+            return "플레이 " + hours + "시간 " + minutes + "분";
+        }
+        return "플레이 " + Math.max(1, minutes) + "분";
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes >= 1024 * 1024) {
+            return String.format(Locale.US, "%.1f MB", bytes / 1048576.0);
+        }
+        return Math.max(1, bytes / 1024) + " KB";
+    }
+
+    // The two automatic saves before the latest: auto1.state (the exit before this one) and
+    // auto2.state. Moved along when the game starts, by hard links, so nothing is copied.
+    private File autoHistoryFile(int n) {
+        return new File(quickSaveDir(), "auto" + n + ".state");
+    }
+
+    private void rotateAutoSaves() {
+        if (isMame139() || this.saveBaseName == null) {
+            return;
+        }
+        final File latest = autoStateFile();
+        final File latestPicture = autoThumbnail();
+        final File one = autoHistoryFile(1);
+        final File two = autoHistoryFile(2);
+        final File dir = quickSaveDir();
+        new Thread(() -> {
+            if (!latest.isFile()) {
+                return;
+            }
+            if (one.isFile() && one.length() == latest.length() && one.lastModified() == latest.lastModified()) {
+                return; // Nothing new was written since the last turn.
+            }
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+            //noinspection ResultOfMethodCallIgnored
+            two.delete();
+            //noinspection ResultOfMethodCallIgnored
+            thumbnailFor(two).delete();
+            if (one.isFile()) {
+                //noinspection ResultOfMethodCallIgnored
+                one.renameTo(two);
+                //noinspection ResultOfMethodCallIgnored
+                thumbnailFor(one).renameTo(thumbnailFor(two));
+            }
+            try {
+                android.system.Os.link(latest.getAbsolutePath(), one.getAbsolutePath());
+            } catch (android.system.ErrnoException e) {
+                try {
+                    PhotoBackground.copy(latest, one);
+                } catch (java.io.IOException ignored) {
+                    return;
+                }
+            }
+            //noinspection ResultOfMethodCallIgnored
+            one.setLastModified(latest.lastModified());
+            if (latestPicture.isFile()) {
+                try {
+                    PhotoBackground.copy(latestPicture, thumbnailFor(one));
+                } catch (java.io.IOException ignored) {
+                    // No picture for the older save.
+                }
+            }
+        }, "auto-saves").start();
+    }
+
+    // ---- 내 칸: slot<n>.state with slot<n>.jpg and slot<n>.txt (memo, play time) ----
+    private static final int FIXED_SLOTS = 8;
+
+    private File slotFile(int n) {
+        return new File(quickSaveDir(), "slot" + n + ".state");
+    }
+
+    private static File metaFor(File state) {
+        String name = state.getName();
+        return new File(state.getParentFile(), name.substring(0, name.length() - ".state".length()) + ".txt");
+    }
+
+    private static boolean isSlot(File state) {
+        return state.getName().matches("slot\\d+\\.state");
+    }
+
+    private static int slotIndex(File state) {
+        try {
+            return Integer.parseInt(state.getName().substring(4, state.getName().indexOf('.')));
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private static boolean isAutoHistory(File state) {
+        return state.getName().matches("auto\\d+\\.state");
+    }
+
+    /** memo and play seconds of a slot, from its .txt ("memo\nseconds"). */
+    private static String[] slotMeta(File state) {
+        File meta = metaFor(state);
+        if (!meta.isFile()) {
+            return new String[]{"", ""};
+        }
+        String text = CrashReports.readText(meta, 4096);
+        int newline = text.indexOf('\n');
+        return newline < 0 ? new String[]{text.trim(), ""} : new String[]{text.substring(0, newline).trim(), text.substring(newline + 1).trim()};
+    }
+
+    private void writeSlotMeta(File state, String memo) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(metaFor(state))) {
+            out.write((memo.replace('\n', ' ') + "\n" + playTimeSeconds()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (java.io.IOException ignored) {
+            // The slot works without its memo.
+        }
+    }
+
+    private String describeSave(File save) {
+        if (save.equals(autoStateFile())) {
+            return isPs2() ? "이전 빠른 저장" : "자동 저장 · 방금 (종료 시)";
+        }
+        if (isAutoHistory(save)) {
+            int n = Integer.parseInt(save.getName().substring(4, save.getName().indexOf('.')));
+            return n == 1 ? "자동 저장 · 이전" : "자동 저장 · 그 전";
+        }
+        if (isSlot(save)) {
+            String memo = slotMeta(save)[0];
+            return "내 칸 " + slotIndex(save) + (memo.isEmpty() ? "" : " · " + memo);
+        }
+        return "빠른 저장 " + slotNumber(save);
+    }
+
+    private boolean stvSaveConfirmed;
+
+    private void showWiiuNoStates() {
+        Toast.makeText(this, "Wii U는 엔진이 장면 저장을 지원하지 않아요. 게임 안에서 저장해 주세요.", Toast.LENGTH_LONG).show();
+    }
+
+    private void saveToSlot(int n, String memo, boolean overwrite) {
+        if (isWiiU()) {
+            showWiiuNoStates();
+            return;
+        }
+        if (stvBoard() && !this.stvSaveConfirmed) {
+            confirmStvSave(() -> {
+                this.stvSaveConfirmed = true;
+                saveToSlot(n, memo, overwrite);
+                this.stvSaveConfirmed = false;
+            });
+            return;
+        }
+        final File state = slotFile(n);
+        if (state.isFile() && !overwrite) {
+            new AppDialog.Builder(this).setTitle("내 칸 " + n + "을 덮어쓸까요?")
+                    .setMessage(describeSave(state) + "\n" + saveTimeText(state.lastModified()) + "\n지금 모습으로 바뀌고 이전 것은 되돌릴 수 없어요.")
+                    .setNegativeButton("취소", null)
+                    .setPositiveButton("덮어쓰기", (d, w) -> saveToSlot(n, memo, true)).show();
+            return;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        quickSaveDir().mkdirs();
+        captureThumbnail(thumbnailFor(state));
+        final String note = memo == null ? "" : memo.trim();
+        callCore(h -> {
+            boolean saved = NativeGba.saveStateFile(h, state.getAbsolutePath());
+            if (saved) {
+                writeSlotMeta(state, note);
+                long size = state.length();
+                android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+                if (size > 30L * 1024 * 1024 && !prefs.getBoolean("slot_size_notice", false)) {
+                    prefs.edit().putBoolean("slot_size_notice", true).apply();
+                    runOnUiThread(() -> Toast.makeText(this, "이 기종은 칸 하나에 약 " + (size / (1024 * 1024)) + " MB를 써요. 안 쓰는 칸은 불러오기에서 지울 수 있어요.", Toast.LENGTH_LONG).show());
+                }
+            } else {
+                //noinspection ResultOfMethodCallIgnored
+                thumbnailFor(state).delete();
+            }
+            return saved;
+        }, "내 칸 " + n + "에 저장했어요." + (note.isEmpty() ? "" : " · " + note), "저장하지 못했어요.");
+    }
+
+    /** "빠른 저장"을 길게 눌렀을 때: a quick slot or one of the fixed slots, with a memo. */
+    private void showSaveChooser() {
+        this.holdPause = true;
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            resumeUnlessExiting();
+        });
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("어디에 저장할까요?");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("짧게 누르면 전처럼 빠른 칸에 바로 저장돼요");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        panel.addView(sub);
+        final android.widget.EditText memo = new android.widget.EditText(this);
+        memo.setHint("메모 (선택) · 예: 보스 앞");
+        memo.setTextSize(13.5f);
+        memo.setSingleLine(true);
+        memo.setTextColor(Color.rgb(31, 41, 51));
+        memo.setPadding(dp(12), dp(10), dp(12), dp(10));
+        android.graphics.drawable.GradientDrawable memoBackground = new android.graphics.drawable.GradientDrawable();
+        memoBackground.setColor(Color.WHITE);
+        memoBackground.setCornerRadius(dp(12));
+        memoBackground.setStroke(dp(1), Color.rgb(214, 218, 226));
+        memo.setBackground(memoBackground);
+        LinearLayout.LayoutParams memoParams = new LinearLayout.LayoutParams(-1, -2);
+        memoParams.setMargins(0, dp(10), 0, dp(4));
+        panel.addView(memo, memoParams);
+
+        java.util.List<File> quick = quickSaves();
+        int next = quick.isEmpty() ? 1 : slotNumber(quick.get(0)) + 1;
+        panel.addView(saveChoiceRow(null, "빠른 칸 (새 칸 " + next + ")", "지금처럼 · 오래된 칸부터 교체", true, view -> {
+            dialog.dismiss();
+            createQuickSave(false);
+        }));
+        TextView section = new TextView(this);
+        section.setText("내 칸 (밀려나지 않음)");
+        section.setTextSize(11.5f);
+        section.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        section.setTextColor(Color.rgb(85, 95, 110));
+        section.setPadding(0, dp(10), 0, dp(2));
+        panel.addView(section);
+        for (int n = 1; n <= FIXED_SLOTS; n++) {
+            final int slot = n;
+            File state = slotFile(n);
+            boolean filled = state.isFile();
+            panel.addView(saveChoiceRow(filled ? thumbnailFor(state) : null, filled ? describeSave(state) : n + " · 비어 있음",
+                    filled ? "덮어쓰기 · " + saveTimeText(state.lastModified()) : "", false, view -> {
+                        dialog.dismiss();
+                        saveToSlot(slot, memo.getText().toString(), false);
+                    }));
+        }
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(46));
+        cancelParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(cancel, cancelParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400)), Math.min(getResources().getDisplayMetrics().heightPixels - dp(40), dp(560)));
+        }
+        dialog.show();
+    }
+
+    private View saveChoiceRow(File picture, String name, String detail, boolean highlight, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(10), dp(8), dp(10), dp(8));
+        android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+        rowBackground.setColor(highlight ? Color.rgb(255, 247, 248) : Color.rgb(246, 247, 249));
+        rowBackground.setCornerRadius(dp(14));
+        if (highlight) rowBackground.setStroke(dp(2), Color.rgb(225, 29, 72));
+        row.setBackground(rowBackground);
+        android.widget.ImageView thumb = new android.widget.ImageView(this);
+        thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+        android.graphics.drawable.GradientDrawable thumbBackground = new android.graphics.drawable.GradientDrawable();
+        thumbBackground.setColor(Color.rgb(222, 226, 232));
+        thumbBackground.setCornerRadius(dp(6));
+        thumb.setBackground(thumbBackground);
+        thumb.setClipToOutline(true);
+        if (picture != null && picture.isFile()) {
+            thumb.setImageBitmap(android.graphics.BitmapFactory.decodeFile(picture.getAbsolutePath()));
+        }
+        row.addView(thumb, new LinearLayout.LayoutParams(dp(58), dp(36)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView label = new TextView(this);
+        label.setText(name);
+        label.setTextSize(13.5f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(label);
+        if (!detail.isEmpty()) {
+            TextView small = new TextView(this);
+            small.setText(detail);
+            small.setTextSize(11.0f);
+            small.setTextColor(Color.rgb(122, 130, 140));
+            texts.addView(small);
+        }
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, dp(8), 0);
+        row.addView(texts, textsParams);
+        TextView save = smallButton("저장");
+        save.setOnClickListener(onClick);
+        row.addView(save, new LinearLayout.LayoutParams(-2, dp(32)));
+        row.setOnClickListener(onClick);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+        rowParams.setMargins(0, dp(6), 0, 0);
+        row.setLayoutParams(rowParams);
+        return row;
+    }
+
+    /** Long press on a save in the list: open, memo, overwrite (fixed slots), export, delete. */
+    private void showSaveMenu(android.app.Dialog list, File save) {
+        final boolean slot = isSlot(save);
+        String[] meta = slot ? slotMeta(save) : new String[]{"", ""};
+        java.util.List<String> names = new java.util.ArrayList<>();
+        names.add("열기");
+        if (slot) {
+            names.add("메모 바꾸기");
+            names.add("지금 모습으로 덮어쓰기");
+        }
+        names.add("파일로 내보내기");
+        names.add("지우기");
+        String played = "";
+        if (!meta[1].isEmpty()) {
+            try {
+                played = " · " + playTimeText(Long.parseLong(meta[1]));
+            } catch (NumberFormatException ignored) {
+                // No play time noted.
+            }
+        }
+        new AppDialog.Builder(this).setTitle(describeSave(save))
+                .setMessage(saveTimeText(save.lastModified()) + played + " · " + formatSize(save.length()))
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    String choice = names.get(which);
+                    switch (choice) {
+                        case "열기":
+                            list.dismiss();
+                            callCore(h -> NativeGba.loadStateFile(h, save.getAbsolutePath()), describeSave(save) + "을 불러왔어요.", "불러오지 못했어요.");
+                            break;
+                        case "메모 바꾸기":
+                            editSlotMemo(list, save);
+                            break;
+                        case "지금 모습으로 덮어쓰기":
+                            list.dismiss();
+                            saveToSlot(slotIndex(save), meta[0], false);
+                            break;
+                        case "파일로 내보내기":
+                            exportSave(save);
+                            break;
+                        default:
+                            new AppDialog.Builder(this).setTitle(describeSave(save) + "을 지울까요?")
+                                    .setMessage("지운 세이브는 되돌릴 수 없어요.")
+                                    .setNegativeButton("취소", null)
+                                    .setPositiveButton("지우기", (d2, w2) -> {
+                                        if (save.equals(autoStateFile())) {
+                                            //noinspection ResultOfMethodCallIgnored
+                                            save.delete();
+                                            //noinspection ResultOfMethodCallIgnored
+                                            autoThumbnail().delete();
+                                        } else {
+                                            deleteSlot(save);
+                                            //noinspection ResultOfMethodCallIgnored
+                                            metaFor(save).delete();
+                                        }
+                                        fillLoadList(list, false, new java.util.HashSet<>());
+                                    }).show();
+                    }
+                }).setNegativeButton("닫기", null).show();
+    }
+
+    private void editSlotMemo(android.app.Dialog list, File save) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setText(slotMeta(save)[0]);
+        input.setSingleLine(true);
+        input.setSelection(input.getText().length());
+        new AppDialog.Builder(this).setTitle("메모 바꾸기 · 내 칸 " + slotIndex(save)).setView(input)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("저장", (d, w) -> {
+                    String[] meta = slotMeta(save);
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(metaFor(save))) {
+                        out.write((input.getText().toString().trim().replace('\n', ' ') + "\n" + meta[1]).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    } catch (java.io.IOException ignored) {
+                        Toast.makeText(this, "메모를 저장하지 못했어요.", Toast.LENGTH_SHORT).show();
+                    }
+                    fillLoadList(list, false, new java.util.HashSet<>());
+                }).show();
+    }
+
+    // Copies a state to 다운로드/Mini Emulator/세이브 (Android 10+) as "<game> <slot>.state".
+    private void exportSave(File save) {
+        String base = (this.gameTitle + " " + describeSave(save)).replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        String name = base + ".state";
+        try {
+            String where;
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream");
+                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER + "/세이브/");
+                android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) throw new java.io.IOException("다운로드 폴더에 파일을 만들 수 없어요");
+                try (java.io.OutputStream out = getContentResolver().openOutputStream(uri); java.io.FileInputStream in = new java.io.FileInputStream(save)) {
+                    if (out == null) throw new java.io.IOException("파일을 열 수 없어요");
+                    byte[] buffer = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                }
+                where = "다운로드 › " + MainActivity.DOWNLOAD_FOLDER + " › 세이브 › " + name;
+            } else {
+                File folder = getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS);
+                if (folder == null || (!folder.isDirectory() && !folder.mkdirs())) throw new java.io.IOException("외부 저장 폴더를 쓸 수 없어요");
+                File target = new File(folder, name);
+                PhotoBackground.copy(save, target);
+                where = target.getAbsolutePath();
+            }
+            Toast.makeText(this, "내보냈어요: " + where + "\n같은 게임의 불러오기 › 파일에서 로 되돌릴 수 있어요.", Toast.LENGTH_LONG).show();
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "내보내지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static final int REQUEST_STATE_FILE = 3104;
+
+    private void pickStateFile() {
+        this.holdPause = true;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",
+                        "primary:" + android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER + "/세이브"));
+        try {
+            startActivityForResult(intent, REQUEST_STATE_FILE);
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "파일 선택 앱이 없어요.", Toast.LENGTH_SHORT).show();
+            this.holdPause = false;
+            resumeUnlessExiting();
+        }
+    }
+
+    private void loadStateFromUri(android.net.Uri uri) {
+        File temp = new File(getCacheDir(), "picked.state");
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri); java.io.FileOutputStream out = new java.io.FileOutputStream(temp)) {
+            if (in == null) throw new java.io.IOException("파일을 열 수 없어요");
+            byte[] buffer = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        } catch (java.io.IOException | RuntimeException e) {
+            Toast.makeText(this, "파일을 읽지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            resumeUnlessExiting();
+            return;
+        }
+        callCore(h -> NativeGba.loadStateFile(h, temp.getAbsolutePath()), "파일의 장면을 불러왔어요.", "불러오지 못했어요. 다른 게임이나 다른 엔진 버전의 세이브일 수 있어요.");
+    }
+
+    // ---- 스크린샷 ----
+    private void takeScreenshot(boolean fullRequested) {
+        // Copying the whole window needs Android 8; older phones get the game picture.
+        final boolean full = fullRequested && android.os.Build.VERSION.SDK_INT >= 26;
+        final View source = full ? getWindow().getDecorView() : this.surfaceView;
+        if (source == null || source.getWidth() <= 0 || source.getHeight() <= 0) {
+            Toast.makeText(this, "지금은 화면을 찍을 수 없어요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(source.getWidth(), source.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+        android.view.PixelCopy.OnPixelCopyFinishedListener done = result -> {
+            if (result != android.view.PixelCopy.SUCCESS) {
+                Toast.makeText(this, "화면을 찍지 못했어요 (" + result + ")", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            flashScreen();
+            new Thread(() -> {
+                String outcome;
+                try {
+                    outcome = "📷 " + saveScreenshot(bitmap, full);
+                } catch (java.io.IOException | RuntimeException e) {
+                    outcome = "스크린샷을 저장하지 못했어요: " + e.getMessage();
+                }
+                final String message = outcome;
+                runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_LONG).show());
+            }, "screenshot").start();
+        };
+        try {
+            if (full) {
+                android.view.PixelCopy.request(getWindow(), bitmap, done, new android.os.Handler(android.os.Looper.getMainLooper()));
+            } else {
+                android.view.PixelCopy.request((SurfaceView) source, bitmap, done, new android.os.Handler(android.os.Looper.getMainLooper()));
+            }
+        } catch (IllegalArgumentException e) {
+            Toast.makeText(this, "지금은 화면을 찍을 수 없어요.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // A brief white flash over everything, like a camera.
+    private void flashScreen() {
+        final View flash = new View(this);
+        flash.setBackgroundColor(Color.WHITE);
+        flash.setAlpha(0.7f);
+        addContentView(flash, new FrameLayout.LayoutParams(-1, -1));
+        flash.animate().alpha(0f).setDuration(260).withEndAction(() -> {
+            if (flash.getParent() instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) flash.getParent()).removeView(flash);
+            }
+        }).start();
+    }
+
+    private String saveScreenshot(android.graphics.Bitmap bitmap, boolean full) throws java.io.IOException {
+        String stamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH-mm-ss", Locale.US).format(new java.util.Date());
+        String name = (this.gameTitle.isEmpty() ? "screenshot" : this.gameTitle.replaceAll("[\\\\/:*?\"<>|]", "_")) + " " + stamp + (full ? " 전체" : "") + ".png";
+        String size = bitmap.getWidth() + "×" + bitmap.getHeight();
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+            values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png");
+            values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/" + MainActivity.DOWNLOAD_FOLDER + "/");
+            android.net.Uri uri = getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new java.io.IOException("사진 폴더에 파일을 만들 수 없어요");
+            try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out == null) throw new java.io.IOException("파일을 열 수 없어요");
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            }
+            return "사진 › " + MainActivity.DOWNLOAD_FOLDER + " › " + name + " (" + size + ")";
+        }
+        File folder = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES);
+        if (folder == null || (!folder.isDirectory() && !folder.mkdirs())) throw new java.io.IOException("외부 저장 폴더를 쓸 수 없어요");
+        File file = new File(folder, name);
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+        }
+        return file.getAbsolutePath() + " (" + size + ")";
+    }
+
+    private static String saveTimeText(long modified) {
+        java.util.Calendar then = java.util.Calendar.getInstance();
+        then.setTimeInMillis(modified);
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        int days = now.get(java.util.Calendar.DAY_OF_YEAR) - then.get(java.util.Calendar.DAY_OF_YEAR);
+        boolean sameYear = then.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR);
+        String time = new java.text.SimpleDateFormat("a h:mm", Locale.KOREAN).format(new java.util.Date(modified));
+        if (sameYear && days == 0) {
+            return "오늘 " + time;
+        }
+        if (sameYear && days == 1) {
+            return "어제 " + time;
+        }
+        return new java.text.SimpleDateFormat(sameYear ? "M월 d일 a h:mm" : "yyyy년 M월 d일 a h:mm", Locale.KOREAN).format(new java.util.Date(modified));
+    }
+
+    // Keeps the game paused while a sheet opened from the pause menu is up.
+    private boolean holdPause;
+
+    private void showLoadList() {
+        if (isWiiU()) {
+            showWiiuNoStates();
+            return;
+        }
+        this.holdPause = true;
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            resumeUnlessExiting();
+        });
+        fillLoadList(dialog, false, new java.util.HashSet<>());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400));
+            window.setLayout(width, Math.min(getResources().getDisplayMetrics().heightPixels - dp(40), dp(640)));
+        }
+        dialog.show();
+    }
+
+    // The list itself: tap a save to load it; in delete mode, tick saves and delete them.
+    private void fillLoadList(android.app.Dialog dialog, boolean deleting, java.util.Set<File> ticked) {
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+
+        final java.util.List<File> saves = new java.util.ArrayList<>();
+        final File auto = autoStateFile();
+        final java.util.List<File> autos = new java.util.ArrayList<>();
+        if (auto.isFile()) {
+            autos.add(auto);
+        }
+        for (int n = 1; n <= 2; n++) {
+            if (autoHistoryFile(n).isFile()) autos.add(autoHistoryFile(n));
+        }
+        final java.util.List<File> quick = quickSaves();
+        final java.util.List<File> fixed = new java.util.ArrayList<>();
+        for (int n = 1; n <= FIXED_SLOTS; n++) {
+            if (slotFile(n).isFile()) fixed.add(slotFile(n));
+        }
+        saves.addAll(autos);
+        saves.addAll(quick);
+        saves.addAll(fixed);
+        long totalBytes = 0;
+        for (File save : saves) totalBytes += save.length();
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.LOAD, RoundIconView.COLOR_LOAD), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(deleting ? "지울 세이브 선택" : "불러오기");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(deleting ? ticked.size() + "개 선택됨" : this.gameTitle + " · 자동 " + autos.size() + " · 빠른 " + quick.size() + " · 내 칸 " + fixed.size()
+                + (totalBytes > 0 ? " · 총 " + formatSize(totalBytes) : ""));
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(sub);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, dp(8), 0);
+        header.addView(titles, titlesParams);
+        if (!saves.isEmpty()) {
+            TextView action = smallButton(deleting ? (ticked.size() == saves.size() ? "선택 해제" : "전체 선택") : "선택 삭제");
+            action.setOnClickListener(view -> {
+                if (!deleting) {
+                    fillLoadList(dialog, true, new java.util.HashSet<>());
+                } else {
+                    if (ticked.size() == saves.size()) {
+                        ticked.clear();
+                    } else {
+                        ticked.addAll(saves);
+                    }
+                    fillLoadList(dialog, true, ticked);
+                }
+            });
+            header.addView(action, new LinearLayout.LayoutParams(-2, dp(34)));
+        }
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        if (saves.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("아직 저장한 장면이 없어요.\n일시정지 메뉴의 \"빠른 저장\"으로 저장해 보세요.");
+            empty.setTextSize(13.0f);
+            empty.setLineSpacing(0, 1.2f);
+            empty.setGravity(17);
+            empty.setTextColor(Color.rgb(122, 130, 140));
+            empty.setPadding(0, dp(24), 0, dp(24));
+            panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        }
+        // Three groups: automatic saves, the quick slots, the fixed slots (empty ones too).
+        java.util.List<Object> entries = new java.util.ArrayList<>();
+        if (!autos.isEmpty()) entries.add("자동 저장 (최근 " + autos.size() + "개)");
+        entries.addAll(autos);
+        if (!quick.isEmpty()) entries.add("빠른 저장 (최근 " + QUICK_SLOTS + "칸 · 밀려남)");
+        entries.addAll(quick);
+        if (!isMame139()) entries.add("내 칸 (1 ~ " + FIXED_SLOTS + " · 밀려나지 않음)");
+        for (int n = 1; n <= FIXED_SLOTS && !isMame139(); n++) {
+            entries.add(slotFile(n).isFile() ? slotFile(n) : Integer.valueOf(n));
+        }
+        for (final Object entry : entries) {
+            if (entry instanceof String) {
+                TextView section = new TextView(this);
+                section.setText((String) entry);
+                section.setTextSize(11.5f);
+                section.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                section.setTextColor(Color.rgb(85, 95, 110));
+                section.setPadding(dp(2), dp(12), 0, 0);
+                panel.addView(section, new LinearLayout.LayoutParams(-1, -2));
+                continue;
+            }
+            if (entry instanceof Integer) {
+                if (deleting) continue;
+                final int slot = (Integer) entry;
+                LinearLayout empty = new LinearLayout(this);
+                empty.setOrientation(0);
+                empty.setGravity(16);
+                empty.setPadding(dp(12), dp(8), dp(12), dp(8));
+                android.graphics.drawable.GradientDrawable emptyBackground = new android.graphics.drawable.GradientDrawable();
+                emptyBackground.setColor(Color.WHITE);
+                emptyBackground.setCornerRadius(dp(14));
+                emptyBackground.setStroke(dp(1), Color.rgb(214, 218, 226));
+                empty.setBackground(emptyBackground);
+                TextView emptyText = new TextView(this);
+                emptyText.setText(slot + " · 비어 있음");
+                emptyText.setTextSize(13.0f);
+                emptyText.setTextColor(Color.rgb(122, 130, 140));
+                empty.addView(emptyText, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                TextView here = smallButton("여기에 저장");
+                here.setOnClickListener(view -> {
+                    dialog.dismiss();
+                    saveToSlot(slot, "", false);
+                });
+                empty.addView(here, new LinearLayout.LayoutParams(-2, dp(30)));
+                LinearLayout.LayoutParams emptyParams = new LinearLayout.LayoutParams(-1, -2);
+                emptyParams.setMargins(0, dp(6), 0, 0);
+                panel.addView(empty, emptyParams);
+                continue;
+            }
+            final File save = (File) entry;
+            final boolean isAuto = save.equals(auto);
+            boolean on = ticked.contains(save);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+            rowBackground.setColor(on ? Color.rgb(253, 236, 237) : Color.rgb(246, 247, 249));
+            rowBackground.setCornerRadius(dp(14));
+            row.setBackground(rowBackground);
+            if (deleting) {
+                TextView box = new TextView(this);
+                box.setText(on ? "✓" : "");
+                box.setTextColor(Color.WHITE);
+                box.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                box.setGravity(17);
+                android.graphics.drawable.GradientDrawable boxBackground = new android.graphics.drawable.GradientDrawable();
+                boxBackground.setCornerRadius(dp(7));
+                boxBackground.setColor(on ? Color.rgb(229, 72, 77) : Color.WHITE);
+                boxBackground.setStroke(dp(2), on ? Color.rgb(229, 72, 77) : Color.rgb(201, 206, 214));
+                box.setBackground(boxBackground);
+                LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(24), dp(24));
+                boxParams.setMargins(0, 0, dp(12), 0);
+                row.addView(box, boxParams);
+            }
+            android.widget.ImageView thumb = new android.widget.ImageView(this);
+            thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            android.graphics.drawable.GradientDrawable thumbBackground = new android.graphics.drawable.GradientDrawable();
+            thumbBackground.setColor(Color.rgb(203, 208, 215));
+            thumbBackground.setCornerRadius(dp(6));
+            thumb.setBackground(thumbBackground);
+            thumb.setClipToOutline(true);
+            File picture = isAuto ? autoThumbnail() : thumbnailFor(save);
+            if (picture.isFile()) {
+                thumb.setImageBitmap(android.graphics.BitmapFactory.decodeFile(picture.getAbsolutePath()));
+            }
+            row.addView(thumb, new LinearLayout.LayoutParams(dp(72), dp(44)));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            TextView name = new TextView(this);
+            name.setText(describeSave(save));
+            name.setSingleLine(true);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            name.setTextSize(14.0f);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            texts.addView(name);
+            TextView when = new TextView(this);
+            String played = "";
+            if (isSlot(save)) {
+                String[] meta = slotMeta(save);
+                try {
+                    if (!meta[1].isEmpty()) played = " · " + playTimeText(Long.parseLong(meta[1]));
+                } catch (NumberFormatException ignored) {
+                    // No play time noted.
+                }
+            }
+            when.setText(saveTimeText(save.lastModified()) + played + " · " + formatSize(save.length()));
+            when.setTextSize(12.0f);
+            when.setTextColor(Color.rgb(122, 130, 140));
+            texts.addView(when);
+            LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            textsParams.setMargins(dp(12), 0, 0, 0);
+            row.addView(texts, textsParams);
+            row.setOnClickListener(view -> {
+                if (deleting) {
+                    if (!ticked.remove(save)) {
+                        ticked.add(save);
+                    }
+                    fillLoadList(dialog, true, ticked);
+                    return;
+                }
+                dialog.dismiss();
+                callCore(h -> NativeGba.loadStateFile(h, save.getAbsolutePath()), describeSave(save) + "을 불러왔어요.", "불러오지 못했어요.");
+            });
+            if (!deleting) {
+                row.setOnLongClickListener(view -> {
+                    showSaveMenu(dialog, save);
+                    return true;
+                });
+            }
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(row, rowParams);
+        }
+
+        if (!deleting && !saves.isEmpty()) {
+            TextView hint = new TextView(this);
+            hint.setText("누르면 불러오기 · 길게 누르면 메모 · 덮어쓰기 · 내보내기 · 지우기");
+            hint.setTextSize(11.5f);
+            hint.setGravity(17);
+            hint.setTextColor(Color.rgb(122, 130, 140));
+            LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
+            hintParams.setMargins(0, dp(10), 0, 0);
+            panel.addView(hint, hintParams);
+        }
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        if (deleting) {
+            TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+            cancel.setOnClickListener(view -> fillLoadList(dialog, false, new java.util.HashSet<>()));
+            buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+            TextView delete = dialogButton(ticked.isEmpty() ? "삭제" : ticked.size() + "개 삭제",
+                    ticked.isEmpty() ? Color.rgb(242, 170, 172) : Color.rgb(229, 72, 77), Color.WHITE);
+            delete.setOnClickListener(view -> {
+                if (!ticked.isEmpty()) {
+                    confirmDelete(dialog, saves, ticked, auto);
+                }
+            });
+            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+            deleteParams.setMargins(dp(10), 0, 0, 0);
+            buttons.addView(delete, deleteParams);
+        } else {
+            if (!isMame139()) {
+                TextView fromFile = dialogButton("파일에서", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+                fromFile.setOnClickListener(view -> {
+                    dialog.dismiss();
+                    pickStateFile();
+                });
+                LinearLayout.LayoutParams fromParams = new LinearLayout.LayoutParams(0, dp(48), 1.0f);
+                fromParams.setMargins(0, 0, dp(10), 0);
+                buttons.addView(fromFile, fromParams);
+            }
+            TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+            close.setOnClickListener(view -> dialog.dismiss());
+            buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        }
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+    }
+
+    private void confirmDelete(android.app.Dialog list, java.util.List<File> saves, java.util.Set<File> ticked, File auto) {
+        StringBuilder names = new StringBuilder();
+        for (File save : saves) {
+            if (ticked.contains(save)) {
+                if (names.length() > 0) {
+                    names.append(" · ");
+                }
+                names.append(describeSave(save));
+            }
+        }
+        String note = names + "\n지운 세이브는 되돌릴 수 없어요.\n게임 안 세이브(메모리카드·SRAM)는 지워지지 않아요.";
+        new AppDialog.Builder(this)
+                .setTitle("세이브 " + ticked.size() + "개를 지울까요?")
+                .setMessage(note)
+                .setNegativeButton("취소", null)
+                .setPositiveButton(ticked.size() + "개 지우기", (d, w) -> {
+                    for (File save : ticked) {
+                        if (save.equals(auto)) {
+                            save.delete();
+                            autoThumbnail().delete();
+                        } else {
+                            deleteSlot(save);
+                            //noinspection ResultOfMethodCallIgnored
+                            metaFor(save).delete();
+                        }
+                    }
+                    Toast.makeText(this, "세이브 " + ticked.size() + "개를 지웠어요.", 0).show();
+                    fillLoadList(list, false, new java.util.HashSet<>());
+                })
+                .show();
+    }
+
+    private TextView smallButton(String text) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(13.0f);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setTextColor(Color.rgb(55, 65, 81));
+        button.setGravity(17);
+        button.setPadding(dp(12), 0, dp(12), 0);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(241, 242, 244));
+        background.setCornerRadius(dp(10));
+        button.setBackground(background);
+        return button;
+    }
+
+    private void onResetClicked() {
+        if (isMame139()) {
+            Toast.makeText(this, "MAME 0.139 재시작은 ROM 목록에서 다시 실행하세요.", 0).show();
+            return;
+        }
+        callCore(handle -> {
+            NativeGba.reset(handle);
+            return true;
+        }, "게임을 재시작했습니다.", null);
+    }
+
+    private void onSpeedChanged(int percent) {
+        this.speedPercent = percent;
+        long j = this.nativeHandle;
+        if (j != 0) {
+            NativeGba.setSpeedPercent(j, percent);
+        }
+    }
+
+    private void toggleOrientation() {
+        // No save here: the activity handles the rotation itself and the game keeps running,
+        // and saving stalled the game long enough (a DS state is megabytes) to drag the music.
+        int i = !this.landscapeMode ? 1 : 0;
+        MainActivity.sharedSettings(this).edit().putInt("orientation_mode", i).commit();
+        setRequestedOrientation(i == 1 ? (motionActive() ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE : 6) : 1);
+    }
+
+    private void addControls(FrameLayout frameLayout) {
+        if (isDolphin()) {
+            addDolphinControls(frameLayout);
+            return;
+        }
+        if (isWiiU()) {
+            addWiiuControls(frameLayout);
+            return;
+        }
+        if (isSaturn()) {
+            addSaturnControls(frameLayout);
+            return;
+        }
+        if (isWonderSwan()) {
+            addWonderSwanControls(frameLayout);
+            return;
+        }
+        if (isNeoGeoPocket()) {
+            addNeoGeoPocketControls(frameLayout);
+            return;
+        }
+        if (isN64()) {
+            addN64Controls(frameLayout);
+            return;
+        }
+        if (isNaomi()) {
+            addNaomiControls(frameLayout);
+            return;
+        }
+        if (isDreamcast()) {
+            addDreamcastControls(frameLayout);
+            return;
+        }
+        View createDirectionControl = createDirectionControl();
+        boolean isGba = isPadLayout();
+        // The Super Famicom's four face buttons need more room, so its D-pad is a little smaller.
+        boolean compactPad = isSnes() || isDualScreen() || isMegaDrive();
+        int i = isSonyPad() ? 140 : compactPad ? 150 : isGba ? 166 : 156;
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(i), dp(i));
+        layoutParams.gravity = 8388691;
+        // The PSP's D-pad sits higher to leave room for the analog stick below it.
+        // The PS1/PS2 pads keep both sticks along the bottom, so their D-pad sits lower still.
+        if (isDualScreen()) {
+            // The DS packs its controls into the shorter space under the two screens
+            // (the 3DS a little tighter still, with the circle pad above).
+            i = isN3ds() ? 128 : 136;
+            layoutParams.width = dp(i);
+            layoutParams.height = dp(i);
+        }
+        layoutParams.setMargins(dp(isN3ds() ? 66 : compactPad || isSonyPad() ? 16 : isGba ? 24 : 16), 0, 0, dp(isN3ds() ? 56 : isDualScreen() ? 60 : isDualShock() ? 160 : isSonyPad() ? 214 : isGba ? 154 : 144));
+        frameLayout.addView(createDirectionControl, layoutParams);
+        if (isPsp()) {
+            FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(92), dp(92));
+            stickParams.gravity = 8388691;
+            stickParams.setMargins(dp(40), 0, 0, dp(112));
+            frameLayout.addView(leftStick(), stickParams);
+        }
+        if (isDualShock()) {
+            // Both sticks in the bottom corners, SELECT/START between them as on a DualShock.
+            FrameLayout.LayoutParams leftStick = new FrameLayout.LayoutParams(dp(84), dp(84));
+            leftStick.gravity = 8388691;
+            leftStick.setMargins(dp(26), 0, 0, dp(54));
+            frameLayout.addView(leftStick(), leftStick);
+            FrameLayout.LayoutParams rightStick = new FrameLayout.LayoutParams(dp(84), dp(84));
+            rightStick.gravity = 8388693;
+            rightStick.setMargins(0, 0, dp(26), dp(54));
+            frameLayout.addView(rightStick(), rightStick);
+            // L2 L1 on the left and R1 R2 on the right, either side of the speed button.
+            int shoulderStyle = isPs1() ? TouchButton.STYLE_LIGHT : 2;
+            addButton(frameLayout, "L2", kL2, 8388659, dp(14), dp(34), dp(54), dp(42), shoulderStyle);
+            addButton(frameLayout, "L1", 512, 8388659, dp(72), dp(34), dp(54), dp(42), shoulderStyle);
+            addButton(frameLayout, "R1", 256, 8388661, dp(72), dp(34), dp(54), dp(42), shoulderStyle);
+            addButton(frameLayout, "R2", kR2, 8388661, dp(14), dp(34), dp(54), dp(42), shoulderStyle);
+        }
+        if (hasShoulders()) {
+            int shoulderTop = isDualScreen() ? 8 : 34;
+            addButton(frameLayout, "L", 512, 8388659, dp(24), dp(shoulderTop), dp(112), dp(46), 2);
+            addButton(frameLayout, "R", 256, 8388661, dp(24), dp(shoulderTop), dp(112), dp(46), 2);
+        }
+        addFastForwardButton(frameLayout);
+        if (isSonyPad()) {
+            addPspFace(frameLayout);
+        } else if (isSnes() || isDualScreen()) {
+            // Diamond centred on the D-pad's height: X top, A right, B bottom, Y left
+            // (Super Famicom colours; the DS's are plain dark).
+            boolean ds = isDualScreen();
+            if (isN3ds()) {
+                // The circle pad above the D-pad; the diamond (moved in from the edge) centred
+                // between them, as on the 3DS's lower half.
+                FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(88), dp(88));
+                stickParams.gravity = 8388691;
+                stickParams.setMargins(dp(36), 0, 0, dp(186));
+                frameLayout.addView(leftStick(), stickParams);
+                addButton(frameLayout, "X", 1024, 8388693, dp(82), dp(202), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "A", 1, 8388693, dp(34), dp(152), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "B", 2, 8388693, dp(82), dp(102), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "Y", 2048, 8388693, dp(130), dp(152), dp(50), dp(50), TouchButton.STYLE_DARK);
+                addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
+                addCenterButton(frameLayout, startLabel(), 8, 66, 14);
+                return;
+            }
+            if (ds) {
+                // Smaller diamond centred on the DS's lower D-pad.
+                addButton(frameLayout, "X", 1024, 8388693, dp(68), dp(154), dp(52), dp(52), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "A", 1, 8388693, dp(18), dp(102), dp(52), dp(52), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "B", 2, 8388693, dp(68), dp(50), dp(52), dp(52), TouchButton.STYLE_DARK);
+                addButton(frameLayout, "Y", 2048, 8388693, dp(118), dp(102), dp(52), dp(52), TouchButton.STYLE_DARK);
+                // The microphone (held to talk or blow), between the D-pad and the diamond.
+                TouchButton mic = new TouchButton(this, "MIC", kL3, this::setButtonPressed, TouchButton.STYLE_PINK);
+                FrameLayout.LayoutParams micParams = new FrameLayout.LayoutParams(dp(46), dp(46));
+                micParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                micParams.setMargins(0, 0, 0, dp(58));
+                mic.setTranslationX(dp(-20));
+                frameLayout.addView(mic, micParams);
+                addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
+                addCenterButton(frameLayout, startLabel(), 8, 66, 14);
+                return;
+            }
+            addButton(frameLayout, "X", 1024, 8388693, dp(72), dp(254), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_SNES_BLUE);
+            addButton(frameLayout, "A", 1, 8388693, dp(20), dp(202), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "B", 2, 8388693, dp(72), dp(150), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_YELLOW);
+            addButton(frameLayout, "Y", 2048, 8388693, dp(124), dp(202), dp(54), dp(54), ds ? TouchButton.STYLE_DARK : TouchButton.STYLE_ARCADE_GREEN);
+        } else if (hasTurboPair()) {
+            // B and A like the Famicom pad (II and I on the PC Engine), with smaller turbo buttons above them.
+            String[] labels = turboLabels();
+            int style = isPcEngine() ? TouchButton.STYLE_ACTION : TouchButton.STYLE_ARCADE_RED;
+            addButton(frameLayout, labels[0], 1, 8388693, dp(30), dp(210), dp(62), dp(62), style);
+            addButton(frameLayout, labels[1], 2, 8388693, dp(102), dp(196), dp(62), dp(62), style);
+            addButton(frameLayout, labels[2], 1024, 8388693, dp(40), dp(286), dp(42), dp(42), style);
+            addButton(frameLayout, labels[3], 2048, 8388693, dp(112), dp(272), dp(42), dp(42), style);
+        } else if (isMegaDrive()) {
+            // Six-button pad: X Y Z above A B C, each row rising to the right.
+            addMegaDriveButtons(frameLayout, false);
+        } else if (isGba) {
+            boolean sms = isMasterSystem();
+            addButton(frameLayout, sms ? "2" : "A", 1, 8388693, dp(44), dp(243), dp(72), dp(72), sms ? TouchButton.STYLE_DARK : 3);
+            addButton(frameLayout, sms ? "1" : "B", 2, 8388693, dp(78), dp(159), dp(72), dp(72), sms ? TouchButton.STYLE_DARK : 3);
+        } else if (isNeoGeoMode()) {
+            // Diamond centred on the joystick's height; the right margin mirrors its left margin.
+            addButton(frameLayout, "C", 1024, 8388693, dp(70), dp(250), dp(52), dp(52), TouchButton.STYLE_ARCADE_GREEN);
+            addButton(frameLayout, "D", 2048, 8388693, dp(16), dp(196), dp(52), dp(52), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "B", 2, 8388693, dp(70), dp(142), dp(52), dp(52), TouchButton.STYLE_ARCADE_YELLOW);
+            addButton(frameLayout, "A", 1, 8388693, dp(124), dp(196), dp(52), dp(52), TouchButton.STYLE_ARCADE_RED);
+        } else {
+            // 3x2 grid with 10dp gaps: D E F on top, A B C below.
+            addButton(frameLayout, "A", 1, 8388693, dp(136), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "B", 2, 8388693, dp(76), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "C", 1024, 8388693, dp(16), dp(167), dp(50), dp(50), TouchButton.STYLE_ARCADE_BLUE);
+            addButton(frameLayout, "D", 2048, 8388693, dp(136), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "E", 4096, 8388693, dp(76), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+            addButton(frameLayout, "F", 8192, 8388693, dp(16), dp(227), dp(50), dp(50), TouchButton.STYLE_ARCADE_RED);
+        }
+        if (isDualShock()) {
+            for (int k = 0; k < 2; k++) {
+                TouchButton key = new TouchButton(this, k == 0 ? "SELECT" : "START", k == 0 ? 4 : 8, this::setButtonPressed);
+                FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(60), dp(30));
+                keyParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                keyParams.setMargins(0, 0, 0, dp(81));
+                key.setTranslationX(dp(k == 0 ? -34 : 34));
+                frameLayout.addView(key, keyParams);
+                // The stick clicks, L3 over SELECT and R3 over START (a tap on the stick itself
+                // is a tilt, not a click).
+                TouchButton click = new TouchButton(this, k == 0 ? "L3" : "R3", k == 0 ? kL3 : kR3, this::setButtonPressed, TouchButton.STYLE_DARK);
+                FrameLayout.LayoutParams clickParams = new FrameLayout.LayoutParams(dp(40), dp(40));
+                clickParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                clickParams.setMargins(0, 0, 0, dp(120));
+                click.setTranslationX(dp(k == 0 ? -34 : 34));
+                frameLayout.addView(click, clickParams);
+            }
+            return;
+        }
+        if (isMasterSystem()) {
+            addCenterButton(frameLayout, startLabel(), 8, 0);
+            return;
+        }
+        addCenterButton(frameLayout, selectLabel(), 4, -66);
+        addCenterButton(frameLayout, startLabel(), 8, 66);
+    }
+
+    private void addButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4, int i5, int i6) {
+        addButton(frameLayout, str, i, i2, i3, i4, i5, i6, 0);
+    }
+
+    private void addButton(FrameLayout frameLayout, String str, int i, int i2, int i3, int i4, int i5, int i6, int i7) {
+        View touchButton = new TouchButton(this, str, i, this::setButtonPressed, i7);
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(i5, i6);
+        layoutParams.gravity = i2;
+        int max = Math.max(0, i3);
+        layoutParams.setMargins(max, i4, max, i4);
+        frameLayout.addView(touchButton, layoutParams);
+    }
+
+    private void addFastForwardButton(FrameLayout frameLayout) {
+        SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
+        this.fastForwardButton = speedButtonView;
+        speedButtonView.setPercent(this.speedPercent);
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(42));
+        layoutParams.gravity = 49;
+        layoutParams.setMargins(0, dp(isDualScreen() ? 10 : 37), 0, 0);
+        frameLayout.addView(this.fastForwardButton, layoutParams);
+        // The speed button keeps its place between L and R; rewind goes in the gap below it.
+        addRewindButton(frameLayout, speedButtonView, layoutParams, REWIND_BELOW, 72, false);
+    }
+
+    private void addCenterButton(FrameLayout frameLayout, String str, int i, int i2) {
+        addCenterButton(frameLayout, str, i, i2, 72);
+    }
+
+    private void addCenterButton(FrameLayout frameLayout, String str, int i, int i2, int bottomDp) {
+        TouchButton touchButton = new TouchButton(this, str, i, this::setButtonPressed);
+        FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(dp(92), dp(34));
+        layoutParams.gravity = 81;
+        layoutParams.setMargins(0, 0, 0, dp(bottomDp));
+        touchButton.setTranslationX(dp(i2));
+        frameLayout.addView(touchButton, layoutParams);
+    }
+
+    private void updateInput() {
+        onMicButton((this.buttonMask & kL3) != 0);
+        if (isMame139()) {
+            Emulator.setMiniInput(this.buttonMask);
+            return;
+        }
+        long j = this.nativeHandle;
+        if (j != 0) {
+            NativeGba.setInput(j, this.buttonMask);
+        }
+    }
+
+    private void showGameMenu() {
+        if (isMame139()) {
+            Emulator.pause();
+        } else {
+            long j = this.nativeHandle;
+            if (j != 0) {
+                NativeGba.pause(j, true);
+            }
+        }
+        this.menuExiting = false;
+        java.util.List<String> items = new java.util.ArrayList<>();
+        items.add(MENU_CONTINUE);
+        items.add(MENU_SAVE_STATE);
+        items.add(MENU_LOAD_STATE);
+        items.add(MENU_SAVE_SRAM);
+        items.add(MENU_RESET);
+        items.add(this.landscapeMode ? "세로 화면으로 전환" : "가로 화면으로 전환");
+        items.add(MENU_EXIT);
+        items.add(MENU_SHOT);
+        items.add(MENU_SHOT_FULL);
+        this.menuItems = items.toArray(new String[0]);
+        showPauseDialog();
+    }
+
+    // Pause menu: six round tiles and a big continue button.
+    private android.app.Dialog pauseDialog;
+
+    private static final String[] PAUSE_TAB_NAMES = {"기본", "성능", "화면", "조작", "게임기"};
+
+    // 게임기 탭: settings only some consoles have.
+    private boolean hasDeviceTab() {
+        return isPsp() || isNds() || isWonderSwan() || isWiiU() || isDolphin();
+    }
+
+    // The pause menu: one card with tabs (기본 · 성능 · 화면 · 조작 · 게임기), a content area
+    // of fixed height so the card doesn't jump between tabs, and 계속하기 always at the
+    // bottom. In landscape the tabs run down the left side.
+    private void showPauseDialog() {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        boolean wide = this.landscapeMode;
+        android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(16), dp(14), dp(14));
+        card.setBackground(roundRect(Color.WHITE, dp(24)));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.setPadding(dp(4), 0, dp(4), 0);
+        TextView title = new TextView(this);
+        title.setText("일시정지");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        header.addView(title, new LinearLayout.LayoutParams(-2, -2));
+        TextView game = new TextView(this);
+        game.setText(this.gameTitle + (playTimeSeconds() > 0 ? " · " + playTimeText(playTimeSeconds()) : ""));
+        game.setTextSize(12.0f);
+        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setGravity(8388613);
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams gameParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        gameParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(game, gameParams);
+
+        final java.util.List<Integer> tabs = new java.util.ArrayList<>(java.util.Arrays.asList(0, 1, 2, 3));
+        if (hasDeviceTab()) {
+            tabs.add(4);
+        }
+        LinearLayout tabBar = new LinearLayout(this);
+        tabBar.setOrientation(wide ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        tabBar.setPadding(dp(4), dp(4), dp(4), dp(4));
+        tabBar.setBackground(roundRect(Color.rgb(241, 243, 245), dp(14)));
+        final TextView[] tabViews = new TextView[tabs.size()];
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(1);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(content);
+
+        final int[] current = {0};
+        final Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            int tab = tabs.get(current[0]);
+            for (int k = 0; k < tabViews.length; k++) {
+                boolean on = k == current[0];
+                tabViews[k].setTextColor(on ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128));
+                tabViews[k].setBackground(on ? roundRect(Color.WHITE, dp(10)) : null);
+                tabViews[k].setElevation(on ? dp(1) : 0);
+            }
+            content.removeAllViews();
+            this.cheatRowValue = null;
+            Runnable refresh = () -> {
+                int y = scroll.getScrollY();
+                fill[0].run();
+                scroll.post(() -> scroll.scrollTo(0, y));
+            };
+            switch (tab) {
+                case 0: addBasicTabRows(content, dialog, () -> {
+                    current[0] = tabs.indexOf(1);
+                    fill[0].run();
+                    scroll.scrollTo(0, 0);
+                }); break;
+                case 1: addPerfTabRows(content, dialog); break;
+                case 2: addScreenTabRows(content, refresh); break;
+                case 3: addControlTabRows(content, refresh); break;
+                default: addDeviceTabRows(content, dialog); break;
+            }
+        };
+        for (int k = 0; k < tabs.size(); k++) {
+            TextView tab = new TextView(this);
+            tab.setText(PAUSE_TAB_NAMES[tabs.get(k)]);
+            tab.setTextSize(12.5f);
+            tab.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tab.setGravity(Gravity.CENTER);
+            final int index = k;
+            tab.setOnClickListener(view -> {
+                if (current[0] != index) {
+                    current[0] = index;
+                    fill[0].run();
+                    scroll.scrollTo(0, 0);
+                }
+            });
+            tabViews[k] = tab;
+            LinearLayout.LayoutParams tabParams = wide ? new LinearLayout.LayoutParams(-1, dp(40)) : new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+            if (wide && k > 0) {
+                tabParams.setMargins(0, dp(4), 0, 0);
+            }
+            tabBar.addView(tab, tabParams);
+        }
+
+        TextView resume = new TextView(this);
+        resume.setText("▶  계속하기");
+        resume.setTextSize(16.0f);
+        resume.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        resume.setTextColor(Color.WHITE);
+        resume.setGravity(17);
+        resume.setBackground(roundRect(Color.rgb(22, 185, 207), dp(14)));
+        resume.setOnClickListener(view -> dialog.dismiss());
+
+        // The content area keeps one height for every tab: up to seven rows, less when the
+        // screen is short (it scrolls then).
+        int screenH = Math.round(metrics.heightPixels / metrics.density);
+        int contentDp = wide ? Math.max(160, screenH - 150) : Math.max(220, Math.min(380, screenH - 260));
+        int width = wide ? Math.min(metrics.widthPixels - dp(40), dp(600)) : Math.min(metrics.widthPixels - dp(40), dp(380));
+        if (wide) {
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(dp(84), -2);
+            card.addView(tabBar, barParams);
+            LinearLayout right = new LinearLayout(this);
+            right.setOrientation(1);
+            right.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, dp(contentDp));
+            scrollParams.setMargins(0, dp(10), 0, 0);
+            right.addView(scroll, scrollParams);
+            LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(46));
+            resumeParams.setMargins(0, dp(10), 0, 0);
+            right.addView(resume, resumeParams);
+            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            rightParams.setMargins(dp(12), 0, 0, 0);
+            card.addView(right, rightParams);
+        } else {
+            card.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2);
+            barParams.setMargins(0, dp(10), 0, 0);
+            card.addView(tabBar, barParams);
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, dp(contentDp));
+            scrollParams.setMargins(0, dp(10), 0, 0);
+            card.addView(scroll, scrollParams);
+            LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(50));
+            resumeParams.setMargins(0, dp(12), 0, 0);
+            card.addView(resume, resumeParams);
+        }
+        fill[0].run();
+
+        dialog.setContentView(card);
+        this.pauseDialog = dialog;
+        dialog.setOnDismissListener(d -> resumeUnlessExiting());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout.LayoutParams tabRowParams(LinearLayout panel) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+        params.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
+        return params;
+    }
+
+    private LinearLayout.LayoutParams tile4Params(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+        params.setMargins(column == 0 ? 0 : dp(3), 0, column == 3 ? 0 : dp(3), 0);
+        return params;
+    }
+
+    // 기본 탭: the actions (four to a row), cheats, and a line on how the game runs that
+    // leads to the 성능 탭.
+    private void addBasicTabRows(LinearLayout panel, android.app.Dialog dialog, Runnable toPerf) {
+        // Indices follow onGameMenuItemSelected: 1 save, 2 load, 3 in-game save, 4 reset,
+        // 5 rotate, 6 exit, 7 screenshot, 8 whole-screen capture.
+        java.util.List<View> tiles = new java.util.ArrayList<>();
+        // Wii U: the engine keeps no states; the game's own saves are written as it makes them.
+        if (!isWiiU()) {
+            tiles.add(createMenuTile(dialog, 1, RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", isMame139() ? null : "길게: 내 칸"));
+            tiles.add(createMenuTile(dialog, 2, RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", lastQuickSaveText()));
+            tiles.add(createMenuTile(dialog, 3, RoundIconView.CARD, RoundIconView.COLOR_CARD, "세이브 저장", null));
+        }
+        tiles.add(createMenuTile(dialog, 4, RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null));
+        tiles.add(createMenuTile(dialog, 5, RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, this.landscapeMode ? "세로 화면" : "가로 화면", null));
+        if (!isMame139()) {
+            tiles.add(createMenuTile(dialog, 7, RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "스크린샷", "화면만"));
+            tiles.add(createMenuTile(dialog, 8, RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "전체 캡처", "케이스 포함"));
+        }
+        tiles.add(createMenuTile(dialog, 6, RoundIconView.EXIT, RoundIconView.COLOR_EXIT, "나가기", null));
+        LinearLayout row = null;
+        for (int k = 0; k < tiles.size(); k++) {
+            if (k % 4 == 0) {
+                row = new LinearLayout(this);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, k == 0 ? 0 : dp(6), 0, 0);
+                panel.addView(row, rowParams);
+            }
+            row.addView(tiles.get(k), tile4Params(k % 4));
+        }
+        for (int k = tiles.size() % 4; k != 0 && k < 4; k++) {
+            row.addView(new View(this), tile4Params(k));
+        }
+        LinearLayout cheatRow = createSettingRow(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, "치트 코드", cheatSummary(), view -> {
+            if (!cheatsSupported()) {
+                Toast.makeText(this, "이 기종은 엔진이 치트를 지원하지 않아요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            showCheatSheet();
+        });
+        // Its value ("2개 켜짐") follows changes made in the cheat sheet over it.
+        this.cheatRowValue = (TextView) cheatRow.getChildAt(cheatRow.getChildCount() - 1);
+        LinearLayout.LayoutParams cheatParams = new LinearLayout.LayoutParams(-1, dp(52));
+        cheatParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(cheatRow, cheatParams);
+        if (!isMame139()) {
+            TextView status = new TextView(this);
+            status.setText(runStatusText());
+            status.setTextSize(12.0f);
+            status.setTextColor(Color.rgb(17, 94, 89));
+            status.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            status.setPadding(dp(12), dp(10), dp(12), dp(10));
+            status.setBackground(roundRect(Color.rgb(240, 253, 250), dp(13)));
+            status.setOnClickListener(view -> toPerf.run());
+            LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
+            statusParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(status, statusParams);
+        }
+    }
+
+    private static final String[] THERMAL_WORDS = {"보통", "약간", "뜨거움", "심각"};
+    private static final int[] THERMAL_DOT_COLORS = {Color.rgb(22, 163, 74), Color.rgb(202, 138, 4), Color.rgb(234, 88, 12), Color.rgb(220, 38, 38)};
+
+    // "⚡ 균형 · ● 약간 · 화질 1배 · 속도 우선   성능 탭 ›"
+    private CharSequence runStatusText() {
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder("⚡ " + POWER_SHORT[powerMode()]);
+        int level = PerfOverlayView.thermalLevel;
+        if (level >= 0 && level <= 3) {
+            text.append(" · ");
+            int start = text.length();
+            text.append("● ").append(THERMAL_WORDS[level]);
+            text.setSpan(new android.text.style.ForegroundColorSpan(THERMAL_DOT_COLORS[level]), start, text.length(), 0);
+        }
+        int scale = isPsp() ? pspScale() : isN3ds() ? n3dsScale() : isN64() ? n64Scale() : 0;
+        if (scale > 0) {
+            text.append(" · 화질 ").append(String.valueOf(scale)).append("배");
+        }
+        if (speedFirstSupported() && speedFirst()) {
+            text.append(" · 속도 우선");
+        }
+        text.append("   성능 탭 ›");
+        return text;
+    }
+
+    // 성능 탭: power, the readout, render scale, 속도 우선 and heat.
+    private void addPerfTabRows(LinearLayout panel, android.app.Dialog dialog) {
+        if (isPadScreen()) {
+            panel.addView(createSpeedRow(), tabRowParams(panel));
+        }
+        panel.addView(createPowerRow(dialog), tabRowParams(panel));
+        panel.addView(createPerfRow(), tabRowParams(panel));
+        if (isPsp()) {
+            panel.addView(createScaleRow(dialog), tabRowParams(panel));
+        } else if (isN3ds()) {
+            panel.addView(createN3dsScaleRow(dialog), tabRowParams(panel));
+        } else if (isN64()) {
+            panel.addView(createN64ScaleRow(dialog), tabRowParams(panel));
+        }
+        if (speedFirstSupported() && !isDolphin()) {
+            panel.addView(createFastRow(dialog), tabRowParams(panel));
+        }
+        if (heavySystem()) {
+            panel.addView(createSettingRow(RoundIconView.PERF, HEAT_ORANGE, "발열 줄이는 법", "", view -> showHeatTips(dialog)), tabRowParams(panel));
+        }
+        if (!isMame139()) {
+            panel.addView(createHeatActionRow(), tabRowParams(panel));
+        }
+    }
+
+    // 게임기 탭: what only this console has.
+    private void addDeviceTabRows(LinearLayout panel, android.app.Dialog dialog) {
+        if (isPsp()) {
+            panel.addView(createLanguageRow(dialog), tabRowParams(panel));
+            panel.addView(createWifiRow(dialog), tabRowParams(panel));
+        }
+        if (isNds()) {
+            panel.addView(createDsNetRow(dialog), tabRowParams(panel));
+            panel.addView(createMicInputRow(), tabRowParams(panel));
+            panel.addView(createMicButtonRow(), tabRowParams(panel));
+        }
+        if (isWonderSwan()) {
+            panel.addView(createWonderSwanTallRow(dialog), tabRowParams(panel));
+        }
+        if (isDolphin()) {
+            if (!isWiiGame()) {
+                panel.addView(createGcLanRow(dialog), tabRowParams(panel));
+            }
+            if (isWiiGame()) {
+                panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
+                panel.addView(createWiiPointerRow(dialog), tabRowParams(panel));
+                panel.addView(createWiimmfiRow(dialog), tabRowParams(panel));
+            }
+            panel.addView(createDolphinScaleRow(dialog), tabRowParams(panel));
+            panel.addView(createDolphinAspectRow(dialog), tabRowParams(panel));
+            panel.addView(createFastRow(dialog), tabRowParams(panel));
+        }
+        if (isWiiU()) {
+            panel.addView(createWiiuViewRow(dialog), tabRowParams(panel));
+            panel.addView(createWiiuResolutionRow(dialog), tabRowParams(panel));
+            TextView note = new TextView(this);
+            note.setText("Wii U는 엔진이 장면을 저장하지 못해서 이어하기 · 되감기 · 세이브 슬롯이 없어요. 게임 안에서 저장해 주세요.\n"
+                    + "가로 화면의 게임패드 작은 창은 '버튼 배치 편집'에서 옮기고 크기를 바꿀 수 있어요.");
+            note.setTextSize(12.0f);
+            note.setLineSpacing(0.0f, 1.25f);
+            note.setTextColor(Color.rgb(7, 89, 133));
+            note.setPadding(dp(12), dp(10), dp(12), dp(10));
+            note.setBackground(roundRect(Color.rgb(224, 242, 254), dp(13)));
+            panel.addView(note, tabRowParams(panel));
+        }
+    }
+
+    // ---- Wii U settings rows ----
+    private static final String[] WIIU_RES_VALUES = {"0.5x", "0.75x", "native", "1.5x"};
+    private static final String[] WIIU_RES_NAMES = {"0.5배 (가벼움)", "0.75배", "1배 · 720p (기본)", "1.5배 · 1080p"};
+    private static final String[] WIIU_RES_NOTES = {"화질은 떨어지지만 가장 빠르고 덜 뜨거워요", "조금 가볍게", "Wii U 원래 해상도", "선명하지만 무거워요 · 최신 기기용"};
+
+    private int wiiuResolution() {
+        int value = MainActivity.sharedSettings(this).getInt("wiiu_res:" + this.saveBaseName, 2);
+        return value >= 0 && value < WIIU_RES_VALUES.length ? value : 2;
+    }
+
+    private LinearLayout createWiiuViewRow(android.app.Dialog menu) {
+        String[] names = this.landscapeMode ? WIIU_VIEW_LANDSCAPE : WIIU_VIEW_PORTRAIT;
+        String[] notes = this.landscapeMode
+                ? new String[]{"TV 화면을 크게, 게임패드는 구석 작은 창 (터치 가능)", "TV 화면만", "게임패드 화면만 크게 (지도 · 메뉴 볼 때)"}
+                : new String[]{"위 TV · 아래 게임패드 (터치 가능)", "TV 화면만 크게", "게임패드 화면만 크게"};
+        return createSettingRow(RoundIconView.DS, RoundIconView.COLOR_DS, "게임패드 화면", wiiuViewName(),
+                view -> showChoiceDialog(RoundIconView.DS, RoundIconView.COLOR_DS, "게임패드 화면", names, notes, wiiuView(),
+                        "화면의 '화면 전환' 버튼으로도 차례대로 바꿀 수 있어요. 세로 · 가로 따로 기억해요.",
+                        Color.rgb(224, 242, 254), Color.rgb(7, 89, 133), "적용", choice -> {
+                    if (choice == wiiuView()) {
+                        return;
+                    }
+                    menu.dismiss();
+                    setWiiuView(choice);
+                }));
+    }
+
+    private LinearLayout createWiiuResolutionRow(android.app.Dialog menu) {
+        int current = wiiuResolution();
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", WIIU_RES_NAMES[current],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", WIIU_RES_NAMES, WIIU_RES_NOTES, current,
+                        "이 게임에만 적용돼요. 바꾸면 게임이 다시 켜지고, Wii U는 이어하기가 없어서 타이틀부터 시작해요. 먼저 게임 안에서 저장해 주세요.",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 다시 켜기", choice -> {
+                    if (choice == current) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("wiiu_res:" + this.saveBaseName, choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // PSP system language, per game. PSP games pick their text (and some their keyboard)
+    // from it; an English game following a Korean setting shows a Hangul keyboard it has no
+    // font for.
+    private static final String[] PSP_LANGUAGES = {"Korean", "English", "Japanese"};
+    private static final String[] PSP_LANGUAGE_NAMES = {"한국어", "English", "日本語"};
+    private static final String[] PSP_LANGUAGE_NOTES = {"기본값 · 한국어 지원 게임·한글 패치용", "영문판 게임 (이름 입력 키보드가 영어로)", "일본판 게임"};
+
+    private String pspLanguage() {
+        String value = MainActivity.sharedSettings(this).getString("psp_language:" + this.saveBaseName, "Korean");
+        for (String language : PSP_LANGUAGES) {
+            if (language.equals(value)) {
+                return value;
+            }
+        }
+        return "Korean";
+    }
+
+    private int pspLanguageIndex() {
+        return java.util.Arrays.asList(PSP_LANGUAGES).indexOf(pspLanguage());
+    }
+
+    // Game pad screen mode has no speed button beside the screen; it sits in the menu.
+    private LinearLayout createSpeedRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(10), 0);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(246, 247, 249));
+        background.setCornerRadius(dp(14));
+        row.setBackground(background);
+        TextView label = new TextView(this);
+        label.setText("배속");
+        label.setTextSize(15.0f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        SpeedButtonView speed = new SpeedButtonView(this, this::onSpeedChanged);
+        speed.setPercent(this.speedPercent);
+        speed.setContentDescription("배속");
+        row.addView(speed, new LinearLayout.LayoutParams(dp(80), dp(36)));
+        return row;
+    }
+
+    private LinearLayout createLanguageRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.GLOBE, RoundIconView.COLOR_GLOBE, "PSP 시스템 언어", PSP_LANGUAGE_NAMES[pspLanguageIndex()],
+                view -> showLanguageDialog(menu));
+    }
+
+    private void showLanguageDialog(android.app.Dialog menu) {
+        showChoiceDialog(RoundIconView.GLOBE, RoundIconView.COLOR_GLOBE, "PSP 시스템 언어", PSP_LANGUAGE_NAMES, PSP_LANGUAGE_NOTES,
+                pspLanguageIndex(), "이 게임에만 적용돼요. 바꾸면 게임이 처음부터 다시 시작돼요.\n게임 안 세이브(메모리스틱)는 그대로 남아요.",
+                Color.rgb(255, 247, 232), Color.rgb(138, 90, 0), "적용하고 재시작", choice -> {
+            String language = PSP_LANGUAGES[choice];
+            if (language.equals(pspLanguage())) {
+                return;
+            }
+            MainActivity.sharedSettings(this).edit().putString("psp_language:" + this.saveBaseName, language).apply();
+            menu.dismiss();
+            callCore(handle -> {
+                NativeGba.setPspLanguage(handle, language);
+                return true;
+            }, "PSP 시스템 언어를 " + PSP_LANGUAGE_NAMES[choice] + "로 바꾸고 게임을 재시작했습니다.", null);
+        });
+    }
+
+    // PSP rendering scale, per game: 1x is the PSP's own 480x272.
+    private static final String[] PSP_SCALE_NAMES = {"1배 · 480×272", "2배 · 960×544", "3배 · 1440×816"};
+    private static final String[] PSP_SCALE_SHORT = {"1배 · 빠름", "2배 · 기본", "3배 · 선명"};
+    private static final String[] PSP_SCALE_NOTES = {"PSP 원래 해상도. 가장 빠름 — 무거운 게임이 느릴 때", "선명하고 대부분 게임에 무난 (기본)", "가장 선명. 성능 좋은 폰·가벼운 게임용"};
+
+    private int pspScale() {
+        int scale = MainActivity.sharedSettings(this).getInt("psp_scale:" + this.saveBaseName, 2);
+        return scale >= 1 && scale <= 3 ? scale : 2;
+    }
+
+    private LinearLayout createScaleRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", PSP_SCALE_SHORT[pspScale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", PSP_SCALE_NAMES, PSP_SCALE_NOTES,
+                        pspScale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요 (2~3초).\n추천 조합: 렉이 걸리는 게임은 1배 + 설정 › 화면 필터 'FSR 업스케일'.\n빠르면서도 2배에 가깝게 또렷해 보여요.",
+                        Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
+                    if (choice + 1 == pspScale()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("psp_scale:" + this.saveBaseName, choice + 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // N64 rendering scale, per game: GLideN64 at the console's 320x240 or twice that.
+    private static final String[] N64_SCALE_NAMES = {"1배 · 320×240", "2배 · 640×480"};
+    private static final String[] N64_SCALE_SHORT = {"1배 · 가벼움", "2배 · 기본"};
+    private static final String[] N64_SCALE_NOTES = {"N64 원래 해상도. 가장 가볍고 시원해요", "지금처럼 선명하게 (기본)"};
+
+    private int n64Scale() {
+        return MainActivity.sharedSettings(this).getInt("n64_scale:" + this.saveBaseName, 2) == 1 ? 1 : 2;
+    }
+
+    private LinearLayout createN64ScaleRow(android.app.Dialog menu) {
+        String[] names = N64_SCALE_NAMES.clone();
+        names[1] += " · N64 기본";
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", N64_SCALE_SHORT[n64Scale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", names, N64_SCALE_NOTES,
+                        n64Scale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요 (2~3초).\n1배에 FSR 업스케일을 같이 켜면 덜 뭉개져 보여요.",
+                        Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
+                    if (choice + 1 == n64Scale()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("n64_scale:" + this.saveBaseName, choice + 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // 3DS rendering scale, per game: Citra draws the 400x240 and 320x240 screens at 1-3
+    // times their size. Native by default; the core is heavy enough on phones as it is.
+    private static final String[] N3DS_SCALE_NAMES = {"1배 · 400×240", "2배 · 800×480", "3배 · 1200×720"};
+    private static final String[] N3DS_SCALE_SHORT = {"1배 · 기본", "2배 · 선명", "3배 · 가장 선명"};
+    private static final String[] N3DS_SCALE_NOTES = {"3DS 원래 해상도. 가장 빠름 (기본)", "선명. 성능 좋은 폰·가벼운 게임용", "가장 선명. 무거운 게임은 느려질 수 있어요"};
+
+    private int n3dsScale() {
+        int scale = MainActivity.sharedSettings(this).getInt("n3ds_scale:" + this.saveBaseName, 1);
+        return scale >= 1 && scale <= 3 ? scale : 1;
+    }
+
+    private LinearLayout createN3dsScaleRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", N3DS_SCALE_SHORT[n3dsScale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", N3DS_SCALE_NAMES, N3DS_SCALE_NOTES,
+                        n3dsScale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.\n3DS는 1배로도 무거운 게임이 많아요. 끊기면 1배로 돌려 주세요.",
+                        Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
+                    if (choice + 1 == n3dsScale()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("n3ds_scale:" + this.saveBaseName, choice + 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // "속도 우선", per game (PSP, and PS2 on PCSX2): speed hacks that can drop some effects,
+    // off by default.
+    private static final String[] FAST_NAMES = {"끔 · 정확하게", "켬 · 빠르게"};
+    private static final String[] FAST_NOTES = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. 프레임마다 하는 일을 줄여요"};
+    // PS2 has a third level.
+    private static final String[] FAST_NAMES_PS2 = {"끔 · 정확하게", "켬 · 빠르게", "강하게"};
+    private static final String[] FAST_NOTES_PS2 = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. PS2 CPU 75%",
+            "켬으로도 속도가 출렁이는 게임용. PS2 CPU 60% · 게임 속도가 고르지 않아질 수 있어요"};
+    private static final String[] FAST_SHORT = {"꺼짐", "켜짐", "강하게"};
+
+    // 0 off, 1 on, 2 strong (PS2 only).
+    private int speedFirstLevel() {
+        if (!speedFirst()) {
+            return 0;
+        }
+        return "pcee2".equals(this.coreId) && MainActivity.sharedSettings(this).getBoolean("fast_strong:" + this.saveBaseName, false) ? 2 : 1;
+    }
+
+    private boolean speedFirstSupported() {
+        return isPsp() || "pcee2".equals(this.coreId) || isN64() || isDreamcast() || isDolphin();
+    }
+
+    // PSP kept its 0.0.106 key.
+    private String speedFirstKey() {
+        return (isPsp() ? "psp_fast:" : "fast:") + this.saveBaseName;
+    }
+
+    private boolean speedFirst() {
+        return MainActivity.sharedSettings(this).getBoolean(speedFirstKey(), false);
+    }
+
+    // ---- Wi-Fi Direct: the link between phones when there is no router ----
+    private DirectLink directLink;
+
+    private DirectLink directLink() {
+        if (this.directLink == null) {
+            this.directLink = new DirectLink(this);
+        }
+        return this.directLink;
+    }
+
+    // How the host links with guests (PSP and DS alike): 0 a shared Wi-Fi, 1 Wi-Fi Direct,
+    // 2 a virtual LAN app (VPN) for friends far away.
+    private int linkMode() {
+        android.content.SharedPreferences settings = MainActivity.sharedSettings(this);
+        return settings.getBoolean("link_vpn", false) ? 2 : settings.getBoolean("link_direct", false) ? 1 : 0;
+    }
+
+    private boolean linkDirect() {
+        return linkMode() == 1;
+    }
+
+    private void setLinkMode(int mode) {
+        MainActivity.sharedSettings(this).edit().putBoolean("link_direct", mode == 1).putBoolean("link_vpn", mode == 2).commit();
+    }
+
+    private void setLinkDirect(boolean direct) {
+        setLinkMode(direct ? 1 : 0);
+    }
+
+    // The address guests reach the host at, for the mode it hosts with.
+    private String hostAddress() {
+        switch (linkMode()) {
+            case 1: return DirectLink.OWNER_ADDRESS;
+            case 2: return AdhocBeacon.vpnAddress();
+            default: return AdhocBeacon.localAddress();
+        }
+    }
+
+    private static final String[] LINK_NAMES = {"같은 와이파이", "Wi-Fi Direct", "멀리 (VPN)"};
+    private static final String[] LINK_CHOICE_NAMES = {"같은 와이파이", "Wi-Fi Direct", "멀리 있는 친구 (VPN)"};
+    private static final String[] LINK_NOTES = {"공유기나 핫스팟에 같이 붙어 있을 때 (기본)", "공유기 없이 휴대폰끼리 직접 · 속도는 와이파이와 같고 데이터 요금은 안 들어요",
+            "Tailscale · ZeroTier로 같은 네트워크에 있을 때. 방을 연 뒤 내 가상 IP를 친구에게 보내요"};
+
+    // Asks the host how guests will reach it, then saves and relaunches.
+    private void chooseLinkThen(android.app.Dialog menu, int icon, int color, Runnable save) {
+        String vpn = AdhocBeacon.vpnAddress();
+        showChoiceDialog(icon, color, "방을 어떻게 열까요", LINK_CHOICE_NAMES, LINK_NOTES, linkMode(),
+                "Wi-Fi Direct는 처음 한 번 상대 휴대폰에서 '연결 허용'을 눌러야 해요. 근처 기기를 찾기 위한 권한을 한 번 물어봐요.\n"
+                        + (vpn != null ? "VPN이 켜져 있어요 · 내 가상 IP " + vpn + "\n멀리 있는 친구를 고르면 방을 연 뒤 IP를 보낼 수 있어요."
+                        : "VPN은 꺼져 있어요. 멀리 있는 친구와 하려면 둘 다 Tailscale이나 ZeroTier를 켜 주세요."),
+                Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
+            boolean direct = choice == 1;
+            if (direct && !directLink().available()) {
+                Toast.makeText(this, "이 휴대폰은 Wi-Fi Direct를 지원하지 않아요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (direct && !DirectLink.permitted(this)) {
+                DirectLink.ask(this);
+                Toast.makeText(this, "권한을 허용한 뒤 다시 골라 주세요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (choice == 0 && AdhocBeacon.localAddress() == null) {
+                Toast.makeText(this, "와이파이(또는 핫스팟)에 먼저 연결해 주세요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (choice == 2 && AdhocBeacon.vpnAddress() == null) {
+                Toast.makeText(this, "VPN이 꺼져 있어요. Tailscale이나 ZeroTier를 먼저 켜 주세요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            setLinkMode(choice);
+            if (!direct) {
+                directLink().release();
+            }
+            // The share sheet opens once the game is back, so the friend gets the address.
+            MainActivity.sharedSettings(this).edit().putBoolean("vpn_share_pending", choice == 2).commit();
+            save.run();
+            menu.dismiss();
+            relaunchGame();
+        });
+    }
+
+    private String linkShown() {
+        int mode = linkMode();
+        if (mode == 2) {
+            String address = AdhocBeacon.vpnAddress();
+            return address == null ? "VPN 꺼짐" : "VPN · " + address;
+        }
+        if (mode == 0) {
+            String address = AdhocBeacon.localAddress();
+            return address == null ? "와이파이 없음" : address;
+        }
+        int guests = directLink().clientCount();
+        return "Wi-Fi Direct" + (guests > 0 ? " · 참가 " + guests + "명" : "");
+    }
+
+    // ---- "멀리 (VPN)": friends on the same virtual LAN, reached by typing their address ----
+    private String vpnRecentKey() {
+        return isNds() ? "vpn_recent_ds" : isDolphin() ? "vpn_recent_gc" : "vpn_recent_psp";
+    }
+
+    // Recently joined virtual addresses for this system, newest first.
+    private java.util.List<String> vpnRecent() {
+        java.util.List<String> recent = new java.util.ArrayList<>();
+        String value = MainActivity.sharedSettings(this).getString(vpnRecentKey(), "");
+        for (String address : (value == null ? "" : value).split(",")) {
+            if (!address.isEmpty() && !recent.contains(address)) {
+                recent.add(address);
+            }
+        }
+        return recent;
+    }
+
+    private void rememberVpnFriend(String address) {
+        java.util.List<String> recent = vpnRecent();
+        recent.remove(address);
+        recent.add(0, address);
+        while (recent.size() > 5) {
+            recent.remove(recent.size() - 1);
+        }
+        MainActivity.sharedSettings(this).edit().putString(vpnRecentKey(), android.text.TextUtils.join(",", recent)).commit();
+    }
+
+    private String vpnInviteText(String address) {
+        String where = isNds() ? "DS 통신 › 참가" : isDolphin() ? "LAN 대전 › 참가" : "와이파이 멀티 › 참가";
+        return "Mini Emulator " + this.gameTitle + " 방을 열었어요. " + where + " › 멀리 (VPN)에서 " + address + " 으로 연결해 주세요.";
+    }
+
+    private void shareText(String text) {
+        try {
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_TEXT, text);
+            startActivity(Intent.createChooser(send, "IP 보내기"));
+        } catch (Exception e) {
+            Toast.makeText(this, "보낼 앱을 찾지 못했어요.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void copyText(String text) {
+        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("IP", text));
+            Toast.makeText(this, "복사했어요: " + text, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openStore(String packageName) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=" + packageName)));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/apps/details?id=" + packageName)));
+            } catch (Exception ignored) {
+                Toast.makeText(this, "스토어를 열지 못했어요.", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    // After hosting with VPN was chosen: hand the friend the address once the game is back.
+    private void shareVpnInviteIfPending() {
+        android.content.SharedPreferences settings = MainActivity.sharedSettings(this);
+        if (!settings.getBoolean("vpn_share_pending", false)) {
+            return;
+        }
+        settings.edit().putBoolean("vpn_share_pending", false).apply();
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1;
+        String address = AdhocBeacon.vpnAddress();
+        if (!hosting || linkMode() != 2 || address == null) {
+            return;
+        }
+        getWindow().getDecorView().postDelayed(() -> {
+            if (!isFinishing()) {
+                shareText(vpnInviteText(address));
+            }
+        }, 1200);
+    }
+
+    // ---- "와이파이 멀티": PSP ad-hoc play between phones on one Wi-Fi ----
+    private static final String[] WIFI_NAMES = {"꺼짐", "방 만들기 (방장)", "참가"};
+    private static final String[] WIFI_NOTES = {"혼자 플레이 (기본)", "이 휴대폰이 서버가 돼요. 친구는 '참가'로 들어와요", "같은 와이파이의 방장을 찾아서 연결해요"};
+    private final AdhocBeacon adhocBeacon = new AdhocBeacon();
+
+    // 0 off, 1 host, 2 guest; shared by all PSP games.
+    private int wifiMultiMode() {
+        int value = MainActivity.sharedSettings(this).getInt("wifi_multi", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private String wifiMultiHost() {
+        String value = MainActivity.sharedSettings(this).getString("wifi_multi_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setWifiMulti(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("wifi_multi", mode).putString("wifi_multi_host", host == null ? "" : host).commit();
+    }
+
+    private String wifiMultiShown() {
+        switch (wifiMultiMode()) {
+            case 1: return "방장 · " + linkShown();
+            case 2: return "참가 · " + (wifiMultiHost() == null ? "?" : wifiMultiHost());
+            default: return "꺼짐";
+        }
+    }
+
+    // Hosting answers guests looking for a room while this game runs.
+    private void startAdhocBeaconIfHosting() {
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1;
+        if (hosting) {
+            this.adhocBeacon.startHost(this, this.gameTitle);
+            if (linkDirect()) {
+                directLink().host(this.gameTitle, AdhocBeacon.deviceName(this));
+            }
+        } else {
+            this.adhocBeacon.stop();
+        }
+    }
+
+    // ---- "LAN 대전" (게임큐브): the broadband adapter between phones (gclan.cpp) ----
+    private static final String[] GCLAN_NAMES = {"꺼짐", "방 만들기 (방장)", "참가"};
+    private static final String[] GCLAN_NOTES = {"혼자 플레이 (기본)",
+            "이 휴대폰이 LAN 허브가 돼요. 친구는 \"참가\"로 들어와요",
+            "같은 와이파이 · Wi-Fi Direct · VPN의 방장을 찾아서 연결해요"};
+
+    // 0 off, 1 host, 2 guest; GameCube games only, shared by all of them.
+    private int gcLanMode() {
+        if (!isDolphin() || isWiiGame()) {
+            return 0;
+        }
+        int value = MainActivity.sharedSettings(this).getInt("gc_lan", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private String gcLanHost() {
+        String value = MainActivity.sharedSettings(this).getString("gc_lan_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setGcLan(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("gc_lan", mode).putString("gc_lan_host", host == null ? "" : host).commit();
+    }
+
+    private String gcLanShown() {
+        switch (gcLanMode()) {
+            case 1: return "방장 · " + linkShown();
+            case 2: return "참가 · " + (gcLanHost() == null ? "?" : gcLanHost());
+            default: return "꺼짐";
+        }
+    }
+
+    private LinearLayout createGcLanRow(android.app.Dialog menu) {
+        int mode = gcLanMode();
+        int color = Color.rgb(99, 102, 241);
+        LinearLayout row = createSettingRow(RoundIconView.WIFI, color, "LAN 대전", gcLanShown(),
+                view -> showChoiceDialog(RoundIconView.WIFI, color, "LAN 대전", GCLAN_NAMES, GCLAN_NOTES, mode,
+                        "게임큐브 LAN 어댑터를 흉내 내요. 연결된 뒤 게임 메뉴의 LAN 모드로 들어가면 돼요 (마리오카트 더블대시 · 커비 에어 라이드 · 1080° 애벌랜치).\n"
+                                + "모든 휴대폰이 같은 게임(같은 지역판)이어야 하고, 같은 와이파이가 가장 잘 돼요.\n"
+                                + "게임큐브 게임 공통 · 저장하고 그 장면에서 이어져요.",
+                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용", choice -> {
+                    if (choice == 2) {
+                        showHostFinder(menu, RoundIconView.WIFI, color, address -> setGcLan(2, address));
+                        return;
+                    }
+                    if (choice == 1) {
+                        chooseLinkThen(menu, RoundIconView.WIFI, color, () -> setGcLan(1, gcLanHost()));
+                        return;
+                    }
+                    if (choice == mode) {
+                        return;
+                    }
+                    setGcLan(choice, gcLanHost());
+                    directLink().release();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (mode == 0) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
+    }
+
+    // On the picture's top left while LAN play is on: who is in the room, every two seconds.
+    private void addGcLanBadge(FrameLayout screenFrame) {
+        if (gcLanMode() == 0) {
+            return;
+        }
+        TextView badge = new TextView(this);
+        badge.setTextSize(11.0f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        badge.setBackground(roundRect(Color.argb(230, 99, 102, 241), dp(11)));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        params.setMargins(dp(8), dp(8), 0, 0);
+        screenFrame.addView(badge, params);
+        Runnable[] update = new Runnable[1];
+        update[0] = () -> {
+            if (this.destroyed || badge.getParent() == null) {
+                return;
+            }
+            int peers = NativeGba.gcLanPeers();
+            if (gcLanMode() == 1) {
+                badge.setText("LAN · 방장 · " + (peers + 1) + "대 연결");
+            } else {
+                badge.setText(peers > 0 ? "LAN · 방장과 연결됨" : "LAN · 방장 찾는 중…");
+            }
+            badge.postDelayed(update[0], 2000);
+        };
+        update[0].run();
+    }
+
+    // ---- "DS 통신": the DS's local wireless between phones, or the replacement online servers ----
+    private static final String[] DSNET_NAMES = {"꺼짐", "방 만들기 (방장)", "참가", "인터넷 · Wiimmfi", "인터넷 · Kaeru WFC"};
+    private static final String[] DSNET_NOTES = {"혼자 플레이 (기본)",
+            "같은 와이파이의 휴대폰끼리 · 옆 사람 마을 놀러가기 · 로컬 대전 · 다운로드 플레이",
+            "같은 와이파이의 방장을 찾아서 연결해요",
+            "옛 닌텐도 Wi-Fi 커넥션 대체 서버 · 마리오 카트 DS · 동물의 숲 등 (게임마다 지원 여부가 달라요)",
+            "다른 대체 서버 · Wiimmfi에서 안 되면 시도"};
+
+    private int dsNetMode() {
+        int value = MainActivity.sharedSettings(this).getInt("ds_net", 0);
+        return value >= 0 && value <= 4 ? value : 0;
+    }
+
+    private String dsNetHost() {
+        String value = MainActivity.sharedSettings(this).getString("ds_net_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setDsNet(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("ds_net", mode).putString("ds_net_host", host == null ? "" : host).commit();
+    }
+
+    private String dsNetShown() {
+        switch (dsNetMode()) {
+            case 1: return "로컬 · 방장 · " + linkShown();
+            case 2: return "로컬 · 참가 · " + (dsNetHost() == null ? "?" : dsNetHost());
+            case 3: return "인터넷 · Wiimmfi";
+            case 4: return "인터넷 · Kaeru WFC";
+            default: return "꺼짐";
+        }
+    }
+
+    private LinearLayout createDsNetRow(android.app.Dialog menu) {
+        int mode = dsNetMode();
+        LinearLayout row = createSettingRow(RoundIconView.DS, RoundIconView.COLOR_DS, "DS 통신", dsNetShown(),
+                view -> showChoiceDialog(RoundIconView.DS, RoundIconView.COLOR_DS, "DS 통신", DSNET_NAMES, DSNET_NOTES, mode,
+                        "로컬(방장 · 참가): 같은 와이파이에 있는 Mini Emulator끼리 DS 무선 통신으로 놀아요. 연결된 뒤 게임 안의 통신 메뉴를 그대로 쓰면 돼요. 두 대 모두 같은 게임이어야 하고, 와이파이가 느리면 끊길 수 있어요.\n"
+                                + "인터넷: 게임 안 Wi-Fi 설정에서 접속하면 대체 서버로 가요. 친구 코드 같은 절차는 원래대로예요.\n"
+                                + "DS 게임 공통 · 저장하고 그 장면에서 이어져요 (2~3초).",
+                        Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
+                    if (choice == 2) {
+                        showHostFinder(menu, RoundIconView.DS, RoundIconView.COLOR_DS, address -> setDsNet(2, address));
+                        return;
+                    }
+                    if (choice == 1) {
+                        chooseLinkThen(menu, RoundIconView.DS, RoundIconView.COLOR_DS, () -> setDsNet(1, dsNetHost()));
+                        return;
+                    }
+                    if (choice == mode) {
+                        return;
+                    }
+                    setDsNet(choice, dsNetHost());
+                    directLink().release();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (mode == 0) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
+    }
+
+    private LinearLayout createWifiRow(android.app.Dialog menu) {
+        int mode = wifiMultiMode();
+        LinearLayout row = createSettingRow(RoundIconView.WIFI, RoundIconView.COLOR_WIFI, "와이파이 멀티", wifiMultiShown(),
+                view -> showChoiceDialog(RoundIconView.WIFI, RoundIconView.COLOR_WIFI, "와이파이 멀티", WIFI_NAMES, WIFI_NOTES, mode,
+                        "같은 와이파이에 있는 Mini Emulator끼리 PSP 애드혹 통신으로 놀아요 (몬스터 헌터 · 철권 6 등).\n"
+                                + "연결된 뒤에는 게임 안에서 PSP처럼 애드혹 방을 만들고 들어가면 돼요. 두 대 모두 같은 게임(같은 지역판)이어야 해요.\n"
+                                + "두 대 모두 게임이 제 속도로 돌아야 끊기지 않아요. 핫스팟을 켜고 다른 휴대폰을 거기 붙여도 돼요.\n"
+                                + "PSP 게임 공통 · 저장하고 그 장면에서 이어져요 (2~3초).",
+                        Color.rgb(236, 253, 250), Color.rgb(15, 118, 110), "적용", choice -> {
+                    if (choice == 2) {
+                        showHostFinder(menu);
+                        return;
+                    }
+                    if (choice == 1) {
+                        chooseLinkThen(menu, RoundIconView.WIFI, RoundIconView.COLOR_WIFI, () -> setWifiMulti(1, wifiMultiHost()));
+                        return;
+                    }
+                    if (choice == mode) {
+                        return;
+                    }
+                    setWifiMulti(choice, wifiMultiHost());
+                    directLink().release();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (mode == 0) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
+    }
+
+    // "방장 찾기": hosts on this Wi-Fi as they answer, and a box to type an address.
+    private interface HostPicked {
+        void onPicked(String address);
+    }
+
+    private void showHostFinder(android.app.Dialog menu) {
+        showHostFinder(menu, RoundIconView.WIFI, RoundIconView.COLOR_WIFI, address -> setWifiMulti(2, address));
+    }
+
+    private void showHostFinder(android.app.Dialog menu, int icon, int color, HostPicked picked) {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("방장 찾기");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        final TextView status = new TextView(this);
+        status.setText("같은 와이파이에서 찾는 중…");
+        status.setTextSize(12.0f);
+        status.setTextColor(Color.rgb(122, 130, 140));
+        titles.addView(status);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        // Same Wi-Fi (the beacon), Wi-Fi Direct (the phone's own search) or a VPN (typed address).
+        String lastHost = isNds() ? dsNetHost() : isDolphin() ? gcLanHost() : wifiMultiHost();
+        final int[] tab = {lastHost != null && vpnRecent().contains(lastHost) ? 2 : linkMode()};
+        final TextView[] tabs = new TextView[3];
+        LinearLayout tabRow = new LinearLayout(this);
+        android.graphics.drawable.GradientDrawable tabBackground = new android.graphics.drawable.GradientDrawable();
+        tabBackground.setColor(Color.rgb(233, 235, 240));
+        tabBackground.setCornerRadius(dp(12));
+        tabRow.setBackground(tabBackground);
+        tabRow.setPadding(dp(3), dp(3), dp(3), dp(3));
+        for (int k = 0; k < 3; k++) {
+            TextView tabView = new TextView(this);
+            tabView.setText(LINK_NAMES[k]);
+            tabView.setTextSize(12.5f);
+            tabView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tabView.setGravity(17);
+            tabView.setSingleLine(true);
+            tabs[k] = tabView;
+            tabRow.addView(tabView, new LinearLayout.LayoutParams(0, dp(34), 1.0f));
+        }
+        LinearLayout.LayoutParams tabParams = new LinearLayout.LayoutParams(-1, -2);
+        tabParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(tabRow, tabParams);
+        final Runnable paintTabs = () -> {
+            for (int k = 0; k < 3; k++) {
+                boolean on = k == tab[0];
+                android.graphics.drawable.GradientDrawable tabFill = new android.graphics.drawable.GradientDrawable();
+                tabFill.setColor(on ? Color.WHITE : Color.TRANSPARENT);
+                tabFill.setCornerRadius(dp(10));
+                tabs[k].setBackground(tabFill);
+                tabs[k].setTextColor(on ? color : Color.rgb(102, 112, 128));
+            }
+        };
+
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, -2);
+        listParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(list, listParams);
+
+        // The VPN tab: this phone's virtual address, recent friends, or how to get a VPN on.
+        final LinearLayout vpnBox = new LinearLayout(this);
+        vpnBox.setOrientation(1);
+        vpnBox.setVisibility(View.GONE);
+        panel.addView(vpnBox, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView waiting = new TextView(this);
+        waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
+        waiting.setTextSize(12.5f);
+        waiting.setGravity(17);
+        waiting.setTextColor(Color.rgb(122, 130, 140));
+        waiting.setPadding(0, dp(14), 0, dp(14));
+        panel.addView(waiting, new LinearLayout.LayoutParams(-1, -2));
+
+        // Typing the address shown on the host's menu row.
+        LinearLayout manual = new LinearLayout(this);
+        manual.setGravity(16);
+        android.graphics.drawable.GradientDrawable manualBackground = new android.graphics.drawable.GradientDrawable();
+        manualBackground.setColor(Color.rgb(246, 247, 249));
+        manualBackground.setCornerRadius(dp(14));
+        manual.setBackground(manualBackground);
+        manual.setPadding(dp(14), dp(4), dp(8), dp(4));
+        final android.widget.EditText address = new android.widget.EditText(this);
+        address.setHint("IP 직접 입력 (예: 192.168.0.12)");
+        address.setText(lastHost == null ? "" : lastHost);
+        address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        address.setSingleLine(true);
+        address.setTextSize(14.0f);
+        address.setBackground(null);
+        manual.addView(address, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView connect = dialogButton("연결", color, Color.WHITE);
+        connect.setPadding(dp(14), 0, dp(14), 0);
+        connect.setOnClickListener(view -> {
+            String typed = address.getText().toString().trim();
+            if (!typed.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                Toast.makeText(this, "IP 주소 모양이 아니에요 (예: 192.168.0.12)", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (tab[0] == 2) {
+                rememberVpnFriend(typed);
+            }
+            picked.onPicked(typed);
+            dialog.dismiss();
+            menu.dismiss();
+            relaunchGame();
+        });
+        manual.addView(connect, new LinearLayout.LayoutParams(-2, dp(36)));
+        LinearLayout.LayoutParams manualParams = new LinearLayout.LayoutParams(-1, dp(52));
+        panel.addView(manual, manualParams);
+
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(48));
+        cancelParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(cancel, cancelParams);
+
+        final Thread[] search = new Thread[1];
+        final Runnable[] again = new Runnable[1];
+        final Runnable[] searchDirect = new Runnable[1];
+        again[0] = () -> search[0] = AdhocBeacon.discover((hosts, finished) -> {
+            if (!dialog.isShowing() || tab[0] != 0) {
+                return;
+            }
+            list.removeAllViews();
+            for (AdhocBeacon.Host host : hosts) {
+                boolean sameGame = host.game.isEmpty() || host.game.equals(this.gameTitle);
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(16);
+                android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+                rowBackground.setColor(Color.rgb(246, 247, 249));
+                rowBackground.setCornerRadius(dp(14));
+                row.setBackground(rowBackground);
+                row.setPadding(dp(14), dp(10), dp(10), dp(10));
+                LinearLayout words = new LinearLayout(this);
+                words.setOrientation(1);
+                TextView name = new TextView(this);
+                name.setText(host.name.isEmpty() ? host.address : host.name);
+                name.setTextSize(14.5f);
+                name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                name.setTextColor(Color.rgb(31, 41, 51));
+                words.addView(name);
+                TextView detail = new TextView(this);
+                detail.setText((host.game.isEmpty() ? "" : host.game + " · ") + host.address + (sameGame ? "" : " · 같은 게임이 아니에요"));
+                detail.setTextSize(12.0f);
+                detail.setTextColor(Color.rgb(122, 130, 140));
+                words.addView(detail);
+                row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                if (sameGame) {
+                    TextView go = dialogButton("연결", color, Color.WHITE);
+                    go.setPadding(dp(14), 0, dp(14), 0);
+                    go.setOnClickListener(view -> {
+                        picked.onPicked(host.address);
+                        dialog.dismiss();
+                        menu.dismiss();
+                        relaunchGame();
+                    });
+                    row.addView(go, new LinearLayout.LayoutParams(-2, dp(34)));
+                } else {
+                    row.setAlpha(0.55f);
+                }
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, 0, 0, dp(8));
+                list.addView(row, rowParams);
+            }
+            if (finished) {
+                status.setText(hosts.isEmpty() ? "방장을 못 찾았어요" : hosts.size() + "곳 찾음");
+                waiting.setText(hosts.isEmpty() ? "방장이 '방 만들기'를 켰는지, 같은 와이파이인지 확인하고 다시 찾기를 눌러 주세요" : "다시 찾기");
+                waiting.setTextColor(color);
+                waiting.setOnClickListener(view -> {
+                    status.setText("같은 와이파이에서 찾는 중…");
+                    waiting.setText("찾는 중…");
+                    waiting.setTextColor(Color.rgb(122, 130, 140));
+                    waiting.setOnClickListener(null);
+                    again[0].run();
+                });
+            }
+        });
+        // Wi-Fi Direct: rooms the phone's own search finds; connecting waits for the owner's acceptance.
+        searchDirect[0] = () -> {
+            if (!directLink().available()) {
+                status.setText("이 휴대폰은 Wi-Fi Direct를 지원하지 않아요");
+                waiting.setText("");
+                return;
+            }
+            if (!DirectLink.permitted(this)) {
+                status.setText("근처 기기를 찾을 권한이 필요해요");
+                waiting.setText("권한 허용하기");
+                waiting.setTextColor(color);
+                waiting.setOnClickListener(view -> DirectLink.ask(this));
+                return;
+            }
+            status.setText("근처 휴대폰을 찾는 중…");
+            waiting.setText("방장이 '방 만들기 · Wi-Fi Direct'를 켜 두면 여기에 보여요");
+            waiting.setTextColor(Color.rgb(122, 130, 140));
+            waiting.setOnClickListener(null);
+            directLink().discover(rooms -> {
+                if (!dialog.isShowing() || tab[0] != 1) {
+                    return;
+                }
+                list.removeAllViews();
+                for (DirectLink.Room room : rooms) {
+                    boolean sameGame = room.game.isEmpty() || room.game.equals(this.gameTitle);
+                    LinearLayout row = new LinearLayout(this);
+                    row.setGravity(16);
+                    android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+                    rowBackground.setColor(Color.rgb(246, 247, 249));
+                    rowBackground.setCornerRadius(dp(14));
+                    row.setBackground(rowBackground);
+                    row.setPadding(dp(14), dp(10), dp(10), dp(10));
+                    LinearLayout words = new LinearLayout(this);
+                    words.setOrientation(1);
+                    TextView name = new TextView(this);
+                    name.setText(room.name);
+                    name.setTextSize(14.5f);
+                    name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                    name.setTextColor(Color.rgb(31, 41, 51));
+                    words.addView(name);
+                    TextView detail = new TextView(this);
+                    detail.setText("Mini Emulator" + (room.game.isEmpty() ? "" : " · " + room.game) + (sameGame ? "" : " · 같은 게임이 아니에요"));
+                    detail.setTextSize(12.0f);
+                    detail.setTextColor(Color.rgb(122, 130, 140));
+                    words.addView(detail);
+                    row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                    if (sameGame) {
+                        TextView go = dialogButton("연결", color, Color.WHITE);
+                        go.setPadding(dp(14), 0, dp(14), 0);
+                        go.setOnClickListener(view -> {
+                            status.setText("방장의 연결 허용을 기다리는 중…");
+                            go.setEnabled(false);
+                            go.setAlpha(0.5f);
+                            directLink().connect(room, new DirectLink.Connected() {
+                                @Override
+                                public void onConnected(String hostAddress) {
+                                    if (!dialog.isShowing()) {
+                                        return;
+                                    }
+                                    setLinkDirect(true);
+                                    picked.onPicked(hostAddress);
+                                    dialog.dismiss();
+                                    menu.dismiss();
+                                    relaunchGame();
+                                }
+
+                                @Override
+                                public void onFailed(String why) {
+                                    status.setText(why);
+                                    go.setEnabled(true);
+                                    go.setAlpha(1f);
+                                }
+                            });
+                        });
+                        row.addView(go, new LinearLayout.LayoutParams(-2, dp(34)));
+                    } else {
+                        row.setAlpha(0.55f);
+                    }
+                    LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                    rowParams.setMargins(0, 0, 0, dp(8));
+                    list.addView(row, rowParams);
+                }
+            });
+        };
+        final Runnable fillVpn = () -> {
+            vpnBox.removeAllViews();
+            String mine = AdhocBeacon.vpnAddress();
+            if (mine != null) {
+                status.setText("VPN으로 멀리 있는 방장에게 연결");
+                LinearLayout card = new LinearLayout(this);
+                card.setGravity(16);
+                android.graphics.drawable.GradientDrawable cardBackground = new android.graphics.drawable.GradientDrawable();
+                cardBackground.setColor(Color.rgb(236, 253, 245));
+                cardBackground.setCornerRadius(dp(14));
+                card.setBackground(cardBackground);
+                card.setPadding(dp(14), dp(10), dp(10), dp(10));
+                LinearLayout words = new LinearLayout(this);
+                words.setOrientation(1);
+                TextView on = new TextView(this);
+                on.setText("VPN 켜짐");
+                on.setTextSize(12.0f);
+                on.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                on.setTextColor(Color.rgb(4, 120, 87));
+                words.addView(on);
+                TextView ip = new TextView(this);
+                ip.setText("내 가상 IP " + mine);
+                ip.setTextSize(14.5f);
+                ip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                ip.setTextColor(Color.rgb(31, 41, 51));
+                words.addView(ip);
+                card.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                TextView copy = dialogButton("복사", Color.WHITE, Color.rgb(4, 120, 87));
+                copy.setPadding(dp(12), 0, dp(12), 0);
+                copy.setOnClickListener(view -> copyText(mine));
+                card.addView(copy, new LinearLayout.LayoutParams(-2, dp(32)));
+                TextView share = dialogButton("공유", Color.rgb(4, 120, 87), Color.WHITE);
+                share.setPadding(dp(12), 0, dp(12), 0);
+                share.setOnClickListener(view -> shareText("Mini Emulator 내 가상 IP: " + mine));
+                LinearLayout.LayoutParams shareParams = new LinearLayout.LayoutParams(-2, dp(32));
+                shareParams.setMargins(dp(6), 0, 0, 0);
+                card.addView(share, shareParams);
+                vpnBox.addView(card, new LinearLayout.LayoutParams(-1, -2));
+                java.util.List<String> recent = vpnRecent();
+                if (!recent.isEmpty()) {
+                    TextView heading = new TextView(this);
+                    heading.setText("최근 연결한 친구");
+                    heading.setTextSize(12.0f);
+                    heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                    heading.setTextColor(Color.rgb(122, 130, 140));
+                    heading.setPadding(dp(4), dp(12), 0, dp(6));
+                    vpnBox.addView(heading);
+                    for (String friend : recent) {
+                        LinearLayout row = new LinearLayout(this);
+                        row.setGravity(16);
+                        android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+                        rowBackground.setColor(Color.rgb(246, 247, 249));
+                        rowBackground.setCornerRadius(dp(14));
+                        row.setBackground(rowBackground);
+                        row.setPadding(dp(14), dp(8), dp(10), dp(8));
+                        TextView name = new TextView(this);
+                        name.setText(friend);
+                        name.setTextSize(14.0f);
+                        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                        name.setTextColor(Color.rgb(31, 41, 51));
+                        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                        TextView go = dialogButton("연결 ›", color, Color.WHITE);
+                        go.setPadding(dp(14), 0, dp(14), 0);
+                        go.setOnClickListener(view -> {
+                            rememberVpnFriend(friend);
+                            picked.onPicked(friend);
+                            dialog.dismiss();
+                            menu.dismiss();
+                            relaunchGame();
+                        });
+                        row.addView(go, new LinearLayout.LayoutParams(-2, dp(32)));
+                        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                        rowParams.setMargins(0, 0, 0, dp(6));
+                        vpnBox.addView(row, rowParams);
+                    }
+                }
+                TextView warn = new TextView(this);
+                warn.setText("친구도 같은 VPN 네트워크에 있어야 해요. 멀리 떨어질수록 끊기기 쉬워요" + (isNds() ? " (특히 DS)." : "."));
+                warn.setTextSize(12.0f);
+                warn.setTextColor(Color.rgb(146, 64, 14));
+                android.graphics.drawable.GradientDrawable warnBackground = new android.graphics.drawable.GradientDrawable();
+                warnBackground.setColor(Color.rgb(255, 247, 237));
+                warnBackground.setCornerRadius(dp(12));
+                warn.setBackground(warnBackground);
+                warn.setPadding(dp(12), dp(8), dp(12), dp(8));
+                LinearLayout.LayoutParams warnParams = new LinearLayout.LayoutParams(-1, -2);
+                warnParams.setMargins(0, dp(8), 0, dp(10));
+                vpnBox.addView(warn, warnParams);
+                return;
+            }
+            status.setText("VPN이 꺼져 있어요");
+            String[] steps = {"둘 다 가상 랜 앱 설치 — Tailscale 또는 ZeroTier (개인 무료)", "같은 계정 · 같은 네트워크에 들어가기", "앱을 켜고 여기로 돌아오기"};
+            for (int k = 0; k < steps.length; k++) {
+                TextView step = new TextView(this);
+                step.setText((k + 1) + ".  " + steps[k]);
+                step.setTextSize(13.0f);
+                step.setTextColor(Color.rgb(55, 65, 81));
+                step.setPadding(dp(4), dp(4), dp(4), dp(4));
+                vpnBox.addView(step);
+            }
+            LinearLayout stores = new LinearLayout(this);
+            TextView tailscale = dialogButton("Tailscale 받기", Color.rgb(241, 242, 244), Color.rgb(31, 41, 51));
+            tailscale.setOnClickListener(view -> openStore("com.tailscale.ipn"));
+            stores.addView(tailscale, new LinearLayout.LayoutParams(0, dp(40), 1.0f));
+            TextView zerotier = dialogButton("ZeroTier 받기", Color.rgb(241, 242, 244), Color.rgb(31, 41, 51));
+            zerotier.setOnClickListener(view -> openStore("com.zerotier.one"));
+            LinearLayout.LayoutParams zerotierParams = new LinearLayout.LayoutParams(0, dp(40), 1.0f);
+            zerotierParams.setMargins(dp(8), 0, 0, 0);
+            stores.addView(zerotier, zerotierParams);
+            LinearLayout.LayoutParams storesParams = new LinearLayout.LayoutParams(-1, -2);
+            storesParams.setMargins(0, dp(8), 0, dp(10));
+            vpnBox.addView(stores, storesParams);
+        };
+        final Runnable switchTab = () -> {
+            paintTabs.run();
+            list.removeAllViews();
+            boolean vpn = tab[0] == 2;
+            vpnBox.setVisibility(vpn ? View.VISIBLE : View.GONE);
+            waiting.setVisibility(vpn ? View.GONE : View.VISIBLE);
+            address.setHint(vpn ? "친구의 가상 IP (예: 100.64.12.8)" : "IP 직접 입력 (예: 192.168.0.12)");
+            if (tab[0] != 0 && search[0] != null) {
+                search[0].interrupt();
+            }
+            if (tab[0] != 1) {
+                directLink().stopDiscovery();
+            }
+            if (tab[0] == 1) {
+                searchDirect[0].run();
+            } else if (vpn) {
+                fillVpn.run();
+            } else {
+                status.setText("같은 와이파이에서 찾는 중…");
+                waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
+                waiting.setTextColor(Color.rgb(122, 130, 140));
+                waiting.setOnClickListener(null);
+                again[0].run();
+            }
+        };
+        for (int k = 0; k < 3; k++) {
+            final int which = k;
+            tabs[k].setOnClickListener(view -> {
+                if (tab[0] != which) {
+                    tab[0] = which;
+                    switchTab.run();
+                }
+            });
+        }
+        switchTab.run();
+        dialog.setOnDismissListener(d -> {
+            if (search[0] != null) {
+                search[0].interrupt();
+            }
+            directLink().stopDiscovery();
+        });
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout createFastRow(android.app.Dialog menu) {
+        String changes = isPsp()
+                ? "· 텍스처 변경 검사를 덜 자주 해요\n· GPU에서 화면을 되읽는 작업을 건너뛰어요\n· 블러·빛 번짐 같은 효과는 낮은 해상도로 그려요\n· 곡면 모델을 덜 촘촘하게 그려요\n· 텍스처 비등방성 필터를 꺼요\n게임에 따라 일부 효과(빛 번짐·화면 위 그림)가 빠지거나 거칠어질 수 있어요."
+                : isN64()
+                ? "· 화면 내용을 CPU 쪽 메모리로 되돌려 복사하는 작업(색 · 깊이)을 꺼요\n· 같은 화면이 반복되면 다시 그리지 않아요\n게임에 따라 일부 효과(화면 속 화면, 사진 찍기, 렌즈 효과 등)가 빠질 수 있어요."
+                : isDolphin()
+                ? "· 게임기 CPU를 80%로 낮춰 계산을 줄여요\n· 텍스처 변경 검사를 가장 가볍게 해요\n· 디스크 읽기를 기다리지 않아요 (로딩이 빨라져요)\n게임에 따라 게임 속도가 느려지거나 텍스처가 잠깐 깨질 수 있어요."
+                : isDreamcast()
+                ? "· 사운드 DSP(울림 · 에코 효과) 흉내를 꺼요\n· 늦어질 때만 화면을 한 장씩 건너뛰어 그려요\n게임에 따라 소리 울림이 빠질 수 있어요."
+                : "· PS2 CPU를 75%(강하게는 60%)로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
+        boolean ps2 = "pcee2".equals(this.coreId);
+        int level = speedFirstLevel();
+        LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", FAST_SHORT[level],
+                view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", ps2 ? FAST_NAMES_PS2 : FAST_NAMES, ps2 ? FAST_NOTES_PS2 : FAST_NOTES,
+                        level, "켜면 이렇게 바뀌어요\n" + changes + "\n이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 이어하기", choice -> {
+                    if (choice == level) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putBoolean(speedFirstKey(), choice >= 1)
+                            .putBoolean("fast_strong:" + this.saveBaseName, choice == 2).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (!speedFirst()) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
+    }
+
+    // Closes the game (saving it as on exit) and has the ROM list open it again once this
+    // game's process is gone; it resumes from the quick save made on the way out.
+    private void relaunchGame() {
+        this.menuExiting = true;
+        Intent relaunch = new Intent(this, MainActivity.class);
+        relaunch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        relaunch.putExtra(MainActivity.EXTRA_RELAUNCH_GAME, new Intent(getIntent()));
+        startActivity(relaunch);
+        callCore(NativeGba::saveNow, null, null);
+        finish();
+    }
+
+    // A pause-menu row: icon, name, the current value and an arrow.
+    private LinearLayout createSettingRow(int icon, int color, String name, String current, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(246, 247, 249));
+        background.setCornerRadius(dp(14));
+        row.setBackground(background);
+        row.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText(name);
+        label.setTextSize(14.0f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        TextView value = new TextView(this);
+        value.setText(current + "  ›");
+        value.setTextSize(13.5f);
+        value.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        value.setTextColor(color);
+        row.addView(value, new LinearLayout.LayoutParams(-2, -2));
+        // The pause menu stays open underneath; the game stays paused meanwhile.
+        row.setOnClickListener(onClick);
+        return row;
+    }
+
+    private interface ChoiceListener {
+        void onChoice(int index);
+    }
+
+    // A sheet of radio options over the pause menu, with a note and cancel / apply buttons.
+    private void showChoiceDialog(int icon, int color, String titleText, String[] names, String[] notes, int current,
+                                  String noteText, int noteBackground, int noteColor, String applyText, ChoiceListener onApply) {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(titleText);
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView game = new TextView(this);
+        game.setText(this.gameTitle);
+        game.setTextSize(12.0f);
+        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(game);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        final int[] selected = {current};
+        final LinearLayout[] options = new LinearLayout[names.length];
+        final View[] dots = new View[names.length];
+        int selectedFill = Color.argb(28, Color.red(color), Color.green(color), Color.blue(color));
+        Runnable refresh = () -> {
+            for (int k = 0; k < options.length; k++) {
+                boolean on = k == selected[0];
+                android.graphics.drawable.GradientDrawable optionBackground = new android.graphics.drawable.GradientDrawable();
+                optionBackground.setColor(on ? selectedFill : Color.rgb(246, 247, 249));
+                optionBackground.setCornerRadius(dp(14));
+                options[k].setBackground(optionBackground);
+                android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+                dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                dot.setStroke(dp(2), on ? color : Color.rgb(201, 206, 214));
+                dot.setColor(Color.WHITE);
+                dots[k].setBackground(on ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{dot, innerDot(color)}) : dot);
+            }
+        };
+        for (int k = 0; k < names.length; k++) {
+            final int index = k;
+            LinearLayout option = new LinearLayout(this);
+            option.setOrientation(0);
+            option.setGravity(16);
+            option.setPadding(dp(14), dp(12), dp(14), dp(12));
+            View dot = new View(this);
+            option.addView(dot, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            TextView name = new TextView(this);
+            name.setText(names[k]);
+            name.setTextSize(14.5f);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            texts.addView(name);
+            TextView note = new TextView(this);
+            note.setText(notes[k]);
+            note.setTextSize(11.5f);
+            note.setTextColor(Color.rgb(122, 130, 140));
+            texts.addView(note);
+            LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            textsParams.setMargins(dp(12), 0, 0, 0);
+            option.addView(texts, textsParams);
+            option.setOnClickListener(view -> {
+                selected[0] = index;
+                refresh.run();
+            });
+            LinearLayout.LayoutParams optionParams = new LinearLayout.LayoutParams(-1, -2);
+            optionParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(option, optionParams);
+            options[k] = option;
+            dots[k] = dot;
+        }
+        refresh.run();
+
+        TextView warning = new TextView(this);
+        warning.setText(noteText);
+        warning.setTextSize(12.0f);
+        warning.setLineSpacing(0, 1.15f);
+        warning.setTextColor(noteColor);
+        warning.setPadding(dp(12), dp(10), dp(12), dp(10));
+        android.graphics.drawable.GradientDrawable warningBackground = new android.graphics.drawable.GradientDrawable();
+        warningBackground.setColor(noteBackground);
+        warningBackground.setCornerRadius(dp(12));
+        warning.setBackground(warningBackground);
+        LinearLayout.LayoutParams warningParams = new LinearLayout.LayoutParams(-1, -2);
+        warningParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(warning, warningParams);
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView apply = dialogButton(applyText, color, Color.WHITE);
+        apply.setOnClickListener(view -> {
+            dialog.dismiss();
+            onApply.onChoice(selected[0]);
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+
+        // Long lists (the 7 backgrounds) scroll on a landscape screen.
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    // The filled centre of a selected radio dot.
+    private android.graphics.drawable.Drawable innerDot(int color) {
+        android.graphics.drawable.GradientDrawable inner = new android.graphics.drawable.GradientDrawable();
+        inner.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        inner.setColor(color);
+        android.graphics.drawable.InsetDrawable inset = new android.graphics.drawable.InsetDrawable(inner, dp(5));
+        return inset;
+    }
+
+    private TextView dialogButton(String text, int background, int textColor) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(15.0f);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setTextColor(textColor);
+        button.setGravity(17);
+        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+        drawable.setColor(background);
+        drawable.setCornerRadius(dp(14));
+        button.setBackground(drawable);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams menuTileParams(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+        params.setMargins(column == 0 ? 0 : dp(5), 0, column == 2 ? 0 : dp(5), 0);
+        return params;
+    }
+
+    private LinearLayout createMenuTile(android.app.Dialog dialog, int index, int icon, int color, String label, String detail) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(1);
+        tile.setGravity(1);
+        tile.setPadding(dp(6), dp(14), dp(6), dp(12));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(246, 247, 249));
+        background.setCornerRadius(dp(16));
+        tile.setBackground(background);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        tile.addView(iconView, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(13.0f);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.setTextColor(Color.rgb(31, 41, 51));
+        text.setGravity(1);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(0, dp(8), 0, 0);
+        tile.addView(text, textParams);
+        if (detail != null) {
+            TextView sub = new TextView(this);
+            sub.setText(detail);
+            sub.setTextSize(10.5f);
+            sub.setTextColor(Color.rgb(122, 130, 140));
+            sub.setGravity(1);
+            tile.addView(sub, new LinearLayout.LayoutParams(-2, -2));
+        }
+        tile.setClickable(true);
+        tile.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+            }
+            return false;
+        });
+        tile.setOnClickListener(view -> {
+            // Runs the action first so leaving the game is flagged before the dialog's
+            // dismiss listener would resume it.
+            onGameMenuItemSelected(dialog, index);
+            dialog.dismiss();
+        });
+        if (index == 1 && !isMame139()) {
+            tile.setOnLongClickListener(view -> {
+                showSaveChooser();
+                dialog.dismiss();
+                return true;
+            });
+        }
+        return tile;
+    }
+
+    // When the quick save was last written, from the state file the bridge keeps.
+    private String lastQuickSaveText() {
+        if (isMame139()) {
+            return null;
+        }
+        long modified = 0;
+        File auto = autoStateFile();
+        if (auto.isFile()) {
+            modified = auto.lastModified();
+        }
+        for (File save : quickSaves()) {
+            modified = Math.max(modified, save.lastModified());
+        }
+        for (int n = 1; n <= FIXED_SLOTS; n++) {
+            if (slotFile(n).isFile()) modified = Math.max(modified, slotFile(n).lastModified());
+        }
+        if (modified == 0) {
+            return "저장 없음";
+        }
+        java.util.Calendar then = java.util.Calendar.getInstance();
+        then.setTimeInMillis(modified);
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        boolean today = then.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) && then.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR);
+        return new java.text.SimpleDateFormat(today ? "a h:mm" : "M/d a h:mm", Locale.KOREAN).format(new java.util.Date(modified));
+    }
+
+    private void onGameMenuItemSelected(DialogInterface dialogInterface, int index) {
+        String item = index < this.menuItems.length ? this.menuItems[index] : "";
+        if (MENU_SHOT.equals(item) || MENU_SHOT_FULL.equals(item)) {
+            final boolean full = MENU_SHOT_FULL.equals(item);
+            // After the menu is gone and a frame has been drawn.
+            getWindow().getDecorView().postDelayed(() -> takeScreenshot(full), 350);
+            return;
+        }
+        // Map the label back to the fixed action numbers used below.
+        int i;
+        switch (item) {
+            case MENU_CONTINUE: i = 0; break;
+            case MENU_SAVE_STATE: i = 1; break;
+            case MENU_LOAD_STATE: i = 2; break;
+            case MENU_SAVE_SRAM: i = 3; break;
+            case MENU_RESET: i = 4; break;
+            case MENU_EXIT: i = 6; break;
+            default: i = 5; break;
+        }
+        if (i == 0) {
+            dialogInterface.dismiss();
+            return;
+        }
+        if (i == 1) {
+            if (isMame139()) {
+                Emulator.saveState();
+                Toast.makeText(this, "MAME 0.139 빠른 저장을 요청했습니다.", 0).show();
+                return;
+            } else {
+                createQuickSave(false);
+                return;
+            }
+        }
+        if (i == 2) {
+            if (isMame139()) {
+                Emulator.loadState();
+                Toast.makeText(this, "MAME 0.139 빠른 저장 불러오기를 요청했습니다.", 0).show();
+                return;
+            } else {
+                showLoadList();
+                return;
+            }
+        }
+        if (i == 3) {
+            if (isMame139()) {
+                Emulator.saveState();
+                Toast.makeText(this, "MAME 0.139 상태를 저장했습니다.", 0).show();
+                return;
+            } else {
+                callCore(NativeGba::saveSramNow, "게임 내 세이브 파일을 저장했습니다.", "게임 내 세이브 데이터가 없습니다.");
+                return;
+            }
+        }
+        if (i != 4) {
+            if (i == 5) {
+                toggleOrientation();
+                return;
+            } else {
+                if (i == 6) {
+                    this.menuExiting = true;
+                    finish();
+                    return;
+                }
+                return;
+            }
+        }
+        if (isMame139()) {
+            Toast.makeText(this, "ROM 목록에서 다시 실행하면 재시작됩니다.", 0).show();
+            return;
+        }
+        callCore(handle -> {
+            NativeGba.reset(handle);
+            return true;
+        }, "게임을 재시작했습니다.", null);
+    }
+
+    private void resumeUnlessExiting() {
+        if (!this.menuExiting && isMame139()) {
+            Emulator.resume();
+        } else {
+            // A menu dismissed while another took its place (or a sheet still holds the game).
+            if (this.menuExiting || this.holdPause || (this.pauseDialog != null && this.pauseDialog.isShowing())) {
+                return;
+            }
+            long j = this.nativeHandle;
+            if (j != 0) {
+                NativeGba.pause(j, false);
+            }
+        }
+    }
+
+    private void showBackExitDialog() {
+        if (isMame139()) {
+            Emulator.pause();
+        } else {
+            long j = this.nativeHandle;
+            if (j != 0) {
+                NativeGba.pause(j, true);
+            }
+        }
+        this.menuExiting = false;
+        // Two big tiles in the pause menu's style: carry on, or save this moment and leave.
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(18), dp(14), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("게임을 나갈까요?");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setGravity(1);
+        panel.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        TextView game = new TextView(this);
+        game.setText(this.gameTitle);
+        game.setTextSize(12.0f);
+        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setGravity(1);
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        panel.addView(game, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout tiles = new LinearLayout(this);
+        tiles.setOrientation(0);
+        tiles.addView(createBackExitTile(RoundIconView.PLAY, Color.rgb(22, 185, 207), Color.rgb(241, 251, 252), "계속하기", "게임으로\n돌아가기",
+                view -> dialog.cancel()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams exitParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        exitParams.setMargins(dp(10), 0, 0, 0);
+        tiles.addView(createBackExitTile(RoundIconView.EXIT, RoundIconView.COLOR_EXIT, Color.rgb(254, 243, 243), "나가기", "지금 장면 저장 후\nROM 목록으로",
+                view -> {
+                    // Flag the exit before the dismiss listener would resume the game.
+                    this.menuExiting = true;
+                    dialog.dismiss();
+                    saveAndExit();
+                }), exitParams);
+        LinearLayout.LayoutParams tilesParams = new LinearLayout.LayoutParams(-1, -2);
+        tilesParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(tiles, tilesParams);
+        dialog.setContentView(panel);
+        dialog.setOnCancelListener(d -> resumeEmulation());
+        dialog.setOnDismissListener(d -> resumeUnlessExiting());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(48), dp(360));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout createBackExitTile(int icon, int color, int fill, String label, String detail, View.OnClickListener onClick) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(1);
+        tile.setGravity(1);
+        tile.setPadding(dp(8), dp(18), dp(8), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(fill);
+        background.setCornerRadius(dp(18));
+        tile.setBackground(background);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        tile.addView(iconView, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(15.0f);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.setTextColor(Color.rgb(31, 41, 51));
+        text.setGravity(1);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(0, dp(10), 0, 0);
+        tile.addView(text, textParams);
+        TextView sub = new TextView(this);
+        sub.setText(detail);
+        sub.setTextSize(11.5f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setGravity(1);
+        sub.setLineSpacing(0, 1.1f);
+        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-2, -2);
+        subParams.setMargins(0, dp(3), 0, 0);
+        tile.addView(sub, subParams);
+        tile.setClickable(true);
+        tile.setContentDescription(label);
+        tile.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+            }
+            return false;
+        });
+        tile.setOnClickListener(onClick);
+        return tile;
+    }
+
+    private void resumeEmulation() {
+        if (isMame139()) {
+            Emulator.resume();
+            return;
+        }
+        long j = this.nativeHandle;
+        if (j != 0) {
+            NativeGba.pause(j, false);
+        }
+    }
+
+    private void saveAndExit() {
+        this.menuExiting = true;
+        if (isMame139()) {
+            Emulator.stop();
+        } else {
+            callCore(NativeGba::saveNow, null, null);
+        }
+        finish();
+    }
+
+    // The game could not start: a card in the app's style with a plain explanation first
+    // and the engine's own words underneath, and one way out (back to the list).
+    private void showFatalError(String str) {
+        String raw = str == null ? "" : str;
+        StringBuilder detail = new StringBuilder();
+        String summary = null;
+        for (String line : raw.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.contains("nvmem is DISABLED")) continue;
+            if (trimmed.startsWith("ROM load failure: selected file could not be loaded")) {
+                if (summary == null) summary = "엔진이 이 파일을 열지 못했어요.";
+                continue;
+            }
+            if (trimmed.contains("Unknown game")) {
+                summary = isNaomi() ? "Flycast가 이 ZIP의 이름으로 세트를 찾지 못했어요. 파일 이름이 MAME 세트명(예: mvsc2.zip)이어야 해요. 목록에서 게임을 길게 눌러 \"ROM 검사\"를 하면 내용을 보고 이름을 맞춰 줘요."
+                        : "엔진이 이 게임을 알아보지 못했어요.";
+            } else if (trimmed.toLowerCase(Locale.US).contains("bios")) {
+                summary = isNaomi() ? "기판 BIOS가 없거나 맞지 않아요. 목록의 \"기판 BIOS\"에서 naomi.zip · naomi2.zip · awbios.zip을 등록해 주세요." : "BIOS가 없거나 맞지 않아요.";
+            } else if (trimmed.toLowerCase(Locale.US).contains("gdrom") || trimmed.toLowerCase(Locale.US).contains(".chd")) {
+                summary = "GD-ROM 디스크 이미지(.chd)를 찾지 못했어요. ZIP과 같은 폴더에 넣어 주세요.";
+            }
+            if (detail.length() > 0) detail.append('\n');
+            detail.append(trimmed);
+        }
+        if (summary == null) {
+            summary = detail.length() > 0 ? "게임을 시작하지 못했어요." : raw;
+        }
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setCancelable(false);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(20), dp(20), dp(20), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.WARN, Color.rgb(225, 29, 72)), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        TextView title = new TextView(this);
+        title.setText("게임을 열지 못했어요");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titleParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(title, titleParams);
+        panel.addView(header);
+        TextView text = new TextView(this);
+        text.setText(summary);
+        text.setTextSize(14.0f);
+        text.setLineSpacing(0, 1.25f);
+        text.setTextColor(Color.rgb(55, 65, 81));
+        text.setPadding(0, dp(14), 0, 0);
+        panel.addView(text);
+        if (detail.length() > 0) {
+            TextView raws = new TextView(this);
+            raws.setText(detail);
+            raws.setTextSize(11.0f);
+            raws.setTypeface(android.graphics.Typeface.MONOSPACE);
+            raws.setTextColor(Color.rgb(122, 130, 140));
+            raws.setPadding(dp(12), dp(10), dp(12), dp(10));
+            raws.setTextIsSelectable(true);
+            android.graphics.drawable.GradientDrawable box = new android.graphics.drawable.GradientDrawable();
+            box.setColor(Color.rgb(246, 247, 249));
+            box.setCornerRadius(dp(12));
+            raws.setBackground(box);
+            LinearLayout.LayoutParams rawParams = new LinearLayout.LayoutParams(-1, -2);
+            rawParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(raws, rawParams);
+        }
+        TextView back = dialogButton("목록으로 돌아가기", Color.rgb(225, 29, 72), Color.WHITE);
+        back.setOnClickListener(view -> {
+            dialog.dismiss();
+            finish();
+        });
+        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(-1, dp(48));
+        backParams.setMargins(0, dp(16), 0, 0);
+        panel.addView(back, backParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380)), -2);
+        }
+        try {
+            dialog.show();
+        } catch (RuntimeException e) {
+            finish();
+        }
+    }
+
+    private int dp(int i) {
+        return (int) ((i * getResources().getDisplayMetrics().density) + 0.5f);
+    }
+
+    // Game Boy and Game Boy Color games run on the GBA engine but have no L/R and a 10:9 screen.
+    private boolean isGameBoy() {
+        return this.coreId.equals("gba") && this.romPath != null && MainActivity.isGameBoyRomName(this.romPath.toLowerCase(Locale.US));
+    }
+
+    private boolean isSnes() {
+        return "snes9x".equals(this.coreId);
+    }
+
+    private boolean isNds() {
+        return "melonds".equals(this.coreId);
+    }
+
+    private boolean isN3ds() {
+        return "citra".equals(this.coreId);
+    }
+
+    private boolean isWiiU() {
+        return "cemu".equals(this.coreId);
+    }
+
+    // ---- 모션 (자이로): Wii remotes, the Wii U GamePad and GBA / Game Boy sensor carts ----
+    private MotionInput motionInput;
+    private Boolean gbaMotionCart;
+
+    private MotionInput motionInput() {
+        if (this.motionInput == null) {
+            this.motionInput = new MotionInput(this);
+        }
+        return this.motionInput;
+    }
+
+    private boolean motionSupported() {
+        return (isDolphin() && isWiiGame()) || isWiiU() || isGbaMotionCart();
+    }
+
+    private boolean motionOn() {
+        return MainActivity.sharedSettings(this).getBoolean("motion:" + this.saveBaseName, isGbaMotionCart());
+    }
+
+    private boolean motionActive() {
+        return motionSupported() && motionOn() && motionInput().available();
+    }
+
+    private static final int[] MOTION_SENS = {50, 75, 100, 150, 200};
+    private static final String[] MOTION_SENS_NAMES = {"약하게 · 50%", "조금 약하게 · 75%", "보통 · 100%", "세게 · 150%", "아주 세게 · 200%"};
+
+    private int motionSensitivity() {
+        int value = MainActivity.sharedSettings(this).getInt("motion_sens", 100);
+        for (int k : MOTION_SENS) {
+            if (k == value) return value;
+        }
+        return 100;
+    }
+
+    private void startMotionIfOn() {
+        if (!motionActive() || this.nativeHandle == 0 || !this.activityResumed) {
+            return;
+        }
+        MotionInput input = motionInput();
+        input.setSensitivity(motionSensitivity() / 100f);
+        input.setUpright(isWiiU());
+        input.recenter();
+        input.start();
+    }
+
+    // GBA carts with a tilt or turn sensor (WarioWare Twisted!, Koro Koro Puzzle, Yoshi
+    // Topsy-Turvy) by their game code, and Game Boy MBC7 carts (Kirby Tilt 'n' Tumble) by
+    // their cartridge type; read from a zip's first entry too.
+    private boolean isGbaMotionCart() {
+        if (this.gbaMotionCart != null) {
+            return this.gbaMotionCart;
+        }
+        boolean motion = false;
+        if ("gba".equals(this.coreId) && this.romPath != null) {
+            byte[] head = new byte[0x150];
+            int got = 0;
+            try {
+                java.io.InputStream in;
+                java.util.zip.ZipFile zip = null;
+                if (this.romPath.toLowerCase(Locale.US).endsWith(".zip")) {
+                    zip = new java.util.zip.ZipFile(this.romPath);
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    java.util.zip.ZipEntry entry = null;
+                    while (entries.hasMoreElements()) {
+                        java.util.zip.ZipEntry next = entries.nextElement();
+                        if (!next.isDirectory()) {
+                            entry = next;
+                            break;
+                        }
+                    }
+                    in = entry == null ? null : zip.getInputStream(entry);
+                } else {
+                    in = new java.io.FileInputStream(this.romPath);
+                }
+                if (in != null) {
+                    try (java.io.InputStream stream = in) {
+                        while (got < head.length) {
+                            int n = stream.read(head, got, head.length - got);
+                            if (n < 0) break;
+                            got += n;
+                        }
+                    }
+                }
+                if (zip != null) {
+                    zip.close();
+                }
+            } catch (IOException | RuntimeException e) {
+                got = 0;
+            }
+            if (got >= 0x150) {
+                if (isGameBoy()) {
+                    motion = (head[0x147] & 0xFF) == 0x22;
+                } else {
+                    String code = new String(head, 0xAC, 3, java.nio.charset.StandardCharsets.ISO_8859_1);
+                    motion = code.equals("RZW") || code.equals("KHP") || code.equals("KYG");
+                }
+            }
+        }
+        this.gbaMotionCart = motion;
+        return motion;
+    }
+
+    // On the picture's top left while motion is on: a badge and the "가운데로" button.
+    private void addMotionBadges(FrameLayout screenFrame) {
+        if (!motionActive()) {
+            return;
+        }
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        TextView badge = new TextView(this);
+        badge.setText("↻ 모션 켜짐");
+        badge.setTextSize(11.0f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        badge.setBackground(roundRect(Color.argb(225, 13, 148, 136), dp(11)));
+        row.addView(badge);
+        TextView center = new TextView(this);
+        center.setText("⊙ 가운데로");
+        center.setTextSize(11.0f);
+        center.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        center.setTextColor(Color.rgb(229, 231, 235));
+        center.setPadding(dp(9), dp(3), dp(9), dp(3));
+        center.setBackground(roundRect(Color.argb(200, 17, 24, 39), dp(11)));
+        center.setOnClickListener(view -> {
+            motionInput().recenter();
+            Toast.makeText(this, "지금 자세를 가운데로 맞췄어요", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(-2, -2);
+        centerParams.setMargins(dp(6), 0, 0, 0);
+        row.addView(center, centerParams);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        params.setMargins(dp(8), dp(8), 0, 0);
+        screenFrame.addView(row, params);
+    }
+
+    // Wii / Wii U, the first time a game starts: whether to steer by tilting the phone.
+    private void showMotionPrompt() {
+        String what = isWiiU() ? "휴대폰을 게임패드처럼 기울이면 조준 · 모션 조작이 돼요." : "휴대폰을 리모컨처럼 기울이면 기울이기가, 흔들면 흔들기가 돼요. 흔들기 버튼도 그대로 써요.";
+        new AppDialog.Builder(this).setTitle("휴대폰을 기울여서 조작할까요?")
+                .setMessage(what + "\n\n편하게 잡은 자세에서 화면의 '가운데로'를 누르면 그 자세가 똑바로가 돼요. 언제든 일시정지 › 조작에서 끌 수 있어요."
+                        + (isWiiU() ? "\n\n켜면 게임이 다시 켜져요 (Wii U는 타이틀부터)." : "\n\n켜면 지금 장면을 저장하고 다시 켜서 이어져요."))
+                .setNegativeButton("나중에", null)
+                .setPositiveButton("모션 켜기", (d, w) -> setMotionOn(true, null)).show();
+    }
+
+    private void setMotionOn(boolean on, android.app.Dialog menu) {
+        MainActivity.sharedSettings(this).edit().putBoolean("motion:" + this.saveBaseName, on).commit();
+        if (menu != null) {
+            menu.dismiss();
+        }
+        relaunchGame();
+    }
+
+    private void addMotionRows(LinearLayout panel, android.app.Dialog dialog, Runnable refresh) {
+        if (!motionSupported()) {
+            return;
+        }
+        int teal = Color.rgb(13, 148, 136);
+        if (!motionInput().available()) {
+            panel.addView(createSettingRow(RoundIconView.ROTATE, teal, "모션 (자이로)", "이 휴대폰엔 센서가 없어요", view -> { }), tabRowParams(panel));
+            return;
+        }
+        boolean on = motionOn();
+        panel.addView(createSettingRow(RoundIconView.ROTATE, teal, "모션 (자이로)", on ? "켜짐" : "꺼짐",
+                view -> showChoiceDialog(RoundIconView.ROTATE, teal, "모션 (자이로)", new String[]{"꺼짐", "켜짐"},
+                        new String[]{"화면 버튼으로만 조작해요", "휴대폰을 기울이고 흔들어서 조작해요 · 버튼도 그대로"}, on ? 1 : 0,
+                        "이 게임에만 적용돼요. " + (isWiiU() ? "바꾸면 게임이 다시 켜지고, Wii U는 이어하기가 없어서 타이틀부터 시작해요." : "지금 장면을 저장하고 다시 켜서 이어져요."),
+                        Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+                    if ((choice == 1) == on) {
+                        return;
+                    }
+                    setMotionOn(choice == 1, dialog);
+                })), tabRowParams(panel));
+        if (!on) {
+            return;
+        }
+        int sens = motionSensitivity();
+        int index = java.util.Arrays.binarySearch(MOTION_SENS, sens);
+        panel.addView(createSettingRow(RoundIconView.STICK, teal, "모션 감도", MOTION_SENS_NAMES[index],
+                view -> showChoiceDialog(RoundIconView.STICK, teal, "모션 감도", MOTION_SENS_NAMES,
+                        new String[]{"크게 기울여야 움직여요", "조금 둔하게", "기본", "조금 예민하게", "조금만 기울여도 크게 움직여요"}, index,
+                        "모든 게임에 바로 적용돼요.", Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+                    MainActivity.sharedSettings(this).edit().putInt("motion_sens", MOTION_SENS[choice]).apply();
+                    motionInput().setSensitivity(MOTION_SENS[choice] / 100f);
+                    refresh.run();
+                })), tabRowParams(panel));
+        panel.addView(createSettingRow(RoundIconView.MOVE, teal, "가운데로 맞추기", "지금 자세로", view -> {
+            motionInput().recenter();
+            Toast.makeText(this, "지금 자세를 가운데로 맞췄어요", Toast.LENGTH_SHORT).show();
+        }), tabRowParams(panel));
+    }
+
+    // ---- Wii U: the TV picture and the GamePad's ----
+    // Portrait: 0 the TV over the GamePad, 1 TV only, 2 GamePad only. Landscape: 0 the TV with
+    // the GamePad in a small window (WiiuPadWindowView), 1 TV only, 2 GamePad only.
+    private static final String[] WIIU_VIEW_PORTRAIT = {"위아래", "TV만", "게임패드만"};
+    private static final String[] WIIU_VIEW_LANDSCAPE = {"작은 창", "TV만", "게임패드만"};
+    private WiiuPadWindowView wiiuPadWindow;
+
+    private int wiiuView() {
+        int value = MainActivity.sharedSettings(this).getInt(this.landscapeMode ? "wiiu_view_l" : "wiiu_view_p", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private void setWiiuView(int view) {
+        MainActivity.sharedSettings(this).edit().putInt(this.landscapeMode ? "wiiu_view_l" : "wiiu_view_p", view).apply();
+        if (this.landscapeMode) {
+            if (this.wiiuPadWindow != null) {
+                this.wiiuPadWindow.setVisibility(view == 0 ? View.VISIBLE : View.GONE);
+            }
+            applyWiiuLayout();
+        } else {
+            // The screen's shape changes with it (two pictures tall or one).
+            applyWiiuLayout();
+            rebuildContent();
+        }
+    }
+
+    private String wiiuViewName() {
+        return (this.landscapeMode ? WIIU_VIEW_LANDSCAPE : WIIU_VIEW_PORTRAIT)[wiiuView()];
+    }
+
+    // Tells the core where to draw both pictures, as fractions of its output.
+    private void applyWiiuLayout() {
+        if (!isWiiU()) {
+            return;
+        }
+        float[] none = {0f, 0f, 0f, 0f};
+        float[] whole = {0f, 0f, 1f, 1f};
+        int view = wiiuView();
+        if (view == 1) {
+            NativeGba.setWiiuLayout(1, whole, none);
+        } else if (view == 2) {
+            NativeGba.setWiiuLayout(1, none, whole);
+        } else if (!this.landscapeMode) {
+            NativeGba.setWiiuLayout(2, new float[]{0f, 0f, 1f, 0.5f}, new float[]{0f, 0.5f, 1f, 0.5f});
+        } else {
+            NativeGba.setWiiuLayout(1, whole, wiiuPadRect());
+        }
+    }
+
+    // The window's rectangle over the picture, from where the layout editor left it.
+    private float[] wiiuPadRect() {
+        WiiuPadWindowView window = this.wiiuPadWindow;
+        SurfaceView surface = this.surfaceView;
+        if (window == null || surface == null || window.getWidth() <= 0 || surface.getWidth() <= 0 || surface.getHeight() <= 0) {
+            return new float[]{0.68f, 0.02f, 0.30f, 0.30f};
+        }
+        float width = window.getWidth() * window.getScaleX();
+        float height = window.getHeight() * window.getScaleY();
+        float left = window.getLeft() + window.getTranslationX() + window.getWidth() * (1f - window.getScaleX()) / 2f - (surface.getLeft() + surface.getTranslationX());
+        float top = window.getTop() + window.getTranslationY() + window.getHeight() * (1f - window.getScaleY()) / 2f - (surface.getTop() + surface.getTranslationY());
+        float w = Math.max(0.05f, Math.min(1f, width / surface.getWidth()));
+        float h = Math.max(0.05f, Math.min(1f, height / surface.getHeight()));
+        float x = Math.max(0f, Math.min(1f - w, left / surface.getWidth()));
+        float y = Math.max(0f, Math.min(1f - h, top / surface.getHeight()));
+        return new float[]{x, y, w, h};
+    }
+
+    // Landscape: the GamePad window in the top right corner of the picture, 30% of its width.
+    private void addWiiuPadWindow(FrameLayout screenFrame) {
+        this.wiiuPadWindow = null;
+        if (!isWiiU()) {
+            return;
+        }
+        WiiuPadWindowView window = new WiiuPadWindowView(this, this::onWiiuPadTouch);
+        window.setVisibility(wiiuView() == 0 ? View.VISIBLE : View.GONE);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(120), dp(68), Gravity.TOP | Gravity.END);
+        screenFrame.addView(window, params);
+        this.wiiuPadWindow = window;
+        screenFrame.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> {
+            int width = Math.round((r - l) * 0.30f);
+            int height = Math.round(width * 9f / 16f);
+            int margin = Math.round((r - l) * 0.012f);
+            FrameLayout.LayoutParams now = (FrameLayout.LayoutParams) window.getLayoutParams();
+            if (width > 0 && (now.width != width || now.height != height || now.topMargin != margin)) {
+                now.width = width;
+                now.height = height;
+                now.setMargins(0, margin, margin, 0);
+                window.post(() -> {
+                    window.setLayoutParams(now);
+                    window.post(this::applyWiiuLayout);
+                });
+            } else {
+                window.post(this::applyWiiuLayout);
+            }
+        });
+    }
+
+    // A touch on the window is a touch on the GamePad's screen, at that place in the picture.
+    private void onWiiuPadTouch(WiiuPadWindowView window, float x, float y, boolean pressed) {
+        long handle = this.nativeHandle;
+        SurfaceView surface = this.surfaceView;
+        if (handle == 0 || surface == null || surface.getWidth() <= 0 || surface.getHeight() <= 0) {
+            return;
+        }
+        float pivotX = window.getWidth() / 2f;
+        float pivotY = window.getHeight() / 2f;
+        float parentX = window.getLeft() + window.getTranslationX() + pivotX + (x - pivotX) * window.getScaleX();
+        float parentY = window.getTop() + window.getTranslationY() + pivotY + (y - pivotY) * window.getScaleY();
+        float fx = Math.max(0f, Math.min(1f, (parentX - surface.getLeft() - surface.getTranslationX()) / surface.getWidth()));
+        float fy = Math.max(0f, Math.min(1f, (parentY - surface.getTop() - surface.getTranslationY()) / surface.getHeight()));
+        NativeGba.setPointer(handle, Math.round((fx * 2f - 1f) * 32767f), Math.round((fy * 2f - 1f) * 32767f), pressed);
+    }
+
+    // "화면 전환": the next of the three views.
+    private TextView createWiiuSwitchButton() {
+        TextView button = new TextView(this);
+        button.setText("화면 전환");
+        button.setTextSize(11.0f);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setTextColor(Color.rgb(203, 213, 225));
+        button.setGravity(Gravity.CENTER);
+        button.setBackground(roundRect(Color.argb(210, 55, 65, 81), dp(15)));
+        button.setOnClickListener(view -> {
+            int next = (wiiuView() + 1) % 3;
+            setWiiuView(next);
+            Toast.makeText(this, "화면: " + (this.landscapeMode ? WIIU_VIEW_LANDSCAPE : WIIU_VIEW_PORTRAIT)[next], Toast.LENGTH_SHORT).show();
+        });
+        return button;
+    }
+
+    // Portrait, under the two pictures: ZL L and R ZR along the top, the left stick over the
+    // D-pad, the diamond over the right stick, − + and the stick clicks between them, as on
+    // the GamePad.
+    private void addWiiuControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "ZL", kL2, Gravity.TOP | Gravity.START, dp(14), dp(8), dp(52), dp(40), 2);
+        addButton(frameLayout, "L", 512, Gravity.TOP | Gravity.START, dp(72), dp(8), dp(52), dp(40), 2);
+        addButton(frameLayout, "R", 256, Gravity.TOP | Gravity.END, dp(72), dp(8), dp(52), dp(40), 2);
+        addButton(frameLayout, "ZR", kR2, Gravity.TOP | Gravity.END, dp(14), dp(8), dp(52), dp(40), 2);
+        addFastForwardButton(frameLayout);
+        FrameLayout.LayoutParams leftStick = new FrameLayout.LayoutParams(dp(92), dp(92), Gravity.BOTTOM | Gravity.START);
+        leftStick.setMargins(dp(24), 0, 0, dp(200));
+        frameLayout.addView(leftStick(), leftStick);
+        FrameLayout.LayoutParams pad = new FrameLayout.LayoutParams(dp(108), dp(108), Gravity.BOTTOM | Gravity.START);
+        pad.setMargins(dp(16), 0, 0, dp(66));
+        frameLayout.addView(createDirectionControl(), pad);
+        addButton(frameLayout, "X", 1024, Gravity.BOTTOM | Gravity.END, dp(76), dp(254), dp(48), dp(48), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, Gravity.BOTTOM | Gravity.END, dp(28), dp(208), dp(48), dp(48), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, Gravity.BOTTOM | Gravity.END, dp(124), dp(208), dp(48), dp(48), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, Gravity.BOTTOM | Gravity.END, dp(76), dp(162), dp(48), dp(48), TouchButton.STYLE_DARK);
+        FrameLayout.LayoutParams rightStick = new FrameLayout.LayoutParams(dp(92), dp(92), Gravity.BOTTOM | Gravity.END);
+        rightStick.setMargins(0, 0, dp(32), dp(52));
+        frameLayout.addView(rightStick(), rightStick);
+        for (int k = 0; k < 2; k++) {
+            TouchButton key = new TouchButton(this, k == 0 ? "−" : "+", k == 0 ? 4 : 8, this::setButtonPressed);
+            FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(44), dp(30), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            keyParams.setMargins(0, 0, 0, dp(96));
+            key.setTranslationX(dp(k == 0 ? -28 : 28));
+            frameLayout.addView(key, keyParams);
+            TouchButton click = new TouchButton(this, k == 0 ? "L3" : "R3", k == 0 ? kL3 : kR3, this::setButtonPressed, TouchButton.STYLE_DARK);
+            FrameLayout.LayoutParams clickParams = new FrameLayout.LayoutParams(dp(38), dp(38), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            clickParams.setMargins(0, 0, 0, dp(140));
+            click.setTranslationX(dp(k == 0 ? -28 : 28));
+            frameLayout.addView(click, clickParams);
+        }
+        FrameLayout.LayoutParams switchParams = new FrameLayout.LayoutParams(dp(84), dp(30), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        switchParams.setMargins(0, 0, 0, dp(20));
+        frameLayout.addView(createWiiuSwitchButton(), switchParams);
+    }
+
+    // Landscape, in the columns beside the TV picture: ZL L / R ZR at the top, the left stick
+    // and the D-pad on the left, the diamond and the right stick on the right.
+    private void addWiiuLandscapeControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "ZL", kL2, Gravity.TOP | Gravity.START, dp(14), dp(62), dp(50), dp(36), 2);
+        addButton(frameLayout, "L", 512, Gravity.TOP | Gravity.START, dp(70), dp(62), dp(50), dp(36), 2);
+        addButton(frameLayout, "R", 256, Gravity.TOP | Gravity.END, dp(70), dp(62), dp(50), dp(36), 2);
+        addButton(frameLayout, "ZR", kR2, Gravity.TOP | Gravity.END, dp(14), dp(62), dp(50), dp(36), 2);
+        FrameLayout.LayoutParams leftStick = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.TOP | Gravity.START);
+        leftStick.setMargins(dp(16), dp(112), 0, 0);
+        frameLayout.addView(leftStick(), leftStick);
+        FrameLayout.LayoutParams pad = new FrameLayout.LayoutParams(dp(104), dp(104), Gravity.BOTTOM | Gravity.START);
+        pad.setMargins(dp(60), 0, 0, dp(52));
+        frameLayout.addView(createDirectionControl(), pad);
+        addButton(frameLayout, "X", 1024, Gravity.TOP | Gravity.END, dp(62), dp(108), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, Gravity.TOP | Gravity.END, dp(18), dp(146), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, Gravity.TOP | Gravity.END, dp(106), dp(146), dp(44), dp(44), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, Gravity.TOP | Gravity.END, dp(62), dp(184), dp(44), dp(44), TouchButton.STYLE_DARK);
+        FrameLayout.LayoutParams rightStick = new FrameLayout.LayoutParams(dp(88), dp(88), Gravity.BOTTOM | Gravity.END);
+        rightStick.setMargins(0, 0, dp(100), dp(54));
+        frameLayout.addView(rightStick(), rightStick);
+        addButton(frameLayout, "−", 4, Gravity.BOTTOM | Gravity.START, dp(14), dp(12), dp(44), dp(30));
+        addButton(frameLayout, "+", 8, Gravity.BOTTOM | Gravity.END, dp(14), dp(12), dp(44), dp(30));
+        addButton(frameLayout, "L3", kL3, Gravity.TOP | Gravity.START, dp(118), dp(112), dp(36), dp(36), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "R3", kR3, Gravity.BOTTOM | Gravity.END, dp(18), dp(100), dp(36), dp(36), TouchButton.STYLE_DARK);
+        FrameLayout.LayoutParams switchParams = new FrameLayout.LayoutParams(dp(80), dp(30), Gravity.BOTTOM | Gravity.START);
+        switchParams.setMargins(dp(66), 0, 0, dp(12));
+        frameLayout.addView(createWiiuSwitchButton(), switchParams);
+    }
+
+    // DS, 3DS and Wii U: two screens stacked in portrait, the lower one touched with a finger
+    // (on the Wii U the GamePad's).
+    private boolean isDualScreen() {
+        return isNds() || isN3ds() || isWiiU();
+    }
+
+    // DS: a finger on the game screen is the stylus. Positions go to the core in libretro
+    // pointer units across the whole screen view; melonDS DS maps them onto the lower screen.
+    // The DS touch screen, and the Wii remote's pointer (Dolphin follows the finger).
+    private void attachTouchScreen(View screen) {
+        if (!isDualScreen() && !isDolphin()) {
+            return;
+        }
+        screen.setOnTouchListener((view, event) -> {
+            long handle = this.nativeHandle;
+            int width = view.getWidth();
+            int height = view.getHeight();
+            if (handle == 0 || width <= 0 || height <= 0) {
+                return true;
+            }
+            int action = event.getActionMasked();
+            boolean pressed = action != android.view.MotionEvent.ACTION_UP && action != android.view.MotionEvent.ACTION_CANCEL;
+            float fx = Math.max(0.0f, Math.min(1.0f, event.getX() / width));
+            float fy = Math.max(0.0f, Math.min(1.0f, event.getY() / height));
+            NativeGba.setPointer(handle, Math.round((fx * 2.0f - 1.0f) * 32767.0f), Math.round((fy * 2.0f - 1.0f) * 32767.0f), pressed);
+            return true;
+        });
+    }
+
+    private boolean isNes() {
+        return "fceumm".equals(this.coreId);
+    }
+
+    // Mega CD and 32X (PicoDrive) use the Mega Drive's six-button pad and layout.
+    private boolean isMegaDrive() {
+        return ("genesis_plus_gx".equals(this.coreId) && !isMasterSystem()) || isMegaCd();
+    }
+
+    private boolean isMegaCd() {
+        return "picodrive".equals(this.coreId);
+    }
+
+    private boolean isDolphin() {
+        return "dolphin".equals(this.coreId);
+    }
+
+    // ---- GameCube / Wii (Dolphin) ----
+    // Dolphin reads every pad one to one: A/B/X/Y, L/R, L2/R2, L3/R3, SELECT/START.
+    private static final int DOLPHIN_HOME = 131072;    // R3
+    private static final String[] WII_CONTROL_NAMES = {"리모컨 + 눈차크", "리모컨 가로로 잡기", "클래식 컨트롤러"};
+    private static final String[] WII_CONTROL_NOTES = {"젤다·마리오 갤럭시 등 대부분 (기본)", "뉴 슈퍼마리오·마리오카트 등 가로 게임", "클래식 지원 게임 (몬헌3 등)"};
+    private Boolean wiiDisc;
+
+    // Wii or GameCube, from the disc image's header: a Wii magic word at 0x18 of a plain
+    // image, the disc type of a WIA/RVZ image (0x48), the sub type of a GCZ image (4); WBFS
+    // holds only Wii games.
+    private boolean isWiiGame() {
+        if (this.wiiDisc != null) {
+            return this.wiiDisc;
+        }
+        boolean wii = false;
+        String lower = this.romPath == null ? "" : this.romPath.toLowerCase(Locale.US);
+        if (lower.endsWith(".wbfs")) {
+            wii = true;
+        } else if (this.romPath != null) {
+            try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(this.romPath, "r")) {
+                byte[] head = new byte[0x50];
+                file.readFully(head);
+                int magic = ((head[0] & 0xFF) << 24) | ((head[1] & 0xFF) << 16) | ((head[2] & 0xFF) << 8) | (head[3] & 0xFF);
+                if (magic == 0x52565A01 || magic == 0x57494101) {
+                    wii = ((head[0x48] & 0xFF) << 24 | (head[0x49] & 0xFF) << 16 | (head[0x4A] & 0xFF) << 8 | (head[0x4B] & 0xFF)) == 2;
+                } else if (magic == 0x01C00BB1) {
+                    wii = (head[4] & 0xFF) == 1;
+                } else {
+                    int wiiMagic = ((head[0x18] & 0xFF) << 24) | ((head[0x19] & 0xFF) << 16) | ((head[0x1A] & 0xFF) << 8) | (head[0x1B] & 0xFF);
+                    wii = wiiMagic == 0x5D1C9EA3;
+                }
+            } catch (IOException | RuntimeException e) {
+                wii = false;
+            }
+        }
+        this.wiiDisc = wii;
+        return wii;
+    }
+
+    // GameCube / Wii resolution and picture shape, per game.
+    private static final String[] DOLPHIN_SCALE_NAMES = {"1배 · 640×528", "2배 · 720p급", "3배 · 1080p급"};
+    private static final String[] DOLPHIN_SCALE_SHORT = {"1배 (기본)", "2배", "3배"};
+    private static final String[] DOLPHIN_SCALE_NOTES = {"게임기 원래 해상도. 가장 빠름 (기본)", "선명. 성능 좋은 폰 · 게임큐브 게임용", "가장 선명. 무거워요 · Wii 게임은 끊길 수 있어요"};
+    private static final String[] DOLPHIN_ASPECT_NAMES = {"게임대로", "4:3", "16:9로 늘리기", "와이드 (16:9로 그리기)"};
+    private static final String[] DOLPHIN_ASPECT_NOTES = {"게임이 정한 비율 · 게임큐브 4:3, Wii 16:9 (기본)", "옛날 TV 비율로 고정", "4:3 화면을 옆으로 늘려요 (그림이 넓적해져요)",
+            "게임을 16:9로 넓게 그려요 · 일부 게임은 화면 끝이 깨지거나 메뉴가 늘어나요"};
+
+    private int dolphinScale() {
+        int scale = MainActivity.sharedSettings(this).getInt("gc_scale:" + this.saveBaseName, 1);
+        return scale >= 1 && scale <= 3 ? scale : 1;
+    }
+
+    private int dolphinAspect() {
+        int aspect = MainActivity.sharedSettings(this).getInt("gc_aspect:" + this.saveBaseName, 0);
+        return aspect >= 0 && aspect <= 3 ? aspect : 0;
+    }
+
+    private LinearLayout createDolphinScaleRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", DOLPHIN_SCALE_SHORT[dolphinScale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도", DOLPHIN_SCALE_NAMES, DOLPHIN_SCALE_NOTES,
+                        dolphinScale() - 1, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요 (2~3초).\n뜨거워지거나 끊기면 1배로 돌려 주세요.",
+                        Color.rgb(238, 246, 255), Color.rgb(30, 79, 138), "적용하고 이어하기", choice -> {
+                    if (choice + 1 == dolphinScale()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("gc_scale:" + this.saveBaseName, choice + 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    private LinearLayout createDolphinAspectRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.ROTATE, Color.rgb(15, 118, 110), "화면 비율", DOLPHIN_ASPECT_NAMES[dolphinAspect()],
+                view -> showChoiceDialog(RoundIconView.ROTATE, Color.rgb(15, 118, 110), "화면 비율", DOLPHIN_ASPECT_NAMES, DOLPHIN_ASPECT_NOTES,
+                        dolphinAspect(), "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요. 화면 틀도 그 비율로 바뀌어요.",
+                        Color.rgb(236, 253, 245), Color.rgb(17, 94, 89), "적용하고 이어하기", choice -> {
+                    if (choice == dolphinAspect()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("gc_aspect:" + this.saveBaseName, choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // The remote's pointer: a finger on the screen, or a connected controller's right stick.
+    private static final String[] WII_POINTER_NAMES = {"화면 터치", "오른쪽 스틱"};
+
+    private int wiiPointer() {
+        return MainActivity.sharedSettings(this).getInt("wii_pointer:" + this.saveBaseName, 0) == 1 ? 1 : 0;
+    }
+
+    private LinearLayout createWiiPointerRow(android.app.Dialog menu) {
+        int current = wiiPointer();
+        return createSettingRow(RoundIconView.STICK, Color.rgb(67, 56, 202), "리모컨 포인터", WII_POINTER_NAMES[current],
+                view -> showChoiceDialog(RoundIconView.STICK, Color.rgb(67, 56, 202), "리모컨 포인터", WII_POINTER_NAMES,
+                        new String[]{"게임 화면을 누른 곳을 가리켜요 (기본)", "게임패드의 오른쪽 스틱으로 포인터를 움직여요 · 게임패드가 있을 때"}, current,
+                        "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.",
+                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용하고 이어하기", choice -> {
+                    if (choice == current) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("wii_pointer:" + this.saveBaseName, choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // Wii 인터넷 (Wiimmfi), per game: the bridge points the game's Nintendo Wi-Fi Connection
+    // addresses in memory at Wiimmfi (as the Wiimmfi patcher does to the disc).
+    private boolean wiimmfiOn() {
+        return isDolphin() && isWiiGame() && MainActivity.sharedSettings(this).getBoolean("wiimmfi:" + this.saveBaseName, false);
+    }
+
+    private LinearLayout createWiimmfiRow(android.app.Dialog menu) {
+        boolean on = wiimmfiOn();
+        int orange = Color.rgb(234, 88, 12);
+        return createSettingRow(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", on ? "켜짐" : "꺼짐",
+                view -> showChoiceDialog(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", new String[]{"꺼짐", "켜짐"},
+                        new String[]{"게임의 Wi-Fi 메뉴는 접속 오류가 나요 (원래 서버가 닫혔어요)", "게임의 Wi-Fi 메뉴가 대체 서버 Wiimmfi로 접속해요"}, on ? 1 : 0,
+                        "원본 게임 파일은 그대로예요. 게임이 켜질 때 앱이 메모리 속 접속 주소만 Wiimmfi로 바꿔요. 치트는 꺼야 해요 (켜면 접속이 막혀요).\n"
+                                + "마리오카트 Wii 중심으로 맞췄고, 다른 게임은 안 될 수 있어요. 에러 번호가 나오면 알려 주세요.",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 이어하기", choice -> {
+                    if ((choice == 1) == on) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putBoolean("wiimmfi:" + this.saveBaseName, choice == 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // On the picture's top right while Wiimmfi is on.
+    private void addWiimmfiBadge(FrameLayout screenFrame) {
+        if (!wiimmfiOn()) {
+            return;
+        }
+        TextView badge = new TextView(this);
+        badge.setText("🌐 Wiimmfi");
+        badge.setTextSize(11.0f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        badge.setBackground(roundRect(Color.argb(230, 234, 88, 12), dp(11)));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        params.setMargins(0, dp(8), dp(8), 0);
+        screenFrame.addView(badge, params);
+    }
+
+    private int wiiControl() {
+        int value = getSharedPreferences("settings", 0).getInt("wii_control:" + this.saveBaseName, 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private LinearLayout createWiiControlRow(android.app.Dialog menu) {
+        int current = wiiControl();
+        return createSettingRow(RoundIconView.MOVE, Color.rgb(67, 56, 202), "Wii 조작 방식", WII_CONTROL_NAMES[current],
+                view -> showChoiceDialog(RoundIconView.MOVE, Color.rgb(67, 56, 202), "Wii 조작 방식", WII_CONTROL_NAMES, WII_CONTROL_NOTES,
+                        current, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.\n리모컨 포인터는 게임 화면을 손가락으로 눌러서 가리켜요.",
+                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용하고 이어하기", choice -> {
+                    if (choice == wiiControl()) {
+                        return;
+                    }
+                    getSharedPreferences("settings", 0).edit().putInt("wii_control:" + this.saveBaseName, choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    private void addStickAt(FrameLayout frameLayout, boolean fromRight, int cxDp, int cyDp, int sizeDp, boolean right) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | (fromRight ? Gravity.END : Gravity.START));
+        int side = dp(cxDp) - dp(sizeDp) / 2;
+        params.setMargins(fromRight ? 0 : side, 0, fromRight ? side : 0, dp(cyDp) - dp(sizeDp) / 2);
+        frameLayout.addView(new AnalogStickView(this, right ? this::onAnalogRightChanged : this::onAnalogChanged), params);
+    }
+
+    private void addDPadCentered(FrameLayout frameLayout, boolean fromRight, int cxDp, int cyDp, int sizeDp) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | (fromRight ? Gravity.END : Gravity.START));
+        int side = dp(cxDp) - dp(sizeDp) / 2;
+        params.setMargins(fromRight ? 0 : side, 0, fromRight ? side : 0, dp(cyDp) - dp(sizeDp) / 2);
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), params);
+    }
+
+    // A keycap at the bottom, centred dxDp from the middle (or from the middle of a column).
+    private void addPill(FrameLayout frameLayout, String label, int bit, int gravity, int sideDp, int dxDp, int bottomDp, int widthDp, int heightDp) {
+        TouchButton button = new TouchButton(this, label, bit, this::setButtonPressed);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(widthDp), dp(heightDp), gravity);
+        params.setMargins(sideDp > 0 && (gravity & Gravity.START) == Gravity.START ? dp(sideDp) : 0, 0,
+                sideDp > 0 && (gravity & Gravity.END) == Gravity.END ? dp(sideDp) : 0, dp(bottomDp));
+        button.setTranslationX(dp(dxDp));
+        frameLayout.addView(button, params);
+    }
+
+    // − HOME + in a row centred on cx (from the left), or on the screen's middle when cx is 0.
+    private void addWiiSystemKeys(FrameLayout frameLayout, int cxDp, int bottomDp, boolean small) {
+        // With the nunchuk, Dolphin reads − and + from L and R (1 and 2 take SELECT and START).
+        boolean nunchuk = isWiiGame() && wiiControl() == 0;
+        int w = small ? 42 : 58;
+        int home = small ? 58 : 68;
+        int gap = 6;
+        int gravity = Gravity.BOTTOM | (cxDp == 0 ? Gravity.CENTER_HORIZONTAL : Gravity.START);
+        int base = cxDp == 0 ? 0 : cxDp;
+        int[] widths = {w, home, w};
+        String[] labels = {"−", "HOME", "+"};
+        int[] bits = nunchuk ? new int[]{512, DOLPHIN_HOME, 256} : new int[]{4, DOLPHIN_HOME, 8};
+        int total = w * 2 + home + gap * 2;
+        int x = -total / 2;
+        for (int k = 0; k < 3; k++) {
+            int center = x + widths[k] / 2;
+            if (cxDp == 0) {
+                addPill(frameLayout, labels[k], bits[k], gravity, 0, center, bottomDp, widths[k], 30);
+            } else {
+                addPill(frameLayout, labels[k], bits[k], gravity, base + center - widths[k] / 2, 0, bottomDp, widths[k], 30);
+            }
+            x += widths[k] + gap;
+        }
+    }
+
+    // GameCube, 마름모 (B안): Y top, X right, A bottom, B left, all one size.
+    private void addGameCubeDiamond(FrameLayout frameLayout, int rcDp, int cyDp, int size, int gap) {
+        addRoundButton(frameLayout, "Y", 2048, true, rcDp, cyDp + gap, size, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "X", 1024, true, rcDp - gap, cyDp, size, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "A", 1, true, rcDp, cyDp - gap, size, TouchButton.STYLE_ARCADE_GREEN);
+        addRoundButton(frameLayout, "B", 2, true, rcDp + gap, cyDp, size, TouchButton.STYLE_ARCADE_RED);
+    }
+
+    private void addDolphinControls(FrameLayout frameLayout) {
+        if (!isWiiGame()) {
+            // L | speed | R on top with Z under the speed button; the stick and the buttons
+            // on one line, the D-pad and the C-stick (right stick) on the next.
+            addButton(frameLayout, "L", kL2, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+            addButton(frameLayout, "R", kR2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+            FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(80), dp(30), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            zParams.setMargins(0, dp(87), 0, 0);
+            frameLayout.addView(new TouchButton(this, "Z", 256, this::setButtonPressed, 2), zParams);
+            addStickAt(frameLayout, false, 86, 240, 112, false);
+            addGameCubeDiamond(frameLayout, 100, 240, 52, 52);
+            addDPadCentered(frameLayout, false, 86, 100, 66);
+            addStickAt(frameLayout, true, 100, 100, 66, true);
+            addFastForwardButton(frameLayout);
+            addCenterButton(frameLayout, "START", 8, 0, 18);
+            return;
+        }
+        int control = wiiControl();
+        if (control == 1) {
+            // Remote held sideways: D-pad, 2 and 1 (the core's A and B), small A/B above them.
+            addDPadCentered(frameLayout, false, 96, 215, 150);
+            addRoundButton(frameLayout, "1", 2, true, 130, 190, 66, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "2", 1, true, 62, 230, 66, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "A", 1024, true, 130, 300, 44, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "B", 2048, true, 62, 330, 44, TouchButton.STYLE_DARK);
+            addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 46, 0, 330, 80, 32);
+            addFastForwardButton(frameLayout);
+            addWiiSystemKeys(frameLayout, 0, 18, false);
+            return;
+        }
+        if (control == 2) {
+            // Classic controller: L ZL | speed | ZR R, D-pad and a b x y, then both sticks.
+            addButton(frameLayout, "L", kL2, 8388659, dp(14), dp(34), dp(54), dp(42), 2);
+            addButton(frameLayout, "ZL", 512, 8388659, dp(72), dp(34), dp(54), dp(42), 2);
+            addButton(frameLayout, "ZR", 256, 8388661, dp(72), dp(34), dp(54), dp(42), 2);
+            addButton(frameLayout, "R", kR2, 8388661, dp(14), dp(34), dp(54), dp(42), 2);
+            addDPadCentered(frameLayout, false, 86, 250, 130);
+            addRoundButton(frameLayout, "x", 1024, true, 100, 302, 52, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "a", 1, true, 48, 250, 52, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "b", 2, true, 100, 198, 52, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "y", 2048, true, 152, 250, 52, TouchButton.STYLE_DARK);
+            addStickAt(frameLayout, false, 86, 110, 90, false);
+            addStickAt(frameLayout, true, 100, 110, 90, true);
+            addFastForwardButton(frameLayout);
+            addWiiSystemKeys(frameLayout, 0, 18, true);
+            return;
+        }
+        // Remote + nunchuk: Z | speed | B on top, nunchuk stick beside the remote's D-pad,
+        // C beside A, 1 and 2 under A (shake beside them), - HOME + at the bottom.
+        addButton(frameLayout, "Z", 2048, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+        addButton(frameLayout, "B", 2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+        addStickAt(frameLayout, false, 86, 354, 110, false);
+        addDPadCentered(frameLayout, true, 100, 354, 96);
+        addRoundButton(frameLayout, "C", 1024, false, 86, 236, 54, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "A", 1, true, 100, 236, 66, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "1", 8, true, 130, 152, 46, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "2", 4, true, 70, 152, 46, TouchButton.STYLE_DARK);
+        addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 46, 0, 136, 80, 32);
+        addFastForwardButton(frameLayout);
+        addWiiSystemKeys(frameLayout, 0, 18, false);
+    }
+
+    // Landscape: the same groups in the columns beside the screen (centres 94dp in).
+    private void addDolphinLandscapeControls(FrameLayout frameLayout) {
+        if (!isWiiGame()) {
+            FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
+            lParams.setMargins(dp(14), dp(58), 0, 0);
+            frameLayout.addView(new TouchButton(this, "L", kL2, this::setButtonPressed, 2), lParams);
+            FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(88), dp(34), Gravity.TOP | Gravity.END);
+            rParams.setMargins(0, dp(58), dp(76), 0);
+            frameLayout.addView(new TouchButton(this, "R", kR2, this::setButtonPressed, 2), rParams);
+            FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(56), dp(34), Gravity.TOP | Gravity.END);
+            zParams.setMargins(0, dp(58), dp(14), 0);
+            frameLayout.addView(new TouchButton(this, "Z", 256, this::setButtonPressed, 2), zParams);
+            addStickAt(frameLayout, false, 94, 227, 96, false);
+            // Kept inside the column beside the 4:3 picture.
+            addGameCubeDiamond(frameLayout, 86, 227, 40, 36);
+            addDPadCentered(frameLayout, false, 94, 108, 58);
+            addStickAt(frameLayout, true, 94, 108, 58, true);
+            addButton(frameLayout, "START", 8, 8388691, dp(47), dp(14), dp(94), dp(32));
+            return;
+        }
+        int control = wiiControl();
+        if (control == 1) {
+            addDPadCentered(frameLayout, false, 94, 217, 140);
+            addRoundButton(frameLayout, "1", 2, true, 140, 183, 62, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "2", 1, true, 66, 251, 62, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "A", 1024, true, 140, 290, 40, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "B", 2048, true, 66, 318, 40, TouchButton.STYLE_DARK);
+            addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 54, 0, 318, 80, 30);
+            addWiiSystemKeys(frameLayout, 94, 16, true);
+            return;
+        }
+        if (control == 2) {
+            FrameLayout.LayoutParams[] tops = new FrameLayout.LayoutParams[4];
+            String[] labels = {"L", "ZL", "ZR", "R"};
+            int[] bits = {kL2, 512, 256, kR2};
+            for (int k = 0; k < 4; k++) {
+                tops[k] = new FrameLayout.LayoutParams(dp(78), dp(34), Gravity.TOP | (k < 2 ? Gravity.START : Gravity.END));
+                int side = dp(k == 0 || k == 3 ? 14 : 98);
+                tops[k].setMargins(k < 2 ? side : 0, dp(58), k < 2 ? 0 : side, 0);
+                frameLayout.addView(new TouchButton(this, labels[k], bits[k], this::setButtonPressed, 2), tops[k]);
+            }
+            addDPadCentered(frameLayout, false, 94, 236, 108);
+            addRoundButton(frameLayout, "x", 1024, true, 94, 278, 42, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "a", 1, true, 52, 236, 42, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "b", 2, true, 94, 194, 42, TouchButton.STYLE_DARK);
+            addRoundButton(frameLayout, "y", 2048, true, 136, 236, 42, TouchButton.STYLE_DARK);
+            addStickAt(frameLayout, false, 94, 110, 76, false);
+            addStickAt(frameLayout, true, 94, 110, 76, true);
+            addWiiSystemKeys(frameLayout, 94, 16, true);
+            return;
+        }
+        FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
+        zParams.setMargins(dp(14), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "Z", 2048, this::setButtonPressed, 2), zParams);
+        FrameLayout.LayoutParams bParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.END);
+        bParams.setMargins(0, dp(58), dp(14), 0);
+        frameLayout.addView(new TouchButton(this, "B", 2, this::setButtonPressed, 2), bParams);
+        addStickAt(frameLayout, false, 94, 250, 96, false);
+        addDPadCentered(frameLayout, true, 94, 250, 84);
+        addRoundButton(frameLayout, "C", 1024, false, 94, 150, 48, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "A", 1, true, 94, 150, 58, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "1", 8, true, 122, 86, 40, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "2", 4, true, 66, 86, 40, TouchButton.STYLE_DARK);
+        addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 54, 0, 70, 80, 30);
+        addWiiSystemKeys(frameLayout, 94, 16, true);
+    }
+
+    private boolean isSaturn() {
+        return "yabasanshiro".equals(this.coreId);
+    }
+
+    // Saturn pad as YabaSanshiro reads it: A/B/C are libretro B/A/L, X/Y/Z are Y/X/R, and
+    // the shoulder L/R are L2/R2.
+    private static final String[] SATURN_LABELS = {"A", "B", "C", "X", "Y", "Z"};
+    private static final int[] SATURN_BITS = {2, 1, 512, 2048, 1024, 256};
+
+    // Six buttons: A B C along the bottom, X Y Z above, each row stepping up a little to the
+    // right like the pad's curve. Centres are measured from the bottom-right corner.
+    private void addSaturnFace(FrameLayout frameLayout, int rightDp, int bottomDp, int gapDp, int bigDp, int smallDp, int rowDp) {
+        for (int k = 0; k < 6; k++) {
+            int column = k % 3;
+            boolean top = k >= 3;
+            int cx = rightDp + (2 - column) * gapDp;
+            int cy = bottomDp + (top ? rowDp : 0) + column * 6;
+            addRoundButton(frameLayout, SATURN_LABELS[k], SATURN_BITS[k], true, cx, cy, top ? smallDp : bigDp, TouchButton.STYLE_DARK);
+        }
+    }
+
+    private void addSaturnControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "L", kL2, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+        addButton(frameLayout, "R", kR2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+        addDPadAt(frameLayout, 20, 120, 146);
+        addSaturnFace(frameLayout, 40, 170, 56, 54, 46, 60);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, startLabel(), 8, 0, 36);
+    }
+
+    // Landscape: L and R on top of the columns, D-pad left, the six buttons right; START under
+    // the D-pad and the speed button under the buttons.
+    private void addSaturnLandscapeControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
+        lParams.setMargins(dp(14), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "L", kL2, this::setButtonPressed, 2), lParams);
+        FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.END);
+        rParams.setMargins(0, dp(58), dp(14), 0);
+        frameLayout.addView(new TouchButton(this, "R", kR2, this::setButtonPressed, 2), rParams);
+        addDPadAt(frameLayout, 30, 82, 124);
+        addSaturnFace(frameLayout, 38, 112, 52, 48, 42, 56);
+        addButton(frameLayout, startLabel(), 8, 8388691, dp(43), dp(14), dp(94), dp(32));
+    }
+
+    private boolean isN64() {
+        return "mupen64plus_next".equals(this.coreId);
+    }
+
+    private boolean isWonderSwan() {
+        return "wswan".equals(this.coreId);
+    }
+
+    private boolean isNeoGeoPocket() {
+        return "ngp".equals(this.coreId);
+    }
+
+    // ---- WonderSwan / Neo Geo Pocket ----
+    // WonderSwan Y pad: Y1-Y4 are the core's R2 / R / L2 / L inputs (up, right, down, left).
+    private static final int[] WS_Y_BITS = {32768, 256, 16384, 512};
+    // Held upright, the core turns the picture and its pad: the D-pad works the Y pad, the
+    // small buttons are X1-X4 (Y / X / A / B inputs, left / top / right / bottom on screen)
+    // and A/B come from L/R.
+    private static final String[] WS_TALL_LABELS = {"X2", "X3", "X4", "X1"};
+    private static final int[] WS_TALL_BITS = {1024, 1, 2, 2048};
+    private static final String[] WS_TALL_NAMES = {"가로 게임", "세로 게임"};
+    private static final String[] WS_TALL_NOTES = {"보통 게임 (기본)", "세로로 들고 하는 게임 · 화면을 세워요"};
+
+    private boolean wonderSwanTall() {
+        return MainActivity.sharedSettings(this).getBoolean("ws_tall:" + this.saveBaseName, false);
+    }
+
+    private LinearLayout createWonderSwanTallRow(android.app.Dialog menu) {
+        boolean tall = wonderSwanTall();
+        return createSettingRow(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "게임 방향", WS_TALL_NAMES[tall ? 1 : 0],
+                view -> showChoiceDialog(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "게임 방향", WS_TALL_NAMES, WS_TALL_NOTES,
+                        tall ? 1 : 0, "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.",
+                        Color.rgb(236, 253, 243), Color.rgb(21, 128, 61), "적용하고 이어하기", choice -> {
+                    if ((choice == 1) == wonderSwanTall()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putBoolean("ws_tall:" + this.saveBaseName, choice == 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // A round button centred on (cx, cy), measured from the bottom-left or bottom-right corner.
+    private void addRoundButton(FrameLayout frameLayout, String label, int bit, boolean fromRight, int cxDp, int cyDp, int sizeDp, int style) {
+        TouchButton button = new TouchButton(this, label, bit, this::setButtonPressed, style);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | (fromRight ? Gravity.END : Gravity.START));
+        int side = dp(cxDp) - dp(sizeDp) / 2;
+        int bottom = dp(cyDp) - dp(sizeDp) / 2;
+        params.setMargins(fromRight ? 0 : side, 0, fromRight ? side : 0, bottom);
+        frameLayout.addView(button, params);
+    }
+
+    private void addDPadAt(FrameLayout frameLayout, int leftDp, int bottomDp, int sizeDp) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.BOTTOM | Gravity.START);
+        params.setMargins(dp(leftDp), 0, 0, dp(bottomDp));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), params);
+    }
+
+    // The small purple Y pad (or X pad when upright), a diamond centred on (cx, cy).
+    private void addWonderSwanSmallPad(FrameLayout frameLayout, int cxDp, int cyDp, int gapDp, int sizeDp) {
+        boolean tall = wonderSwanTall();
+        // up, right, down, left
+        int[][] at = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+        for (int k = 0; k < 4; k++) {
+            String label = tall ? WS_TALL_LABELS[k] : "Y" + (k + 1);
+            int bit = tall ? WS_TALL_BITS[k] : WS_Y_BITS[k];
+            addRoundButton(frameLayout, label, bit, false, cxDp + at[k][0] * gapDp, cyDp + at[k][1] * gapDp, sizeDp, TouchButton.STYLE_PURPLE);
+        }
+    }
+
+    private int wonderSwanA() {
+        return wonderSwanTall() ? 512 : 1;
+    }
+
+    private int wonderSwanB() {
+        return wonderSwanTall() ? 256 : 2;
+    }
+
+    // Portrait: D-pad with the Y pad just above it, B and A on the right, START at the bottom.
+    private void addWonderSwanControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 22, 120, 150);
+        addWonderSwanSmallPad(frameLayout, 97, 327, 34, 38);
+        addRoundButton(frameLayout, "B", wonderSwanB(), true, 130, 180, 62, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "A", wonderSwanA(), true, 62, 220, 62, TouchButton.STYLE_DARK);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, "START", 8, 0, 40);
+    }
+
+    // Landscape: Y pad over the D-pad on the left, A/B and START on the right.
+    private void addWonderSwanLandscapeControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 34, 40, 120);
+        addWonderSwanSmallPad(frameLayout, 94, 220, 30, 34);
+        addRoundButton(frameLayout, "B", wonderSwanB(), true, 118, 176, 54, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "A", wonderSwanA(), true, 70, 221, 54, TouchButton.STYLE_DARK);
+        addButton(frameLayout, "START", 8, 8388693, dp(49), dp(18), dp(90), dp(32));
+    }
+
+    // Neo Geo Pocket: the core reads its A from the B input and its B from the A input.
+    private void addNeoGeoPocketControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 22, 140, 150);
+        addRoundButton(frameLayout, "A", 2, true, 130, 190, 66, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "B", 1, true, 62, 230, 66, TouchButton.STYLE_DARK);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, "OPTION", 8, 0, 40);
+    }
+
+    private void addNeoGeoPocketLandscapeControls(FrameLayout frameLayout) {
+        // D-pad centred at the height between A and B.
+        addDPadAt(frameLayout, 22, 147, 140);
+        addRoundButton(frameLayout, "A", 2, true, 150, 183, 62, TouchButton.STYLE_DARK);
+        addRoundButton(frameLayout, "B", 1, true, 76, 251, 62, TouchButton.STYLE_DARK);
+        addButton(frameLayout, "OPTION", 8, 8388691, dp(45), dp(18), dp(94), dp(32));
+    }
+
+    private boolean isDreamcast() {
+        return "flycast".equals(this.coreId);
+    }
+
+    // Naomi · Atomiswave arcade sets on the Dreamcast engine: arcade stick and numbered
+    // buttons instead of the Dreamcast pad.
+    private boolean isNaomi() {
+        return "naomi".equals(this.gameMode);
+    }
+
+    private NaomiSets.Set naomiSet() {
+        return this.romPath == null ? null : NaomiSets.forFile(this, new File(this.romPath));
+    }
+
+    // Flycast's libretro Naomi mapping: buttons 1-6 are B, A, Y, X, R, L; coin SELECT,
+    // start START, test L3, service R3.
+    private static final int[] NAOMI_BITS = {2, 1, 2048, 1024, 256, 512};
+    private static final int[] NAOMI_STYLES = {TouchButton.STYLE_ARCADE_BLUE, TouchButton.STYLE_ARCADE_BLUE, TouchButton.STYLE_ARCADE_BLUE,
+            TouchButton.STYLE_ARCADE_RED, TouchButton.STYLE_ARCADE_RED, TouchButton.STYLE_ARCADE_RED};
+
+    private int naomiButtons() {
+        return NaomiSets.buttonsFor(this, this.saveBaseName, naomiSet());
+    }
+
+    // Portrait: the arcade stick at the bottom left, buttons 1 2 3 over 4 5 6 at the
+    // bottom right, COIN · START in the middle with TEST · SERVICE above them.
+    private void addNaomiControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(156), dp(156));
+        stickParams.gravity = 8388691;
+        stickParams.setMargins(dp(16), 0, 0, dp(144));
+        frameLayout.addView(new ArcadeJoystickView(this, this::onDirectionChanged), stickParams);
+        addFastForwardButton(frameLayout);
+        int count = naomiButtons();
+        int[] columns = {136, 76, 16};
+        for (int k = 0; k < count && k < 6; k++) {
+            int row = count <= 3 ? 0 : k / 3;
+            int column = count <= 3 ? k : k % 3;
+            int bottom = count <= 3 ? 197 : (row == 0 ? 227 : 167);
+            addButton(frameLayout, String.valueOf(k + 1), NAOMI_BITS[k], 8388693, dp(columns[column]), dp(bottom), dp(50), dp(50), NAOMI_STYLES[k]);
+        }
+        addCenterButton(frameLayout, "TEST", kL3, -66, 112);
+        addCenterButton(frameLayout, "SERVICE", kR3, 66, 112);
+        addCenterButton(frameLayout, "COIN", 4, -66);
+        addCenterButton(frameLayout, "START", 8, 66);
+    }
+
+    // Landscape: the stick on the left, the button rows on the right, COIN and START at the
+    // bottom corners, TEST · SERVICE small at the top left under the speed button.
+    private void addNaomiLandscapeControls(FrameLayout frameLayout) {
+        View stick = new ArcadeJoystickView(this, this::onDirectionChanged);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(150), dp(150));
+        stickParams.gravity = 8388627;
+        stickParams.setMargins(dp(12), 0, 0, 0);
+        stick.setTranslationY(dp(LANDSCAPE_SHIFT_DP));
+        frameLayout.addView(stick, stickParams);
+        int count = naomiButtons();
+        int[] columns = {120, 66, 12};
+        for (int k = 0; k < count && k < 6; k++) {
+            int row = count <= 3 ? 0 : k / 3;
+            int column = count <= 3 ? k : k % 3;
+            int y = count <= 3 ? 0 : (row == 0 ? -27 : 27);
+            addLandscapeArcadeButton(frameLayout, String.valueOf(k + 1), NAOMI_BITS[k], columns[column], y, 46, NAOMI_STYLES[k]);
+        }
+        FrameLayout.LayoutParams testParams = new FrameLayout.LayoutParams(dp(64), dp(28), Gravity.TOP | Gravity.START);
+        testParams.setMargins(dp(14), dp(60), 0, 0);
+        frameLayout.addView(new TouchButton(this, "TEST", kL3, this::setButtonPressed, 2), testParams);
+        FrameLayout.LayoutParams serviceParams = new FrameLayout.LayoutParams(dp(78), dp(28), Gravity.TOP | Gravity.START);
+        serviceParams.setMargins(dp(84), dp(60), 0, 0);
+        frameLayout.addView(new TouchButton(this, "SERVICE", kR3, this::setButtonPressed, 2), serviceParams);
+        addButton(frameLayout, "COIN", 4, 8388691, dp(42), dp(18), dp(94), dp(34));
+        addButton(frameLayout, "START", 8, 8388693, dp(42), dp(18), dp(94), dp(34));
+    }
+
+    // Dreamcast pad in its own colours: Y on top, B right, A bottom, X left. Flycast reads the
+    // libretro pad by position, so A/B/X/Y are libretro B/A/Y/X; the triggers are L2/R2.
+    private void addDreamcastFace(FrameLayout frameLayout, int gravity, int rightCenter, int verticalCenter, int gap, int size) {
+        String[] labels = {"Y", "B", "A", "X"};
+        int[] bits = {1024, 1, 2, 2048};
+        int[] styles = {TouchButton.STYLE_ARCADE_YELLOW, TouchButton.STYLE_ARCADE_RED, TouchButton.STYLE_SNES_BLUE, TouchButton.STYLE_ARCADE_GREEN};
+        int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        boolean fromTop = (gravity & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP;
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, labels[k], bits[k], this::setButtonPressed, styles[k]);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(size), dp(size), gravity);
+            params.rightMargin = dp(rightCenter - offsets[k][0] * gap - size / 2);
+            int centre = verticalCenter + (fromTop ? offsets[k][1] : -offsets[k][1]) * gap;
+            if (fromTop) {
+                params.topMargin = dp(centre - size / 2);
+            } else {
+                params.bottomMargin = dp(centre - size / 2);
+            }
+            frameLayout.addView(button, params);
+        }
+    }
+
+    // Portrait: L and R triggers on top, the stick over the D-pad on the left, the face
+    // buttons on the right, START below.
+    private void addDreamcastControls(FrameLayout frameLayout) {
+        addButton(frameLayout, "L", kL2, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+        addButton(frameLayout, "R", kR2, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(112), dp(112), Gravity.BOTTOM | Gravity.START);
+        stickParams.setMargins(dp(24), 0, 0, dp(186));
+        frameLayout.addView(leftStick(), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(104), dp(104), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(28), 0, 0, dp(66));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addDreamcastFace(frameLayout, Gravity.BOTTOM | Gravity.END, 100, 176, 50, 56);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, startLabel(), 8, 0, 18);
+    }
+
+    // 3DS in landscape: L at the top left, the circle pad under it and the D-pad at the
+    // bottom; on the right R above the diamond, which sits low and in from the edge.
+    // SELECT and START go in the middle under the screens.
+    private void addN3dsLandscapeControls(FrameLayout frameLayout) {
+        // Left column: L under the save/restart buttons, the circle pad, the D-pad to its
+        // lower right, SELECT at the bottom.
+        addButton(frameLayout, "L", 512, 8388659, dp(14), dp(62), dp(104), dp(38), 2);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.TOP | Gravity.START);
+        stickParams.setMargins(dp(18), dp(124), 0, 0);
+        frameLayout.addView(leftStick(), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(120), dp(120), Gravity.TOP | Gravity.START);
+        padParams.setMargins(dp(76), dp(232), 0, 0);
+        frameLayout.addView(createDirectionControl(), padParams);
+        addButton(frameLayout, selectLabel(), 4, 8388691, dp(100), dp(14), dp(94), dp(34));
+        // Right column: R, the diamond level with the circle pad and well in from the edge,
+        // START at the bottom (the speed button sits above it).
+        addButton(frameLayout, "R", 256, 8388661, dp(14), dp(62), dp(104), dp(38), 2);
+        addButton(frameLayout, "X", 1024, 8388661, dp(101), dp(120), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "A", 1, 8388661, dp(54), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "Y", 2048, 8388661, dp(148), dp(160), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, "B", 2, 8388661, dp(101), dp(200), dp(46), dp(46), TouchButton.STYLE_DARK);
+        addButton(frameLayout, startLabel(), 8, 8388693, dp(120), dp(14), dp(94), dp(34));
+    }
+
+    // Landscape: the same groups in the columns beside the screen; START under the D-pad,
+    // the speed button under the face buttons.
+    private void addDreamcastLandscapeControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.START);
+        lParams.setMargins(dp(14), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "L", kL2, this::setButtonPressed, 2), lParams);
+        FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(150), dp(34), Gravity.TOP | Gravity.END);
+        rParams.setMargins(0, dp(58), dp(14), 0);
+        frameLayout.addView(new TouchButton(this, "R", kR2, this::setButtonPressed, 2), rParams);
+        // The stick a little lower and the D-pad a little higher, closer together.
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(100), dp(100), Gravity.TOP | Gravity.START);
+        stickParams.setMargins(dp(40), dp(118), 0, 0);
+        frameLayout.addView(leftStick(), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(42), 0, 0, dp(74));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addButton(frameLayout, startLabel(), 8, 8388691, dp(43), dp(14), dp(94), dp(32));
+        addDreamcastFace(frameLayout, Gravity.TOP | Gravity.END, 94, 196, 42, 50);
+    }
+
+    // Nintendo 64 pad, as Mupen64Plus-Next reads it with independent C buttons: A and B are
+    // libretro B and Y, the C buttons X/A/L/R (up/down/left/right), Z is L2, R is R2 and
+    // L is SELECT.
+    private static final int N64_A = 2;
+    private static final int N64_B = 2048;
+    private static final int N64_C_UP = 1024;
+    private static final int N64_C_DOWN = 1;
+    private static final int N64_C_LEFT = 512;
+    private static final int N64_C_RIGHT = 256;
+    private static final int N64_Z = 16384;
+    private static final int N64_R = 32768;
+    private static final int N64_L = 4;
+
+    private void addN64CButtons(FrameLayout frameLayout, int gravity, int rightCenter, int verticalCenter, int gap, int size) {
+        String[] labels = {"▲", "▶", "▼", "◀"};
+        int[] bits = {N64_C_UP, N64_C_RIGHT, N64_C_DOWN, N64_C_LEFT};
+        int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        boolean fromTop = (gravity & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP;
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, labels[k], bits[k], this::setButtonPressed, TouchButton.STYLE_ARCADE_YELLOW);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(size), dp(size), gravity);
+            params.rightMargin = dp(rightCenter - offsets[k][0] * gap - size / 2);
+            int centre = verticalCenter + (fromTop ? offsets[k][1] : -offsets[k][1]) * gap;
+            if (fromTop) {
+                params.topMargin = dp(centre - size / 2);
+            } else {
+                params.bottomMargin = dp(centre - size / 2);
+            }
+            frameLayout.addView(button, params);
+        }
+    }
+
+    // Portrait: L/Z and R on top, the stick with a small D-pad under it on the left, the C
+    // buttons level with the stick and B/A level with the D-pad on the right, START below.
+    private void addN64Controls(FrameLayout frameLayout) {
+        addButton(frameLayout, "L", N64_L, 8388659, dp(24), dp(34), dp(112), dp(46), 2);
+        addButton(frameLayout, "R", N64_R, 8388661, dp(24), dp(34), dp(112), dp(46), 2);
+        FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(112), dp(40), Gravity.TOP | Gravity.START);
+        zParams.setMargins(dp(24), dp(88), 0, 0);
+        frameLayout.addView(new TouchButton(this, "Z", N64_Z, this::setButtonPressed, 2), zParams);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(116), dp(116), Gravity.BOTTOM | Gravity.START);
+        stickParams.setMargins(dp(22), 0, 0, dp(170));
+        frameLayout.addView(leftStick(), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(84), dp(84), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(38), 0, 0, dp(70));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addN64CButtons(frameLayout, Gravity.BOTTOM | Gravity.END, 92, 230, 42, 42);
+        addButton(frameLayout, "B", N64_B, 8388693, dp(150 - 27), dp(118 - 27), dp(54), dp(54), TouchButton.STYLE_ARCADE_GREEN);
+        addButton(frameLayout, "A", N64_A, 8388693, dp(80 - 33), dp(92 - 33), dp(66), dp(66), TouchButton.STYLE_SNES_BLUE);
+        addFastForwardButton(frameLayout);
+        addCenterButton(frameLayout, startLabel(), 8, 0, 18);
+    }
+
+    // Landscape: the same groups in the columns beside the screen; START under the D-pad,
+    // the speed button under A.
+    private void addN64LandscapeControls(FrameLayout frameLayout) {
+        FrameLayout.LayoutParams lParams = new FrameLayout.LayoutParams(dp(66), dp(34), Gravity.TOP | Gravity.START);
+        lParams.setMargins(dp(12), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "L", N64_L, this::setButtonPressed, 2), lParams);
+        FrameLayout.LayoutParams zParams = new FrameLayout.LayoutParams(dp(66), dp(34), Gravity.TOP | Gravity.START);
+        zParams.setMargins(dp(84), dp(58), 0, 0);
+        frameLayout.addView(new TouchButton(this, "Z", N64_Z, this::setButtonPressed, 2), zParams);
+        FrameLayout.LayoutParams rParams = new FrameLayout.LayoutParams(dp(132), dp(34), Gravity.TOP | Gravity.END);
+        rParams.setMargins(0, dp(58), dp(14), 0);
+        frameLayout.addView(new TouchButton(this, "R", N64_R, this::setButtonPressed, 2), rParams);
+        FrameLayout.LayoutParams stickParams = new FrameLayout.LayoutParams(dp(110), dp(110), Gravity.TOP | Gravity.START);
+        stickParams.setMargins(dp(26), dp(104), 0, 0);
+        frameLayout.addView(leftStick(), stickParams);
+        FrameLayout.LayoutParams padParams = new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.BOTTOM | Gravity.START);
+        padParams.setMargins(dp(45), 0, 0, dp(56));
+        frameLayout.addView(new DPadView(this, this::onDirectionChanged), padParams);
+        addButton(frameLayout, startLabel(), 8, 8388691, dp(34), dp(14), dp(94), dp(32));
+        addN64CButtons(frameLayout, Gravity.TOP | Gravity.END, 82, 150, 34, 36);
+        addButton(frameLayout, "B", N64_B, 8388693, dp(112 - 24), dp(98), dp(48), dp(48), TouchButton.STYLE_ARCADE_GREEN);
+        addButton(frameLayout, "A", N64_A, 8388693, dp(56 - 29), dp(62), dp(58), dp(58), TouchButton.STYLE_SNES_BLUE);
+    }
+
+    // Master System, Game Gear and SG-1000 run on Genesis Plus GX too, with a two-button pad.
+    private boolean isMasterSystem() {
+        if (!"genesis_plus_gx".equals(this.coreId) || this.romPath == null) {
+            return false;
+        }
+        String lower = this.romPath.toLowerCase(Locale.US);
+        return lower.endsWith(".sms") || lower.endsWith(".gg") || lower.endsWith(".sg");
+    }
+
+    private boolean isGameGear() {
+        return isMasterSystem() && this.romPath.toLowerCase(Locale.US).endsWith(".gg");
+    }
+
+    private boolean isPcEngine() {
+        return "pce_fast".equals(this.coreId);
+    }
+
+    private boolean isPsp() {
+        return "ppsspp".equals(this.coreId);
+    }
+
+    private boolean isPs1() {
+        return "pcsx_rearmed".equals(this.coreId);
+    }
+
+    private boolean isPs2() {
+        return "play".equals(this.coreId) || "pcee2".equals(this.coreId);
+    }
+
+    // PSP, PS1 and PS2 share △○×□, a D-pad and analog sticks.
+    private boolean isSonyPad() {
+        return isPsp() || isPs1() || isPs2();
+    }
+
+    // PS1 (DualShock) and PS2 pads: L1/L2/R1/R2 and two sticks.
+    private boolean isDualShock() {
+        return isPs1() || isPs2();
+    }
+
+    // Button bits the bridge reads as libretro L2 and R2.
+    private static final int kL2 = 16384;
+    private static final int kR2 = 32768;
+    private static final int kL3 = 65536;
+    private static final int kR3 = 131072;
+
+    // Face buttons: light grey on the PS1 pad, dark on the PSP and PS2.
+    private int faceStyle() {
+        return isPs1() ? TouchButton.STYLE_LIGHT : TouchButton.STYLE_ACTION;
+    }
+
+    // PSP face buttons: label, bit (the libretro X/A/B/Y the core reads as △○×□), colour.
+    private static final String[] PSP_LABELS = {"△", "○", "×", "□"};
+    private static final int[] PSP_BITS = {1024, 1, 2, 2048};
+    private static final int[] PSP_COLORS = {Color.rgb(47, 182, 122), Color.rgb(226, 71, 90), Color.rgb(77, 142, 240), Color.rgb(212, 107, 196)};
+
+    // PSP landscape: L/R, D-pad and analog stick on the left, △○×□ and R on the right, each in
+    // the column between the case edge and the screen bezel; SELECT, speed and START along the
+    // bottom. layoutPspLandscape sizes them once the screen size is known.
+    // PS1/PS2 add L2 and R2 beside L1 and R1, and a right stick under △○×□.
+    private void addPspLandscapeControls(FrameLayout frameLayout, View dpad) {
+        boolean dual = isDualShock();
+        int shoulderStyle = isPs1() ? TouchButton.STYLE_LIGHT : 2;
+        View[] views = new View[dual ? 11 : 8];
+        views[0] = new TouchButton(this, dual ? "L1" : "L", 512, this::setButtonPressed, shoulderStyle);
+        views[1] = new TouchButton(this, dual ? "R1" : "R", 256, this::setButtonPressed, shoulderStyle);
+        views[2] = dpad;
+        views[3] = leftStick();
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, PSP_LABELS[k], PSP_BITS[k], this::setButtonPressed, faceStyle());
+            button.setLabelColor(PSP_COLORS[k]);
+            views[4 + k] = button;
+        }
+        if (dual) {
+            views[8] = new TouchButton(this, "L2", kL2, this::setButtonPressed, shoulderStyle);
+            views[9] = new TouchButton(this, "R2", kR2, this::setButtonPressed, shoulderStyle);
+            views[10] = rightStick();
+        }
+        for (View view : views) {
+            frameLayout.addView(view, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.START));
+        }
+        this.pspSideViews = views;
+        // The bottom row, out from the middle: the speed button (with rewind beside it on
+        // PS1), SELECT and START, then L3 and R3 on PS1/PS2.
+        int middleHalf = rewindOn() ? 76 : 40;
+        int keyCentre = middleHalf + 8 + 39;
+        for (int k = 0; k < 2; k++) {
+            TouchButton key = new TouchButton(this, k == 0 ? "SELECT" : "START", k == 0 ? 4 : 8, this::setButtonPressed);
+            FrameLayout.LayoutParams keyParams = new FrameLayout.LayoutParams(dp(78), dp(30));
+            keyParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            keyParams.setMargins(0, 0, 0, dp(9));
+            key.setTranslationX(dp(k == 0 ? -keyCentre : keyCentre));
+            frameLayout.addView(key, keyParams);
+            if (dual) {
+                TouchButton click = new TouchButton(this, k == 0 ? "L3" : "R3", k == 0 ? kL3 : kR3, this::setButtonPressed, TouchButton.STYLE_DARK);
+                FrameLayout.LayoutParams clickParams = new FrameLayout.LayoutParams(dp(36), dp(36));
+                clickParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                clickParams.setMargins(0, 0, 0, dp(6));
+                int clickCentre = keyCentre + 39 + 8 + 18;
+                click.setTranslationX(dp(k == 0 ? -clickCentre : clickCentre));
+                frameLayout.addView(click, clickParams);
+            }
+        }
+    }
+
+    private void layoutPspLandscape(FrameLayout screen, int width, int height) {
+        // The screen leaves dp(124) of height for its bezel and the bottom row (a little more
+        // than it needs, so the columns beside it are wide enough for big buttons), and at
+        // least dp(136) on each side for the control columns.
+        float aspect = screenAspect();
+        // PS1/PS2 (4:3) are narrow enough to leave wide columns anyway, so their screen takes
+        // nearly the full height: dp(12) above, a compact dp(10) bezel below (no name strip,
+        // see ClearShellView.setCompactBezel) and the SELECT/START row.
+        boolean dual = this.pspSideViews.length > 8;
+        int screenHeight = Math.max(dp(150), height - dp(dual ? 68 : 124));
+        int screenWidth = Math.round(screenHeight * aspect);
+        int widest = width - dp(136) * 2;
+        if (screenWidth > widest) {
+            screenWidth = Math.max(dp(240), widest);
+            screenHeight = Math.round(screenWidth / aspect);
+        }
+        int top = dp(12);
+        setBox(screen, (width - screenWidth) / 2, top, screenWidth, screenHeight);
+        // Columns between the case edge and the bezel (dp(10) wide), with a little air.
+        int screenLeft = (width - screenWidth) / 2;
+        int l0 = dp(14);
+        int l1 = screenLeft - dp(10) - dp(10);
+        int r0 = screenLeft + screenWidth + dp(10) + dp(10);
+        int r1 = width - dp(14);
+        int lw = Math.max(dp(60), l1 - l0);
+        int rw = Math.max(dp(60), r1 - r0);
+        int lc = l0 + lw / 2;
+        int rc = r0 + rw / 2;
+        View[] v = this.pspSideViews;
+        // L/R sit under the round corner buttons; PS1/PS2 split each into L2 L1 and R1 R2.
+        int shoulderTop = dp(62);
+        int shoulderHeight = dp(42);
+        if (dual) {
+            int lh = (lw - dp(8)) / 2;
+            int rh = (rw - dp(8)) / 2;
+            setBox(v[8], l0, shoulderTop, lh, shoulderHeight);
+            setBox(v[0], l0 + lh + dp(8), shoulderTop, lh, shoulderHeight);
+            setBox(v[1], r0, shoulderTop, rh, shoulderHeight);
+            setBox(v[9], r0 + rh + dp(8), shoulderTop, rh, shoulderHeight);
+        } else {
+            setBox(v[0], l0, shoulderTop, lw, shoulderHeight);
+            setBox(v[1], r1 - rw, shoulderTop, rw, shoulderHeight);
+        }
+        int columnTop = shoulderTop + shoulderHeight + dp(8);
+        // SELECT/START sit in the middle of the bottom row, clear of the side columns, so the
+        // columns run down to the case edge; leaving the bottom row out as well made the
+        // D-pad and stick small on phones that are not very tall in landscape.
+        int columnBottom = height - dp(14);
+        int avail = Math.max(dp(120), columnBottom - columnTop);
+        int pad = Math.min(Math.min(lw, dp(150)), Math.round(avail * 0.62f));
+        setBox(v[2], lc - pad / 2, columnTop, pad, pad);
+        int stick = Math.max(dp(56), Math.min(Math.min(lw - dp(20), dp(100)), avail - pad - dp(10)));
+        setBox(v[3], lc - stick / 2, columnTop + pad + dp(10), stick, stick);
+        // △○×□ diamond centred a little below the D-pad's centre, fitted to the right column.
+        // PS1/PS2 keep them a little smaller, clear of R1/R2 above and the right stick below.
+        float gap = Math.min(dp(dual ? 48 : 54), rw / 3.0f);
+        int size = Math.round(gap * (dual ? 1.12f : 1.15f));
+        // With a right stick below them the buttons line up with the D-pad instead.
+        int cy = columnTop + pad / 2 + (dual ? 0 : dp(22));
+        int[][] offsets = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        for (int k = 0; k < 4; k++) {
+            int x = Math.round(rc + offsets[k][0] * gap - size / 2f);
+            int y = Math.round(cy + offsets[k][1] * gap - size / 2f);
+            setBox(v[4 + k], x, y, size, size);
+        }
+        if (dual) {
+            setBox(v[10], rc - stick / 2, columnTop + pad + dp(10), stick, stick);
+        }
+    }
+
+    // Moves a view in a FrameLayout to a box, laying out again only when the box changed.
+    private static void setBox(View view, int x, int y, int w, int h) {
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) view.getLayoutParams();
+        if (lp.width == w && lp.height == h && lp.leftMargin == x && lp.topMargin == y && lp.gravity == (Gravity.TOP | Gravity.START)) {
+            return;
+        }
+        lp.width = w;
+        lp.height = h;
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.setMargins(x, y, 0, 0);
+        view.setLayoutParams(lp);
+    }
+
+    private void addPspFace(FrameLayout frameLayout) {
+        // Diamond: △ top, ○ right, × bottom, □ left.
+        int[][] margins = {{72, 314}, {20, 262}, {72, 210}, {124, 262}};
+        // PS1/PS2: centred on the lower D-pad (its centre is 230dp up rather than 284dp).
+        int lift = isDualShock() ? -56 : 0;
+        for (int k = 0; k < 4; k++) {
+            TouchButton button = new TouchButton(this, PSP_LABELS[k], PSP_BITS[k], this::setButtonPressed, faceStyle());
+            button.setLabelColor(PSP_COLORS[k]);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(54), dp(54));
+            params.gravity = 8388693;
+            params.setMargins(0, 0, dp(margins[k][0]), dp(margins[k][1] + lift));
+            frameLayout.addView(button, params);
+        }
+    }
+
+    // ---- 스틱 감도 ----
+    // Each stick's touch sensitivity (0.5x..2x, StickSensitivityDialog), kept per side for
+    // every game; the sticks on screen follow a change at once.
+    private final java.util.List<AnalogStickView> leftSticks = new java.util.ArrayList<>();
+    private final java.util.List<AnalogStickView> rightSticks = new java.util.ArrayList<>();
+
+    private String stickKey(boolean right) {
+        return right ? "stick_sens_right" : "stick_sens_left";
+    }
+
+    // The default for all games.
+    private float stickSensitivityAll(boolean right) {
+        return StickSensitivityDialog.clamp(MainActivity.sharedSettings(this).getFloat(stickKey(right), 1.0f));
+    }
+
+    // Whether this game has a value of its own.
+    private boolean stickSensitivityOwn(boolean right) {
+        return MainActivity.sharedSettings(this).contains(stickKey(right) + ":" + this.saveBaseName);
+    }
+
+    // The value in force for this game: its own, else the default.
+    private float stickSensitivity(boolean right) {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        return StickSensitivityDialog.clamp(prefs.getFloat(stickKey(right) + ":" + this.saveBaseName, stickSensitivityAll(right)));
+    }
+
+    private AnalogStickView leftStick() {
+        AnalogStickView stick = new AnalogStickView(this, this::onAnalogChanged);
+        stick.setSensitivity(stickSensitivity(false));
+        this.leftSticks.add(stick);
+        return stick;
+    }
+
+    private AnalogStickView rightStick() {
+        AnalogStickView stick = new AnalogStickView(this, this::onAnalogRightChanged);
+        stick.setSensitivity(stickSensitivity(true));
+        this.rightSticks.add(stick);
+        return stick;
+    }
+
+    private boolean hasLeftStick() {
+        return isSonyPad() || isN64() || (isDreamcast() && !isNaomi()) || isN3ds() || isWiiU() || isDolphin();
+    }
+
+    private LinearLayout createStickRow(boolean right, Runnable reopen) {
+        String name = right ? "오른쪽 스틱 감도" : isDualShock() || isWiiU() ? "왼쪽 스틱 감도" : "스틱 감도";
+        String shown = StickSensitivityDialog.format(stickSensitivity(right)) + (stickSensitivityOwn(right) ? " · 이 게임" : "");
+        return createSettingRow(RoundIconView.STICK, RoundIconView.COLOR_STICK, name, shown,
+                view -> StickSensitivityDialog.show(this, name, stickSensitivity(right), stickSensitivityAll(right), this.gameTitle, (value, thisGame) -> {
+                    android.content.SharedPreferences.Editor edit = MainActivity.sharedSettings(this).edit();
+                    if (thisGame) {
+                        edit.putFloat(stickKey(right) + ":" + this.saveBaseName, value);
+                    } else {
+                        edit.putFloat(stickKey(right), value).remove(stickKey(right) + ":" + this.saveBaseName);
+                    }
+                    edit.apply();
+                    for (AnalogStickView stick : right ? this.rightSticks : this.leftSticks) {
+                        stick.setSensitivity(value);
+                    }
+                    reopen.run();
+                }));
+    }
+
+    private void onAnalogRightChanged(float x, float y) {
+        long handle = this.nativeHandle;
+        if (handle != 0) {
+            NativeGba.setAnalogRight(handle, Math.round(x * 32767), Math.round(y * 32767));
+        }
+    }
+
+    private void onAnalogChanged(float x, float y) {
+        long handle = this.nativeHandle;
+        if (handle != 0) {
+            NativeGba.setAnalog(handle, Math.round(x * 32767), Math.round(y * 32767));
+        }
+    }
+
+    // Two face buttons with turbo buttons above them: Famicom (B A / TB TA) and PC Engine (II I / TII TI).
+    private boolean hasTurboPair() {
+        return isNes() || isPcEngine();
+    }
+
+    // Consoles with a D-pad and SELECT/START, laid out like the GBA.
+    private boolean isPadLayout() {
+        return this.coreId.equals("gba") || isSnes() || isDualScreen() || isNes() || isMegaDrive() || isMasterSystem() || isPcEngine() || isSonyPad();
+    }
+
+    private boolean hasShoulders() {
+        return (this.coreId.equals("gba") && !isGameBoy()) || isSnes() || isDualScreen() || isPsp();
+    }
+
+    private String selectLabel() {
+        return isMegaDrive() ? "MODE" : isPadLayout() ? "SELECT" : "COIN";
+    }
+
+    // Labels for the face pair and its turbo pair: right button, left button, turbo right, turbo left.
+    private String[] turboLabels() {
+        return isPcEngine() ? new String[]{"I", "II", "TI", "TII"} : new String[]{"A", "B", "TA", "TB"};
+    }
+
+    private String startLabel() {
+        return isPcEngine() ? "RUN" : "START";
+    }
+
+    // Mega Drive six-button pad. The bits follow Genesis Plus GX's mapping of the libretro
+    // pad: A<-Y, B<-B, C<-A, X<-L, Y<-X, Z<-R (MODE is SELECT).
+    private void addMegaDriveButtons(FrameLayout frameLayout, boolean landscape) {
+        String[] labels = {"A", "B", "C", "X", "Y", "Z"};
+        int[] bits = {2048, 2, 1, 512, 1024, 256};
+        for (int k = 0; k < 6; k++) {
+            int column = k % 3;
+            boolean top = k >= 3;
+            if (landscape) {
+                int right = 118 - column * 52;
+                int dy = (top ? -20 : 36) - column * 6;
+                addLandscapeArcadeButton(frameLayout, labels[k], bits[k], right, dy, 46, TouchButton.STYLE_ACTION);
+            } else {
+                int right = 128 - column * 54;
+                int bottom = (top ? 235 : 181) + column * 8;
+                addButton(frameLayout, labels[k], bits[k], 8388693, dp(right), dp(bottom), dp(48), dp(48), TouchButton.STYLE_ACTION);
+            }
+        }
+    }
+
+    // ---- 화면 모양: 픽셀 정확 · 비율 · 모서리 · 테두리 ----
+    private static final String[] SHAPE_ASPECT_NAMES = {"원본", "4:3", "16:9", "8:7"};
+    private FrameLayout screenFrame;
+    private ScreenMaskView screenMask;
+
+    // Settings live per console, or per game once "이 게임에만" was turned on for it.
+    private String shapeScope() {
+        String game = "shape:game:" + this.saveBaseName;
+        return MainActivity.sharedSettings(this).getBoolean(game + ":on", false) ? game : "shape:" + this.gameMode;
+    }
+
+    private int shapeInt(String key, int fallback) {
+        return MainActivity.sharedSettings(this).getInt(shapeScope() + ":" + key, fallback);
+    }
+
+    /** 0 fit the frame (as always), 1 whole-number multiples of the game's pixels. */
+    private int shapeScaleMode() {
+        return is3d() || isMame139() ? 0 : shapeInt("scale", 0);
+    }
+
+    private int shapeAspectMode() {
+        return isDualScreen() ? 0 : Math.max(0, Math.min(SHAPE_ASPECT_NAMES.length - 1, shapeInt("aspect", 0)));
+    }
+
+    private int shapeCornerDp() {
+        return Math.max(0, Math.min(24, shapeInt("corner", 0)));
+    }
+
+    private boolean shapeBorder() {
+        return shapeInt("border", 0) == 1;
+    }
+
+    private float screenAspect() {
+        float base = baseScreenAspect();
+        switch (shapeAspectMode()) {
+            case 1: return 4.0f / 3.0f;
+            case 2: return 16.0f / 9.0f;
+            case 3: return 8.0f / 7.0f;
+            default: return base;
+        }
+    }
+
+    /**
+     * Sizes the picture inside its frame: the whole frame, or in 픽셀 정확 mode the largest
+     * whole multiple of the game's frame that fits, centred; the filter and the corner mask
+     * follow it.
+     */
+    private void applyScreenShape() {
+        SurfaceView surface = this.surfaceView;
+        FrameLayout frame = this.screenFrame;
+        if (surface == null || frame == null || !(surface.getLayoutParams() instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        int width = -1;
+        int height = -1;
+        long handle = this.nativeHandle;
+        if (shapeScaleMode() == 1 && handle != 0 && frame.getWidth() > 0) {
+            int[] size = NativeGba.frameSize(handle);
+            int availableWidth = frame.getWidth() - frame.getPaddingLeft() - frame.getPaddingRight();
+            int availableHeight = frame.getHeight() - frame.getPaddingTop() - frame.getPaddingBottom();
+            if (size != null && size.length == 2 && size[0] > 0 && size[1] > 0 && availableWidth > 0 && availableHeight > 0) {
+                int k = Math.max(1, Math.min(availableWidth / size[0], availableHeight / size[1]));
+                width = Math.min(availableWidth, size[0] * k);
+                height = Math.min(availableHeight, size[1] * k);
+            }
+        }
+        java.util.List<View> boxed = new java.util.ArrayList<>();
+        boxed.add(surface);
+        boxed.addAll(this.screenFilters);
+        if (this.screenMask != null) boxed.add(this.screenMask);
+        for (View view : boxed) {
+            if (!(view.getLayoutParams() instanceof FrameLayout.LayoutParams)) continue;
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) view.getLayoutParams();
+            if (params.width != width || params.height != height || params.gravity != Gravity.CENTER) {
+                params.width = width;
+                params.height = height;
+                params.gravity = Gravity.CENTER;
+                view.setLayoutParams(params);
+            }
+        }
+        if (this.screenMask != null) {
+            this.screenMask.setShape(dp(shapeCornerDp()), shapeBorder(), Color.rgb(18, 22, 32));
+            this.screenMask.bringToFront();
+        }
+    }
+
+    private void showScreenShapeSheet(Runnable reopen) {
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            // The picture must be in view while its shape changes.
+            this.pauseDialog.dismiss();
+        }
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        final int aspectBefore = shapeAspectMode();
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            if (shapeAspectMode() != aspectBefore) {
+                rebuildContent();
+            }
+            resumeUnlessExiting();
+        });
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(16), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("화면 모양");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        int[] size = this.nativeHandle != 0 ? NativeGba.frameSize(this.nativeHandle) : null;
+        sub.setText(consoleName() + (size != null && size.length == 2 && size[0] > 0 ? " · " + size[0] + "×" + size[1] : "") + " · 바꾸면 바로 적용돼요");
+        sub.setTextSize(11.5f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        panel.addView(sub);
+        final String scope = shapeScope();
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+
+        if (!is3d() && !isMame139()) {
+            panel.addView(shapeSection("배율"));
+            LinearLayout row = new LinearLayout(this);
+            final TextView[] chips = new TextView[2];
+            String[] names = {"맞춤 (틀에 맞게)", "픽셀 정확 (정수 배)"};
+            for (int i = 0; i < 2; i++) {
+                final int mode = i;
+                TextView chip = shapeChip(names[i], shapeScaleMode() == i);
+                chip.setOnClickListener(view -> {
+                    prefs.edit().putInt(scope + ":scale", mode).apply();
+                    for (int k = 0; k < 2; k++) setShapeChip(chips[k], k == mode);
+                    applyScreenShape();
+                    updateScreenFilters();
+                });
+                chips[i] = chip;
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+                chipParams.setMargins(i == 0 ? 0 : dp(6), 0, 0, 0);
+                row.addView(chip, chipParams);
+            }
+            panel.addView(row);
+            TextView hint = new TextView(this);
+            hint.setText("픽셀 정확: 틀에 들어가는 가장 큰 정수 배로 도트를 고르게 키워요. 남는 가장자리는 어두운 틀 색이고, 스캔라인 · LCD 격자 필터와 정확히 맞물려요.");
+            hint.setTextSize(10.5f);
+            hint.setTextColor(Color.rgb(122, 130, 140));
+            hint.setPadding(dp(2), dp(4), 0, 0);
+            panel.addView(hint);
+        }
+        if (!isDualScreen()) {
+            panel.addView(shapeSection("비율"));
+            LinearLayout row = new LinearLayout(this);
+            final TextView[] chips = new TextView[SHAPE_ASPECT_NAMES.length];
+            for (int i = 0; i < SHAPE_ASPECT_NAMES.length; i++) {
+                final int mode = i;
+                TextView chip = shapeChip(SHAPE_ASPECT_NAMES[i], shapeAspectMode() == i);
+                chip.setOnClickListener(view -> {
+                    prefs.edit().putInt(scope + ":aspect", mode).apply();
+                    for (int k = 0; k < chips.length; k++) setShapeChip(chips[k], k == mode);
+                });
+                chips[i] = chip;
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+                chipParams.setMargins(i == 0 ? 0 : dp(6), 0, 0, 0);
+                row.addView(chip, chipParams);
+            }
+            panel.addView(row);
+            TextView hint = new TextView(this);
+            hint.setText("그림을 늘리지 않고 틀의 비율을 바꿔요. 창을 닫을 때 적용돼요 (4:3은 PS1 · 아케이드, 8:7은 슈퍼패미컴 실기 느낌).");
+            hint.setTextSize(10.5f);
+            hint.setTextColor(Color.rgb(122, 130, 140));
+            hint.setPadding(dp(2), dp(4), 0, 0);
+            panel.addView(hint);
+        }
+        panel.addView(shapeSection("모서리 둥글기"));
+        LinearLayout sliderRow = new LinearLayout(this);
+        sliderRow.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView value = new TextView(this);
+        value.setText(shapeCornerDp() + "dp");
+        value.setTextSize(12.0f);
+        value.setTextColor(Color.rgb(122, 130, 140));
+        value.setGravity(Gravity.END);
+        android.widget.SeekBar bar = new android.widget.SeekBar(this);
+        bar.setMax(24);
+        bar.setProgress(shapeCornerDp());
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
+                value.setText(progress + "dp");
+                if (fromUser) {
+                    prefs.edit().putInt(scope + ":corner", progress).apply();
+                    applyScreenShape();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
+            }
+        });
+        sliderRow.addView(bar, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        sliderRow.addView(value, new LinearLayout.LayoutParams(dp(44), -2));
+        panel.addView(sliderRow);
+        panel.addView(shapeToggle("화면 테두리 선", "얇은 어두운 선으로 화면과 케이스 경계를 또렷하게", shapeBorder(), on -> {
+            prefs.edit().putInt(scope + ":border", on ? 1 : 0).apply();
+            applyScreenShape();
+        }));
+        final String gameScope = "shape:game:" + this.saveBaseName;
+        panel.addView(shapeToggle("이 게임에만 적용", "켜면 지금 값이 이 게임의 설정으로 복사돼요", prefs.getBoolean(gameScope + ":on", false), on -> {
+            android.content.SharedPreferences.Editor edit = prefs.edit();
+            if (on) {
+                for (String key : new String[]{"scale", "aspect", "corner", "border"}) {
+                    edit.putInt(gameScope + ":" + key, shapeInt(key, 0));
+                }
+                edit.putBoolean(gameScope + ":on", true);
+            } else {
+                edit.remove(gameScope + ":on");
+            }
+            edit.apply();
+            dialog.dismiss();
+            showScreenShapeSheet(reopen);
+        }));
+        LinearLayout actions = new LinearLayout(this);
+        TextView reset = dialogButton("초기화", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        reset.setOnClickListener(view -> {
+            android.content.SharedPreferences.Editor edit = prefs.edit();
+            for (String key : new String[]{"scale", "aspect", "corner", "border"}) {
+                edit.remove(scope + ":" + key);
+            }
+            edit.apply();
+            applyScreenShape();
+            updateScreenFilters();
+            dialog.dismiss();
+            showScreenShapeSheet(reopen);
+        });
+        TextView done = dialogButton("완료", Color.rgb(225, 29, 72), Color.WHITE);
+        done.setOnClickListener(view -> dialog.dismiss());
+        actions.addView(reset, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(0, dp(46), 1.0f);
+        doneParams.setMargins(dp(8), 0, 0, 0);
+        actions.addView(done, doneParams);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, -2);
+        actionsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(actions, actionsParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            android.graphics.Rect screen = screenRectInWindow();
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            if (!this.landscapeMode && screen != null) {
+                // Below the picture, so the corners and pixels can be watched while changing.
+                window.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                android.view.WindowManager.LayoutParams params = window.getAttributes();
+                params.y = Math.min(screen.bottom + dp(6), metrics.heightPixels - dp(380));
+                window.setAttributes(params);
+                window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(400)), Math.min(dp(420), metrics.heightPixels - params.y - dp(8)));
+            } else {
+                window.setGravity(Gravity.CENTER);
+                window.setLayout(Math.min(metrics.widthPixels - dp(40), dp(430)), Math.min(metrics.heightPixels - dp(24), dp(420)));
+            }
+        }
+        dialog.show();
+    }
+
+    private TextView shapeSection(String text) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(11.5f);
+        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        view.setTextColor(Color.rgb(85, 95, 110));
+        view.setPadding(0, dp(12), 0, dp(6));
+        return view;
+    }
+
+    private TextView shapeChip(String text, boolean on) {
+        TextView chip = new TextView(this);
+        chip.setText(text);
+        chip.setTextSize(11.5f);
+        chip.setGravity(Gravity.CENTER);
+        chip.setMaxLines(1);
+        setShapeChip(chip, on);
+        return chip;
+    }
+
+    private void setShapeChip(TextView chip, boolean on) {
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setCornerRadius(dp(17));
+        background.setColor(on ? Color.rgb(255, 241, 243) : Color.WHITE);
+        background.setStroke(dp(on ? 2 : 1), on ? Color.rgb(225, 29, 72) : Color.rgb(214, 218, 226));
+        chip.setBackground(background);
+        chip.setTextColor(on ? Color.rgb(159, 18, 57) : Color.rgb(31, 41, 51));
+        chip.setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
+    }
+
+    private interface BoolSetter {
+        void set(boolean on);
+    }
+
+    private View shapeToggle(String name, String note, boolean on, BoolSetter setter) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(8), 0, dp(2));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView label = new TextView(this);
+        label.setText(name);
+        label.setTextSize(13.0f);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        texts.addView(label);
+        TextView small = new TextView(this);
+        small.setText(note);
+        small.setTextSize(10.5f);
+        small.setTextColor(Color.rgb(122, 130, 140));
+        texts.addView(small);
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.Switch sw = new android.widget.Switch(this);
+        sw.setChecked(on);
+        sw.setOnCheckedChangeListener((view, checked) -> setter.set(checked));
+        row.addView(sw, new LinearLayout.LayoutParams(-2, -2));
+        return row;
+    }
+
+    private float baseScreenAspect() {
+        if (isWiiU()) {
+            // The TV over the GamePad in portrait (both 16:9), one of them otherwise.
+            return this.ndsLayout == 0 && wiiuView() == 0 ? 1280.0f / 1440.0f : 1280.0f / 720.0f;
+        }
+        if (isN3ds()) {
+            // 400x240 over 320x240 as Citra lays them out, like the DS: stacked (the lower
+            // one centred) or side by side.
+            return this.ndsLayout == 2 ? 720.0f / 240.0f : 400.0f / 480.0f;
+        }
+        if (isNds()) {
+            // Both 256x192 screens as the bridge asks melonDS DS to lay them out: stacked
+            // with a 4-row gap, stacked and touching, or side by side.
+            return this.ndsLayout == 2 ? 512.0f / 192.0f : this.ndsLayout == 1 ? 256.0f / 384.0f : 256.0f / 388.0f;
+        }
+        if (isPsp()) {
+            return 480.0f / 272.0f;
+        }
+        if (isGameBoy() || isGameGear()) {
+            return 160.0f / 144.0f;
+        }
+        if (isWonderSwan()) {
+            return wonderSwanTall() ? 144.0f / 224.0f : 224.0f / 144.0f;
+        }
+        if (isDolphin()) {
+            int aspect = dolphinAspect();
+            return aspect == 1 ? 4.0f / 3.0f : aspect >= 2 || isWiiGame() ? 16.0f / 9.0f : 4.0f / 3.0f;
+        }
+        if (isNeoGeoPocket()) {
+            return 160.0f / 152.0f;
+        }
+        return this.coreId.equals("gba") ? 1.5f : 1.3333334f;
+    }
+
+    private boolean isSupportedGameFile(String lowerCasePath) {
+        switch (this.coreId) {
+            case "gba":
+                return MainActivity.isHandheldRomName(lowerCasePath);
+            case "snes9x":
+            case "fceumm":
+            case "genesis_plus_gx":
+            case "pce_fast":
+            case "ppsspp":
+            case "pcsx_rearmed":
+            case "play":
+            case "pcee2":
+            case "melonds":
+            case "citra":
+            case "cemu":
+            case "mupen64plus_next":
+            case "flycast":
+            case "wswan":
+            case "ngp":
+            case "picodrive":
+            case "yabasanshiro":
+            case "dolphin":
+                return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
+            case "fbneo":
+            case "mame2003plus":
+            case "mame2010":
+            case "mame2015":
+            case "mame139":
+            case "mamearcade":
+                return lowerCasePath.endsWith(".zip");
+            default:
+                return false;
+        }
+    }
+
+    private boolean isNeoGeoMode() {
+        return "neogeo".equals(this.gameMode);
+    }
+
+    private boolean isMame139() {
+        return "mame139".equals(this.coreId);
+    }
+
+    private String baseNameWithoutExtension(String str) {
+        int lastIndexOf = str.lastIndexOf(46);
+        return lastIndexOf >= 0 ? str.substring(0, lastIndexOf) : str;
+    }
+}

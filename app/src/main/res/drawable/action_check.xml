@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home action icon: CHECK -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M14 6H34A2 2 0 0 1 36 8V40H34V42H14V40H12V8A2 2 0 0 1 14 6Z" android:fillColor="#FFFFFF"/>
+    <path android:pathData="M17,10H31A1.5,1.5 0,0 1,32.5,11.5V23.5A1.5,1.5 0,0 1,31,25H17A1.5,1.5 0,0 1,15.5,23.5V11.5A1.5,1.5 0,0 1,17,10Z" android:fillColor="#626FCC"/>
+    <path android:pathData="M19 17.6L22.6 21.2L29.2 14.4" android:strokeColor="#FFFFFF" android:strokeWidth="2.6"/>
+    <path android:pathData="M17 30H31M17 33.5H31M17 37H31" android:strokeColor="#626FCC" android:strokeWidth="1.4" android:strokeAlpha="0.55"/>
+</vector>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: MD -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M8,12H40A4,4 0,0 1,44,16V34A4,4 0,0 1,40,38H8A4,4 0,0 1,4,34V16A4,4 0,0 1,8,12Z" android:fillColor="#FFF"/>
+    <path android:pathData="M10,25a9,9 0,1 0,18,0a9,9 0,1 0,-18,0Z" android:strokeColor="#0F766E" android:strokeWidth="2"/>
+    <path android:pathData="M14,23.4H24A1,1 0,0 1,25,24.4V25.6A1,1 0,0 1,24,26.6H14A1,1 0,0 1,13,25.6V24.4A1,1 0,0 1,14,23.4Z" android:fillColor="#0F766E"/>
+    <path android:pathData="M33.2,18H38.8A1.2,1.2 0,0 1,40,19.2V19.2A1.2,1.2 0,0 1,38.8,20.4H33.2A1.2,1.2 0,0 1,32,19.2V19.2A1.2,1.2 0,0 1,33.2,18Z" android:fillColor="#0F766E"/>
+    <path android:pathData="M33.2,22.5H38.8A1.2,1.2 0,0 1,40,23.7V23.7A1.2,1.2 0,0 1,38.8,24.9H33.2A1.2,1.2 0,0 1,32,23.7V23.7A1.2,1.2 0,0 1,33.2,22.5Z" android:fillColor="#0F766E"/>
+    <path android:pathData="M32,31H40A1,1 0,0 1,41,32V32A1,1 0,0 1,40,33H32A1,1 0,0 1,31,32V32A1,1 0,0 1,32,31Z" android:fillColor="#0F766E" android:fillAlpha="0.45"/>
+</vector>

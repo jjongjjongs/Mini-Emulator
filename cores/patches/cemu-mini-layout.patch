@@ -1,0 +1,60 @@
+diff --git a/src/libretro/CemuLibretro.cpp b/src/libretro/CemuLibretro.cpp
+index 14fb391..19e1d91 100644
+--- a/src/libretro/CemuLibretro.cpp
++++ b/src/libretro/CemuLibretro.cpp
+@@ -1383,9 +1383,30 @@ static bool libretro_drc_needs_pad_view()
+ 	return g_libretroScreenLayout != LibretroScreenLayout::Tv;
+ }
+ 
++// Mini Emulator: a layout the app places itself. Each screen's rectangle is given as
++// fractions of the output (x, y, width, height); a zero width hides that screen. With
++// stack 2 the output is twice the TV's height, for the two screens one above the other.
++static std::atomic<bool> s_mini_layout{false};
++static float s_mini_tv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
++static float s_mini_pad[4] = {0.0f, 0.0f, 0.0f, 0.0f};
++static std::atomic<int> s_mini_stack{1};
++
++extern "C" RETRO_API void retro_mini_set_layout(int on, int stack, const float* tv, const float* pad)
++{
++	for (int i = 0; i < 4; i++)
++	{
++		s_mini_tv[i] = tv ? tv[i] : (i < 2 ? 0.0f : 1.0f);
++		s_mini_pad[i] = pad ? pad[i] : 0.0f;
++	}
++	s_mini_stack.store(stack == 2 ? 2 : 1);
++	s_mini_layout.store(on != 0);
++}
++
+ // Shared DRC helpers (declared in LibretroDRC.h, also called from VulkanRenderer).
+ bool LibretroDRC_ShouldRenderScreen(bool padView)
+ {
++	if (s_mini_layout.load())
++		return (padView ? s_mini_pad[2] : s_mini_tv[2]) > 0.0f;
+ 	switch (g_libretroScreenLayout)
+ 	{
+ 	case LibretroScreenLayout::Tv:
+@@ -1409,6 +1430,8 @@ void LibretroDRC_DefaultOutputSize(uint32& width, uint32& height)
+ {
+ 	width = s_out_width;
+ 	height = s_out_height;
++	if (s_mini_layout.load())
++		height *= (uint32)s_mini_stack.load();
+ }
+ 
+ void LibretroDRC_ComputeViewport(bool padView,
+@@ -1416,6 +1439,15 @@ void LibretroDRC_ComputeViewport(bool padView,
+ 	int& outX, int& outY, int& outWidth, int& outHeight)
+ {
+ 	// Top-left origin convention. GL callers flip Y at their site.
++	if (s_mini_layout.load())
++	{
++		const float* r = padView ? s_mini_pad : s_mini_tv;
++		outX = (int)(r[0] * dstWidth + 0.5f);
++		outY = (int)(r[1] * dstHeight + 0.5f);
++		outWidth = std::max(1, (int)(r[2] * dstWidth + 0.5f));
++		outHeight = std::max(1, (int)(r[3] * dstHeight + 0.5f));
++		return;
++	}
+ 	const bool isPrimary = g_libretroDRCPositionSwapped ? padView : !padView;
+ 
+ 	switch (g_libretroScreenLayout)

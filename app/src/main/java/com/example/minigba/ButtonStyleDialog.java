@@ -1,0 +1,736 @@
+package com.example.minigba;
+
+import android.app.Activity;
+import android.app.Dialog;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.view.Gravity;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.SeekBar;
+import android.widget.Switch;
+import android.widget.TextView;
+
+/**
+ * "버튼 꾸미기": the colour theme, shape, letters, sizes and press effects of the on-screen
+ * buttons. The window sits over the game screen (top in portrait, middle in landscape) and
+ * leaves the buttons visible, and every change is applied to them at once through the listener.
+ */
+final class ButtonStyleDialog {
+    interface Listener {
+        /** A setting changed; draw the buttons with this style now. */
+        void onChange(ButtonStyle style);
+
+        /** "완료": keep this style, for the game alone when perGame. */
+        void onDone(ButtonStyle style, boolean perGame);
+
+        /** "가로/세로에도 적용": save the same style for the other screen direction. */
+        void onCopyToOther(ButtonStyle style, boolean perGame);
+
+        /** "초기화": back to the built-in look (and drop the game's own style when perGame). */
+        void onReset(boolean perGame);
+
+        /** The window went away, by any button or the back key. */
+        void onClosed();
+
+        /** "화면의 버튼을 눌러 고르기": put the pick overlay over the game; it reports taps here. */
+        void onPickStart(ButtonPickOverlay.Listener picked);
+
+        void onPickStop();
+    }
+
+    private static final int ACCENT = Color.rgb(225, 29, 72);
+    private static final int ACCENT_SOFT = Color.rgb(255, 241, 243);
+    private static final int ACCENT_TEXT = Color.rgb(159, 18, 57);
+    private static final int TEXT = Color.rgb(31, 41, 51);
+    private static final int MUTED = Color.rgb(85, 95, 110);
+    private static final int CHIP_BORDER = Color.rgb(214, 218, 226);
+    private static final int[] SWATCH_THEMES = {
+            0,
+            Color.rgb(227, 38, 58), Color.rgb(248, 179, 26), Color.rgb(34, 179, 90), Color.rgb(47, 111, 224),
+    };
+
+    private final Activity activity;
+    private final Listener listener;
+    private final ButtonStyle style;
+    private final boolean landscape;
+    private boolean perGame;
+    private final Dialog dialog;
+    private final LinearLayout panel;
+    private final TextView[] themeChips = new TextView[ButtonStyle.THEME_NAMES.length];
+    private final TextView[] shapeChips = new TextView[ButtonStyle.SHAPE_NAMES.length];
+    private final TextView[] labelChips = new TextView[ButtonStyle.LABEL_NAMES.length];
+    private final TextView[] customChips = new TextView[3];
+    private LinearLayout customRow;
+    private LinearLayout perButtonBox;
+    private LinearLayout perButtonChips;
+    private final java.util.List<String[]> controls;
+    private final java.util.Map<String, TextView> controlChips = new java.util.HashMap<>();
+    private Switch perButtonSwitch;
+    private boolean done;
+
+    ButtonStyleDialog(Activity activity, ButtonStyle initial, boolean perGame, boolean landscape, String consoleName,
+                      java.util.List<String[]> controls, Listener listener) {
+        this.controls = controls;
+        this.activity = activity;
+        this.listener = listener;
+        this.style = initial.copy();
+        this.perGame = perGame;
+        this.landscape = landscape;
+        this.dialog = new Dialog(activity);
+        this.dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout panel = new LinearLayout(activity);
+        this.panel = panel;
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(14), dp(10), dp(14), dp(10));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(18));
+        panel.setBackground(background);
+
+        TextView title = new TextView(activity);
+        title.setText("버튼 꾸미기");
+        title.setTextSize(16.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(TEXT);
+        panel.addView(title);
+        TextView sub = new TextView(activity);
+        sub.setText(consoleName + " · " + (landscape ? "가로" : "세로") + " · 바꾸면 바로 적용돼요");
+        sub.setTextSize(11.5f);
+        sub.setTextColor(MUTED);
+        panel.addView(sub);
+
+        // ---- 색 테마 ----
+        panel.addView(section("색 테마"));
+        LinearLayout themeRows = new LinearLayout(activity);
+        themeRows.setOrientation(LinearLayout.VERTICAL);
+        panel.addView(themeRows);
+        LinearLayout row = null;
+        for (int i = 0; i < ButtonStyle.THEME_NAMES.length; i++) {
+            if (i % 3 == 0) {
+                row = chipRow();
+                themeRows.addView(row);
+            }
+            final int theme = i;
+            TextView chip = chip(themeText(i), view -> {
+                this.style.theme = theme;
+                refreshChips();
+                changed();
+            });
+            this.themeChips[i] = chip;
+            row.addView(chip, chipParams());
+        }
+        this.customRow = chipRow();
+        String[] customNames = {"방향키", "A · B · X · Y", "L · R · 시작"};
+        for (int i = 0; i < 3; i++) {
+            final int slot = i;
+            TextView chip = chip(customNames[i], view -> pickColor(slot, customNames[slot]));
+            this.customChips[i] = chip;
+            this.customRow.addView(chip, chipParams());
+        }
+        panel.addView(this.customRow);
+
+        // "버튼마다 따로 고르기": one chip per control on this screen, and picking on screen.
+        LinearLayout perBox = new LinearLayout(activity);
+        this.perButtonBox = perBox;
+        perBox.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout perRow = new LinearLayout(activity);
+        perRow.setOrientation(LinearLayout.HORIZONTAL);
+        perRow.setGravity(Gravity.CENTER_VERTICAL);
+        perRow.setPadding(0, dp(4), 0, 0);
+        TextView perLabel = new TextView(activity);
+        perLabel.setText("버튼마다 따로 고르기");
+        perLabel.setTextSize(12.5f);
+        perLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        perLabel.setTextColor(TEXT);
+        perRow.addView(perLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        Switch perSwitch = new Switch(activity);
+        this.perButtonSwitch = perSwitch;
+        perSwitch.setChecked(this.style.perButton);
+        perSwitch.setOnCheckedChangeListener((view, checked) -> {
+            this.style.perButton = checked;
+            refreshChips();
+            changed();
+        });
+        perRow.addView(perSwitch, new LinearLayout.LayoutParams(-2, -2));
+        perBox.addView(perRow);
+        LinearLayout chips = new LinearLayout(activity);
+        this.perButtonChips = chips;
+        chips.setOrientation(LinearLayout.VERTICAL);
+        perBox.addView(chips);
+        LinearLayout row2 = null;
+        for (int i = 0; i < controls.size(); i++) {
+            if (i % 4 == 0) {
+                row2 = chipRow();
+                chips.addView(row2);
+            }
+            final String id = controls.get(i)[0];
+            final String name = controls.get(i)[1];
+            TextView chip = chip(name, view -> pickControlColor(id, name, null));
+            chip.setOnLongClickListener(view -> {
+                Integer color = this.style.colors.get(id);
+                if (color == null) {
+                    int role = ButtonStyle.ROLE_OTHER;
+                    for (String[] control : controls) {
+                        if (control[0].equals(id)) role = Integer.parseInt(control[2]);
+                    }
+                    color = this.style.colorFor(id, role);
+                }
+                for (String[] control : controls) {
+                    this.style.colors.put(control[0], color);
+                }
+                refreshChips();
+                changed();
+                android.widget.Toast.makeText(activity, "모든 버튼을 " + name + " 색으로 맞췄어요.", android.widget.Toast.LENGTH_SHORT).show();
+                return true;
+            });
+            this.controlChips.put(id, chip);
+            row2.addView(chip, chipParams());
+        }
+        // Pads the last row so the chips keep one width.
+        if (row2 != null) {
+            for (int i = controls.size() % 4; i != 0 && i < 4; i++) {
+                row2.addView(new View(activity), chipParams());
+            }
+        }
+        TextView hint = new TextView(activity);
+        hint.setText("이 화면에 있는 버튼만 나와요. 칩을 누르면 색 고르기, 길게 누르면 모든 버튼을 그 색으로.");
+        hint.setTextSize(10.5f);
+        hint.setTextColor(MUTED);
+        hint.setPadding(dp(2), dp(2), 0, dp(4));
+        chips.addView(hint);
+        TextView pickOnScreen = button("🎯 화면의 버튼을 눌러 고르기", Color.rgb(241, 243, 247), TEXT);
+        pickOnScreen.setOnClickListener(view -> startPickOnScreen());
+        chips.addView(pickOnScreen, new LinearLayout.LayoutParams(-1, dp(38)));
+        panel.addView(perBox);
+
+        // ---- 모양 · 글자 ----
+        panel.addView(section("모양 · 글자"));
+        LinearLayout shapeRow = chipRow();
+        for (int i = 0; i < ButtonStyle.SHAPE_NAMES.length; i++) {
+            final int shape = i;
+            TextView chip = chip(ButtonStyle.SHAPE_NAMES[i], view -> {
+                this.style.shape = shape;
+                refreshChips();
+                changed();
+            });
+            this.shapeChips[i] = chip;
+            shapeRow.addView(chip, chipParams());
+        }
+        panel.addView(shapeRow);
+        LinearLayout labelRow = chipRow();
+        for (int i = 0; i < ButtonStyle.LABEL_NAMES.length; i++) {
+            final int mode = i;
+            TextView chip = chip(ButtonStyle.LABEL_NAMES[i], view -> {
+                this.style.label = mode;
+                refreshChips();
+                changed();
+            });
+            this.labelChips[i] = chip;
+            labelRow.addView(chip, chipParams());
+        }
+        panel.addView(labelRow);
+
+        // ---- 크기 ----
+        panel.addView(section("크기"));
+        panel.addView(slider("전체", this.style.sizeAll, value -> this.style.sizeAll = value));
+        for (int i = 0; i < ButtonStyle.GROUP_NAMES.length; i++) {
+            final int group = i;
+            panel.addView(slider(ButtonStyle.GROUP_NAMES[i], this.style.sizes[i], value -> this.style.sizes[group] = value));
+        }
+        panel.addView(slider("버튼 사이 간격", this.style.gap, ButtonStyle.MIN_GAP, ButtonStyle.MAX_GAP, value -> this.style.gap = value));
+        TextView gapHint = new TextView(activity);
+        gapHint.setText("A·B·X·Y 묶음과 SELECT·START가 가운데를 두고 벌어지거나 모여요. 방향키 · 스틱 · L · R은 그대로예요.");
+        gapHint.setTextSize(10.5f);
+        gapHint.setTextColor(MUTED);
+        gapHint.setPadding(dp(2), 0, 0, dp(2));
+        panel.addView(gapHint);
+
+        // ---- 누를 때 ----
+        panel.addView(section("누를 때"));
+        panel.addView(toggle("눌린 버튼 밝게 빛남 (네온)", this.style.glow, on -> {
+            this.style.glow = on;
+            changed();
+        }));
+        panel.addView(toggle("살짝 커졌다 돌아오기", this.style.bounce, on -> {
+            this.style.bounce = on;
+            changed();
+        }));
+        panel.addView(toggle("이 게임에만 적용", this.perGame, on -> this.perGame = on));
+
+        // ---- actions ----
+        LinearLayout actions = new LinearLayout(activity);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(44));
+        actionsParams.setMargins(0, dp(14), 0, 0);
+        TextView reset = button("초기화", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        reset.setOnClickListener(view -> {
+            this.done = true;
+            listener.onReset(this.perGame);
+            this.dialog.dismiss();
+        });
+        TextView copy = button(landscape ? "세로에도 적용" : "가로에도 적용", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        copy.setOnClickListener(view -> {
+            listener.onCopyToOther(this.style.copy(), this.perGame);
+            android.widget.Toast.makeText(activity, (landscape ? "세로" : "가로") + " 화면에도 같은 꾸미기를 저장했어요.", android.widget.Toast.LENGTH_SHORT).show();
+        });
+        TextView finish = button("완료", ACCENT, Color.WHITE);
+        finish.setOnClickListener(view -> {
+            this.done = true;
+            listener.onDone(this.style.copy(), this.perGame);
+            this.dialog.dismiss();
+        });
+        actions.addView(reset, buttonParams(1.0f, false));
+        actions.addView(copy, buttonParams(1.3f, true));
+        actions.addView(finish, buttonParams(1.0f, true));
+        panel.addView(actions, actionsParams);
+
+        ScrollView scroll = new ScrollView(activity);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        this.dialog.setContentView(scroll);
+        this.dialog.setOnDismissListener(d -> {
+            if (!this.done) {
+                // Backed out: the buttons go back to what was saved.
+                listener.onChange(initial.copy());
+            }
+            listener.onClosed();
+        });
+        refreshChips();
+    }
+
+    /**
+     * Opens the window over the game screen (its frame on the window, when known) so the
+     * buttons below or beside it stay in view while they change; otherwise over the top.
+     */
+    void show(android.graphics.Rect screen) {
+        Window window = this.dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            // The buttons stay visible and undimmed, so the change shows.
+            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            android.util.DisplayMetrics metrics = this.activity.getResources().getDisplayMetrics();
+            int minHeight = dp(230);
+            if (screen != null && screen.width() > dp(200) && screen.height() > dp(120)) {
+                // Fill the screen's frame, growing downward a little when it is very short.
+                int width = Math.min(screen.width(), dp(440));
+                int height = Math.min(Math.max(screen.height(), minHeight), metrics.heightPixels - screen.top - dp(8));
+                window.setGravity(Gravity.TOP | Gravity.START);
+                WindowManager.LayoutParams params = window.getAttributes();
+                params.x = screen.left + (screen.width() - width) / 2;
+                params.y = screen.top;
+                window.setAttributes(params);
+                window.setLayout(width, height);
+            } else if (this.landscape) {
+                window.setGravity(Gravity.CENTER);
+                window.setLayout(Math.min(metrics.widthPixels - dp(40), dp(430)), Math.min(metrics.heightPixels - dp(24), dp(360)));
+            } else {
+                window.setGravity(Gravity.TOP);
+                WindowManager.LayoutParams params = window.getAttributes();
+                params.y = dp(28);
+                window.setAttributes(params);
+                window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(400)), Math.min((int) (metrics.heightPixels * 0.42f), dp(420)));
+            }
+        }
+        this.dialog.show();
+    }
+
+    private void changed() {
+        this.listener.onChange(this.style.copy());
+    }
+
+    // ---- custom colours ----
+
+    private void startPickOnScreen() {
+        this.dialog.hide();
+        this.listener.onPickStart(new ButtonPickOverlay.Listener() {
+            @Override
+            public void onPicked(String controlId, String ignored) {
+                String name = controlId;
+                for (String[] control : controls) {
+                    if (control[0].equals(controlId)) name = control[1];
+                }
+                pickControlColor(controlId, name, null);
+            }
+
+            @Override
+            public void onStop() {
+                listener.onPickStop();
+                dialog.show();
+            }
+        });
+    }
+
+    /** Colour for one control under "버튼마다 따로"; turns that mode on if it was off. */
+    private void pickControlColor(String id, String name, Runnable after) {
+        this.style.theme = ButtonStyle.THEME_CUSTOM;
+        this.style.perButton = true;
+        int role = ButtonStyle.ROLE_OTHER;
+        for (String[] control : this.controls) {
+            if (control[0].equals(id)) role = Integer.parseInt(control[2]);
+        }
+        int start = this.style.colorFor(id, role);
+        openPicker(name + " 색", start, color -> {
+            this.style.colors.put(id, color);
+            refreshChips();
+            changed();
+        }, after);
+    }
+
+    private void pickColor(int slot, String name) {
+        openPicker(name + " 색", this.style.custom[slot], color -> {
+            this.style.custom[slot] = color;
+            refreshChips();
+            changed();
+        }, null);
+    }
+
+    private static final int[] PALETTE = {
+            Color.rgb(227, 38, 58), Color.rgb(255, 122, 0), Color.rgb(248, 179, 26), Color.rgb(34, 179, 90), Color.rgb(0, 194, 168), Color.rgb(47, 111, 224),
+            Color.rgb(107, 77, 230), Color.rgb(255, 43, 214), Color.rgb(255, 255, 255), Color.rgb(154, 163, 178), Color.rgb(58, 58, 63), Color.rgb(17, 17, 20),
+    };
+
+    // A palette of twelve to tap plus 색상 · 채도 · 밝기 sliders; every move is applied at once.
+    private void openPicker(String title, int start, IntConsumer onColor, Runnable after) {
+        Dialog picker = new Dialog(this.activity);
+        picker.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this.activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(14), dp(16), dp(14));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.WHITE);
+        background.setCornerRadius(dp(18));
+        box.setBackground(background);
+        TextView heading = new TextView(this.activity);
+        heading.setText(title);
+        heading.setTextSize(15.0f);
+        heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        heading.setTextColor(TEXT);
+        box.addView(heading);
+
+        View preview = new View(this.activity);
+        GradientDrawable swatch = new GradientDrawable();
+        swatch.setCornerRadius(dp(12));
+        swatch.setStroke(dp(1), CHIP_BORDER);
+        preview.setBackground(swatch);
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(44));
+        previewParams.setMargins(0, dp(10), 0, dp(4));
+        box.addView(preview, previewParams);
+
+        float[] hsv = new float[3];
+        Color.colorToHSV(start, hsv);
+        final SeekBar[] bars = new SeekBar[3];
+        Runnable update = () -> {
+            int color = Color.HSVToColor(hsv);
+            swatch.setColor(color);
+            onColor.accept(color);
+        };
+        // Palette: two rows of six.
+        LinearLayout grid = new LinearLayout(this.activity);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout line = null;
+        for (int i = 0; i < PALETTE.length; i++) {
+            if (i % 6 == 0) {
+                line = new LinearLayout(this.activity);
+                line.setOrientation(LinearLayout.HORIZONTAL);
+                grid.addView(line);
+            }
+            final int color = PALETTE[i];
+            View dot = new View(this.activity);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(color);
+            circle.setStroke(dp(1), Color.argb(40, 0, 0, 0));
+            dot.setBackground(circle);
+            dot.setOnClickListener(view -> {
+                Color.colorToHSV(color, hsv);
+                if (bars[0] != null) {
+                    bars[0].setProgress(Math.round(hsv[0]));
+                    bars[1].setProgress(Math.round(hsv[1] * 100));
+                    bars[2].setProgress(Math.round(hsv[2] * 100));
+                }
+                update.run();
+            });
+            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+            dotParams.setMargins(dp(4), dp(4), dp(4), dp(4));
+            line.addView(dot, dotParams);
+        }
+        box.addView(grid);
+        update.run();
+        box.addView(bars[0] = hsvSliderBar(box, "색상", 360, Math.round(hsv[0]), value -> {
+            hsv[0] = value;
+            update.run();
+        }));
+        box.addView(bars[1] = hsvSliderBar(box, "채도", 100, Math.round(hsv[1] * 100), value -> {
+            hsv[1] = value / 100.0f;
+            update.run();
+        }));
+        box.addView(bars[2] = hsvSliderBar(box, "밝기", 100, Math.round(hsv[2] * 100), value -> {
+            hsv[2] = value / 100.0f;
+            update.run();
+        }));
+        TextView ok = button("이 색으로", ACCENT, Color.WHITE);
+        ok.setOnClickListener(view -> picker.dismiss());
+        picker.setOnDismissListener(d -> {
+            if (after != null) after.run();
+        });
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(-1, dp(44));
+        okParams.setMargins(0, dp(12), 0, 0);
+        box.addView(ok, okParams);
+        picker.setContentView(box);
+        Window window = picker.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setLayout(Math.min(this.activity.getResources().getDisplayMetrics().widthPixels - dp(40), dp(360)), -2);
+        }
+        picker.show();
+    }
+
+    // Adds the name to the box and returns the bar, which the caller adds next.
+    private SeekBar hsvSliderBar(LinearLayout box, String name, int max, int value, IntConsumer onValue) {
+        TextView label = new TextView(this.activity);
+        label.setText(name);
+        label.setTextSize(11.5f);
+        label.setTextColor(MUTED);
+        label.setPadding(dp(2), dp(4), 0, 0);
+        box.addView(label);
+        SeekBar bar = new SeekBar(this.activity);
+        bar.setMax(max);
+        bar.setProgress(value);
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) onValue.accept(progress);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        return bar;
+    }
+
+    // ---- widgets ----
+
+    private interface IntConsumer {
+        void accept(int value);
+    }
+
+    private interface BoolConsumer {
+        void accept(boolean value);
+    }
+
+    private TextView section(String text) {
+        TextView view = new TextView(this.activity);
+        view.setText(text);
+        view.setTextSize(11.5f);
+        view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        view.setTextColor(MUTED);
+        view.setPadding(0, dp(9), 0, dp(4));
+        return view;
+    }
+
+    private LinearLayout chipRow() {
+        LinearLayout row = new LinearLayout(this.activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        return row;
+    }
+
+    private LinearLayout.LayoutParams chipParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(30), 1.0f);
+        params.setMargins(dp(2), dp(2), dp(2), dp(2));
+        return params;
+    }
+
+    private TextView chip(CharSequence text, View.OnClickListener onClick) {
+        TextView chip = new TextView(this.activity);
+        chip.setText(text);
+        chip.setTextSize(11.5f);
+        chip.setGravity(Gravity.CENTER);
+        chip.setMaxLines(1);
+        chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        chip.setPadding(dp(4), 0, dp(4), 0);
+        chip.setOnClickListener(onClick);
+        setChipSelected(chip, false);
+        return chip;
+    }
+
+    private void setChipSelected(TextView chip, boolean selected) {
+        GradientDrawable background = new GradientDrawable();
+        background.setCornerRadius(dp(17));
+        background.setColor(selected ? ACCENT_SOFT : Color.WHITE);
+        background.setStroke(dp(selected ? 2 : 1), selected ? ACCENT : CHIP_BORDER);
+        chip.setBackground(background);
+        chip.setTextColor(selected ? ACCENT_TEXT : TEXT);
+        chip.setTypeface(selected ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
+    }
+
+    // The theme's name with a few dots in its colours in front.
+    private CharSequence themeText(int theme) {
+        ButtonStyle probe = new ButtonStyle();
+        probe.theme = theme;
+        System.arraycopy(this.style.custom, 0, probe.custom, 0, probe.custom.length);
+        int[] colors;
+        switch (theme) {
+            case ButtonStyle.THEME_DEFAULT:
+                colors = new int[]{Color.rgb(58, 58, 63), Color.rgb(227, 38, 58), Color.rgb(24, 182, 204)};
+                break;
+            case ButtonStyle.THEME_CUSTOM:
+                colors = new int[]{probe.custom[0], probe.custom[1], probe.custom[2]};
+                break;
+            default:
+                colors = new int[]{probe.color(ButtonStyle.ROLE_A), probe.color(ButtonStyle.ROLE_B), probe.color(ButtonStyle.ROLE_X), probe.color(ButtonStyle.ROLE_Y)};
+                if (theme == ButtonStyle.THEME_WHITE || theme == ButtonStyle.THEME_BLACK || theme == ButtonStyle.THEME_OUTLINE) {
+                    colors = new int[]{probe.color(ButtonStyle.ROLE_A), probe.color(ButtonStyle.ROLE_DPAD)};
+                }
+        }
+        SpannableStringBuilder text = new SpannableStringBuilder();
+        for (int color : colors) {
+            int start = text.length();
+            text.append("●");
+            int shown = color == 0 ? Color.GRAY : ButtonStyle.isLight(color) ? ButtonStyle.darker(color, 0.18f) : color;
+            text.setSpan(new ForegroundColorSpan(shown), start, start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        text.append(" ").append(ButtonStyle.THEME_NAMES[theme]);
+        return text;
+    }
+
+    private void refreshChips() {
+        for (int i = 0; i < this.themeChips.length; i++) {
+            this.themeChips[i].setText(themeText(i));
+            setChipSelected(this.themeChips[i], this.style.theme == i);
+        }
+        for (int i = 0; i < this.shapeChips.length; i++) {
+            setChipSelected(this.shapeChips[i], this.style.shape == i);
+        }
+        for (int i = 0; i < this.labelChips.length; i++) {
+            setChipSelected(this.labelChips[i], this.style.label == i);
+        }
+        boolean custom = this.style.theme == ButtonStyle.THEME_CUSTOM;
+        this.customRow.setVisibility(custom && !this.style.perButton ? View.VISIBLE : View.GONE);
+        this.perButtonBox.setVisibility(custom ? View.VISIBLE : View.GONE);
+        this.perButtonChips.setVisibility(custom && this.style.perButton ? View.VISIBLE : View.GONE);
+        if (this.perButtonSwitch.isChecked() != this.style.perButton) {
+            this.perButtonSwitch.setChecked(this.style.perButton);
+        }
+        for (String[] control : this.controls) {
+            TextView chip = this.controlChips.get(control[0]);
+            if (chip == null) continue;
+            int color = this.style.colorFor(control[0], Integer.parseInt(control[2]));
+            SpannableStringBuilder text = new SpannableStringBuilder("● ");
+            text.setSpan(new ForegroundColorSpan(ButtonStyle.isLight(color) ? ButtonStyle.darker(color, 0.18f) : color), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.append(control[1]);
+            chip.setText(text);
+        }
+        String[] names = {"방향키", "A · B · X · Y", "L · R · 시작"};
+        for (int i = 0; i < 3; i++) {
+            SpannableStringBuilder text = new SpannableStringBuilder("● ");
+            int color = this.style.custom[i];
+            text.setSpan(new ForegroundColorSpan(ButtonStyle.isLight(color) ? ButtonStyle.darker(color, 0.18f) : color), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.append(names[i]);
+            this.customChips[i].setText(text);
+        }
+    }
+
+    private View slider(String name, int value, IntConsumer onValue) {
+        return slider(name, value, ButtonStyle.MIN_SIZE, ButtonStyle.MAX_SIZE, onValue);
+    }
+
+    private View slider(String name, int value, int min, int max, IntConsumer onValue) {
+        LinearLayout row = new LinearLayout(this.activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = new TextView(this.activity);
+        label.setText(name);
+        label.setTextSize(12.5f);
+        label.setTextColor(TEXT);
+        row.addView(label, new LinearLayout.LayoutParams(dp(84), -2));
+        TextView shown = new TextView(this.activity);
+        shown.setText(value + "%");
+        shown.setTextSize(12.0f);
+        shown.setTextColor(MUTED);
+        shown.setGravity(Gravity.END);
+        SeekBar bar = new SeekBar(this.activity);
+        bar.setMax(max - min);
+        bar.setProgress(value - min);
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int percent = progress + min;
+                // Snaps to 100 so the default is easy to find again.
+                if (Math.abs(percent - 100) <= 3) percent = 100;
+                shown.setText(percent + "%");
+                if (fromUser) {
+                    onValue.accept(percent);
+                    changed();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        row.addView(bar, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        row.addView(shown, new LinearLayout.LayoutParams(dp(44), -2));
+        return row;
+    }
+
+    private View toggle(String name, boolean on, BoolConsumer onValue) {
+        LinearLayout row = new LinearLayout(this.activity);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(2), 0, dp(2));
+        TextView label = new TextView(this.activity);
+        label.setText(name);
+        label.setTextSize(12.5f);
+        label.setTextColor(TEXT);
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        Switch sw = new Switch(this.activity);
+        sw.setChecked(on);
+        sw.setOnCheckedChangeListener((view, checked) -> onValue.accept(checked));
+        row.addView(sw, new LinearLayout.LayoutParams(-2, -2));
+        return row;
+    }
+
+    private TextView button(String text, int background, int textColor) {
+        TextView button = new TextView(this.activity);
+        button.setText(text);
+        button.setTextSize(13.5f);
+        button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        button.setTextColor(textColor);
+        button.setGravity(Gravity.CENTER);
+        button.setMaxLines(1);
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(background);
+        drawable.setCornerRadius(dp(12));
+        button.setBackground(drawable);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams buttonParams(float weight, boolean gap) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, weight);
+        params.setMargins(gap ? dp(8) : 0, 0, 0, 0);
+        return params;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * this.activity.getResources().getDisplayMetrics().density);
+    }
+}

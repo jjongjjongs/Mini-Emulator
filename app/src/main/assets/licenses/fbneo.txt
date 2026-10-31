@@ -1,0 +1,13 @@
+Bundled native core:
+libfbneo_libretro_android.so
+
+Built from the libretro FinalBurn Neo source (commit a0cd2c6ab8502b92a78397b3e8cf6db502f279ac)
+for Android arm64-v8a with 16 KB ELF alignment.
+
+FinalBurn Neo source:
+https://github.com/libretro/FBNeo
+
+FinalBurn Neo license (non-commercial):
+https://github.com/libretro/FBNeo/blob/master/src/license.txt
+
+No ROM or BIOS files are bundled with this application.

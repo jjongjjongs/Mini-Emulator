@@ -1,0 +1,14 @@
+Bundled native core:
+libmgba_libretro_android.so
+
+Native core build:
+Built from libretro mGBA source with Android arm64-v8a 16 KB ELF alignment.
+
+mGBA source:
+https://github.com/libretro/mgba
+
+mGBA license:
+Mozilla Public License 2.0
+https://github.com/libretro/mgba/blob/master/LICENSE
+
+No commercial ROM files are bundled with this application.
