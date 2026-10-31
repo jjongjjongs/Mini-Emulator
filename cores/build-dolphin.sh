@@ -47,6 +47,15 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$DOLPHIN_COMMIT" 
     git -C "$DIR" checkout -q --force FETCH_HEAD
 fi
 git -C "$DIR" submodule update -q --init --recursive --depth 1
+# Fixes on top of the pinned commit:
+#   bba-tap: the broadband adapter's TAP server address from MINI_EMULATOR_BBA_TAP, so the
+#     app's GameCube LAN relay can take the frames (게임큐브 LAN 대전).
+for PATCH in "$HERE"/patches/dolphin-*.patch; do
+    [ -e "$PATCH" ] || continue
+    if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+        git -C "$DIR" apply "$PATCH"
+    fi
+done
 
 # Dolphin only opens a WBFS file whose size matches the sector count in its header, but
 # tools that trim the unused space after the last block write smaller files that hold the

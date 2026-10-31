@@ -9,6 +9,7 @@ on:
     branches: ['**']
     paths:
       - cores/build-dolphin.sh
+      - cores/patches/dolphin-*.patch
       - .github/workflows/dolphin.yml
   workflow_dispatch:
 
@@ -26,7 +27,7 @@ jobs:
           path: |
             app/src/main/jniLibs/arm64-v8a/libdolphin_libretro_android.so
             app/src/main/assets/dolphin_sys.zip
-          key: dolphin-${{ hashFiles('cores/build-dolphin.sh') }}
+          key: dolphin-${{ hashFiles('cores/build-dolphin.sh', 'cores/patches/dolphin-*.patch') }}
 
       - name: Install build tools
         if: steps.dolphin-cache.outputs.cache-hit != 'true'
@@ -46,7 +47,7 @@ jobs:
           path: |
             app/src/main/jniLibs/arm64-v8a/libdolphin_libretro_android.so
             app/src/main/assets/dolphin_sys.zip
-          key: dolphin-${{ hashFiles('cores/build-dolphin.sh') }}
+          key: dolphin-${{ hashFiles('cores/build-dolphin.sh', 'cores/patches/dolphin-*.patch') }}
 
       - name: Upload build logs
         if: failure()
