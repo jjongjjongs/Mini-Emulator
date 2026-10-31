@@ -194,6 +194,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenArea = frameLayout;
         addMotionBadges(frameLayout);
         addGcLanBadge(frameLayout);
+        addWiimmfiBadge(frameLayout);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
@@ -242,6 +243,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenArea = frameLayout2;
         addMotionBadges(frameLayout2);
         addGcLanBadge(frameLayout2);
+        addWiimmfiBadge(frameLayout2);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
@@ -3880,6 +3882,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // doesn't stop the game and goes away by itself; it opens 발열 줄이는 법.
     private void showStartNotices() {
         long delay = 0;
+        if (wiimmfiOn() && cheatsSupported() && Cheats.countOn(cheats()) > 0) {
+            // Wiimmfi turns cheaters away; once per session, before going online.
+            new AppDialog.Builder(this).setTitle("치트가 켜져 있어요")
+                    .setMessage("Wiimmfi는 치트를 쓰면 접속을 막아요. 온라인 동안은 꺼 둘까요?")
+                    .setNegativeButton("그대로", null)
+                    .setPositiveButton("치트 끄기", (d, w) -> {
+                        for (Cheats.Cheat cheat : cheats()) {
+                            cheat.on = false;
+                        }
+                        cheatsChanged();
+                        Toast.makeText(this, "치트를 모두 껐어요", Toast.LENGTH_SHORT).show();
+                    }).show();
+            return;
+        }
         if (gcLanMode() != 0) {
             String tipKey = "gc_lan_tip:" + this.saveBaseName;
             if (!MainActivity.sharedSettings(this).getBoolean(tipKey, false)) {
@@ -4644,6 +4660,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setWiiControl(wiiControl());
                         NativeGba.setDolphinVideo(dolphinScale(), dolphinAspect());
                         NativeGba.setWiiPointer(isWiiGame() && wiiPointer() == 1);
+                        NativeGba.setWiimmfi(wiimmfiOn());
                     }
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
@@ -6497,6 +6514,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (isWiiGame()) {
                 panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
                 panel.addView(createWiiPointerRow(dialog), tabRowParams(panel));
+                panel.addView(createWiimmfiRow(dialog), tabRowParams(panel));
             }
             panel.addView(createDolphinScaleRow(dialog), tabRowParams(panel));
             panel.addView(createDolphinAspectRow(dialog), tabRowParams(panel));
@@ -8785,6 +8803,47 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     menu.dismiss();
                     relaunchGame();
                 }));
+    }
+
+    // Wii 인터넷 (Wiimmfi), per game: the bridge points the game's Nintendo Wi-Fi Connection
+    // addresses in memory at Wiimmfi (as the Wiimmfi patcher does to the disc).
+    private boolean wiimmfiOn() {
+        return isDolphin() && isWiiGame() && MainActivity.sharedSettings(this).getBoolean("wiimmfi:" + this.saveBaseName, false);
+    }
+
+    private LinearLayout createWiimmfiRow(android.app.Dialog menu) {
+        boolean on = wiimmfiOn();
+        int orange = Color.rgb(234, 88, 12);
+        return createSettingRow(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", on ? "켜짐" : "꺼짐",
+                view -> showChoiceDialog(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", new String[]{"꺼짐", "켜짐"},
+                        new String[]{"게임의 Wi-Fi 메뉴는 접속 오류가 나요 (원래 서버가 닫혔어요)", "게임의 Wi-Fi 메뉴가 대체 서버 Wiimmfi로 접속해요"}, on ? 1 : 0,
+                        "원본 게임 파일은 그대로예요. 게임이 켜질 때 앱이 메모리 속 접속 주소만 Wiimmfi로 바꿔요. 치트는 꺼야 해요 (켜면 접속이 막혀요).\n"
+                                + "마리오카트 Wii 중심으로 맞췄고, 다른 게임은 안 될 수 있어요. 에러 번호가 나오면 알려 주세요.",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 이어하기", choice -> {
+                    if ((choice == 1) == on) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putBoolean("wiimmfi:" + this.saveBaseName, choice == 1).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
+    // On the picture's top right while Wiimmfi is on.
+    private void addWiimmfiBadge(FrameLayout screenFrame) {
+        if (!wiimmfiOn()) {
+            return;
+        }
+        TextView badge = new TextView(this);
+        badge.setText("🌐 Wiimmfi");
+        badge.setTextSize(11.0f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        badge.setBackground(roundRect(Color.argb(230, 234, 88, 12), dp(11)));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        params.setMargins(0, dp(8), dp(8), 0);
+        screenFrame.addView(badge, params);
     }
 
     private int wiiControl() {

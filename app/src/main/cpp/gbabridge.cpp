@@ -2959,6 +2959,78 @@ static bool parseMemoryCheat(const std::string& code, Core::MemoryCheat& out) {
 }
 
 // The same steps as RetroArch's cheat_manager_apply_retro_cheats, on RETRO_MEMORY_SYSTEM_RAM.
+// Wii 인터넷 (Wiimmfi): the Wiimmfi patcher's string changes (Wiimm's ISO Tools, --wiimmfi),
+// made in the Wii's main memory instead of the disc. Every URL or host naming
+// nintendowifi.net or sake.gamespy.com is rewritten in place, never longer than it was:
+// https:// becomes http:// ("https://naswii." becomes "http://nas."), the domain wiimmfi.de.
+std::atomic<bool> gWiimmfi{false};
+
+namespace wiimmfi {
+bool rewrite(std::string& text) {
+    std::string out = text;
+    bool nintendo = out.find("nintendowifi.net") != std::string::npos;
+    bool sake = out.find("sake.gamespy.com") != std::string::npos;
+    if (!nintendo && !sake) return false;
+    size_t https = out.find("https://");
+    if (https != std::string::npos) {
+        if (out.compare(https + 8, 7, "naswii.") == 0) {
+            out.replace(https, 15, "http://nas.");
+        } else {
+            out.replace(https, 8, "http://");
+        }
+    }
+    auto domain = [&out](const char* from, size_t keep) {
+        // keep: how much of `from` stays (".nintendowifi.net" keeps the dot, "sake.gamespy.com" keeps "sake.").
+        size_t at = 0;
+        size_t len = strlen(from);
+        while ((at = out.find(from, at)) != std::string::npos) {
+            size_t after = at + len;
+            if (after == out.size() || out[after] == '/' || out[after] == ':') {
+                out.replace(at + keep, len - keep, "wiimmfi.de");
+                at += keep + 10;
+            } else {
+                at += len;
+            }
+        }
+    };
+    domain(".nintendowifi.net", 1);
+    domain("sake.gamespy.com", 5);
+    if (out == text || out.size() > text.size()) return false;
+    text = out;
+    return true;
+}
+
+// Finds the strings around each mention in the memory and rewrites them, padding with NULs.
+int patch(uint8_t* ram, size_t size) {
+    int changed = 0;
+    for (const char* needle : {"nintendowifi.net", "sake.gamespy.com"}) {
+        size_t needleLen = strlen(needle);
+        size_t offset = 0;
+        while (offset + needleLen <= size) {
+            void* hit = memmem(ram + offset, size - offset, needle, needleLen);
+            if (hit == nullptr) break;
+            size_t at = static_cast<uint8_t*>(hit) - ram;
+            size_t start = at;
+            while (start > 0 && at - start < 200 && ram[start - 1] >= 0x21 && ram[start - 1] < 0x7F) start--;
+            size_t end = at + needleLen;
+            while (end < size && end - at < 200 && ram[end] >= 0x21 && ram[end] < 0x7F) end++;
+            // Only whole C strings: a NUL right after.
+            if (end < size && ram[end] == 0) {
+                std::string text(reinterpret_cast<char*>(ram + start), end - start);
+                size_t length = text.size();
+                if (rewrite(text)) {
+                    memcpy(ram + start, text.data(), text.size());
+                    memset(ram + start + text.size(), 0, length - text.size());
+                    changed++;
+                }
+            }
+            offset = end > at ? end : at + 1;
+        }
+    }
+    return changed;
+}
+}  // namespace wiimmfi
+
 static void applyMemoryCheats(Core* core) {
     if (core->memoryCheats.empty() || core->retroGetMemoryData == nullptr || core->retroGetMemorySize == nullptr) {
         return;
@@ -3083,6 +3155,16 @@ void runLoop(Core* core) {
             if (core->coreId == "melonds") dsnet::tick();
             core->retroRun();
             applyMemoryCheats(core);
+            // Wii 인터넷: every two seconds, so code loaded later (Mario Kart Wii's StaticR.rel)
+            // is caught well before the game goes online.
+            if (core->coreId == "dolphin" && gWiimmfi.load() && core->framesRun % 120 == 30) {
+                void* ram = core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM);
+                size_t ramSize = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
+                if (ram != nullptr && ramSize > 0) {
+                    int changed = wiimmfi::patch(static_cast<uint8_t*>(ram), ramSize);
+                    if (changed > 0) LOGI("Wiimmfi: %d strings pointed at wiimmfi.de", changed);
+                }
+            }
             core->framesRun++;
             core->framesCounted.fetch_add(1);
             if (rewound) {
@@ -3759,6 +3841,11 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGcLan(JNIEnv* env, 
 // Phones in the LAN room besides this one.
 JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_gcLanPeers(JNIEnv* /*env*/, jclass /*cls*/) {
     return gclan::peers();
+}
+
+// Wii 인터넷 (Wiimmfi) for the next game.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiimmfi(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    gWiimmfi.store(on == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiPointer(JNIEnv* /*env*/, jclass /*cls*/, jboolean stick) {

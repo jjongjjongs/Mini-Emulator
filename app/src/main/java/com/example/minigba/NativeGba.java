@@ -148,6 +148,9 @@ final class NativeGba {
     // Phones in the LAN room besides this one.
     static native int gcLanPeers();
 
+    // Wii 인터넷 (Wiimmfi) for the next game.
+    static native void setWiimmfi(boolean on);
+
     // 모션 (자이로): offered to the next game created; readings in the screen's axes,
     // the accelerometer in g and the gyroscope in rad/s.
     static native void setMotionEnabled(boolean on);
