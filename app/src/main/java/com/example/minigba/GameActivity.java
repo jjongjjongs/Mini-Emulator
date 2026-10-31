@@ -121,6 +121,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // PS2's speed wobbles frame to frame on heavy games; 140 ms covers most of it.
             this.audioSink.setFloorMs(140);
         }
+        if (this.landscapeMode && motionActive()) {
+            // Tilting must not turn the screen over, so landscape is fixed one way from the
+            // start. Asking for that once the game's picture existed (0.0.214) made the
+            // phone lay the screen out again, and the picture stopped while the sound went on.
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        }
         if (this.landscapeMode) {
             createLandscapeContent();
         } else {
@@ -5860,7 +5866,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // and saving stalled the game long enough (a DS state is megabytes) to drag the music.
         int i = !this.landscapeMode ? 1 : 0;
         MainActivity.sharedSettings(this).edit().putInt("orientation_mode", i).commit();
-        setRequestedOrientation(i == 1 ? 6 : 1);
+        setRequestedOrientation(i == 1 ? (motionActive() ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE : 6) : 1);
     }
 
     private void addControls(FrameLayout frameLayout) {
@@ -8205,14 +8211,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
         params.setMargins(dp(8), dp(8), 0, 0);
         screenFrame.addView(row, params);
-        // Tilting must not turn the screen over (landscape follows the sensor otherwise).
-        if (this.landscapeMode) {
-            screenFrame.postDelayed(() -> {
-                if (!this.destroyed && this.landscapeMode && motionActive()) {
-                    setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LOCKED);
-                }
-            }, 800);
-        }
     }
 
     // Wii / Wii U, the first time a game starts: whether to steer by tilting the phone.
