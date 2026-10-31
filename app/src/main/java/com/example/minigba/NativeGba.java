@@ -138,4 +138,10 @@ final class NativeGba {
     // GameCube / Wii: resolution (1-3) and picture shape (0 the game's, 1 4:3, 2 16:9
     // stretched, 3 widescreen hack) for the next game.
     static native void setDolphinVideo(int scale, int aspect);
+
+    // 모션 (자이로): offered to the next game created; readings in the screen's axes,
+    // the accelerometer in g and the gyroscope in rad/s.
+    static native void setMotionEnabled(boolean on);
+
+    static native void setMotion(float ax, float ay, float az, float gx, float gy, float gz);
 }

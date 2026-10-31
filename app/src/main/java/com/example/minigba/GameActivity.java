@@ -186,6 +186,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addPerfOverlay(root, false);
         setContentView(root);
         this.screenArea = frameLayout;
+        addMotionBadges(frameLayout);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
@@ -232,6 +233,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addPerfOverlay(root, full || isDualScreen());
         setContentView(root);
         this.screenArea = frameLayout2;
+        addMotionBadges(frameLayout2);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
@@ -3815,6 +3817,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // doesn't stop the game and goes away by itself; it opens 발열 줄이는 법.
     private void showStartNotices() {
         long delay = 0;
+        if (motionSupported() && motionInput().available()) {
+            String asked = "motion_asked:" + this.saveBaseName;
+            if (!MainActivity.sharedSettings(this).getBoolean(asked, false)) {
+                MainActivity.sharedSettings(this).edit().putBoolean(asked, true).apply();
+                if (isGbaMotionCart()) {
+                    showInfoNotice(isGameBoy() ? "기울이기 센서 카트리지예요" : "센서 카트리지예요",
+                            "모션이 자동으로 켜졌어요. 휴대폰을 기울이거나 돌리면 게임에 들어가요. 화면의 '가운데로'로 기준을 다시 잡아요", 7000);
+                    delay = 7500;
+                } else {
+                    showMotionPrompt();
+                    return;
+                }
+            }
+        }
         if (isWiiU() && !MainActivity.sharedSettings(this).getBoolean("wiiu_notice", false)) {
             MainActivity.sharedSettings(this).edit().putBoolean("wiiu_notice", true).apply();
             new AppDialog.Builder(this).setTitle("Wii U 모드 · 실험적")
@@ -4164,9 +4180,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 조작 탭: vibration, combos, sticks, rewind and game controllers.
     private void addControlTabRows(LinearLayout panel, Runnable refresh) {
+        addMotionRows(panel, this.pauseDialog, refresh);
         if (!isPadScreen()) {
             LinearLayout.LayoutParams hapticParams = new LinearLayout.LayoutParams(-1, dp(52));
-            hapticParams.setMargins(0, 0, 0, 0);
+            hapticParams.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
             panel.addView(createSettingRow(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES[hapticLevel()],
                     view -> showChoiceDialog(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", HAPTIC_NAMES, HAPTIC_NOTES,
                             hapticLevel(), "화면 버튼을 누를 때 짧게 진동해요.\n휴대폰이 무음·진동 끔이어도 울릴 수 있어요.",
@@ -4248,6 +4265,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.activityResumed = false;
         onRewindHeld(false);
         stopMicPoll();
+        if (this.motionInput != null) {
+            this.motionInput.stop();
+        }
         long j = this.nativeHandle;
         if (j != 0) {
             NativeGba.pause(j, true);
@@ -4271,6 +4291,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         startMicPoll();
         long j = this.nativeHandle;
         if (j != 0) {
+            startMotionIfOn();
             // Back from a file picker opened over the pause menu: stay paused under it.
             boolean menuOpen = this.holdPause || (this.pauseDialog != null && this.pauseDialog.isShowing());
             NativeGba.pause(j, menuOpen);
@@ -4545,6 +4566,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
                     NativeGba.setPowerMode(powerMode());
                     NativeGba.setNoAutoState(stvBoard());
+                    NativeGba.setMotionEnabled(motionActive());
                     if (isDolphin()) {
                         NativeGba.setWiiControl(wiiControl());
                         NativeGba.setDolphinVideo(dolphinScale(), dolphinAspect());
@@ -4593,6 +4615,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.nativeHandle = handle;
         startAdhocBeaconIfHosting();
         shareVpnInviteIfPending();
+        startMotionIfOn();
         NativeGba.setInput(handle, this.buttonMask);
         NativeGba.setSpeedPercent(handle, this.speedPercent);
         NativeGba.setRewindEnabled(handle, rewindOn());
@@ -8046,6 +8069,207 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean isWiiU() {
         return "cemu".equals(this.coreId);
+    }
+
+    // ---- 모션 (자이로): Wii remotes, the Wii U GamePad and GBA / Game Boy sensor carts ----
+    private MotionInput motionInput;
+    private Boolean gbaMotionCart;
+
+    private MotionInput motionInput() {
+        if (this.motionInput == null) {
+            this.motionInput = new MotionInput(this);
+        }
+        return this.motionInput;
+    }
+
+    private boolean motionSupported() {
+        return (isDolphin() && isWiiGame()) || isWiiU() || isGbaMotionCart();
+    }
+
+    private boolean motionOn() {
+        return MainActivity.sharedSettings(this).getBoolean("motion:" + this.saveBaseName, isGbaMotionCart());
+    }
+
+    private boolean motionActive() {
+        return motionSupported() && motionOn() && motionInput().available();
+    }
+
+    private static final int[] MOTION_SENS = {50, 75, 100, 150, 200};
+    private static final String[] MOTION_SENS_NAMES = {"약하게 · 50%", "조금 약하게 · 75%", "보통 · 100%", "세게 · 150%", "아주 세게 · 200%"};
+
+    private int motionSensitivity() {
+        int value = MainActivity.sharedSettings(this).getInt("motion_sens", 100);
+        for (int k : MOTION_SENS) {
+            if (k == value) return value;
+        }
+        return 100;
+    }
+
+    private void startMotionIfOn() {
+        if (!motionActive() || this.nativeHandle == 0 || !this.activityResumed) {
+            return;
+        }
+        MotionInput input = motionInput();
+        input.setSensitivity(motionSensitivity() / 100f);
+        input.setUpright(isWiiU());
+        input.recenter();
+        input.start();
+    }
+
+    // GBA carts with a tilt or turn sensor (WarioWare Twisted!, Koro Koro Puzzle, Yoshi
+    // Topsy-Turvy) by their game code, and Game Boy MBC7 carts (Kirby Tilt 'n' Tumble) by
+    // their cartridge type; read from a zip's first entry too.
+    private boolean isGbaMotionCart() {
+        if (this.gbaMotionCart != null) {
+            return this.gbaMotionCart;
+        }
+        boolean motion = false;
+        if ("gba".equals(this.coreId) && this.romPath != null) {
+            byte[] head = new byte[0x150];
+            int got = 0;
+            try {
+                java.io.InputStream in;
+                java.util.zip.ZipFile zip = null;
+                if (this.romPath.toLowerCase(Locale.US).endsWith(".zip")) {
+                    zip = new java.util.zip.ZipFile(this.romPath);
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                    java.util.zip.ZipEntry entry = null;
+                    while (entries.hasMoreElements()) {
+                        java.util.zip.ZipEntry next = entries.nextElement();
+                        if (!next.isDirectory()) {
+                            entry = next;
+                            break;
+                        }
+                    }
+                    in = entry == null ? null : zip.getInputStream(entry);
+                } else {
+                    in = new java.io.FileInputStream(this.romPath);
+                }
+                if (in != null) {
+                    try (java.io.InputStream stream = in) {
+                        while (got < head.length) {
+                            int n = stream.read(head, got, head.length - got);
+                            if (n < 0) break;
+                            got += n;
+                        }
+                    }
+                }
+                if (zip != null) {
+                    zip.close();
+                }
+            } catch (IOException | RuntimeException e) {
+                got = 0;
+            }
+            if (got >= 0x150) {
+                if (isGameBoy()) {
+                    motion = (head[0x147] & 0xFF) == 0x22;
+                } else {
+                    String code = new String(head, 0xAC, 3, java.nio.charset.StandardCharsets.ISO_8859_1);
+                    motion = code.equals("RZW") || code.equals("KHP") || code.equals("KYG");
+                }
+            }
+        }
+        this.gbaMotionCart = motion;
+        return motion;
+    }
+
+    // On the picture's top left while motion is on: a badge and the "가운데로" button.
+    private void addMotionBadges(FrameLayout screenFrame) {
+        if (!motionActive()) {
+            return;
+        }
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        TextView badge = new TextView(this);
+        badge.setText("↻ 모션 켜짐");
+        badge.setTextSize(11.0f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        badge.setBackground(roundRect(Color.argb(225, 13, 148, 136), dp(11)));
+        row.addView(badge);
+        TextView center = new TextView(this);
+        center.setText("⊙ 가운데로");
+        center.setTextSize(11.0f);
+        center.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        center.setTextColor(Color.rgb(229, 231, 235));
+        center.setPadding(dp(9), dp(3), dp(9), dp(3));
+        center.setBackground(roundRect(Color.argb(200, 17, 24, 39), dp(11)));
+        center.setOnClickListener(view -> {
+            motionInput().recenter();
+            Toast.makeText(this, "지금 자세를 가운데로 맞췄어요", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(-2, -2);
+        centerParams.setMargins(dp(6), 0, 0, 0);
+        row.addView(center, centerParams);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        params.setMargins(dp(8), dp(8), 0, 0);
+        screenFrame.addView(row, params);
+        // Tilting must not turn the screen over (landscape follows the sensor otherwise).
+        if (this.landscapeMode) {
+            screenFrame.postDelayed(() -> {
+                if (!this.destroyed && this.landscapeMode && motionActive()) {
+                    setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+                }
+            }, 800);
+        }
+    }
+
+    // Wii / Wii U, the first time a game starts: whether to steer by tilting the phone.
+    private void showMotionPrompt() {
+        String what = isWiiU() ? "휴대폰을 게임패드처럼 기울이면 조준 · 모션 조작이 돼요." : "휴대폰을 리모컨처럼 기울이면 기울이기가, 흔들면 흔들기가 돼요. 흔들기 버튼도 그대로 써요.";
+        new AppDialog.Builder(this).setTitle("휴대폰을 기울여서 조작할까요?")
+                .setMessage(what + "\n\n편하게 잡은 자세에서 화면의 '가운데로'를 누르면 그 자세가 똑바로가 돼요. 언제든 일시정지 › 조작에서 끌 수 있어요."
+                        + (isWiiU() ? "\n\n켜면 게임이 다시 켜져요 (Wii U는 타이틀부터)." : "\n\n켜면 지금 장면을 저장하고 다시 켜서 이어져요."))
+                .setNegativeButton("나중에", null)
+                .setPositiveButton("모션 켜기", (d, w) -> setMotionOn(true, null)).show();
+    }
+
+    private void setMotionOn(boolean on, android.app.Dialog menu) {
+        MainActivity.sharedSettings(this).edit().putBoolean("motion:" + this.saveBaseName, on).commit();
+        if (menu != null) {
+            menu.dismiss();
+        }
+        relaunchGame();
+    }
+
+    private void addMotionRows(LinearLayout panel, android.app.Dialog dialog, Runnable refresh) {
+        if (!motionSupported()) {
+            return;
+        }
+        int teal = Color.rgb(13, 148, 136);
+        if (!motionInput().available()) {
+            panel.addView(createSettingRow(RoundIconView.ROTATE, teal, "모션 (자이로)", "이 휴대폰엔 센서가 없어요", view -> { }), tabRowParams(panel));
+            return;
+        }
+        boolean on = motionOn();
+        panel.addView(createSettingRow(RoundIconView.ROTATE, teal, "모션 (자이로)", on ? "켜짐" : "꺼짐",
+                view -> showChoiceDialog(RoundIconView.ROTATE, teal, "모션 (자이로)", new String[]{"꺼짐", "켜짐"},
+                        new String[]{"화면 버튼으로만 조작해요", "휴대폰을 기울이고 흔들어서 조작해요 · 버튼도 그대로"}, on ? 1 : 0,
+                        "이 게임에만 적용돼요. " + (isWiiU() ? "바꾸면 게임이 다시 켜지고, Wii U는 이어하기가 없어서 타이틀부터 시작해요." : "지금 장면을 저장하고 다시 켜서 이어져요."),
+                        Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+                    if ((choice == 1) == on) {
+                        return;
+                    }
+                    setMotionOn(choice == 1, dialog);
+                })), tabRowParams(panel));
+        if (!on) {
+            return;
+        }
+        int sens = motionSensitivity();
+        int index = java.util.Arrays.binarySearch(MOTION_SENS, sens);
+        panel.addView(createSettingRow(RoundIconView.STICK, teal, "모션 감도", MOTION_SENS_NAMES[index],
+                view -> showChoiceDialog(RoundIconView.STICK, teal, "모션 감도", MOTION_SENS_NAMES,
+                        new String[]{"크게 기울여야 움직여요", "조금 둔하게", "기본", "조금 예민하게", "조금만 기울여도 크게 움직여요"}, index,
+                        "모든 게임에 바로 적용돼요.", Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+                    MainActivity.sharedSettings(this).edit().putInt("motion_sens", MOTION_SENS[choice]).apply();
+                    motionInput().setSensitivity(MOTION_SENS[choice] / 100f);
+                    refresh.run();
+                })), tabRowParams(panel));
+        panel.addView(createSettingRow(RoundIconView.MOVE, teal, "가운데로 맞추기", "지금 자세로", view -> {
+            motionInput().recenter();
+            Toast.makeText(this, "지금 자세를 가운데로 맞췄어요", Toast.LENGTH_SHORT).show();
+        }), tabRowParams(panel));
     }
 
     // ---- Wii U: the TV picture and the GamePad's ----

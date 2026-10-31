@@ -1433,6 +1433,10 @@ std::atomic<int> gDolphinScale{1};
 std::atomic<int> gDolphinAspect{0};
 
 // Core options the app pins regardless of what the core reports as default.
+namespace motion {
+extern std::atomic<bool> enabled;
+}
+
 void applyWiiuLayout(Core* core) {
     if (core == nullptr || core->cemuSetLayout == nullptr) return;
     std::lock_guard<std::mutex> lock(gWiiuLayoutMutex);
@@ -1443,6 +1447,7 @@ const char* fixedVariable(const char* key) {
     // Wii U (Cemu): Vulkan; the app places both screens itself (the layout patch), so the
     // core's own layout is one that draws both and its switching combination is off.
     if (strcmp(key, "cemu_gpu_api") == 0) return "Vulkan";
+    if (strcmp(key, "cemu_gamepad_motion") == 0) return motion::enabled.load() ? "enabled" : "disabled";
     if (strcmp(key, "cemu_number_of_screen_layouts") == 0) return "1";
     if (strcmp(key, "cemu_screen_layout1") == 0) return "Picture in Picture";
     if (strcmp(key, "cemu_next_screen_layout_button") == 0) return "Disabled";
@@ -1682,6 +1687,41 @@ struct retro_microphone {
 
 namespace {
 
+// 모션 (자이로): the phone's accelerometer (g) and gyroscope (rad/s) as libretro sensors,
+// in the screen's axes as the app hands them over. Only offered while the game has motion
+// on, so the cores (Dolphin, Cemu, mGBA) keep their button controls otherwise.
+namespace motion {
+std::atomic<bool> enabled{false};
+std::atomic<float> value[6] = {{0.0f}, {0.0f}, {1.0f}, {0.0f}, {0.0f}, {0.0f}};
+
+bool RETRO_CALLCONV setState(unsigned port, enum retro_sensor_action action, unsigned /*rate*/) {
+    if (port != 0) return false;
+    switch (action) {
+        case RETRO_SENSOR_ACCELEROMETER_ENABLE:
+        case RETRO_SENSOR_GYROSCOPE_ENABLE:
+            return enabled.load();
+        case RETRO_SENSOR_ACCELEROMETER_DISABLE:
+        case RETRO_SENSOR_GYROSCOPE_DISABLE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+float RETRO_CALLCONV getInput(unsigned port, unsigned id) {
+    if (port != 0 || !enabled.load()) return 0.0f;
+    switch (id) {
+        case RETRO_SENSOR_ACCELEROMETER_X: return value[0].load();
+        case RETRO_SENSOR_ACCELEROMETER_Y: return value[1].load();
+        case RETRO_SENSOR_ACCELEROMETER_Z: return value[2].load();
+        case RETRO_SENSOR_GYROSCOPE_X: return value[3].load();
+        case RETRO_SENSOR_GYROSCOPE_Y: return value[4].load();
+        case RETRO_SENSOR_GYROSCOPE_Z: return value[5].load();
+        default: return 0.0f;
+    }
+}
+}  // namespace motion
+
 namespace mic {
 constexpr unsigned kRate = 44100;
 // About a quarter of a second; older samples are dropped so the game hears the voice now.
@@ -1811,6 +1851,13 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (dsnet::mode() == 0) return false;
             dsnet::setCallback(static_cast<const retro_netpacket_callback*>(data));
             return true;
+        case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE: {
+            if (data == nullptr || !motion::enabled.load()) return false;
+            auto* sensors = static_cast<retro_sensor_interface*>(data);
+            sensors->set_sensor_state = motion::setState;
+            sensors->get_sensor_input = motion::getInput;
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE: {
             if (data == nullptr || core->coreId != "melonds") return false;
             auto* interface = static_cast<retro_microphone_interface*>(data);
@@ -3669,6 +3716,20 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setCheats(
         }
         return true;
     }) ? JNI_TRUE : JNI_FALSE;
+}
+
+// 모션: on for the next game created (the cores ask for the sensors as they start).
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setMotionEnabled(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    motion::enabled.store(on == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setMotion(JNIEnv* /*env*/, jclass /*cls*/, jfloat ax, jfloat ay, jfloat az, jfloat gx, jfloat gy, jfloat gz) {
+    motion::value[0].store(ax);
+    motion::value[1].store(ay);
+    motion::value[2].store(az);
+    motion::value[3].store(gx);
+    motion::value[4].store(gy);
+    motion::value[5].store(gz);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDolphinVideo(JNIEnv* /*env*/, jclass /*cls*/, jint scale, jint aspect) {
