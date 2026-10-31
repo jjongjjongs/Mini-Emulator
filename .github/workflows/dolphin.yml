@@ -17,6 +17,10 @@ on:
         description: 'Also build once more and keep the unstripped core (to read crash reports)'
         type: boolean
         default: false
+      addresses:
+        description: 'Crash addresses (hex offsets in the core, space separated) to turn into function names'
+        type: string
+        default: ''
 
 jobs:
   dolphin:
@@ -77,6 +81,19 @@ jobs:
 
       - name: Build GameCube and Wii core
         run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./cores/build-dolphin.sh
+
+      - name: Name the crash addresses
+        if: inputs.addresses != ''
+        env:
+          ADDRESSES: ${{ inputs.addresses }}
+        run: |
+          SO="$(find cores/build/dolphin/build-android -name '*dolphin_libretro*.so' | head -n 1)"
+          TOOLS="$(echo "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin)"
+          "$TOOLS/llvm-readelf" -n "$SO" | grep -i "build id" || true
+          for A in $ADDRESSES; do
+            echo "== $A"
+            "$TOOLS/llvm-symbolizer" --obj="$SO" --inlining --demangle "$A" || true
+          done
 
       - name: Upload unstripped core
         uses: actions/upload-artifact@v4
