@@ -634,6 +634,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "ngp") return "libmednafen_ngp_libretro_android.so";
     if (coreId == "picodrive") return "libpicodrive_libretro_android.so";
     if (coreId == "yabasanshiro") return "libyabasanshiro_libretro_android.so";
+    if (coreId == "dolphin") return "libdolphin_libretro_android.so";
     return nullptr;
 }
 
@@ -687,7 +688,7 @@ bool loadCoreSymbols(Core* core) {
 bool needsFrameBeforeState(const Core* core) {
     return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play" ||
            core->coreId == "pcee2" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
-           core->coreId == "yabasanshiro" || core->coreId == "citra";
+           core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "dolphin";
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
@@ -1423,6 +1424,9 @@ std::string n64RomName(const std::string& path) {
     }
     return std::string(reinterpret_cast<char*>(h + 0x20), 20);
 }
+// Dolphin's port 1 device for Wii games: remote + nunchuk (3<<8 | joypad), remote held
+// sideways (2<<8) or classic controller (4<<8). Set per game before it starts.
+std::atomic<int> gWiiDevice{(3 << 8) | RETRO_DEVICE_JOYPAD};
 
 // Core options the app pins regardless of what the core reports as default.
 void applyWiiuLayout(Core* core) {
@@ -1590,6 +1594,16 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "picodrive_input1") == 0) return "6 button pad";
     // Saturn: the real BIOS (the app asks for one), native resolution and the dynarec.
     if (strcmp(key, "yabasanshiro_force_hle_bios") == 0) return "disabled";
+    // GameCube / Wii: hardware renderer at native resolution; shaders compiled in the
+    // background (a missing effect for a moment instead of a stutter); the Wii remote's
+    // pointer follows a finger on the screen; no on-screen messages.
+    if (strcmp(key, "dolphin_renderer") == 0) return "Hardware";
+    if (strcmp(key, "dolphin_efb_scale") == 0) return "1";
+    if (strcmp(key, "dolphin_shader_compilation_mode") == 0) return "3";
+    if (strcmp(key, "dolphin_ir_mode") == 0) return "2";
+    if (strcmp(key, "dolphin_osd_enabled") == 0) return "disabled";
+    // Wii games in 16:9, the shape the app gives their screen.
+    if (strcmp(key, "dolphin_widescreen") == 0) return "enabled";
     if (strcmp(key, "yabasanshiro_resolution_mode") == 0) return "original";
     if (strcmp(key, "yabasanshiro_sh2coretype") == 0) return "dynarec";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
@@ -2428,7 +2442,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
-                       core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu";
+                       core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu" || core->coreId == "dolphin";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -2985,7 +2999,7 @@ void runLoop(Core* core) {
             }
             std::lock_guard<std::mutex> lock(core->coreMutex);
             if (core->coreId == "play" || core->coreId == "pcee2" || core->coreId == "melonds" || core->coreId == "flycast" ||
-                core->coreId == "citra") {
+                core->coreId == "citra" || core->coreId == "dolphin") {
                 crash::wrapForeignSegvHandler();
             }
             bool canRewind = core->rewind && !core->resumePending && core->framesRun > 0;
@@ -3006,7 +3020,7 @@ void runLoop(Core* core) {
                 // These can hand over more (or less) than a frame's audio per call - PPSSPP in
                 // some screens, such as Monster Hunter's character creation, which then ran
                 // fast with its sound breaking up - so they are paced by the audio they make.
-                if (core->coreId == "mupen64plus_next" || core->coreId == "flycast" || core->coreId == "ppsspp") {
+                if (core->coreId == "mupen64plus_next" || core->coreId == "flycast" || core->coreId == "ppsspp" || core->coreId == "dolphin") {
                     fps = audioClockFps(core, core->audioPending.size() / 2);
                     core->pacedFps.store(fps);
                 }
@@ -3142,7 +3156,9 @@ void destroyCore(Core* core) {
         core->audioSink = nullptr;
         core->audioArray = nullptr;
     }
-    if (core->library != nullptr && !core->keepLibraryLoaded) {
+    // Dolphin's static destructors crash when it is unloaded, so it stays loaded until the
+    // game process exits.
+    if (core->library != nullptr && !core->keepLibraryLoaded && core->coreId != "dolphin") {
         dlclose(core->library);
         core->library = nullptr;
     }
@@ -3312,6 +3328,11 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     // Flycast connects nothing until the frontend names each port: a pad (with its VMU) in
     // the first, the others empty. Without it games say the controller was removed and
     // find no VMU to save to.
+    // Dolphin: the Wii remote set-up picked for the game (a GameCube disc takes any of
+    // them as a GameCube pad).
+    if (core->coreId == "dolphin" && core->retroSetControllerPortDevice != nullptr) {
+        core->retroSetControllerPortDevice(0, static_cast<unsigned>(gWiiDevice.load()));
+    }
     if (core->coreId == "flycast" && core->retroSetControllerPortDevice != nullptr) {
         core->retroSetControllerPortDevice(0, RETRO_DEVICE_JOYPAD);
         for (unsigned port = 1; port < 4; ++port) {
@@ -3628,6 +3649,12 @@ JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setCheats(
         }
         return true;
     }) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiControl(JNIEnv* /*env*/, jclass /*cls*/, jint type) {
+    // 0 remote + nunchuk, 1 remote sideways, 2 classic controller
+    int device = type == 1 ? ((2 << 8) | RETRO_DEVICE_JOYPAD) : type == 2 ? ((4 << 8) | RETRO_DEVICE_JOYPAD) : ((3 << 8) | RETRO_DEVICE_JOYPAD);
+    gWiiDevice.store(device);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIEnv* /*env*/, jclass /*cls*/, jboolean tall) {

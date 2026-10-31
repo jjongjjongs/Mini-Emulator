@@ -81,6 +81,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_WS = "ws";
     private static final String MODE_MCD = "mcd";
     private static final String MODE_SS = "ss";
+    private static final String MODE_GC = "gc";
     private static final String MODE_NGP = "ngp";
     private static final String MODE_PCE = "pce";
     private static final String MODE_PSP = "psp";
@@ -102,6 +103,8 @@ public final class MainActivity extends Activity {
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
+            // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
+            {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
             {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
@@ -169,13 +172,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".cue+.bin · .chd · .iso", ".chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -346,32 +349,12 @@ public final class MainActivity extends Activity {
             return;
         }
         String savedMode = settingsPrefs().getString(PREF_MODE, null);
-        if (savedMode != null && !"gc".equals(savedMode) && settingsPrefs().getBoolean(PREF_REMEMBER_MODE, false)) {
+        if (savedMode != null && settingsPrefs().getBoolean(PREF_REMEMBER_MODE, false)) {
             showHome(savedMode);
         } else {
             showModePicker();
         }
-        offerGameCubeCleanup();
         moveArcadeGamesToBetterCores();
-    }
-
-    // GameCube · Wii mode was removed in 0.0.105; offer to free the space its games, saves and
-    // engine data took. Only these folders, which no other mode uses, are touched.
-    private void offerGameCubeCleanup() {
-        final File[] folders = {new File(getFilesDir(), "roms_gc"), new File(saveDir(), "dolphin"), new File(systemDir(), "dolphin-emu")};
-        long size = 0;
-        for (File folder : folders) {
-            size += folderSize(folder);
-        }
-        if (size == 0) {
-            return;
-        }
-        new AppDialog.Builder(this).setTitle("게임큐브 · Wii 파일 정리").setMessage("게임큐브 · Wii 모드가 없어졌습니다. 남아 있는 게임큐브 · Wii 게임과 세이브 파일(" + formatSize(size) + ")을 삭제할까요?").setNegativeButton("나중에", null).setPositiveButton("삭제", (dialog, which) -> {
-            for (File folder : folders) {
-                deleteRecursively(folder);
-            }
-            showMessage("게임큐브 · Wii 파일을 삭제했습니다.");
-        }).show();
     }
 
     private static long folderSize(File file) {
@@ -4836,6 +4819,21 @@ public final class MainActivity extends Activity {
             showPceBiosSheet();
             return;
         }
+        if (MODE_GC.equals(mode)) {
+            if (android.os.Build.VERSION.SDK_INT < 26) {
+                showError("게임큐브·Wii는 안드로이드 8 이상에서만 실행할 수 있어요.");
+                return;
+            }
+            if (!new File(getApplicationInfo().nativeLibraryDir, "libdolphin_libretro_android.so").isFile()) {
+                showError("이 버전에는 게임큐브·Wii 엔진이 아직 들어 있지 않아요. 다음 업데이트를 기다려 주세요.");
+                return;
+            }
+            // Dolphin's data (game settings, fonts, shaders) in <system>/dolphin-emu/Sys.
+            if (!unpackSystemAsset("dolphin_sys.zip", new File(new File(systemDir(), "dolphin-emu"), "Sys"))) {
+                showError("게임큐브·Wii 엔진 파일을 준비하지 못했어요. 저장 공간을 확인해 주세요.");
+                return;
+            }
+        }
         if (MODE_WIIU.equals(mode)) {
             if (!cemuShipped()) {
                 showError("이 버전에는 Wii U 엔진이 아직 들어 있지 않아요. 다음 업데이트를 기다려 주세요.");
@@ -5852,6 +5850,15 @@ public final class MainActivity extends Activity {
         if (detail.contains("찾지 못")) {
             return "모르는 롬셋";
         }
+        if (detail.contains("WBFS 파일이 잘림")) {
+            return "WBFS 잘림";
+        }
+        if (detail.contains("압축 파일")) {
+            return "압축 파일";
+        }
+        if (detail.contains("디스크가 아님")) {
+            return "디스크 아님";
+        }
         return detail.length() > 8 ? detail.substring(0, 8) + "…" : detail;
     }
 
@@ -6251,6 +6258,74 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // GameCube / Wii images: the magic words of a plain disc (0x1C GameCube, 0x18 Wii) or of
+    // a compressed format (RVZ, WIA, GCZ, CISO, WBFS).
+    private RomCheck checkDolphinImage(File file) {
+        byte[] head = readHead(file, 0x20);
+        if (head == null) {
+            return new RomCheck(false, "읽기 실패");
+        }
+        String start = new String(head, 0, 4, StandardCharsets.ISO_8859_1);
+        int le = (head[0] & 0xFF) | (head[1] & 0xFF) << 8 | (head[2] & 0xFF) << 16 | (head[3] & 0xFF) << 24;
+        int gc = (head[0x1C] & 0xFF) << 24 | (head[0x1D] & 0xFF) << 16 | (head[0x1E] & 0xFF) << 8 | (head[0x1F] & 0xFF);
+        int wii = (head[0x18] & 0xFF) << 24 | (head[0x19] & 0xFF) << 16 | (head[0x1A] & 0xFF) << 8 | (head[0x1B] & 0xFF);
+        if (gc == 0xC2339F3D) {
+            return new RomCheck(true, "게임큐브 디스크 정상");
+        }
+        if (wii == 0x5D1C9EA3) {
+            return new RomCheck(true, "Wii 디스크 정상");
+        }
+        if (start.equals("WBFS")) {
+            return checkWbfsImage(file, head);
+        }
+        if (start.startsWith("RVZ") || start.startsWith("WIA") || start.equals("CISO") || le == 0xB10BC001) {
+            return new RomCheck(true, "압축 디스크 이미지 (" + (le == 0xB10BC001 ? "GCZ" : start.trim()) + ")");
+        }
+        if (le == 0x04034B50) {
+            return new RomCheck(false, "zip 압축 파일 - 압축을 풀어서 넣어 주세요");
+        }
+        if (start.equals("Rar!") || start.startsWith("7z")) {
+            return new RomCheck(false, (start.equals("Rar!") ? "rar" : "7z") + " 압축 파일 - 압축을 풀어서 넣어 주세요");
+        }
+        if (new String(head, 0, 8, StandardCharsets.ISO_8859_1).equals("WII\u0001DISC")) {
+            return new RomCheck(false, "WDF 이미지 (지원 안 함) - ISO나 RVZ로 바꿔 주세요");
+        }
+        StringBuilder hex = new StringBuilder();
+        for (int i = 0; i < 0x20; i++) {
+            hex.append(String.format(Locale.US, i % 4 == 0 && i > 0 ? " %02X" : "%02X", head[i] & 0xFF));
+        }
+        return new RomCheck(false, "게임큐브·Wii 디스크가 아님\n크기 " + formatSize(file.length()) + " (" + file.length() + " B)\n시작 " + hex);
+    }
+
+    // A WBFS file maps each block of the disc to a block of the file (the table after the
+    // disc header at one hd sector in). Every mapped block has to lie inside the file; when
+    // one does not, the file was cut short or is the first part of a split (.wbf1) image.
+    private RomCheck checkWbfsImage(File file, byte[] head) {
+        int hdShift = head[8] & 0xFF;
+        int wbfsShift = head[9] & 0xFF;
+        if (hdShift < 9 || hdShift > 20 || wbfsShift < 15 || wbfsShift > 30 || head[12] == 0) {
+            return new RomCheck(false, "WBFS 헤더 손상");
+        }
+        long wbfsSector = 1L << wbfsShift;
+        int blocks = (int) ((286864L * 0x8000 + wbfsSector - 1) / wbfsSector);
+        int maxBlock = 0;
+        try (RandomAccessFile in = new RandomAccessFile(file, "r")) {
+            byte[] table = new byte[blocks * 2];
+            in.seek((1L << hdShift) + 0x100);
+            in.readFully(table);
+            for (int i = 0; i < blocks; i++) {
+                maxBlock = Math.max(maxBlock, (table[i * 2] & 0xFF) << 8 | (table[i * 2 + 1] & 0xFF));
+            }
+        } catch (IOException e) {
+            return new RomCheck(false, "WBFS 읽기 실패");
+        }
+        long needed = (maxBlock + 1L) * wbfsSector;
+        if (needed > file.length()) {
+            return new RomCheck(false, "WBFS 파일이 잘림 (" + formatSize(needed - file.length()) + " 부족) - 다시 복사하거나, .wbf1로 나뉜 파일이면 하나로 합쳐 주세요\n크기 " + formatSize(file.length()) + " (" + file.length() + " B), 필요 " + needed + " B");
+        }
+        return new RomCheck(true, "압축 디스크 이미지 (WBFS)");
+    }
+
     private static byte[] readTail(File file, int length) {
         if (file.length() < length) {
             return null;
@@ -6287,6 +6362,9 @@ public final class MainActivity extends Activity {
         }
         if (MODE_SS.equals(mode)) {
             return checkPs1Image(file);
+        }
+        if (MODE_GC.equals(mode)) {
+            return checkDolphinImage(file);
         }
         if (MODE_MCD.equals(mode)) {
             String lower = file.getName().toLowerCase(Locale.US);
@@ -9684,6 +9762,9 @@ public final class MainActivity extends Activity {
         }
         if ("yabasanshiro".equals(str)) {
             return "YabaSanshiro";
+        }
+        if ("dolphin".equals(str)) {
+            return "Dolphin";
         }
         if ("ngp".equals(str)) {
             return "Beetle NeoPop";
