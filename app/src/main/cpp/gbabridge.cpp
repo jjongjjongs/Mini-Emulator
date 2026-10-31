@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "dsnet.h"
+#include "gclan.h"
 #include "libretro.h"
 #include "vulkan_hw.h"
 
@@ -1613,6 +1614,8 @@ const char* fixedVariable(const char* key) {
     // background (a missing effect for a moment instead of a stutter); the Wii remote's
     // pointer follows a finger on the screen; no on-screen messages.
     if (strcmp(key, "dolphin_renderer") == 0) return "Hardware";
+    // 게임큐브 LAN 대전: the broadband adapter in TAP server mode, talking to the app's relay.
+    if (strcmp(key, "dolphin_gc_sp1") == 0 && gclan::mode() != 0) return "11";
     // Resolution (1-3x of 640x528) and picture shape, per game.
     if (strcmp(key, "dolphin_efb_scale") == 0) {
         static const char* scales[] = {"1", "2", "3"};
@@ -3194,6 +3197,9 @@ void destroyCore(Core* core) {
     if (core->coreId == "melonds") {
         dsnet::end();
     }
+    if (core->coreId == "dolphin") {
+        gclan::end();
+    }
     stopPresenter(core);
     if (core->window != nullptr) {
         ANativeWindow_release(core->window);
@@ -3371,6 +3377,15 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     {
         std::lock_guard<std::mutex> lock(gLastCoreProblemMutex);
         gLastCoreProblem.clear();
+    }
+    if (core->coreId == "dolphin") {
+        // 게임큐브 LAN 대전: Dolphin's broadband adapter connects to the relay as it boots.
+        const char* tap = gclan::mode() != 0 ? gclan::begin() : "";
+        if (*tap != '\0') {
+            setenv("MINI_EMULATOR_BBA_TAP", tap, 1);
+        } else {
+            unsetenv("MINI_EMULATOR_BBA_TAP");
+        }
     }
     if (!core->retroLoadGame(&game)) {
         core->keepLibraryLoaded = core->coreId == "mame2010" || core->coreId == "mame2015";
@@ -3732,6 +3747,18 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setMotion(JNIEnv* /*en
     motion::value[3].store(gx);
     motion::value[4].store(gy);
     motion::value[5].store(gz);
+}
+
+// 게임큐브 LAN 대전 for the next game: 0 off, 1 host, 2 guest of host.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGcLan(JNIEnv* env, jclass /*cls*/, jint mode, jstring host) {
+    const char* text = host ? env->GetStringUTFChars(host, nullptr) : nullptr;
+    gclan::configure(mode, text);
+    if (text) env->ReleaseStringUTFChars(host, text);
+}
+
+// Phones in the LAN room besides this one.
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_gcLanPeers(JNIEnv* /*env*/, jclass /*cls*/) {
+    return gclan::peers();
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiPointer(JNIEnv* /*env*/, jclass /*cls*/, jboolean stick) {

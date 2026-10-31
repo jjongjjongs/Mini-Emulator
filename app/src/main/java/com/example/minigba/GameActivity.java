@@ -193,6 +193,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         setContentView(root);
         this.screenArea = frameLayout;
         addMotionBadges(frameLayout);
+        addGcLanBadge(frameLayout);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
@@ -240,6 +241,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         setContentView(root);
         this.screenArea = frameLayout2;
         addMotionBadges(frameLayout2);
+        addGcLanBadge(frameLayout2);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
@@ -3878,6 +3880,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // doesn't stop the game and goes away by itself; it opens 발열 줄이는 법.
     private void showStartNotices() {
         long delay = 0;
+        if (gcLanMode() != 0) {
+            String tipKey = "gc_lan_tip:" + this.saveBaseName;
+            if (!MainActivity.sharedSettings(this).getBoolean(tipKey, false)) {
+                MainActivity.sharedSettings(this).edit().putBoolean(tipKey, true).apply();
+                showInfoNotice("LAN 대전 켜짐", "게임 첫 화면에서 LAN 모드를 고르세요. 방장이 먼저 들어가고, 친구들이 뒤따라 들어오면 돼요", 8000);
+                delay = 8500;
+            }
+        }
         if (motionSupported() && motionInput().available()) {
             String asked = "motion_asked:" + this.saveBaseName;
             if (!MainActivity.sharedSettings(this).getBoolean(asked, false)) {
@@ -4629,6 +4639,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setNoAutoState(stvBoard());
                     NativeGba.setMotionEnabled(motionActive());
                     if (isDolphin()) {
+                        int lan = gcLanMode();
+                        NativeGba.setGcLan(lan == 2 && gcLanHost() == null ? 0 : lan, lan == 2 ? gcLanHost() : null);
                         NativeGba.setWiiControl(wiiControl());
                         NativeGba.setDolphinVideo(dolphinScale(), dolphinAspect());
                         NativeGba.setWiiPointer(isWiiGame() && wiiPointer() == 1);
@@ -6479,6 +6491,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             panel.addView(createWonderSwanTallRow(dialog), tabRowParams(panel));
         }
         if (isDolphin()) {
+            if (!isWiiGame()) {
+                panel.addView(createGcLanRow(dialog), tabRowParams(panel));
+            }
             if (isWiiGame()) {
                 panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
                 panel.addView(createWiiPointerRow(dialog), tabRowParams(panel));
@@ -6812,7 +6827,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // ---- "멀리 (VPN)": friends on the same virtual LAN, reached by typing their address ----
     private String vpnRecentKey() {
-        return isNds() ? "vpn_recent_ds" : "vpn_recent_psp";
+        return isNds() ? "vpn_recent_ds" : isDolphin() ? "vpn_recent_gc" : "vpn_recent_psp";
     }
 
     // Recently joined virtual addresses for this system, newest first.
@@ -6838,7 +6853,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private String vpnInviteText(String address) {
-        String where = isNds() ? "DS 통신 › 참가" : "와이파이 멀티 › 참가";
+        String where = isNds() ? "DS 통신 › 참가" : isDolphin() ? "LAN 대전 › 참가" : "와이파이 멀티 › 참가";
         return "Mini Emulator " + this.gameTitle + " 방을 열었어요. " + where + " › 멀리 (VPN)에서 " + address + " 으로 연결해 주세요.";
     }
 
@@ -6880,7 +6895,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         settings.edit().putBoolean("vpn_share_pending", false).apply();
-        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1);
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1;
         String address = AdhocBeacon.vpnAddress();
         if (!hosting || linkMode() != 2 || address == null) {
             return;
@@ -6922,7 +6937,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Hosting answers guests looking for a room while this game runs.
     private void startAdhocBeaconIfHosting() {
-        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1);
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1;
         if (hosting) {
             this.adhocBeacon.startHost(this, this.gameTitle);
             if (linkDirect()) {
@@ -6931,6 +6946,99 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } else {
             this.adhocBeacon.stop();
         }
+    }
+
+    // ---- "LAN 대전" (게임큐브): the broadband adapter between phones (gclan.cpp) ----
+    private static final String[] GCLAN_NAMES = {"꺼짐", "방 만들기 (방장)", "참가"};
+    private static final String[] GCLAN_NOTES = {"혼자 플레이 (기본)",
+            "이 휴대폰이 LAN 허브가 돼요. 친구는 \"참가\"로 들어와요",
+            "같은 와이파이 · Wi-Fi Direct · VPN의 방장을 찾아서 연결해요"};
+
+    // 0 off, 1 host, 2 guest; GameCube games only, shared by all of them.
+    private int gcLanMode() {
+        if (!isDolphin() || isWiiGame()) {
+            return 0;
+        }
+        int value = MainActivity.sharedSettings(this).getInt("gc_lan", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private String gcLanHost() {
+        String value = MainActivity.sharedSettings(this).getString("gc_lan_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setGcLan(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("gc_lan", mode).putString("gc_lan_host", host == null ? "" : host).commit();
+    }
+
+    private String gcLanShown() {
+        switch (gcLanMode()) {
+            case 1: return "방장 · " + linkShown();
+            case 2: return "참가 · " + (gcLanHost() == null ? "?" : gcLanHost());
+            default: return "꺼짐";
+        }
+    }
+
+    private LinearLayout createGcLanRow(android.app.Dialog menu) {
+        int mode = gcLanMode();
+        int color = Color.rgb(99, 102, 241);
+        LinearLayout row = createSettingRow(RoundIconView.WIFI, color, "LAN 대전", gcLanShown(),
+                view -> showChoiceDialog(RoundIconView.WIFI, color, "LAN 대전", GCLAN_NAMES, GCLAN_NOTES, mode,
+                        "게임큐브 LAN 어댑터를 흉내 내요. 연결된 뒤 게임 메뉴의 LAN 모드로 들어가면 돼요 (마리오카트 더블대시 · 커비 에어 라이드 · 1080° 애벌랜치).\n"
+                                + "모든 휴대폰이 같은 게임(같은 지역판)이어야 하고, 같은 와이파이가 가장 잘 돼요.\n"
+                                + "게임큐브 게임 공통 · 저장하고 그 장면에서 이어져요.",
+                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용", choice -> {
+                    if (choice == 2) {
+                        showHostFinder(menu, RoundIconView.WIFI, color, address -> setGcLan(2, address));
+                        return;
+                    }
+                    if (choice == 1) {
+                        chooseLinkThen(menu, RoundIconView.WIFI, color, () -> setGcLan(1, gcLanHost()));
+                        return;
+                    }
+                    if (choice == mode) {
+                        return;
+                    }
+                    setGcLan(choice, gcLanHost());
+                    directLink().release();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (mode == 0) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+        }
+        return row;
+    }
+
+    // On the picture's top left while LAN play is on: who is in the room, every two seconds.
+    private void addGcLanBadge(FrameLayout screenFrame) {
+        if (gcLanMode() == 0) {
+            return;
+        }
+        TextView badge = new TextView(this);
+        badge.setTextSize(11.0f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        badge.setBackground(roundRect(Color.argb(230, 99, 102, 241), dp(11)));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        params.setMargins(dp(8), dp(8), 0, 0);
+        screenFrame.addView(badge, params);
+        Runnable[] update = new Runnable[1];
+        update[0] = () -> {
+            if (this.destroyed || badge.getParent() == null) {
+                return;
+            }
+            int peers = NativeGba.gcLanPeers();
+            if (gcLanMode() == 1) {
+                badge.setText("LAN · 방장 · " + (peers + 1) + "대 연결");
+            } else {
+                badge.setText(peers > 0 ? "LAN · 방장과 연결됨" : "LAN · 방장 찾는 중…");
+            }
+            badge.postDelayed(update[0], 2000);
+        };
+        update[0].run();
     }
 
     // ---- "DS 통신": the DS's local wireless between phones, or the replacement online servers ----
@@ -7067,7 +7175,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         // Same Wi-Fi (the beacon), Wi-Fi Direct (the phone's own search) or a VPN (typed address).
-        String lastHost = isNds() ? dsNetHost() : wifiMultiHost();
+        String lastHost = isNds() ? dsNetHost() : isDolphin() ? gcLanHost() : wifiMultiHost();
         final int[] tab = {lastHost != null && vpnRecent().contains(lastHost) ? 2 : linkMode()};
         final TextView[] tabs = new TextView[3];
         LinearLayout tabRow = new LinearLayout(this);

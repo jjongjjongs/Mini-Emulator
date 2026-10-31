@@ -4,7 +4,7 @@ project(gbabridge CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_library(gbabridge SHARED gbabridge.cpp vulkan_hw.cpp dsnet.cpp)
+add_library(gbabridge SHARED gbabridge.cpp vulkan_hw.cpp dsnet.cpp gclan.cpp)
 
 target_compile_options(gbabridge PRIVATE -Wall -Wextra)
 # 16 KB page alignment, required for devices with 16 KB memory pages.

@@ -142,6 +142,12 @@ final class NativeGba {
     // Wii: the remote's pointer from the right stick instead of a finger on the screen.
     static native void setWiiPointer(boolean stick);
 
+    // 게임큐브 LAN 대전 for the next game: 0 off, 1 host, 2 guest of host.
+    static native void setGcLan(int mode, String host);
+
+    // Phones in the LAN room besides this one.
+    static native int gcLanPeers();
+
     // 모션 (자이로): offered to the next game created; readings in the screen's axes,
     // the accelerometer in g and the gyroscope in rad/s.
     static native void setMotionEnabled(boolean on);
