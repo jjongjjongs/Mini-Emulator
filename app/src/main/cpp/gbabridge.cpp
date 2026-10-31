@@ -2970,7 +2970,10 @@ bool rewrite(std::string& text) {
     std::string out = text;
     bool nintendo = out.find("nintendowifi.net") != std::string::npos;
     bool sake = out.find("sake.gamespy.com") != std::string::npos;
-    if (!nintendo && !sake) return false;
+    // As the patcher does, every https:// URL becomes http:// too: Mario Kart Wii puts the
+    // login URL together from "https://%s/ac" and the host, and Wiimmfi refuses HTTPS (23934).
+    bool url = out.compare(0, 8, "https://") == 0;
+    if (!nintendo && !sake && !url) return false;
     size_t https = out.find("https://");
     if (https != std::string::npos) {
         if (out.compare(https + 8, 7, "naswii.") == 0) {
@@ -3003,7 +3006,7 @@ bool rewrite(std::string& text) {
 // Finds the strings around each mention in the memory and rewrites them, padding with NULs.
 int patch(uint8_t* ram, size_t size) {
     int changed = 0;
-    for (const char* needle : {"nintendowifi.net", "sake.gamespy.com"}) {
+    for (const char* needle : {"nintendowifi.net", "sake.gamespy.com", "https://"}) {
         size_t needleLen = strlen(needle);
         size_t offset = 0;
         while (offset + needleLen <= size) {
