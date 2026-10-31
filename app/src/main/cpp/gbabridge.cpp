@@ -1430,6 +1430,7 @@ std::atomic<int> gWiiDevice{(3 << 8) | RETRO_DEVICE_JOYPAD};
 // GameCube / Wii resolution (1-3) and picture shape (0 the game's, 1 4:3, 2 stretched 16:9,
 // 3 widescreen hack) for the next game.
 std::atomic<int> gDolphinScale{1};
+std::atomic<bool> gWiiPointerStick{false};
 std::atomic<int> gDolphinAspect{0};
 
 // Core options the app pins regardless of what the core reports as default.
@@ -1625,7 +1626,8 @@ const char* fixedVariable(const char* key) {
     }
     if (strcmp(key, "dolphin_widescreen_hack") == 0) return gDolphinAspect.load() == 3 ? "enabled" : "disabled";
     if (strcmp(key, "dolphin_shader_compilation_mode") == 0) return "3";
-    if (strcmp(key, "dolphin_ir_mode") == 0) return "2";
+    // The Wii remote's pointer: a finger on the screen (2), or the right stick (1, absolute).
+    if (strcmp(key, "dolphin_ir_mode") == 0) return gWiiPointerStick.load() ? "1" : "2";
     if (strcmp(key, "dolphin_osd_enabled") == 0) return "disabled";
     // Wii games in 16:9, the shape the app gives their screen.
     if (strcmp(key, "dolphin_widescreen") == 0) return "enabled";
@@ -3730,6 +3732,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setMotion(JNIEnv* /*en
     motion::value[3].store(gx);
     motion::value[4].store(gy);
     motion::value[5].store(gz);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiPointer(JNIEnv* /*env*/, jclass /*cls*/, jboolean stick) {
+    gWiiPointerStick.store(stick == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDolphinVideo(JNIEnv* /*env*/, jclass /*cls*/, jint scale, jint aspect) {

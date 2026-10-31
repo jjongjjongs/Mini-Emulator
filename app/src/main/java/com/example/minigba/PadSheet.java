@@ -175,6 +175,23 @@ final class PadSheet {
             case "fc":
                 this.body.addRoundRect(new RectF(70, 86, 490, 250), 10, 10, Path.Direction.CW);
                 break;
+            case "gc":
+                this.body.addRoundRect(new RectF(52, 66, 508, 280), 100, 100, Path.Direction.CW);
+                break;
+            case "wiiu":
+                this.body.addRoundRect(new RectF(36, 66, 524, 286), 48, 48, Path.Direction.CW);
+                break;
+            case "wiinc":
+                // The nunchuk on the left, the remote standing on the right.
+                this.body.addRoundRect(new RectF(70, 50, 170, 300), 50, 50, Path.Direction.CW);
+                this.body.addRoundRect(new RectF(330, 14, 430, 322), 46, 46, Path.Direction.CW);
+                break;
+            case "wiisw":
+                this.body.addRoundRect(new RectF(40, 104, 520, 236), 60, 60, Path.Direction.CW);
+                break;
+            case "wiicc":
+                this.body.addRoundRect(new RectF(56, 70, 504, 284), 92, 92, Path.Direction.CW);
+                break;
             default:
                 this.body.addRoundRect(new RectF(40, 70, 520, 270), 14, 14, Path.Direction.CW);
                 break;
@@ -252,6 +269,11 @@ final class PadSheet {
             case "gba": top = Color.rgb(93, 99, 201); bottom = Color.rgb(58, 63, 155); edge = Color.rgb(138, 147, 230); break;
             case "fc": top = Color.rgb(200, 48, 46); bottom = Color.rgb(142, 29, 28); edge = Color.rgb(224, 81, 79); break;
             case "arcade": top = Color.rgb(43, 47, 58); bottom = Color.rgb(21, 23, 29); edge = Color.rgb(74, 80, 94); break;
+            case "gc": top = Color.rgb(98, 86, 196); bottom = Color.rgb(58, 47, 140); edge = Color.rgb(134, 122, 222); break;
+            case "wiiu":
+            case "wiinc":
+            case "wiisw":
+            case "wiicc": top = Color.rgb(246, 247, 249); bottom = Color.rgb(203, 207, 215); edge = Color.rgb(229, 231, 236); break;
             default: top = Color.rgb(58, 62, 72); bottom = Color.rgb(20, 22, 27); edge = Color.rgb(85, 91, 104); break;
         }
         // Shadow under the body.
@@ -340,6 +362,34 @@ final class PadSheet {
                 canvas.drawLine(84, 220, 476, 220, this.stroke);
                 label(canvas, 104, 118, "Ⅰ", 12, Color.rgb(142, 29, 28), 0);
                 break;
+            case "gc":
+                // The grey main stick and the yellow C stick (sticks are not remapped here).
+                nub(canvas, 140, 146, 30, false);
+                well(canvas, 440, 226, 21, Color.rgb(46, 38, 112), Color.rgb(82, 70, 170));
+                this.fill.setColor(YELLOW);
+                canvas.drawCircle(440, 226, 13, this.fill);
+                label(canvas, 440, 229, "C", 8, INK_DARK, 0);
+                break;
+            case "wiiu":
+                rect(canvas, 168, 92, 224, 150, 6, Color.rgb(17, 19, 24));
+                rect(canvas, 178, 100, 204, 132, 0, Color.rgb(30, 37, 56));
+                label(canvas, 280, 172, "GAMEPAD", 10, Color.rgb(60, 72, 100), 2);
+                break;
+            case "wiinc":
+                nub(canvas, 120, 176, 30, true);
+                this.stroke.setColor(Color.rgb(203, 207, 215));
+                this.stroke.setStrokeWidth(2);
+                canvas.drawLine(170, 176, 330, 176, this.stroke);
+                label(canvas, 120, 292, "NUNCHUK", 7, Color.rgb(160, 165, 176), 1);
+                label(canvas, 380, 316, "Wii", 9, Color.rgb(160, 165, 176), 0);
+                break;
+            case "wiisw":
+                label(canvas, 490, 174, "Wii", 9, Color.rgb(160, 165, 176), 0);
+                break;
+            case "wiicc":
+                nub(canvas, 216, 228, 26, true);
+                nub(canvas, 344, 228, 26, true);
+                break;
             case "arcade":
                 rect(canvas, 52, 82, 456, 176, 8, Color.rgb(29, 32, 41));
                 this.stroke.setColor(Color.argb(60, 42, 95, 214));
@@ -411,8 +461,12 @@ final class PadSheet {
             case PadMapping.GROUP_SHOULDER_LEFT:
             case PadMapping.GROUP_SHOULDER_RIGHT: return shoulder(target, spot);
             case PadMapping.GROUP_MIDDLE: return middle(target, spot);
-            case PadMapping.GROUP_STICK_LEFT: return spot.at(200, 228).circle(11, DARK_BTN, DARK_EDGE, LIGHT_INK);
-            case PadMapping.GROUP_STICK_RIGHT: return spot.at(360, 228).circle(11, DARK_BTN, DARK_EDGE, LIGHT_INK);
+            case PadMapping.GROUP_STICK_LEFT:
+                if (this.style.equals("wiiu")) return spot.at(98, 132).circle(20, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_RIGHT);
+                return spot.at(200, 228).circle(11, DARK_BTN, DARK_EDGE, LIGHT_INK);
+            case PadMapping.GROUP_STICK_RIGHT:
+                if (this.style.equals("wiiu")) return spot.at(462, 236).circle(18, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_LEFT);
+                return spot.at(360, 228).circle(11, DARK_BTN, DARK_EDGE, LIGHT_INK);
             default: return spot.at(280, 165).circle(12, DARK_BTN, DARK_EDGE, LIGHT_INK);
         }
     }
@@ -433,6 +487,11 @@ final class PadSheet {
             case "dc": cx = 150; cy = 204; size = 64; fillColor = WHITE_BTN; edgeColor = WHITE_EDGE; ink = Color.rgb(74, 79, 91); break;
             case "gba": cx = 100; cy = 154; size = 76; fillColor = GREY_BTN; edgeColor = GREY_EDGE; ink = Color.rgb(185, 190, 201); break;
             case "fc": cx = 141; cy = 147; size = 74; fillColor = DARK_BTN; edgeColor = Color.rgb(74, 79, 91); ink = MUTED_INK; break;
+            case "gc": cx = 200; cy = 222; size = 62; fillColor = Color.rgb(46, 38, 112); edgeColor = Color.rgb(82, 70, 170); ink = Color.rgb(196, 190, 240); break;
+            case "wiiu": cx = 98; cy = 216; size = 66; fillColor = GREY_BTN; edgeColor = GREY_EDGE; ink = Color.rgb(185, 190, 201); break;
+            case "wiinc": cx = 380; cy = 78; size = 66; fillColor = GREY_BTN; edgeColor = GREY_EDGE; ink = Color.rgb(185, 190, 201); break;
+            case "wiisw": cx = 112; cy = 170; size = 70; fillColor = GREY_BTN; edgeColor = GREY_EDGE; ink = Color.rgb(185, 190, 201); break;
+            case "wiicc": cx = 140; cy = 156; size = 66; fillColor = GREY_BTN; edgeColor = GREY_EDGE; ink = Color.rgb(185, 190, 201); break;
             default: cx = 150; cy = 176; size = 76; fillColor = Color.rgb(42, 45, 54); edgeColor = Color.rgb(74, 80, 94); ink = MUTED_INK; break;
         }
         float d = size * 0.33f;
@@ -501,6 +560,43 @@ final class PadSheet {
                     default: return spot.at(hasFour ? 462 : 434, hasFour ? 190 : 184).circle(hasFour ? 14 : 18, fillColor, edge, ink).tag(TAG_BELOW);
                 }
             }
+            case "gc":
+                switch (l) {
+                    case "A": return spot.at(400, 172).circle(22, Color.rgb(16, 185, 129), Color.rgb(5, 150, 105), Color.WHITE).tag(TAG_RIGHT);
+                    case "B": return spot.at(350, 206).circle(13, Color.rgb(239, 68, 68), Color.rgb(185, 28, 28), Color.WHITE).tag(TAG_BELOW);
+                    case "X": return spot.at(452, 150).circle(13, Color.rgb(209, 213, 219), Color.rgb(156, 163, 175), INK_DARK).tag(TAG_RIGHT);
+                    default: return spot.at(394, 124).circle(13, Color.rgb(209, 213, 219), Color.rgb(156, 163, 175), INK_DARK).tag(TAG_LEFT);
+                }
+            case "wiiu":
+                switch (l) {
+                    case "X": return spot.at(458, 124).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_ABOVE);
+                    case "A": return spot.at(486, 152).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_BELOW);
+                    case "Y": return spot.at(430, 152).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_LEFT);
+                    default: return spot.at(458, 180).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_BELOW);
+                }
+            case "wiinc":
+                switch (l) {
+                    case "A": return spot.at(380, 146).circle(18, WHITE_BTN, WHITE_EDGE, INK_DARK).tag(TAG_LEFT);
+                    case "B": return spot.at(420, 146).pill(10, 34, 0, Color.rgb(160, 165, 176), Color.rgb(130, 135, 146), INK_DARK).size(7).tag(TAG_RIGHT);
+                    case "C": return spot.at(120, 100).pill(40, 12, 0, WHITE_BTN, WHITE_EDGE, INK_DARK).tag(TAG_RIGHT);
+                    case "Z": return spot.at(120, 76).pill(46, 14, 0, Color.rgb(160, 165, 176), Color.rgb(130, 135, 146), INK_DARK).tag(TAG_RIGHT);
+                    case "1": return spot.at(380, 238).circle(13, WHITE_BTN, WHITE_EDGE, INK_DARK).tag(TAG_RIGHT);
+                    default: return spot.at(380, 272).circle(13, WHITE_BTN, WHITE_EDGE, INK_DARK).tag(TAG_RIGHT);
+                }
+            case "wiisw":
+                switch (l) {
+                    case "1": return spot.at(392, 170).circle(18, WHITE_BTN, WHITE_EDGE, INK_DARK).tag(TAG_BELOW);
+                    case "2": return spot.at(452, 170).circle(18, WHITE_BTN, WHITE_EDGE, INK_DARK).tag(TAG_BELOW);
+                    case "A": return spot.at(326, 146).circle(11, WHITE_BTN, WHITE_EDGE, INK_DARK).tag(TAG_ABOVE);
+                    default: return spot.at(326, 206).pill(34, 10, 0, Color.rgb(160, 165, 176), Color.rgb(130, 135, 146), INK_DARK).size(7).tag(TAG_BELOW);
+                }
+            case "wiicc":
+                switch (l) {
+                    case "x": return spot.at(420, 128).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_ABOVE);
+                    case "a": return spot.at(448, 156).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_RIGHT);
+                    case "y": return spot.at(392, 156).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_LEFT);
+                    default: return spot.at(420, 184).circle(13, DARK_BTN, DARK_EDGE, LIGHT_INK).tag(TAG_BELOW);
+                }
             case "fc": {
                 int ink = Color.rgb(209, 213, 219);
                 // Right button first in the list (A / 2 / I), left second (B / 1 / II).
@@ -566,6 +662,20 @@ final class PadSheet {
             case "ss": return spot.at(left ? 132 : 400, left ? 119 : 115).pill(56, 15, 0, Color.rgb(217, 74, 122), Color.rgb(176, 58, 98), Color.WHITE);
             case "dc": return spot.at(left ? 112 : 448, 59).pill(56, 15, 0, WHITE_BTN, WHITE_EDGE, INK_DARK);
             case "gba": return spot.at(left ? 119 : 441, 77).pill(58, 15, 0, Color.rgb(74, 79, 159), Color.rgb(125, 132, 216), LIGHT_INK);
+            case "gc":
+                if (l.equals("Z")) return spot.at(440, 104).pill(40, 12, 0, Color.rgb(139, 92, 246), Color.rgb(109, 40, 217), Color.WHITE).tag(TAG_RIGHT);
+                return spot.at(left ? 170 : 380, 86).pill(72, 15, 0, Color.rgb(124, 112, 214), Color.rgb(90, 78, 180), Color.WHITE);
+            case "wiiu":
+                if (l.startsWith("Z")) return spot.at(left ? 92 : 468, 80).pill(48, 13, 0, Color.rgb(203, 213, 225), Color.rgb(148, 163, 184), INK_DARK).tag(TAG_ABOVE);
+                return spot.at(left ? 146 : 414, 82).pill(38, 10, 0, Color.rgb(226, 232, 240), Color.rgb(148, 163, 184), INK_DARK).tag(TAG_ABOVE);
+            case "wiinc":
+                // Shake the remote (right) or the nunchuk (left).
+                if (left) return spot.at(120, 270).pill(58, 13, 0, Color.rgb(253, 186, 116), Color.rgb(234, 88, 12), INK_DARK).size(6.5f).glyph("흔들기").tag(TAG_RIGHT);
+                return spot.at(380, 302).pill(58, 13, 0, Color.rgb(253, 186, 116), Color.rgb(234, 88, 12), INK_DARK).size(6.5f).tag(TAG_RIGHT);
+            case "wiisw": return spot.at(240, 210).pill(58, 13, 0, Color.rgb(253, 186, 116), Color.rgb(234, 88, 12), INK_DARK).size(6.5f).tag(TAG_BELOW);
+            case "wiicc":
+                if (l.startsWith("Z")) return spot.at(left ? 212 : 348, 90).pill(40, 11, 0, Color.rgb(226, 232, 240), Color.rgb(148, 163, 184), INK_DARK).tag(TAG_ABOVE);
+                return spot.at(left ? 150 : 410, 88).pill(58, 14, 0, Color.rgb(203, 213, 225), Color.rgb(148, 163, 184), INK_DARK).tag(TAG_ABOVE);
             default: return spot.at(left ? 120 : 440, 70).pill(56, 15, 0, DARK_BTN, DARK_EDGE, LIGHT_INK);
         }
     }
@@ -582,6 +692,19 @@ final class PadSheet {
             case "dc": return spot.at(336, 166).circle(9, RED, Color.rgb(158, 31, 31), Color.WHITE).size(4.5f).tag(TAG_BELOW);
             case "gba": return spot.at(start ? 118 : 108, start ? 224 : 250).pill(36, 11, -25, Color.rgb(158, 163, 207), Color.rgb(138, 147, 230), Color.rgb(30, 33, 90)).size(6).tag(TAG_RIGHT);
             case "fc": return spot.at(start ? 278 : 226, 176).pill(40, 13, 0, Color.rgb(142, 29, 28), Color.rgb(107, 20, 19), Color.rgb(240, 223, 176));
+            case "gc": return spot.at(280, 150).pill(30, 11, 0, Color.rgb(46, 38, 112), Color.rgb(82, 70, 170), Color.rgb(196, 190, 240)).size(5.5f);
+            case "wiiu":
+                if (l.equals("−")) return spot.at(140, 266).pill(22, 10, 0, Color.rgb(156, 163, 175), Color.rgb(107, 114, 128), INK_DARK).tag(TAG_RIGHT);
+                return spot.at(420, 266).pill(22, 10, 0, Color.rgb(156, 163, 175), Color.rgb(107, 114, 128), INK_DARK).tag(TAG_LEFT);
+            case "wiinc":
+            case "wiisw":
+            case "wiicc": {
+                float y = this.style.equals("wiinc") ? 196 : this.style.equals("wiisw") ? 150 : 148;
+                float cx = this.style.equals("wiinc") ? 380 : this.style.equals("wiisw") ? 240 : 280;
+                if (l.equals("HOME")) return spot.at(cx, y).circle(9, Color.rgb(96, 165, 250), Color.rgb(59, 130, 246), Color.WHITE).glyph("⌂").tag(TAG_BELOW);
+                boolean minus = l.equals("−");
+                return spot.at(cx + (minus ? -28 : 28), y).pill(18, 9, 0, Color.rgb(156, 163, 175), Color.rgb(107, 114, 128), INK_DARK).tag(minus ? TAG_LEFT : TAG_RIGHT);
+            }
             default: return spot.at(start ? 307 : 253, 78).pill(34, 10, 0, Color.rgb(15, 17, 22), Color.rgb(74, 80, 94), MUTED_INK);
         }
     }

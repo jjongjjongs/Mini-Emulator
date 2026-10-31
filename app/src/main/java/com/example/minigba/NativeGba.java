@@ -139,6 +139,9 @@ final class NativeGba {
     // stretched, 3 widescreen hack) for the next game.
     static native void setDolphinVideo(int scale, int aspect);
 
+    // Wii: the remote's pointer from the right stick instead of a finger on the screen.
+    static native void setWiiPointer(boolean stick);
+
     // 모션 (자이로): offered to the next game created; readings in the screen's axes,
     // the accelerometer in g and the gyroscope in rad/s.
     static native void setMotionEnabled(boolean on);

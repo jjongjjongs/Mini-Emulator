@@ -967,7 +967,56 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int shoulderLeft = PadMapping.GROUP_SHOULDER_LEFT;
         int shoulderRight = PadMapping.GROUP_SHOULDER_RIGHT;
         int middle = PadMapping.GROUP_MIDDLE;
-        if (isWiiU()) {
+        if (isDolphin()) {
+            int control = isWiiGame() ? wiiControl() : -1;
+            if (control == -1) {
+                // GameCube pad as Dolphin reads it: the triggers are L2 / R2, Z is R.
+                targets.add(new PadMapping.Target(1, "A", face));
+                targets.add(new PadMapping.Target(2, "B", face));
+                targets.add(new PadMapping.Target(1024, "X", face));
+                targets.add(new PadMapping.Target(2048, "Y", face));
+                targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+                targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+                targets.add(new PadMapping.Target(256, "Z", shoulderRight));
+                targets.add(new PadMapping.Target(8, "START", middle));
+            } else if (control == 1) {
+                // Remote held sideways: 1 and 2 are the core's B and A.
+                targets.add(new PadMapping.Target(2, "1", face));
+                targets.add(new PadMapping.Target(1, "2", face));
+                targets.add(new PadMapping.Target(1024, "A", face));
+                targets.add(new PadMapping.Target(2048, "B", face));
+                targets.add(new PadMapping.Target(kR2, "흔들기", shoulderRight));
+                targets.add(new PadMapping.Target(4, "−", middle));
+                targets.add(new PadMapping.Target(DOLPHIN_HOME, "HOME", middle));
+                targets.add(new PadMapping.Target(8, "+", middle));
+            } else if (control == 2) {
+                // Classic controller: L / R are L2 / R2, ZL / ZR are L / R.
+                targets.add(new PadMapping.Target(1, "a", face));
+                targets.add(new PadMapping.Target(2, "b", face));
+                targets.add(new PadMapping.Target(1024, "x", face));
+                targets.add(new PadMapping.Target(2048, "y", face));
+                targets.add(new PadMapping.Target(kL2, "L", shoulderLeft));
+                targets.add(new PadMapping.Target(512, "ZL", shoulderLeft));
+                targets.add(new PadMapping.Target(256, "ZR", shoulderRight));
+                targets.add(new PadMapping.Target(kR2, "R", shoulderRight));
+                targets.add(new PadMapping.Target(4, "−", middle));
+                targets.add(new PadMapping.Target(DOLPHIN_HOME, "HOME", middle));
+                targets.add(new PadMapping.Target(8, "+", middle));
+            } else {
+                // Remote + nunchuk: C / Z are X / Y, 1 / 2 START / SELECT, − / + L / R.
+                targets.add(new PadMapping.Target(1, "A", face));
+                targets.add(new PadMapping.Target(2, "B", face));
+                targets.add(new PadMapping.Target(1024, "C", face));
+                targets.add(new PadMapping.Target(2048, "Z", face));
+                targets.add(new PadMapping.Target(8, "1", face));
+                targets.add(new PadMapping.Target(4, "2", face));
+                targets.add(new PadMapping.Target(kR2, "흔들기", shoulderRight));
+                targets.add(new PadMapping.Target(kL2, "눈차크 흔들기", shoulderLeft));
+                targets.add(new PadMapping.Target(512, "−", middle));
+                targets.add(new PadMapping.Target(DOLPHIN_HOME, "HOME", middle));
+                targets.add(new PadMapping.Target(256, "+", middle));
+            }
+        } else if (isWiiU()) {
             targets.add(new PadMapping.Target(1024, "X", face));
             targets.add(new PadMapping.Target(1, "A", face));
             targets.add(new PadMapping.Target(2, "B", face));
@@ -1087,6 +1136,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Which pad picture the button-setting screen draws.
     private String padSheetStyle() {
+        if (isDolphin()) {
+            if (!isWiiGame()) return "gc";
+            int control = wiiControl();
+            return control == 1 ? "wiisw" : control == 2 ? "wiicc" : "wiinc";
+        }
+        if (isWiiU()) return "wiiu";
         if (isSonyPad()) return "ps";
         if (isSnes()) return "sfc";
         if (isN64()) return "n64";
@@ -4576,6 +4631,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isDolphin()) {
                         NativeGba.setWiiControl(wiiControl());
                         NativeGba.setDolphinVideo(dolphinScale(), dolphinAspect());
+                        NativeGba.setWiiPointer(isWiiGame() && wiiPointer() == 1);
                     }
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
@@ -6425,6 +6481,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isDolphin()) {
             if (isWiiGame()) {
                 panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
+                panel.addView(createWiiPointerRow(dialog), tabRowParams(panel));
             }
             panel.addView(createDolphinScaleRow(dialog), tabRowParams(panel));
             panel.addView(createDolphinAspectRow(dialog), tabRowParams(panel));
@@ -8599,6 +8656,29 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }));
     }
 
+    // The remote's pointer: a finger on the screen, or a connected controller's right stick.
+    private static final String[] WII_POINTER_NAMES = {"화면 터치", "오른쪽 스틱"};
+
+    private int wiiPointer() {
+        return MainActivity.sharedSettings(this).getInt("wii_pointer:" + this.saveBaseName, 0) == 1 ? 1 : 0;
+    }
+
+    private LinearLayout createWiiPointerRow(android.app.Dialog menu) {
+        int current = wiiPointer();
+        return createSettingRow(RoundIconView.STICK, Color.rgb(67, 56, 202), "리모컨 포인터", WII_POINTER_NAMES[current],
+                view -> showChoiceDialog(RoundIconView.STICK, Color.rgb(67, 56, 202), "리모컨 포인터", WII_POINTER_NAMES,
+                        new String[]{"게임 화면을 누른 곳을 가리켜요 (기본)", "게임패드의 오른쪽 스틱으로 포인터를 움직여요 · 게임패드가 있을 때"}, current,
+                        "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.",
+                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용하고 이어하기", choice -> {
+                    if (choice == current) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("wii_pointer:" + this.saveBaseName, choice).commit();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+    }
+
     private int wiiControl() {
         int value = getSharedPreferences("settings", 0).getInt("wii_control:" + this.saveBaseName, 0);
         return value >= 0 && value <= 2 ? value : 0;
@@ -8645,6 +8725,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // − HOME + in a row centred on cx (from the left), or on the screen's middle when cx is 0.
     private void addWiiSystemKeys(FrameLayout frameLayout, int cxDp, int bottomDp, boolean small) {
+        // With the nunchuk, Dolphin reads − and + from L and R (1 and 2 take SELECT and START).
+        boolean nunchuk = isWiiGame() && wiiControl() == 0;
         int w = small ? 42 : 58;
         int home = small ? 58 : 68;
         int gap = 6;
@@ -8652,7 +8734,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int base = cxDp == 0 ? 0 : cxDp;
         int[] widths = {w, home, w};
         String[] labels = {"−", "HOME", "+"};
-        int[] bits = {4, DOLPHIN_HOME, 8};
+        int[] bits = nunchuk ? new int[]{512, DOLPHIN_HOME, 256} : new int[]{4, DOLPHIN_HOME, 8};
         int total = w * 2 + home + gap * 2;
         int x = -total / 2;
         for (int k = 0; k < 3; k++) {
