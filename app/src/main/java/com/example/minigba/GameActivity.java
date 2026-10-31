@@ -4492,7 +4492,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setPspScale(pspScale());
                         NativeGba.setN3dsScale(n3dsScale());
                         int wifi = wifiMultiMode();
-                        String server = wifi == 1 ? (linkDirect() ? DirectLink.OWNER_ADDRESS : AdhocBeacon.localAddress()) : wifi == 2 ? wifiMultiHost() : null;
+                        String server = wifi == 1 ? hostAddress() : wifi == 2 ? wifiMultiHost() : null;
                         NativeGba.setPspAdhoc(server == null ? 0 : wifi, server);
                     }
                     if (isWonderSwan()) {
@@ -4545,6 +4545,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         this.nativeHandle = handle;
         startAdhocBeaconIfHosting();
+        shareVpnInviteIfPending();
         NativeGba.setInput(handle, this.buttonMask);
         NativeGba.setSpeedPercent(handle, this.speedPercent);
         NativeGba.setRewindEnabled(handle, rewindOn());
@@ -6497,22 +6498,46 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return this.directLink;
     }
 
-    // Whether the host links through Wi-Fi Direct instead of a shared Wi-Fi (PSP and DS alike).
+    // How the host links with guests (PSP and DS alike): 0 a shared Wi-Fi, 1 Wi-Fi Direct,
+    // 2 a virtual LAN app (VPN) for friends far away.
+    private int linkMode() {
+        android.content.SharedPreferences settings = MainActivity.sharedSettings(this);
+        return settings.getBoolean("link_vpn", false) ? 2 : settings.getBoolean("link_direct", false) ? 1 : 0;
+    }
+
     private boolean linkDirect() {
-        return MainActivity.sharedSettings(this).getBoolean("link_direct", false);
+        return linkMode() == 1;
+    }
+
+    private void setLinkMode(int mode) {
+        MainActivity.sharedSettings(this).edit().putBoolean("link_direct", mode == 1).putBoolean("link_vpn", mode == 2).commit();
     }
 
     private void setLinkDirect(boolean direct) {
-        MainActivity.sharedSettings(this).edit().putBoolean("link_direct", direct).commit();
+        setLinkMode(direct ? 1 : 0);
     }
 
-    private static final String[] LINK_NAMES = {"같은 와이파이", "Wi-Fi Direct"};
-    private static final String[] LINK_NOTES = {"공유기나 핫스팟에 같이 붙어 있을 때 (기본)", "공유기 없이 휴대폰끼리 직접 · 속도는 와이파이와 같고 데이터 요금은 안 들어요"};
+    // The address guests reach the host at, for the mode it hosts with.
+    private String hostAddress() {
+        switch (linkMode()) {
+            case 1: return DirectLink.OWNER_ADDRESS;
+            case 2: return AdhocBeacon.vpnAddress();
+            default: return AdhocBeacon.localAddress();
+        }
+    }
+
+    private static final String[] LINK_NAMES = {"같은 와이파이", "Wi-Fi Direct", "멀리 (VPN)"};
+    private static final String[] LINK_CHOICE_NAMES = {"같은 와이파이", "Wi-Fi Direct", "멀리 있는 친구 (VPN)"};
+    private static final String[] LINK_NOTES = {"공유기나 핫스팟에 같이 붙어 있을 때 (기본)", "공유기 없이 휴대폰끼리 직접 · 속도는 와이파이와 같고 데이터 요금은 안 들어요",
+            "Tailscale · ZeroTier로 같은 네트워크에 있을 때. 방을 연 뒤 내 가상 IP를 친구에게 보내요"};
 
     // Asks the host how guests will reach it, then saves and relaunches.
     private void chooseLinkThen(android.app.Dialog menu, int icon, int color, Runnable save) {
-        showChoiceDialog(icon, color, "연결 방법", LINK_NAMES, LINK_NOTES, linkDirect() ? 1 : 0,
-                "Wi-Fi Direct는 처음 한 번 상대 휴대폰에서 '연결 허용'을 눌러야 해요. 근처 기기를 찾기 위한 권한을 한 번 물어봐요.",
+        String vpn = AdhocBeacon.vpnAddress();
+        showChoiceDialog(icon, color, "방을 어떻게 열까요", LINK_CHOICE_NAMES, LINK_NOTES, linkMode(),
+                "Wi-Fi Direct는 처음 한 번 상대 휴대폰에서 '연결 허용'을 눌러야 해요. 근처 기기를 찾기 위한 권한을 한 번 물어봐요.\n"
+                        + (vpn != null ? "VPN이 켜져 있어요 · 내 가상 IP " + vpn + "\n멀리 있는 친구를 고르면 방을 연 뒤 IP를 보낼 수 있어요."
+                        : "VPN은 꺼져 있어요. 멀리 있는 친구와 하려면 둘 다 Tailscale이나 ZeroTier를 켜 주세요."),
                 Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
             boolean direct = choice == 1;
             if (direct && !directLink().available()) {
@@ -6524,14 +6549,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 Toast.makeText(this, "권한을 허용한 뒤 다시 골라 주세요.", Toast.LENGTH_LONG).show();
                 return;
             }
-            if (!direct && AdhocBeacon.localAddress() == null) {
+            if (choice == 0 && AdhocBeacon.localAddress() == null) {
                 Toast.makeText(this, "와이파이(또는 핫스팟)에 먼저 연결해 주세요.", Toast.LENGTH_LONG).show();
                 return;
             }
-            setLinkDirect(direct);
+            if (choice == 2 && AdhocBeacon.vpnAddress() == null) {
+                Toast.makeText(this, "VPN이 꺼져 있어요. Tailscale이나 ZeroTier를 먼저 켜 주세요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            setLinkMode(choice);
             if (!direct) {
                 directLink().release();
             }
+            // The share sheet opens once the game is back, so the friend gets the address.
+            MainActivity.sharedSettings(this).edit().putBoolean("vpn_share_pending", choice == 2).commit();
             save.run();
             menu.dismiss();
             relaunchGame();
@@ -6539,12 +6570,99 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private String linkShown() {
-        if (!linkDirect()) {
+        int mode = linkMode();
+        if (mode == 2) {
+            String address = AdhocBeacon.vpnAddress();
+            return address == null ? "VPN 꺼짐" : "VPN · " + address;
+        }
+        if (mode == 0) {
             String address = AdhocBeacon.localAddress();
             return address == null ? "와이파이 없음" : address;
         }
         int guests = directLink().clientCount();
         return "Wi-Fi Direct" + (guests > 0 ? " · 참가 " + guests + "명" : "");
+    }
+
+    // ---- "멀리 (VPN)": friends on the same virtual LAN, reached by typing their address ----
+    private String vpnRecentKey() {
+        return isNds() ? "vpn_recent_ds" : "vpn_recent_psp";
+    }
+
+    // Recently joined virtual addresses for this system, newest first.
+    private java.util.List<String> vpnRecent() {
+        java.util.List<String> recent = new java.util.ArrayList<>();
+        String value = MainActivity.sharedSettings(this).getString(vpnRecentKey(), "");
+        for (String address : (value == null ? "" : value).split(",")) {
+            if (!address.isEmpty() && !recent.contains(address)) {
+                recent.add(address);
+            }
+        }
+        return recent;
+    }
+
+    private void rememberVpnFriend(String address) {
+        java.util.List<String> recent = vpnRecent();
+        recent.remove(address);
+        recent.add(0, address);
+        while (recent.size() > 5) {
+            recent.remove(recent.size() - 1);
+        }
+        MainActivity.sharedSettings(this).edit().putString(vpnRecentKey(), android.text.TextUtils.join(",", recent)).commit();
+    }
+
+    private String vpnInviteText(String address) {
+        String where = isNds() ? "DS 통신 › 참가" : "와이파이 멀티 › 참가";
+        return "Mini Emulator " + this.gameTitle + " 방을 열었어요. " + where + " › 멀리 (VPN)에서 " + address + " 으로 연결해 주세요.";
+    }
+
+    private void shareText(String text) {
+        try {
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_TEXT, text);
+            startActivity(Intent.createChooser(send, "IP 보내기"));
+        } catch (Exception e) {
+            Toast.makeText(this, "보낼 앱을 찾지 못했어요.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void copyText(String text) {
+        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("IP", text));
+            Toast.makeText(this, "복사했어요: " + text, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openStore(String packageName) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=" + packageName)));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/apps/details?id=" + packageName)));
+            } catch (Exception ignored) {
+                Toast.makeText(this, "스토어를 열지 못했어요.", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    // After hosting with VPN was chosen: hand the friend the address once the game is back.
+    private void shareVpnInviteIfPending() {
+        android.content.SharedPreferences settings = MainActivity.sharedSettings(this);
+        if (!settings.getBoolean("vpn_share_pending", false)) {
+            return;
+        }
+        settings.edit().putBoolean("vpn_share_pending", false).apply();
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1);
+        String address = AdhocBeacon.vpnAddress();
+        if (!hosting || linkMode() != 2 || address == null) {
+            return;
+        }
+        getWindow().getDecorView().postDelayed(() -> {
+            if (!isFinishing()) {
+                shareText(vpnInviteText(address));
+            }
+        }, 1200);
     }
 
     // ---- "와이파이 멀티": PSP ad-hoc play between phones on one Wi-Fi ----
@@ -6721,30 +6839,32 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         header.addView(titles, titlesParams);
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
-        // Same Wi-Fi (the beacon) or Wi-Fi Direct (the phone's own search).
-        final boolean[] direct = {linkDirect()};
-        final TextView[] tabs = new TextView[2];
+        // Same Wi-Fi (the beacon), Wi-Fi Direct (the phone's own search) or a VPN (typed address).
+        String lastHost = isNds() ? dsNetHost() : wifiMultiHost();
+        final int[] tab = {lastHost != null && vpnRecent().contains(lastHost) ? 2 : linkMode()};
+        final TextView[] tabs = new TextView[3];
         LinearLayout tabRow = new LinearLayout(this);
         android.graphics.drawable.GradientDrawable tabBackground = new android.graphics.drawable.GradientDrawable();
         tabBackground.setColor(Color.rgb(233, 235, 240));
         tabBackground.setCornerRadius(dp(12));
         tabRow.setBackground(tabBackground);
         tabRow.setPadding(dp(3), dp(3), dp(3), dp(3));
-        for (int k = 0; k < 2; k++) {
-            TextView tab = new TextView(this);
-            tab.setText(LINK_NAMES[k]);
-            tab.setTextSize(13.0f);
-            tab.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            tab.setGravity(17);
-            tabs[k] = tab;
-            tabRow.addView(tab, new LinearLayout.LayoutParams(0, dp(34), 1.0f));
+        for (int k = 0; k < 3; k++) {
+            TextView tabView = new TextView(this);
+            tabView.setText(LINK_NAMES[k]);
+            tabView.setTextSize(12.5f);
+            tabView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tabView.setGravity(17);
+            tabView.setSingleLine(true);
+            tabs[k] = tabView;
+            tabRow.addView(tabView, new LinearLayout.LayoutParams(0, dp(34), 1.0f));
         }
         LinearLayout.LayoutParams tabParams = new LinearLayout.LayoutParams(-1, -2);
         tabParams.setMargins(0, dp(10), 0, 0);
         panel.addView(tabRow, tabParams);
         final Runnable paintTabs = () -> {
-            for (int k = 0; k < 2; k++) {
-                boolean on = (k == 1) == direct[0];
+            for (int k = 0; k < 3; k++) {
+                boolean on = k == tab[0];
                 android.graphics.drawable.GradientDrawable tabFill = new android.graphics.drawable.GradientDrawable();
                 tabFill.setColor(on ? Color.WHITE : Color.TRANSPARENT);
                 tabFill.setCornerRadius(dp(10));
@@ -6758,6 +6878,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, -2);
         listParams.setMargins(0, dp(10), 0, 0);
         panel.addView(list, listParams);
+
+        // The VPN tab: this phone's virtual address, recent friends, or how to get a VPN on.
+        final LinearLayout vpnBox = new LinearLayout(this);
+        vpnBox.setOrientation(1);
+        vpnBox.setVisibility(View.GONE);
+        panel.addView(vpnBox, new LinearLayout.LayoutParams(-1, -2));
 
         final TextView waiting = new TextView(this);
         waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
@@ -6777,8 +6903,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         manual.setPadding(dp(14), dp(4), dp(8), dp(4));
         final android.widget.EditText address = new android.widget.EditText(this);
         address.setHint("IP 직접 입력 (예: 192.168.0.12)");
-        String last = isNds() ? dsNetHost() : wifiMultiHost();
-        address.setText(last == null ? "" : last);
+        address.setText(lastHost == null ? "" : lastHost);
         address.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         address.setSingleLine(true);
         address.setTextSize(14.0f);
@@ -6791,6 +6916,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (!typed.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
                 Toast.makeText(this, "IP 주소 모양이 아니에요 (예: 192.168.0.12)", Toast.LENGTH_SHORT).show();
                 return;
+            }
+            if (tab[0] == 2) {
+                rememberVpnFriend(typed);
             }
             picked.onPicked(typed);
             dialog.dismiss();
@@ -6811,7 +6939,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final Runnable[] again = new Runnable[1];
         final Runnable[] searchDirect = new Runnable[1];
         again[0] = () -> search[0] = AdhocBeacon.discover((hosts, finished) -> {
-            if (!dialog.isShowing() || direct[0]) {
+            if (!dialog.isShowing() || tab[0] != 0) {
                 return;
             }
             list.removeAllViews();
@@ -6887,7 +7015,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             waiting.setTextColor(Color.rgb(122, 130, 140));
             waiting.setOnClickListener(null);
             directLink().discover(rooms -> {
-                if (!dialog.isShowing() || !direct[0]) {
+                if (!dialog.isShowing() || tab[0] != 1) {
                     return;
                 }
                 list.removeAllViews();
@@ -6952,16 +7080,137 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
             });
         };
+        final Runnable fillVpn = () -> {
+            vpnBox.removeAllViews();
+            String mine = AdhocBeacon.vpnAddress();
+            if (mine != null) {
+                status.setText("VPN으로 멀리 있는 방장에게 연결");
+                LinearLayout card = new LinearLayout(this);
+                card.setGravity(16);
+                android.graphics.drawable.GradientDrawable cardBackground = new android.graphics.drawable.GradientDrawable();
+                cardBackground.setColor(Color.rgb(236, 253, 245));
+                cardBackground.setCornerRadius(dp(14));
+                card.setBackground(cardBackground);
+                card.setPadding(dp(14), dp(10), dp(10), dp(10));
+                LinearLayout words = new LinearLayout(this);
+                words.setOrientation(1);
+                TextView on = new TextView(this);
+                on.setText("VPN 켜짐");
+                on.setTextSize(12.0f);
+                on.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                on.setTextColor(Color.rgb(4, 120, 87));
+                words.addView(on);
+                TextView ip = new TextView(this);
+                ip.setText("내 가상 IP " + mine);
+                ip.setTextSize(14.5f);
+                ip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                ip.setTextColor(Color.rgb(31, 41, 51));
+                words.addView(ip);
+                card.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                TextView copy = dialogButton("복사", Color.WHITE, Color.rgb(4, 120, 87));
+                copy.setPadding(dp(12), 0, dp(12), 0);
+                copy.setOnClickListener(view -> copyText(mine));
+                card.addView(copy, new LinearLayout.LayoutParams(-2, dp(32)));
+                TextView share = dialogButton("공유", Color.rgb(4, 120, 87), Color.WHITE);
+                share.setPadding(dp(12), 0, dp(12), 0);
+                share.setOnClickListener(view -> shareText("Mini Emulator 내 가상 IP: " + mine));
+                LinearLayout.LayoutParams shareParams = new LinearLayout.LayoutParams(-2, dp(32));
+                shareParams.setMargins(dp(6), 0, 0, 0);
+                card.addView(share, shareParams);
+                vpnBox.addView(card, new LinearLayout.LayoutParams(-1, -2));
+                java.util.List<String> recent = vpnRecent();
+                if (!recent.isEmpty()) {
+                    TextView heading = new TextView(this);
+                    heading.setText("최근 연결한 친구");
+                    heading.setTextSize(12.0f);
+                    heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                    heading.setTextColor(Color.rgb(122, 130, 140));
+                    heading.setPadding(dp(4), dp(12), 0, dp(6));
+                    vpnBox.addView(heading);
+                    for (String friend : recent) {
+                        LinearLayout row = new LinearLayout(this);
+                        row.setGravity(16);
+                        android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
+                        rowBackground.setColor(Color.rgb(246, 247, 249));
+                        rowBackground.setCornerRadius(dp(14));
+                        row.setBackground(rowBackground);
+                        row.setPadding(dp(14), dp(8), dp(10), dp(8));
+                        TextView name = new TextView(this);
+                        name.setText(friend);
+                        name.setTextSize(14.0f);
+                        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                        name.setTextColor(Color.rgb(31, 41, 51));
+                        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                        TextView go = dialogButton("연결 ›", color, Color.WHITE);
+                        go.setPadding(dp(14), 0, dp(14), 0);
+                        go.setOnClickListener(view -> {
+                            rememberVpnFriend(friend);
+                            picked.onPicked(friend);
+                            dialog.dismiss();
+                            menu.dismiss();
+                            relaunchGame();
+                        });
+                        row.addView(go, new LinearLayout.LayoutParams(-2, dp(32)));
+                        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                        rowParams.setMargins(0, 0, 0, dp(6));
+                        vpnBox.addView(row, rowParams);
+                    }
+                }
+                TextView warn = new TextView(this);
+                warn.setText("친구도 같은 VPN 네트워크에 있어야 해요. 멀리 떨어질수록 끊기기 쉬워요" + (isNds() ? " (특히 DS)." : "."));
+                warn.setTextSize(12.0f);
+                warn.setTextColor(Color.rgb(146, 64, 14));
+                android.graphics.drawable.GradientDrawable warnBackground = new android.graphics.drawable.GradientDrawable();
+                warnBackground.setColor(Color.rgb(255, 247, 237));
+                warnBackground.setCornerRadius(dp(12));
+                warn.setBackground(warnBackground);
+                warn.setPadding(dp(12), dp(8), dp(12), dp(8));
+                LinearLayout.LayoutParams warnParams = new LinearLayout.LayoutParams(-1, -2);
+                warnParams.setMargins(0, dp(8), 0, dp(10));
+                vpnBox.addView(warn, warnParams);
+                return;
+            }
+            status.setText("VPN이 꺼져 있어요");
+            String[] steps = {"둘 다 가상 랜 앱 설치 — Tailscale 또는 ZeroTier (개인 무료)", "같은 계정 · 같은 네트워크에 들어가기", "앱을 켜고 여기로 돌아오기"};
+            for (int k = 0; k < steps.length; k++) {
+                TextView step = new TextView(this);
+                step.setText((k + 1) + ".  " + steps[k]);
+                step.setTextSize(13.0f);
+                step.setTextColor(Color.rgb(55, 65, 81));
+                step.setPadding(dp(4), dp(4), dp(4), dp(4));
+                vpnBox.addView(step);
+            }
+            LinearLayout stores = new LinearLayout(this);
+            TextView tailscale = dialogButton("Tailscale 받기", Color.rgb(241, 242, 244), Color.rgb(31, 41, 51));
+            tailscale.setOnClickListener(view -> openStore("com.tailscale.ipn"));
+            stores.addView(tailscale, new LinearLayout.LayoutParams(0, dp(40), 1.0f));
+            TextView zerotier = dialogButton("ZeroTier 받기", Color.rgb(241, 242, 244), Color.rgb(31, 41, 51));
+            zerotier.setOnClickListener(view -> openStore("com.zerotier.one"));
+            LinearLayout.LayoutParams zerotierParams = new LinearLayout.LayoutParams(0, dp(40), 1.0f);
+            zerotierParams.setMargins(dp(8), 0, 0, 0);
+            stores.addView(zerotier, zerotierParams);
+            LinearLayout.LayoutParams storesParams = new LinearLayout.LayoutParams(-1, -2);
+            storesParams.setMargins(0, dp(8), 0, dp(10));
+            vpnBox.addView(stores, storesParams);
+        };
         final Runnable switchTab = () -> {
             paintTabs.run();
             list.removeAllViews();
-            if (direct[0]) {
-                if (search[0] != null) {
-                    search[0].interrupt();
-                }
-                searchDirect[0].run();
-            } else {
+            boolean vpn = tab[0] == 2;
+            vpnBox.setVisibility(vpn ? View.VISIBLE : View.GONE);
+            waiting.setVisibility(vpn ? View.GONE : View.VISIBLE);
+            address.setHint(vpn ? "친구의 가상 IP (예: 100.64.12.8)" : "IP 직접 입력 (예: 192.168.0.12)");
+            if (tab[0] != 0 && search[0] != null) {
+                search[0].interrupt();
+            }
+            if (tab[0] != 1) {
                 directLink().stopDiscovery();
+            }
+            if (tab[0] == 1) {
+                searchDirect[0].run();
+            } else if (vpn) {
+                fillVpn.run();
+            } else {
                 status.setText("같은 와이파이에서 찾는 중…");
                 waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
                 waiting.setTextColor(Color.rgb(122, 130, 140));
@@ -6969,18 +7218,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 again[0].run();
             }
         };
-        tabs[0].setOnClickListener(view -> {
-            if (direct[0]) {
-                direct[0] = false;
-                switchTab.run();
-            }
-        });
-        tabs[1].setOnClickListener(view -> {
-            if (!direct[0]) {
-                direct[0] = true;
-                switchTab.run();
-            }
-        });
+        for (int k = 0; k < 3; k++) {
+            final int which = k;
+            tabs[k].setOnClickListener(view -> {
+                if (tab[0] != which) {
+                    tab[0] = which;
+                    switchTab.run();
+                }
+            });
+        }
         switchTab.run();
         dialog.setOnDismissListener(d -> {
             if (search[0] != null) {

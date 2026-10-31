@@ -79,6 +79,41 @@ final class AdhocBeacon {
         }
     }
 
+    // The address a virtual LAN app (Tailscale, ZeroTier and the like) gives this phone, or null
+    // when none is on. The app only reads it; the VPN app itself sets the network up.
+    static String vpnAddress() {
+        try {
+            String fallback = null;
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback()) {
+                    continue;
+                }
+                String name = iface.getName();
+                boolean tunnel = name.startsWith("tun") || name.startsWith("tailscale") || name.startsWith("zt");
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress address = addresses.nextElement();
+                    if (!(address instanceof Inet4Address) || address.isLoopbackAddress()) {
+                        continue;
+                    }
+                    byte[] bytes = address.getAddress();
+                    // 100.64.0.0/10: the shared range Tailscale hands out.
+                    if ((bytes[0] & 0xff) == 100 && (bytes[1] & 0xc0) == 64) {
+                        return address.getHostAddress();
+                    }
+                    if (tunnel && fallback == null) {
+                        fallback = address.getHostAddress();
+                    }
+                }
+            }
+            return fallback;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     static String deviceName(Context context) {
         String name = null;
         try {
