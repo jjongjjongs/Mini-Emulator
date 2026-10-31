@@ -7,7 +7,7 @@
 set -euo pipefail
 
 PCSX_REPO=https://github.com/libretro/pcsx_rearmed.git
-PCSX_COMMIT=c8816799b50388e61cfe237fe2cdbb7d8175f20a
+PCSX_COMMIT=7b0e8f8fadfbce3d170d195b9d9eecaabfa08c8e  # 2026-10-29
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
