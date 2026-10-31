@@ -50,6 +50,9 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1
 # Fixes on top of the pinned commit:
 #   bba-tap: the broadband adapter's TAP server address from MINI_EMULATOR_BBA_TAP, so the
 #     app's GameCube LAN relay can take the frames (게임큐브 LAN 대전).
+#   android-network: the Wii's network info from sockets and getifaddrs, not from the Java
+#     side of Dolphin's own Android app, which a libretro core does not have (a game going
+#     online crashed in JavaVM::GetEnv).
 for PATCH in "$HERE"/patches/dolphin-*.patch; do
     [ -e "$PATCH" ] || continue
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
