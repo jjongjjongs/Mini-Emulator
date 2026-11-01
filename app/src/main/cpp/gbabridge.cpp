@@ -3978,6 +3978,17 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiLink(JNIEnv* /*e
     gWiiLink.store(on == JNI_TRUE);
 }
 
+// Wii 친구끼리: the room Dolphin points the Wi-Fi Connection at (cores/patches/dolphin-mini-wfc.patch
+// reads MINI_EMULATOR_WFC), or none.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiRoom(JNIEnv* env, jclass /*cls*/, jstring address) {
+    std::string value = address == nullptr ? "" : jstringToString(env, address);
+    if (value.empty()) {
+        unsetenv("MINI_EMULATOR_WFC");
+    } else {
+        setenv("MINI_EMULATOR_WFC", value.c_str(), 1);
+    }
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiimmfi(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
     gWiimmfi.store(on == JNI_TRUE);
 }

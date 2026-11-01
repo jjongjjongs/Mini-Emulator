@@ -293,6 +293,32 @@ jobs:
           path: app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
           key: citra-${{ hashFiles('cores/build-citra.sh', 'cores/patches/citra-*.patch') }}
 
+      # Wii 친구끼리: the room server for the host phone and the matching client codes and
+      # payloads, from WiiLink WFC's sources (cores/build-wfcfriends.sh).
+      - name: Restore Wii room
+        id: wfcroom-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/assets/wfc_room.zip
+            app/src/main/assets/wfc_room_codes.txt
+            app/src/main/jniLibs/arm64-v8a/libwfcserver.so
+          key: wfcroom-${{ hashFiles('cores/build-wfcfriends.sh', 'cores/wfcserver/**') }}
+
+      - name: Build Wii room
+        if: steps.wfcroom-cache.outputs.cache-hit != 'true'
+        run: ./cores/build-wfcfriends.sh
+
+      - name: Save Wii room
+        if: steps.wfcroom-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/assets/wfc_room.zip
+            app/src/main/assets/wfc_room_codes.txt
+            app/src/main/jniLibs/arm64-v8a/libwfcserver.so
+          key: wfcroom-${{ hashFiles('cores/build-wfcfriends.sh', 'cores/wfcserver/**') }}
+
       # WiiLink WFC's first-stage codes (Wii 인터넷 서버), built from WiiLink's source in
       # devkitPPC; the script stops if the stage 1 hash is not WiiLink's.
       - name: Restore WiiLink WFC codes

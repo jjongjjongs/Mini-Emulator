@@ -35,3 +35,6 @@ app/src/main/jniLibs/arm64-v8a/libpcsx_rearmed_libretro_android.so
 app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so
 app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
 app/src/main/assets/wiilink_wfc.txt
+app/src/main/assets/wfc_room.zip
+app/src/main/assets/wfc_room_codes.txt
+app/src/main/jniLibs/arm64-v8a/libwfcserver.so

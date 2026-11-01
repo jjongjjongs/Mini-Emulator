@@ -5122,6 +5122,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     protected void onDestroy() {
+        // The room closes with the host's game (and starts again if the game is relaunched).
+        WfcRoom.stop();
         unregisterPadListener();
         unregisterThermalListener();
         stopMicPoll();
@@ -5370,6 +5372,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setWiiPointer(isWiiGame() && wiiPointer() == 1);
                         NativeGba.setWiimmfi(wiimmfiOn());
                         NativeGba.setWiiLink(applyWiiLinkCode());
+                        if (wiiRoomMode() == 1 && !WfcRoom.start(this)) {
+                            runOnUiThread(() -> Toast.makeText(this, "방 서버를 켜지 못했어요. 접속 기록을 확인해 주세요.", Toast.LENGTH_LONG).show());
+                        }
+                        NativeGba.setWiiRoom(wiiRoomAddress());
                     }
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
@@ -7641,7 +7647,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         settings.edit().putBoolean("vpn_share_pending", false).apply();
-        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1;
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1 || wiiRoomMode() == 1;
         String address = AdhocBeacon.vpnAddress();
         if (!hosting || linkMode() != 2 || address == null) {
             return;
@@ -7683,7 +7689,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Hosting answers guests looking for a room while this game runs.
     private void startAdhocBeaconIfHosting() {
-        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1;
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1 || wiiRoomMode() == 1;
         if (hosting) {
             this.adhocBeacon.startHost(this, this.gameTitle);
             if (linkDirect()) {
@@ -7921,7 +7927,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         // Same Wi-Fi (the beacon), Wi-Fi Direct (the phone's own search) or a VPN (typed address).
-        String lastHost = isNds() ? dsNetHost() : isDolphin() ? gcLanHost() : wifiMultiHost();
+        String lastHost = isNds() ? dsNetHost() : isDolphin() ? (isWiiGame() ? wiiRoomHost() : gcLanHost()) : wifiMultiHost();
         final int[] tab = {lastHost != null && vpnRecent().contains(lastHost) ? 2 : linkMode()};
         final TextView[] tabs = new TextView[3];
         LinearLayout tabRow = new LinearLayout(this);
@@ -9558,14 +9564,42 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
         int value = prefs.getInt("wii_server:" + this.saveBaseName, prefs.getBoolean("wiimmfi:" + this.saveBaseName, false) ? 1 : 0);
-        return value >= 0 && value <= 2 ? value : 0;
+        return value >= 0 && value <= 3 ? value : 0;
     }
 
     private int wiiServerColor() {
-        return wiiServer() == 2 ? Color.rgb(8, 145, 178) : Color.rgb(234, 88, 12);
+        int server = wiiServer();
+        return server == 3 ? Color.rgb(124, 58, 237) : server == 2 ? Color.rgb(8, 145, 178) : Color.rgb(234, 88, 12);
     }
 
-    private static final String[] WII_SERVER_NAMES = {"꺼짐", "Wiimmfi", "WiiLink WFC"};
+    private static final String[] WII_SERVER_NAMES = {"꺼짐", "Wiimmfi", "WiiLink WFC", "친구끼리"};
+
+    // ---- "친구끼리": a Wi-Fi Connection room on the host phone (WfcRoom), 1 host, 2 guest ----
+    private int wiiRoomMode() {
+        if (wiiServer() != 3) {
+            return 0;
+        }
+        int value = MainActivity.sharedSettings(this).getInt("wii_room", 1);
+        return value == 2 ? 2 : 1;
+    }
+
+    private String wiiRoomHost() {
+        String value = MainActivity.sharedSettings(this).getString("wii_room_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setWiiRoom(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("wii_server:" + this.saveBaseName, 3).remove("wiimmfi:" + this.saveBaseName)
+                .putInt("wii_room", mode).putString("wii_room_host", host == null ? "" : host).commit();
+    }
+
+    // Where this phone's game finds the room: the host's own address the guests use too (the
+    // matchmaking hands it to them), or the host the guest picked. Null when not in a room.
+    private String wiiRoomAddress() {
+        int mode = wiiRoomMode();
+        String address = mode == 1 ? hostAddress() : mode == 2 ? wiiRoomHost() : null;
+        return address == null ? null : address + ":" + WfcRoom.HTTP_PORT;
+    }
 
     // The disc's game ID (6 letters) and revision: ISO at 0, WBFS at 0x200, RVZ / WIA in the
     // copy of the disc header they keep at 0x58. Null when it cannot be read.
@@ -9616,11 +9650,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // The WiiLink WFC code lines for this game, or null when WiiLink has none for it.
     private java.util.List<String> wiiLinkCode() {
+        return wiiCode(wiiServer() == 3 ? "wfc_room_codes.txt" : "wiilink_wfc.txt");
+    }
+
+    // The game's first-stage code in a code list asset (WiiLink's own, or the room's).
+    private java.util.List<String> wiiCode(String asset) {
         String title = wiiLinkTitle();
         if (title == null) {
             return null;
         }
-        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(getAssets().open("wiilink_wfc.txt"), "UTF-8"))) {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(getAssets().open(asset), "UTF-8"))) {
             java.util.List<String> lines = null;
             String line;
             while ((line = reader.readLine()) != null) {
@@ -9659,7 +9698,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 ours = false;
             }
         }
-        java.util.List<String> code = wiiServer() == 2 ? wiiLinkCode() : null;
+        java.util.List<String> code = wiiServer() >= 2 ? wiiLinkCode() : null;
         if (code == null) {
             if (ours) {
                 ini.delete();
@@ -9693,28 +9732,43 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (server == 0) {
             return "꺼짐";
         }
+        if (server == 3) {
+            return "친구끼리 · " + (wiiRoomMode() == 2 ? "참가 " + (wiiRoomHost() == null ? "?" : wiiRoomHost()) : "방장 · " + linkShown());
+        }
         return WII_SERVER_NAMES[server] + (wiiCertificatesReady() ? "" : " · 인증서 없음");
     }
 
     private LinearLayout createWiimmfiRow(android.app.Dialog menu) {
         int server = wiiServer();
         String title = wiiLinkTitle();
-        boolean hasCode = wiiLinkCode() != null;
+        boolean hasCode = wiiCode("wiilink_wfc.txt") != null;
+        boolean roomCode = wiiCode("wfc_room_codes.txt") != null;
+        boolean roomShipped = WfcRoom.shipped(this);
         String[] notes = {"게임의 Wi-Fi 메뉴는 접속 오류가 나요 (원래 서버가 닫혔어요)",
-                "메모리 속 접속 주소를 Wiimmfi로 · 실제 Wii 본체 정보가 없으면 23934로 막힐 수 있어요",
-                hasCode ? "WiiLink 공식 접속 코드를 켜요 · 이 게임용 코드 있음 ✓ (" + title + ")"
-                        : "이 게임은 아직 없음" + (title == null ? " (게임 ID를 못 읽었어요)" : " (" + title + ")")};
+                "공개 서버 · 메모리 속 접속 주소를 Wiimmfi로 · 실제 Wii 본체 정보가 없으면 23934로 막힐 수 있어요",
+                hasCode ? "공개 서버 · WiiLink 공식 접속 코드를 켜요 (" + title + ")"
+                        : "공개 서버 · 공식 접속 코드를 아직 못 받았어요" + (title == null ? "" : " (" + title + ")"),
+                !roomShipped ? "이 버전에는 방 서버가 들어 있지 않아요"
+                        : roomCode ? "방장 휴대폰이 Wi-Fi 서버가 돼요. 연결된 친구끼리만 만나요 · 본체 정보 필요 없음"
+                        : "이 게임은 아직 안 돼요" + (title == null ? " (게임 ID를 못 읽었어요)" : " (" + title + ")")};
         return createSettingRow(RoundIconView.GLOBE, wiiServerColor(), "인터넷 서버", wiiServerShown(),
-                view -> showChoiceDialog(RoundIconView.GLOBE, Color.rgb(8, 145, 178), "인터넷 서버", WII_SERVER_NAMES, notes, server,
+                view -> showChoiceDialog(RoundIconView.GLOBE, Color.rgb(124, 58, 237), "인터넷 서버", WII_SERVER_NAMES, notes, server,
                         "원본 게임 파일은 그대로예요. 켜 둔 치트는 꺼야 해요 (온라인에서 치트를 쓰면 막혀요).\n"
-                                + "WiiLink 코드는 원본 게임 기준이에요. Wiimmfi용으로 고쳐진 파일이면 안 맞을 수 있으니, 안 되면 원본 덤프로 해 보세요.\n"
-                                + "WiiLink WFC: 온라인 기능 제공 WiiLink (wfc.wiilink.ca). 저장하고 그 장면에서 이어져요.",
-                        Color.rgb(236, 254, 255), Color.rgb(21, 94, 117), "적용하고 이어하기", choice -> {
-                    if (choice == server) {
+                                + "친구끼리 · WiiLink WFC: 온라인 기능 제공 WiiLink WFC (wfc.wiilink.ca). 저장하고 그 장면에서 이어져요.",
+                        Color.rgb(245, 243, 255), Color.rgb(91, 33, 182), "다음", choice -> {
+                    if (choice == 2 && !hasCode) {
+                        Toast.makeText(this, "WiiLink WFC 공식 접속 코드를 아직 못 받았어요. \"친구끼리\"를 써 주세요.", Toast.LENGTH_LONG).show();
                         return;
                     }
-                    if (choice == 2 && !hasCode) {
-                        Toast.makeText(this, "WiiLink WFC에 이 게임용 코드가 아직 없어요.", Toast.LENGTH_LONG).show();
+                    if (choice == 3) {
+                        if (!roomShipped || !roomCode) {
+                            Toast.makeText(this, !roomShipped ? "이 버전에는 방 서버가 들어 있지 않아요." : "이 게임은 친구끼리 대전이 아직 안 돼요.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        showWiiRoomChoice(menu);
+                        return;
+                    }
+                    if (choice == server) {
                         return;
                     }
                     MainActivity.sharedSettings(this).edit().putInt("wii_server:" + this.saveBaseName, choice)
@@ -9724,20 +9778,51 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }));
     }
 
+    private static final String[] WII_ROOM_NAMES = {"방 만들기 (방장)", "참가"};
+    private static final String[] WII_ROOM_NOTES = {"이 휴대폰에서 방 서버를 켜요. 친구는 \"참가\"로 들어와요",
+            "같은 와이파이 · Wi-Fi Direct · VPN의 방장을 찾아서 연결해요"};
+
+    // 친구끼리: host (then how guests reach it) or join (then which host).
+    private void showWiiRoomChoice(android.app.Dialog menu) {
+        int color = Color.rgb(124, 58, 237);
+        showChoiceDialog(RoundIconView.WIFI, color, "친구끼리", WII_ROOM_NAMES, WII_ROOM_NOTES, wiiRoomMode() == 2 ? 1 : 0,
+                "연결 방법은 DS 통신 · PSP와 같아요. 방장이 먼저 게임을 켜 두세요.\n"
+                        + "모두 같은 게임 · 같은 지역판 · 같은 앱 버전이어야 해요. 게임에서 Wi-Fi › 전국 대전을 고르면 이 방 사람들끼리 만나요.\n"
+                        + "방 서버: WiiLink WFC 서버(AGPL-3.0)를 고친 것 · 소스 github.com/jjongjjongs/Mini-Emulator (cores/wfcserver)",
+                Color.rgb(245, 243, 255), Color.rgb(91, 33, 182), "다음", choice -> {
+                    if (choice == 1) {
+                        showHostFinder(menu, RoundIconView.WIFI, color, address -> setWiiRoom(2, address));
+                        return;
+                    }
+                    chooseLinkThen(menu, RoundIconView.WIFI, color, () -> setWiiRoom(1, wiiRoomHost()));
+                });
+    }
+
     // What the bridge changed in memory, from the engine log; shared to the developer when
     // the game still cannot connect.
     private void showWiimmfiLog() {
         StringBuilder lines = new StringBuilder();
-        if (wiiServer() == 2) {
+        if (wiiServer() >= 2) {
             java.util.List<String> code = wiiLinkCode();
             String[] id = wiiGameId();
             lines.append("WiiLink 코드: ").append(wiiLinkTitle()).append(code == null ? " · 없음" : " · " + code.size() + "줄")
                     .append(id == null ? "" : " · 게임 ID " + id[0]).append('\n');
-            lines.append("인증서: ").append(wiiCertificatesReady() ? "있음" : "없음 (Wii 시스템 업데이트 필요)").append('\n');
+            if (wiiServer() == 2) {
+                lines.append("인증서: ").append(wiiCertificatesReady() ? "있음" : "없음 (Wii 시스템 업데이트 필요)").append('\n');
+            } else {
+                lines.append("방: ").append(wiiRoomMode() == 1 ? "방장 · 서버 " + (WfcRoom.running() ? "켜짐" : "꺼짐") : "참가")
+                        .append(" · ").append(wiiRoomAddress()).append('\n');
+            }
         }
         for (String line : CrashReports.readGameLog(this).split("\n")) {
-            if (line.contains("Wiimmfi") || line.contains("WiiLink") || line.contains("Gecko") || line.contains("Patch")) {
+            if (line.contains("Wiimmfi") || line.contains("WiiLink") || line.contains("Gecko") || line.contains("Patch") || line.contains("Mini WFC")) {
                 lines.append(line.replace("[Mini] Wiimmfi: ", "")).append('\n');
+            }
+        }
+        if (wiiRoomMode() == 1) {
+            String server = WfcRoom.tail(this, 40);
+            if (!server.isEmpty()) {
+                lines.append("\n── 방 서버 ──\n").append(server).append('\n');
             }
         }
         final String text = lines.length() == 0 ? "아직 기록이 없어요. 게임을 켜고 몇 초 뒤에 다시 봐 주세요." : lines.toString().trim();
@@ -9754,7 +9839,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         TextView badge = new TextView(this);
-        badge.setText("🌐 " + WII_SERVER_NAMES[wiiServer()]);
+        badge.setText("🌐 " + (wiiServer() == 3 ? (wiiRoomMode() == 1 ? "친구끼리 · 방장" : "친구끼리 · 참가") : WII_SERVER_NAMES[wiiServer()]));
         badge.setTextSize(11.0f);
         badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         badge.setTextColor(Color.WHITE);

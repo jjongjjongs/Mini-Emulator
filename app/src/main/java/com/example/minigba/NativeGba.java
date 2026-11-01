@@ -171,6 +171,10 @@ final class NativeGba {
     // WiiLink WFC for the next game: Dolphin's cheats on, so the code in the game's settings file runs.
     static native void setWiiLink(boolean on);
 
+    // Wii 친구끼리: "<host ip>:<http port>" of the room for the next game (Dolphin sends the Wi-Fi
+    // Connection names there), or null for none.
+    static native void setWiiRoom(String address);
+
     // 모션 (자이로): offered to the next game created; readings in the screen's axes,
     // the accelerometer in g and the gyroscope in rad/s.
     static native void setMotionEnabled(boolean on);
