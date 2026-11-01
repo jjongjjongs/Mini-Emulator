@@ -34,6 +34,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -3036,12 +3037,21 @@ void note(const std::string& before, const std::string& after) {
     std::string line = "[Mini] Wiimmfi: " + before.substr(0, 80) + " -> " + after.substr(0, 80);
     crash::remember(line.c_str());
 }
+
+// Addresses found but left as they are (already Wiimmfi, or not a whole string), each
+// once per run, so the log shows what the game holds. Only the scanning thread calls this.
+void seen(const std::string& text, bool whole) {
+    static std::set<std::string> shown;
+    if (shown.size() >= 40 || !shown.insert(text).second) return;
+    std::string line = std::string("[Mini] Wiimmfi: ") + (whole ? "found " : "found (not a whole string) ") + text.substr(0, 100);
+    crash::remember(line.c_str());
+}
 }  // namespace crash_log
 
 // Finds the strings around each mention in the memory and rewrites them, padding with NULs.
 int patch(uint8_t* ram, size_t size) {
     int changed = 0;
-    for (const char* needle : {"nintendowifi.net", "sake.gamespy.com", "https"}) {
+    for (const char* needle : {"nintendowifi.net", "sake.gamespy.com", "https", "wiimmfi.de"}) {
         size_t needleLen = strlen(needle);
         size_t offset = 0;
         while (offset + needleLen <= size) {
@@ -3052,17 +3062,21 @@ int patch(uint8_t* ram, size_t size) {
             while (start > 0 && at - start < 200 && ram[start - 1] >= 0x21 && ram[start - 1] < 0x7F) start--;
             size_t end = at + needleLen;
             while (end < size && end - at < 200 && ram[end] >= 0x21 && ram[end] < 0x7F) end++;
-            // Only whole C strings: a NUL right before and right after.
-            if (end < size && ram[end] == 0 && (start == 0 || ram[start - 1] == 0)) {
-                std::string text(reinterpret_cast<char*>(ram + start), end - start);
-                std::string before = text;
-                size_t length = text.size();
-                if (rewrite(text)) {
-                    memcpy(ram + start, text.data(), text.size());
-                    memset(ram + start + text.size(), 0, length - text.size());
-                    changed++;
-                    crash_log::note(before, text);
-                }
+            // A string that ends in a NUL (so it can be shortened). What comes before it only
+            // has to be something that is not text: a NUL, or the end of other data.
+            bool whole = end < size && ram[end] == 0;
+            std::string text(reinterpret_cast<char*>(ram + start), end - start);
+            bool address = text.find("nintendowifi") != std::string::npos || text.find("wiimmfi") != std::string::npos ||
+                           text.find("gamespy") != std::string::npos;
+            std::string before = text;
+            size_t length = text.size();
+            if (whole && rewrite(text)) {
+                memcpy(ram + start, text.data(), text.size());
+                memset(ram + start + text.size(), 0, length - text.size());
+                changed++;
+                crash_log::note(before, text);
+            } else if (address) {
+                crash_log::seen(before, whole);
             }
             offset = end > at ? end : at + 1;
         }
