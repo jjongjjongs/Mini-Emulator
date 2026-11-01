@@ -454,24 +454,25 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
         TextView desc = new TextView(this);
-        desc.setText("모드를 고르면 해당 게임 목록으로 들어갑니다.");
+        desc.setText("게임기를 고르면 게임 목록으로 들어가요. 길게 누르면 즐겨찾기.");
         desc.setTextColor(STATUS_TEXT_COLOR);
         desc.setTextSize(13.0f);
-        desc.setPadding(0, dp(2), 0, dp(14));
+        desc.setPadding(0, dp(2), 0, dp(12));
         root.addView(desc, new LinearLayout.LayoutParams(-1, -2));
-        for (int i = 0; i < MODE_IDS.length; i++) {
-            final String mode = MODE_IDS[i];
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-            params.setMargins(0, 0, 0, dp(10));
-            root.addView(createModeCard(i, view -> onModePicked(mode)), params);
-        }
+        this.gameIndex = null;
+        root.addView(createModeBrowser(null, this::onModePicked, file -> {
+            onModePicked(modeForFile(file));
+            launchGame(file);
+        }), new LinearLayout.LayoutParams(-1, -2));
         CheckBox remember = new CheckBox(this);
         remember.setText("다음부터 마지막 모드로 바로 시작");
         remember.setTextColor(Color.rgb(55, 65, 81));
         remember.setTextSize(13.0f);
         remember.setChecked(settingsPrefs().getBoolean(PREF_REMEMBER_MODE, false));
         remember.setOnCheckedChangeListener((button, checked) -> settingsPrefs().edit().putBoolean(PREF_REMEMBER_MODE, checked).apply());
-        root.addView(remember, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams rememberParams = new LinearLayout.LayoutParams(-1, -2);
+        rememberParams.setMargins(0, dp(12), 0, 0);
+        root.addView(remember, rememberParams);
         ScrollView scrollView = new ScrollView(this);
         scrollView.setFillViewport(true);
         scrollView.setBackgroundColor(Color.rgb(236, 243, 248));
@@ -479,47 +480,412 @@ public final class MainActivity extends Activity {
         setContentView(scrollView);
     }
 
-    private LinearLayout createModeCard(int index, View.OnClickListener onClickListener) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(0);
-        card.setGravity(16);
-        card.setPadding(dp(14), dp(14), dp(14), dp(14));
-        card.setBackground(rounded(MODE_COLORS[index], dp(16)));
-        card.setElevation(dp(2));
-        card.setClickable(true);
-        card.setOnClickListener(onClickListener);
+    // ---- 게임기 고르기: three-across cubes, 즐겨찾기 on top, and search over the consoles and
+    // every console's games. Used by the start screen and the 모드 변경 sheet. ----
+    private static final String PREF_FAVORITE_MODES = "favorite_modes";
+
+    /** A tile at least as tall as it is wide; taller only when its text needs it (a narrow
+     *  phone, large text). The row gives all its tiles the tallest one's height. */
+    private static final class SquareLayout extends LinearLayout {
+        SquareLayout(android.content.Context context) {
+            super(context);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                return;
+            }
+            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+            int width = getMeasuredWidth();
+            int height = Math.max(width, getMeasuredHeight());
+            super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+        }
+    }
+
+    private List<String> favoriteModes() {
+        List<String> list = new ArrayList<>();
+        for (String mode : settingsPrefs().getString(PREF_FAVORITE_MODES, "").split(",")) {
+            if (!mode.isEmpty() && Arrays.asList(MODE_IDS).contains(mode) && !list.contains(mode)) {
+                list.add(mode);
+            }
+        }
+        return list;
+    }
+
+    private void saveFavoriteModes(List<String> list) {
+        settingsPrefs().edit().putString(PREF_FAVORITE_MODES, android.text.TextUtils.join(",", list)).apply();
+    }
+
+    // The file types, short: just the extensions (".cue+.bin · .chd" -> ".cue .bin .chd").
+    private static String shortFileTypes(int index) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?<![A-Za-z0-9])\\.[A-Za-z0-9]+").matcher(MODE_FILES[index]);
+        List<String> found = new ArrayList<>();
+        while (matcher.find()) {
+            String ext = matcher.group().toLowerCase(Locale.US);
+            if (!found.contains(ext)) {
+                found.add(ext);
+            }
+        }
+        return android.text.TextUtils.join(" ", found);
+    }
+
+    private String tileStatus(int index, int count) {
+        String mode = MODE_IDS[index];
+        if (!isModeAvailable(mode)) {
+            return "준비 중";
+        }
+        if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
+            return "BIOS 필요 · 게임 " + count + "개";
+        }
+        return "게임 " + count + "개";
+    }
+
+    private View createModeTile(int index, int count, boolean favorite, boolean current, Runnable onPick, Runnable onChanged) {
+        SquareLayout tile = new SquareLayout(this);
+        tile.setOrientation(1);
+        tile.setPadding(dp(10), dp(9), dp(9), dp(9));
+        GradientDrawable background = rounded(MODE_COLORS[index], dp(18));
+        if (current) {
+            background.setStroke(dp(3), Color.rgb(251, 191, 36));
+        }
+        tile.setBackground(background);
+        tile.setElevation(dp(2));
+        tile.setClickable(true);
+        tile.setOnClickListener(view -> onPick.run());
+        tile.setOnLongClickListener(view -> {
+            showModeTileMenu(index, onChanged);
+            return true;
+        });
+        tile.setContentDescription(MODE_NAMES[index]);
+        FrameLayout top = new FrameLayout(this);
         ImageView icon = new ImageView(this);
         icon.setImageResource(MODE_DRAWABLES[index]);
         icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        icon.setPadding(dp(4), dp(4), dp(4), dp(4));
-        icon.setContentDescription(MODE_NAMES[index]);
-        icon.setBackground(rounded(Color.argb(56, 255, 255, 255), dp(14)));
-        card.addView(icon, new LinearLayout.LayoutParams(dp(50), dp(50)));
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(1);
-        texts.setPadding(dp(12), 0, dp(8), 0);
+        icon.setPadding(dp(3), dp(3), dp(3), dp(3));
+        icon.setBackground(rounded(Color.argb(56, 255, 255, 255), dp(9)));
+        top.addView(icon, new FrameLayout.LayoutParams(dp(28), dp(28)));
+        if (favorite) {
+            TextView star = new TextView(this);
+            star.setText("★");
+            star.setTextColor(Color.rgb(253, 224, 71));
+            star.setTextSize(14.0f);
+            star.setShadowLayer(dp(1), 0, dp(1), Color.argb(90, 0, 0, 0));
+            top.addView(star, new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.TOP | android.view.Gravity.END));
+        }
+        tile.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        View spacer = new View(this);
+        tile.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         TextView name = new TextView(this);
         name.setText(MODE_NAMES[index]);
-        name.setTextColor(-1);
-        name.setTextSize(16.0f);
+        name.setTextColor(Color.WHITE);
+        name.setTextSize(12.0f);
         name.setTypeface(Typeface.DEFAULT_BOLD);
-        texts.addView(name);
-        TextView detail = new TextView(this);
-        detail.setText(MODE_ENGINES[index] + "\n" + MODE_FILES[index]);
-        detail.setTextColor(Color.argb(235, 255, 255, 255));
-        detail.setTextSize(11.0f);
-        texts.addView(detail);
-        card.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        name.setMaxLines(2);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        name.setLineSpacing(0, 0.95f);
+        tile.addView(name);
+        TextView types = new TextView(this);
+        types.setText(shortFileTypes(index));
+        types.setTextColor(Color.argb(235, 255, 255, 255));
+        types.setTextSize(9.0f);
+        types.setMaxLines(2);
+        types.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tile.addView(types);
         TextView status = new TextView(this);
-        status.setText(modeStatusText(MODE_IDS[index]));
-        status.setTextColor(-1);
-        status.setTextSize(10.0f);
+        status.setText(tileStatus(index, count));
+        status.setTextColor(Color.argb(200, 255, 255, 255));
+        status.setTextSize(9.5f);
         status.setTypeface(Typeface.DEFAULT_BOLD);
-        status.setPadding(dp(8), dp(4), dp(8), dp(4));
-        status.setBackground(rounded(Color.argb(64, 255, 255, 255), dp(10)));
-        card.addView(status, new LinearLayout.LayoutParams(-2, -2));
-        return card;
+        status.setSingleLine(true);
+        status.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tile.addView(status);
+        return tile;
     }
+
+    // 즐겨찾기 in or out, 앞으로 / 뒤로 within them, and 엔진 정보.
+    private void showModeTileMenu(int index, Runnable onChanged) {
+        String mode = MODE_IDS[index];
+        List<String> favorites = favoriteModes();
+        int at = favorites.indexOf(mode);
+        List<String> items = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        if (at < 0) {
+            items.add("★ 즐겨찾기에 넣기");
+            actions.add(() -> {
+                favorites.add(mode);
+                saveFavoriteModes(favorites);
+                onChanged.run();
+            });
+        } else {
+            items.add("☆ 즐겨찾기에서 빼기");
+            actions.add(() -> {
+                favorites.remove(mode);
+                saveFavoriteModes(favorites);
+                onChanged.run();
+            });
+            if (at > 0) {
+                items.add("← 즐겨찾기 앞으로");
+                actions.add(() -> {
+                    Collections.swap(favorites, at, at - 1);
+                    saveFavoriteModes(favorites);
+                    onChanged.run();
+                });
+            }
+            if (at < favorites.size() - 1) {
+                items.add("→ 즐겨찾기 뒤로");
+                actions.add(() -> {
+                    Collections.swap(favorites, at, at + 1);
+                    saveFavoriteModes(favorites);
+                    onChanged.run();
+                });
+            }
+        }
+        items.add("ⓘ 엔진 정보");
+        actions.add(() -> new AppDialog.Builder(this).setTitle(MODE_NAMES[index])
+                .setMessage("엔진: " + MODE_ENGINES[index] + "\n파일: " + MODE_FILES[index] + "\n상태: " + modeStatusText(mode))
+                .setPositiveButton("확인", null).show());
+        new AppDialog.Builder(this).setTitle(MODE_NAMES[index])
+                .setItems(items.toArray(new CharSequence[0]), (dialog, which) -> actions.get(which).run())
+                .setNegativeButton("취소", null).show();
+    }
+
+    private TextView browserSectionTitle(String text, String count) {
+        TextView view = new TextView(this);
+        view.setText(count.isEmpty() ? text : text + "  ·  " + count);
+        view.setTextColor(Color.rgb(31, 41, 51));
+        view.setTextSize(13.5f);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
+        view.setPadding(dp(2), dp(14), 0, dp(8));
+        return view;
+    }
+
+    // Three tiles a row.
+    private void addTileGrid(LinearLayout parent, List<Integer> indexes, java.util.Map<String, Integer> counts, String current,
+                             java.util.function.Consumer<String> onPick, Runnable onChanged) {
+        List<String> favorites = favoriteModes();
+        LinearLayout row = null;
+        for (int k = 0; k < indexes.size(); k++) {
+            if (k % 3 == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(0);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, k == 0 ? 0 : dp(10), 0, 0);
+                parent.addView(row, rowParams);
+            }
+            int index = indexes.get(k);
+            String mode = MODE_IDS[index];
+            Integer count = counts.get(mode);
+            View tile = createModeTile(index, count == null ? 0 : count, favorites.contains(mode), mode.equals(current), () -> onPick.accept(mode), onChanged);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+            params.setMargins(k % 3 == 0 ? 0 : dp(10), 0, 0, 0);
+            row.addView(tile, params);
+        }
+        if (row != null) {
+            for (int fill = indexes.size() % 3; fill != 0 && fill < 3; fill++) {
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, 1, 1.0f);
+                params.setMargins(dp(10), 0, 0, 0);
+                row.addView(new View(this), params);
+            }
+        }
+    }
+
+    // Every console's games, for search: {lower-case name, name, mode, path}. Built once a
+    // browser is open, off the main thread (titles may read file headers).
+    private List<String[]> gameIndex;
+
+    private List<String[]> buildGameIndex() {
+        List<String[]> list = new ArrayList<>();
+        for (String mode : MODE_IDS) {
+            File[] files = romDirFor(mode).listFiles(this::isRomFile);
+            if (files == null) {
+                continue;
+            }
+            for (File file : files) {
+                String name;
+                try {
+                    name = displayGameNameFor(file);
+                } catch (RuntimeException e) {
+                    name = baseNameWithoutExtension(file.getName());
+                }
+                list.add(new String[]{(name + " " + file.getName()).toLowerCase(Locale.ROOT), name, mode, file.getAbsolutePath()});
+            }
+        }
+        Collections.sort(list, (a, b) -> a[1].compareToIgnoreCase(b[1]));
+        return list;
+    }
+
+    // The search box, 즐겨찾기 and 모든 게임기 in one view; onPick opens a console, onGame starts a game.
+    private LinearLayout createModeBrowser(String current, java.util.function.Consumer<String> onPick, java.util.function.Consumer<File> onGame) {
+        LinearLayout browser = new LinearLayout(this);
+        browser.setOrientation(1);
+        EditText search = new EditText(this);
+        search.setHint("게임기 · 게임 이름 검색");
+        search.setSingleLine(true);
+        search.setTextSize(14.0f);
+        search.setTextColor(Color.rgb(17, 24, 39));
+        search.setHintTextColor(Color.rgb(156, 163, 175));
+        search.setPadding(dp(14), 0, dp(14), 0);
+        search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        GradientDrawable box = rounded(Color.WHITE, dp(14));
+        box.setStroke(dp(1), Color.rgb(229, 231, 235));
+        search.setBackground(box);
+        search.setCompoundDrawablePadding(dp(8));
+        browser.addView(search, new LinearLayout.LayoutParams(-1, dp(44)));
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(1);
+        browser.addView(content, new LinearLayout.LayoutParams(-1, -2));
+        java.util.Map<String, Integer> counts = new HashMap<>();
+        for (String mode : MODE_IDS) {
+            counts.put(mode, romCount(mode));
+        }
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            content.removeAllViews();
+            String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            if (query.isEmpty()) {
+                List<String> favorites = favoriteModes();
+                if (!favorites.isEmpty()) {
+                    content.addView(browserSectionTitle("★ 즐겨찾기", favorites.size() + "개"));
+                    List<Integer> favIndexes = new ArrayList<>();
+                    for (String mode : favorites) {
+                        favIndexes.add(modeIndex(mode));
+                    }
+                    addTileGrid(content, favIndexes, counts, current, onPick, render[0]);
+                }
+                content.addView(browserSectionTitle("모든 게임기", MODE_IDS.length + "개"));
+                List<Integer> all = new ArrayList<>();
+                for (int i = 0; i < MODE_IDS.length; i++) {
+                    if (!favorites.contains(MODE_IDS[i])) {
+                        all.add(i);
+                    }
+                }
+                addTileGrid(content, all, counts, current, onPick, render[0]);
+                if (favorites.isEmpty()) {
+                    TextView tip = new TextView(this);
+                    tip.setText("게임기를 길게 누르면 즐겨찾기에 넣을 수 있어요.");
+                    tip.setTextColor(STATUS_TEXT_COLOR);
+                    tip.setTextSize(11.5f);
+                    tip.setPadding(dp(2), dp(10), 0, 0);
+                    content.addView(tip);
+                }
+                return;
+            }
+            // Consoles whose name, engine or file types match.
+            List<Integer> modes = new ArrayList<>();
+            for (int i = 0; i < MODE_IDS.length; i++) {
+                String hay = (MODE_NAMES[i] + " " + MODE_ENGINES[i] + " " + MODE_FILES[i] + " " + MODE_IDS[i]).toLowerCase(Locale.ROOT);
+                if (hay.contains(query)) {
+                    modes.add(i);
+                }
+            }
+            if (!modes.isEmpty()) {
+                content.addView(browserSectionTitle("게임기", modes.size() + "개"));
+                addTileGrid(content, modes, counts, current, onPick, render[0]);
+            }
+            if (this.gameIndex == null) {
+                content.addView(browserSectionTitle("게임", "찾는 중…"));
+                return;
+            }
+            List<String[]> games = new ArrayList<>();
+            for (String[] game : this.gameIndex) {
+                if (game[0].contains(query)) {
+                    games.add(game);
+                }
+            }
+            content.addView(browserSectionTitle("게임", games.size() + "개"));
+            if (games.isEmpty() && modes.isEmpty()) {
+                TextView none = new TextView(this);
+                none.setText("\"" + search.getText().toString().trim() + "\"에 맞는 게임기나 게임이 없어요.");
+                none.setTextColor(STATUS_TEXT_COLOR);
+                none.setTextSize(12.5f);
+                none.setPadding(dp(2), 0, 0, 0);
+                content.addView(none);
+            }
+            for (int k = 0; k < games.size() && k < 60; k++) {
+                String[] game = games.get(k);
+                int index = modeIndex(game[2]);
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(0);
+                row.setGravity(16);
+                row.setPadding(dp(10), dp(8), dp(12), dp(8));
+                row.setBackground(rounded(Color.WHITE, dp(13)));
+                ImageView icon = new ImageView(this);
+                icon.setImageResource(MODE_DRAWABLES[index]);
+                icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                icon.setPadding(dp(4), dp(4), dp(4), dp(4));
+                icon.setBackground(rounded(MODE_COLORS[index], dp(10)));
+                row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+                LinearLayout texts = new LinearLayout(this);
+                texts.setOrientation(1);
+                texts.setPadding(dp(10), 0, dp(8), 0);
+                TextView title = new TextView(this);
+                title.setText(game[1]);
+                title.setTextColor(Color.rgb(31, 41, 51));
+                title.setTextSize(13.5f);
+                title.setTypeface(Typeface.DEFAULT_BOLD);
+                title.setSingleLine(true);
+                title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                texts.addView(title);
+                TextView sub = new TextView(this);
+                sub.setText(MODE_NAMES[index]);
+                sub.setTextColor(STATUS_TEXT_COLOR);
+                sub.setTextSize(11.0f);
+                texts.addView(sub);
+                row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                TextView play = new TextView(this);
+                play.setText("▶");
+                play.setTextColor(Color.rgb(22, 185, 207));
+                play.setTextSize(14.0f);
+                row.addView(play);
+                final File file = new File(game[3]);
+                row.setClickable(true);
+                row.setOnClickListener(view -> onGame.accept(file));
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+                params.setMargins(0, 0, 0, dp(6));
+                content.addView(row, params);
+            }
+            if (games.size() > 60) {
+                TextView more = new TextView(this);
+                more.setText("앞의 60개만 보여요. 더 자세히 입력해 주세요.");
+                more.setTextColor(STATUS_TEXT_COLOR);
+                more.setTextSize(11.5f);
+                content.addView(more);
+            }
+        };
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                if (MainActivity.this.gameIndex == null && s.toString().trim().length() > 0 && !MainActivity.this.gameIndexLoading) {
+                    MainActivity.this.gameIndexLoading = true;
+                    new Thread(() -> {
+                        List<String[]> built = buildGameIndex();
+                        runOnUiThread(() -> {
+                            MainActivity.this.gameIndex = built;
+                            MainActivity.this.gameIndexLoading = false;
+                            if (browser.isAttachedToWindow()) {
+                                render[0].run();
+                            }
+                        });
+                    }, "game-index").start();
+                }
+                render[0].run();
+            }
+        });
+        render[0].run();
+        return browser;
+    }
+
+    private boolean gameIndexLoading;
 
     private String modeStatusText(String mode) {
         if (!isModeAvailable(mode)) {
@@ -795,40 +1161,15 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setPadding(dp(6), 0, 0, dp(10));
         sheet.addView(title);
-        for (int i = 0; i < MODE_IDS.length; i++) {
-            final String mode = MODE_IDS[i];
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(0);
-            row.setGravity(16);
-            row.setPadding(dp(6), dp(9), dp(6), dp(9));
-            if (mode.equals(this.currentMode)) {
-                row.setBackground(rounded(Color.rgb(224, 247, 251), dp(10)));
-            }
-            ImageView icon = new ImageView(this);
-            icon.setImageResource(MODE_DRAWABLES[i]);
-            icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            icon.setPadding(dp(2), dp(2), dp(2), dp(2));
-            icon.setBackground(rounded(MODE_COLORS[i], dp(9)));
-            row.addView(icon, new LinearLayout.LayoutParams(dp(30), dp(30)));
-            TextView name = new TextView(this);
-            name.setText(MODE_NAMES[i]);
-            name.setTextColor(Color.rgb(31, 41, 51));
-            name.setTextSize(14.0f);
-            name.setTypeface(Typeface.DEFAULT_BOLD);
-            name.setPadding(dp(10), 0, 0, 0);
-            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
-            TextView status = new TextView(this);
-            status.setText(isModeAvailable(mode) ? "게임 " + romCount(mode) + "개" : "준비 중");
-            status.setTextColor(STATUS_TEXT_COLOR);
-            status.setTextSize(11.0f);
-            row.addView(status);
-            row.setClickable(true);
-            row.setOnClickListener(view -> {
-                dialog.dismiss();
-                onModePicked(mode);
-            });
-            sheet.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        }
+        this.gameIndex = null;
+        sheet.addView(createModeBrowser(this.currentMode, mode -> {
+            dialog.dismiss();
+            onModePicked(mode);
+        }, file -> {
+            dialog.dismiss();
+            onModePicked(modeForFile(file));
+            launchGame(file);
+        }), new LinearLayout.LayoutParams(-1, -2));
         // Kept crash reports are reached from here (the list card only shows new ones).
         List<CrashReports.Report> reports = CrashReports.list(this);
         if (!reports.isEmpty()) {
