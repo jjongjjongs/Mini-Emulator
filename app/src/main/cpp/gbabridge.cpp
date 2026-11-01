@@ -434,6 +434,7 @@ struct Core {
     // The memory regions the core announced (RETRO_ENVIRONMENT_SET_MEMORY_MAPS): Dolphin's
     // MEM1 and, for Wii games, MEM2.
     std::vector<std::pair<uint8_t*, size_t>> memoryRegions;
+    std::mutex memoryRegionsMutex;
     // Wii 인터넷 (Wiimmfi): the thread that keeps the game's addresses pointed at Wiimmfi.
     std::thread wiimmfiThread;
     std::atomic<bool> wiimmfiRunning{false};
@@ -1866,6 +1867,7 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
             auto* map = static_cast<const retro_memory_map*>(data);
             if (map == nullptr || map->descriptors == nullptr) return false;
+            std::lock_guard<std::mutex> regionsLock(core->memoryRegionsMutex);
             core->memoryRegions.clear();
             for (unsigned k = 0; k < map->num_descriptors; k++) {
                 const retro_memory_descriptor& desc = map->descriptors[k];
@@ -3585,16 +3587,30 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     if (core->coreId == "dolphin" && gWiimmfi.load()) {
         // Every two seconds, off the emulation thread (MEM1 and MEM2 are 88 MB), so code loaded
         // later (Mario Kart Wii's StaticR.rel) and the login address the game assembles in its
-        // heap are caught before it goes online.
-        std::vector<std::pair<uint8_t*, size_t>> regions = core->memoryRegions;
-        if (regions.empty()) {
-            void* ram = core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM);
-            size_t ramSize = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
-            if (ram != nullptr && ramSize > 0) regions.emplace_back(static_cast<uint8_t*>(ram), ramSize);
-        }
+        // heap are caught before it goes online. Dolphin announces its memory only once the game
+        // runs, so the regions are looked up again on every pass.
         core->wiimmfiRunning.store(true);
-        core->wiimmfiThread = std::thread([core, regions]() {
+        core->wiimmfiThread = std::thread([core]() {
+            size_t lastTotal = 0;
             while (core->wiimmfiRunning.load()) {
+                std::vector<std::pair<uint8_t*, size_t>> regions;
+                {
+                    std::lock_guard<std::mutex> regionsLock(core->memoryRegionsMutex);
+                    regions = core->memoryRegions;
+                }
+                if (regions.empty()) {
+                    void* ram = core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM);
+                    size_t ramSize = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
+                    if (ram != nullptr && ramSize > 0) regions.emplace_back(static_cast<uint8_t*>(ram), ramSize);
+                }
+                size_t total = 0;
+                for (const auto& region : regions) total += region.second;
+                if (total != lastTotal) {
+                    lastTotal = total;
+                    char line[120];
+                    snprintf(line, sizeof line, "[Mini] Wiimmfi: scanning %zu memory regions, %zu MB", regions.size(), total >> 20);
+                    crash::remember(line);
+                }
                 int changed = 0;
                 for (const auto& region : regions) changed += wiimmfi::patch(region.first, region.second);
                 if (changed > 0) LOGI("Wiimmfi: %d strings pointed at wiimmfi.de", changed);
