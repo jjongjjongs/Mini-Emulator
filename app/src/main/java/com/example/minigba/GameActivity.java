@@ -195,6 +195,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addMotionBadges(frameLayout);
         addGcLanBadge(frameLayout);
         addWiimmfiBadge(frameLayout);
+        addPlayerBadges(frameLayout);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
@@ -244,6 +245,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addMotionBadges(frameLayout2);
         addGcLanBadge(frameLayout2);
         addWiimmfiBadge(frameLayout2);
+        addPlayerBadges(frameLayout2);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
@@ -804,6 +806,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             return true;
         }
+        int player = playerFor(event.getDevice());
+        if (player > 0) {
+            return otherPlayerKey(player, event) || super.dispatchKeyEvent(event);
+        }
         int direction;
         int bit;
         android.util.SparseIntArray table = padMapFor(event.getDevice());
@@ -858,6 +864,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.touchDirection = 0;
         java.util.Arrays.fill(this.buttonHolds, 0);
         updateInput();
+        for (int p = 1; p < PlayerPads.MAX; p++) {
+            clearPlayer(p);
+        }
         if (isSonyPad() || isN64() || isDreamcast()) {
             onAnalogChanged(0, 0);
             onAnalogRightChanged(0, 0);
@@ -1195,11 +1204,30 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             shown = (custom ? "바꾼 설정" : "기본") + " · " + device.getName();
         }
         return createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_PAD, "게임패드 버튼 설정", shown, view -> {
-            android.view.InputDevice now = PadMapping.firstController();
-            if (now == null) {
+            android.view.InputDevice first = PadMapping.firstController();
+            if (first == null) {
                 Toast.makeText(this, "블루투스나 USB 게임패드를 먼저 연결해 주세요.", Toast.LENGTH_SHORT).show();
                 return;
             }
+            // With several pads, each has its own table: pick which one first.
+            java.util.List<android.view.InputDevice> pads = PlayerPads.controllers();
+            if (pads.size() > 1) {
+                String[] names = new String[pads.size()];
+                for (int k = 0; k < names.length; k++) {
+                    int player = consolePlayers() > 1 ? playerPads().playerOf(pads.get(k)) : 0;
+                    names[k] = (player + 1) + "P · " + pads.get(k).getName();
+                }
+                new AppDialog.Builder(this).setTitle("어느 패드를 설정할까요?")
+                        .setItems(names, (d, which) -> openPadMapping(pads.get(which)))
+                        .setNegativeButton("취소", null).show();
+                return;
+            }
+            openPadMapping(first);
+        });
+    }
+
+    private void openPadMapping(android.view.InputDevice now) {
+        {
             releaseController();
             // The picture is wide: the screen turns landscape while it is open, then goes back.
             final int previous = getRequestedOrientation();
@@ -1216,7 +1244,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                             setRequestedOrientation(previous);
                         }
                     });
-        });
+        }
     }
 
     private static float padAxis(android.view.MotionEvent event, int axis) {
@@ -1245,6 +1273,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (!isControllerEvent(event) || event.getActionMasked() != android.view.MotionEvent.ACTION_MOVE) {
             return super.dispatchGenericMotionEvent(event);
         }
+        int player = playerFor(event.getDevice());
+        if (player > 0) {
+            otherPlayerMotion(player, event);
+            return true;
+        }
         float x = padAxis(event, android.view.MotionEvent.AXIS_X);
         float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
         android.util.SparseIntArray table = padMapFor(event.getDevice());
@@ -1254,7 +1287,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         int hat = directionsFor(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X), event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y), 0.5f);
         int stick = 0;
-        if (isSonyPad() || isN64() || isDreamcast()) {
+        if (isSonyPad() || isN64() || isDreamcast() || hasLeftStick()) {
             // PSP / PS1 / PS2 / N64 / Dreamcast read the sticks as sticks.
             onAnalogChanged(x, y);
             onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
@@ -1285,6 +1318,578 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         setButtonPressed(bit, pressed);
+    }
+
+    // ---- "플레이어 · 패드": more controllers, more players (2P-4P) ----
+    private static final int[] PLAYER_COLORS = {Color.rgb(37, 99, 235), Color.rgb(225, 29, 72), Color.rgb(22, 163, 74), Color.rgb(245, 158, 11)};
+    private static final int COLOR_PLAYERS = Color.rgb(13, 148, 136);
+    private PlayerPads playerPads;
+    // Players 2-4 (index 1-3): what each one's pad holds.
+    private final int[] otherButtons = new int[PlayerPads.MAX];
+    private final int[] otherKeyDirections = new int[PlayerPads.MAX];
+    private final int[] otherHatDirections = new int[PlayerPads.MAX];
+    private final int[] otherStickDirections = new int[PlayerPads.MAX];
+    private final int[] otherTriggers = new int[PlayerPads.MAX];
+    private final int[] otherAxisButtons = new int[PlayerPads.MAX];
+    private LinearLayout playerBadgeRow;
+
+    // How many players the console takes at most with the 멀티탭 as set now.
+    private int consolePlayers() {
+        if (isMame139()) {
+            return 1;
+        }
+        switch (this.gameMode) {
+            case "n64":
+            case "gc":
+            case "dc":
+            case "naomi":
+            case "nes":
+            case "pce":
+            case "neogeo":
+            case "arcade":
+                return 4;
+            case "snes":
+            case "md":
+            case "ps1":
+                return multitapNow() != 0 ? 4 : 2;
+            case "ps2":
+            case "ss":
+            case "sms":
+            case "mcd":
+                return 2;
+            default:
+                return 1;
+        }
+    }
+
+    // Super Famicom (Snes9x), Mega Drive (Genesis Plus GX), PS1 (PCSX ReARMed).
+    private boolean multitapSupported() {
+        return ("snes".equals(this.gameMode) && isSnes()) || ("md".equals(this.gameMode) && "genesis_plus_gx".equals(this.coreId))
+                || ("ps1".equals(this.gameMode) && isPs1());
+    }
+
+    // 0 off, 1 on (Super Famicom, PS1), 2 Team Player, 3 EA 4-Way Play (Mega Drive); per game.
+    private int multitapNow() {
+        if (!multitapSupported()) {
+            return 0;
+        }
+        int value = MainActivity.sharedSettings(this).getInt("multitap:" + this.saveBaseName, 0);
+        int max = "md".equals(this.gameMode) ? 3 : 1;
+        return value >= 0 && value <= max ? value : 0;
+    }
+
+    private PlayerPads playerPads() {
+        if (this.playerPads == null) {
+            this.playerPads = new PlayerPads(MainActivity.sharedSettings(this));
+            this.playerPads.setMaxPlayers(consolePlayers());
+            this.playerPads.refresh(null);
+        }
+        return this.playerPads;
+    }
+
+    private int playerFor(android.view.InputDevice device) {
+        if (device == null || isMame139() || consolePlayers() < 2) {
+            return 0;
+        }
+        return playerPads().playerOf(device);
+    }
+
+    // Follows the connected controllers: places new pads, tells the core how many players
+    // there are, and (announce) says who joined or whose pad went away.
+    private void refreshPlayers(boolean announce) {
+        PlayerPads pads = playerPads();
+        pads.setMaxPlayers(consolePlayers());
+        java.util.List<int[]> joined = new java.util.ArrayList<>();
+        java.util.List<Integer> lost = pads.refresh(joined);
+        for (int p = 1; p < PlayerPads.MAX; p++) {
+            if (pads.devicesOf(p).isEmpty()) {
+                clearPlayer(p);
+            }
+        }
+        long handle = this.nativeHandle;
+        if (handle != 0 && !isMame139()) {
+            NativeGba.setPlayers(handle, pads.players(), multitapNow());
+        }
+        updatePlayerBadges();
+        if (!announce || pads.maxPlayers() < 2) {
+            return;
+        }
+        for (int[] join : joined) {
+            android.view.InputDevice device = android.view.InputDevice.getDevice(join[0]);
+            if (join[1] > 0 && device != null) {
+                Toast.makeText(this, "🎮 " + device.getName() + " 연결됨 → " + (join[1] + 1) + "P", Toast.LENGTH_SHORT).show();
+            }
+        }
+        if (!lost.isEmpty()) {
+            java.util.Collections.sort(lost);
+            StringBuilder who = new StringBuilder();
+            for (int player : lost) {
+                who.append(who.length() == 0 ? "" : " · ").append(player + 1).append("P");
+            }
+            Toast.makeText(this, who + " 패드가 끊겼어요 · 다시 연결하면 같은 자리로 돌아와요", Toast.LENGTH_LONG).show();
+            if (this.nativeHandle != 0 && (this.pauseDialog == null || !this.pauseDialog.isShowing()) && !this.holdPause) {
+                showGameMenu();
+            }
+        }
+    }
+
+    private void clearPlayer(int player) {
+        this.otherButtons[player] = 0;
+        this.otherKeyDirections[player] = 0;
+        this.otherHatDirections[player] = 0;
+        this.otherStickDirections[player] = 0;
+        this.otherTriggers[player] = 0;
+        this.otherAxisButtons[player] = 0;
+        long handle = this.nativeHandle;
+        if (handle != 0 && !isMame139()) {
+            NativeGba.setPlayerInput(handle, player, 0);
+            NativeGba.setPlayerAnalog(handle, player, 0, 0, 0, 0);
+        }
+    }
+
+    private void sendPlayer(int player) {
+        long handle = this.nativeHandle;
+        if (handle == 0) {
+            return;
+        }
+        int directions = this.otherKeyDirections[player] | this.otherHatDirections[player] | this.otherStickDirections[player];
+        int buttons = this.otherButtons[player] | this.otherTriggers[player] | this.otherAxisButtons[player];
+        NativeGba.setPlayerInput(handle, player, (directions & PadMapping.DPAD_BITS) | (buttons & ~PadMapping.DPAD_BITS));
+    }
+
+    // A key from 2P-4P's pad: the same buttons as 1P's pad (its own table if it has one).
+    private boolean otherPlayerKey(int player, KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+        int direction;
+        int bit;
+        android.util.SparseIntArray table = padMapFor(event.getDevice());
+        if (table != null) {
+            int bits = table.get(keyCode);
+            if (bits == 0) {
+                return PadMapping.isMappableKey(keyCode);
+            }
+            direction = bits & PadMapping.DPAD_BITS;
+            bit = bits & ~PadMapping.DPAD_BITS;
+        } else {
+            direction = padDirectionBit(keyCode);
+            bit = padButtonBit(keyCode);
+        }
+        if (direction == 0 && bit == 0) {
+            return false;
+        }
+        if (event.getRepeatCount() > 0) {
+            return true;
+        }
+        if (direction != 0) {
+            this.otherKeyDirections[player] = down ? this.otherKeyDirections[player] | direction : this.otherKeyDirections[player] & ~direction;
+        }
+        if (bit != 0) {
+            this.otherButtons[player] = down ? this.otherButtons[player] | bit : this.otherButtons[player] & ~bit;
+            if ((this.otherButtons[player] & 12) == 12) {
+                // SELECT + START together open the menu, as on 1P's pad.
+                openMenuFromController();
+                return true;
+            }
+        }
+        sendPlayer(player);
+        return true;
+    }
+
+    // Sticks, hat and triggers from 2P-4P's pad.
+    private void otherPlayerMotion(int player, android.view.MotionEvent event) {
+        float x = padAxis(event, android.view.MotionEvent.AXIS_X);
+        float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
+        float rx = padAxis(event, android.view.MotionEvent.AXIS_Z);
+        float ry = padAxis(event, android.view.MotionEvent.AXIS_RZ);
+        boolean sticks = isSonyPad() || isN64() || isDreamcast() || hasLeftStick();
+        long handle = this.nativeHandle;
+        if (sticks && handle != 0) {
+            NativeGba.setPlayerAnalog(handle, player, Math.round(x * 32767), Math.round(y * 32767), Math.round(rx * 32767), Math.round(ry * 32767));
+        }
+        android.util.SparseIntArray table = padMapFor(event.getDevice());
+        if (table != null) {
+            int directions = 0;
+            int buttons = 0;
+            for (int k = 0; k < table.size(); k++) {
+                int source = table.keyAt(k);
+                if (!PadMapping.isAxisSource(source)) {
+                    continue;
+                }
+                int axis = PadMapping.axisOf(source);
+                float value = event.getAxisValue(axis);
+                if (axis == android.view.MotionEvent.AXIS_LTRIGGER) {
+                    value = Math.max(value, event.getAxisValue(android.view.MotionEvent.AXIS_BRAKE));
+                } else if (axis == android.view.MotionEvent.AXIS_RTRIGGER) {
+                    value = Math.max(value, event.getAxisValue(android.view.MotionEvent.AXIS_GAS));
+                }
+                if (PadMapping.axisNegative(source) ? value < -0.6f : value > 0.6f) {
+                    directions |= table.valueAt(k) & PadMapping.DPAD_BITS;
+                    buttons |= table.valueAt(k) & ~PadMapping.DPAD_BITS;
+                }
+            }
+            this.otherHatDirections[player] = directions;
+            this.otherStickDirections[player] = 0;
+            this.otherTriggers[player] = 0;
+            this.otherAxisButtons[player] = buttons;
+        } else {
+            this.otherHatDirections[player] = directionsFor(event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X), event.getAxisValue(android.view.MotionEvent.AXIS_HAT_Y), 0.5f);
+            this.otherStickDirections[player] = sticks ? 0 : directionsFor(x, y, 0.5f);
+            float l2 = Math.max(event.getAxisValue(android.view.MotionEvent.AXIS_LTRIGGER), event.getAxisValue(android.view.MotionEvent.AXIS_BRAKE));
+            float r2 = Math.max(event.getAxisValue(android.view.MotionEvent.AXIS_RTRIGGER), event.getAxisValue(android.view.MotionEvent.AXIS_GAS));
+            this.otherTriggers[player] = (l2 > 0.5f ? kL2 : 0) | (r2 > 0.5f ? kR2 : 0);
+            this.otherAxisButtons[player] = 0;
+        }
+        sendPlayer(player);
+    }
+
+    // 1P 2P 3P 4P in the top corner of the screen while more than one player has a pad.
+    private void addPlayerBadges(FrameLayout screenFrame) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        params.setMargins(0, dp(isDolphin() && wiimmfiOn() ? 34 : 8), dp(8), 0);
+        screenFrame.addView(row, params);
+        this.playerBadgeRow = row;
+        updatePlayerBadges();
+    }
+
+    private TextView playerChip(int player, boolean on) {
+        TextView chip = new TextView(this);
+        chip.setText((player + 1) + "P");
+        chip.setTextSize(10.5f);
+        chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        chip.setTextColor(Color.WHITE);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(6), dp(2), dp(6), dp(2));
+        chip.setBackground(roundRect(on ? PLAYER_COLORS[player] : Color.argb(200, 75, 85, 99), dp(7)));
+        chip.setAlpha(on ? 1.0f : 0.6f);
+        return chip;
+    }
+
+    private void updatePlayerBadges() {
+        LinearLayout row = this.playerBadgeRow;
+        if (row == null) {
+            return;
+        }
+        row.removeAllViews();
+        PlayerPads pads = this.playerPads;
+        if (pads == null || pads.maxPlayers() < 2 || pads.players() < 2) {
+            row.setVisibility(View.GONE);
+            return;
+        }
+        for (int p = 0; p < pads.maxPlayers(); p++) {
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(p == 0 ? 0 : dp(4), 0, 0, 0);
+            row.addView(playerChip(p, p == 0 || !pads.devicesOf(p).isEmpty()), chipParams);
+        }
+        row.setVisibility(View.VISIBLE);
+    }
+
+    private String playersShown() {
+        PlayerPads pads = playerPads();
+        int count = PlayerPads.controllers().size();
+        if (count == 0) {
+            return "패드 없음 · " + consolePlayers() + "명까지";
+        }
+        return "패드 " + count + "개 · " + Math.max(1, pads.players()) + "명";
+    }
+
+    private LinearLayout createPlayersRow() {
+        return createSettingRow(RoundIconView.PAD, COLOR_PLAYERS, "플레이어 · 패드", playersShown(), view -> showPlayersSheet());
+    }
+
+    private static final String[] MULTITAP_NAMES = {"꺼짐", "켜기"};
+    private static final String[] MULTITAP_NOTES = {"2명까지 (기본)", "4명까지 · 멀티탭을 지원하는 게임만"};
+    private static final String[] MULTITAP_MD_NAMES = {"꺼짐", "세가 팀 플레이어", "EA 4-Way Play"};
+    private static final String[] MULTITAP_MD_NOTES = {"2명까지 (기본)", "세가 · 대부분의 4인 게임 (건틀릿 4 · 마이크로 머신 등)", "EA 스포츠 게임 (NBA · NHL · 매든 등)"};
+
+    private String multitapShown() {
+        int value = multitapNow();
+        if (value == 0) {
+            return "꺼짐";
+        }
+        return ("md".equals(this.gameMode) ? MULTITAP_MD_NAMES[value] : "켜짐") + " (4명까지)";
+    }
+
+    private LinearLayout createMultitapRow(Runnable reopen) {
+        boolean md = "md".equals(this.gameMode);
+        return createSettingRow(RoundIconView.MULTI, COLOR_PLAYERS, "멀티탭", multitapShown(), view -> showChoiceDialog(RoundIconView.MULTI, COLOR_PLAYERS, "멀티탭",
+                md ? MULTITAP_MD_NAMES : MULTITAP_NAMES, md ? MULTITAP_MD_NOTES : MULTITAP_NOTES, multitapNow(),
+                "3명 이상 같이 하려면 켜세요. 멀티탭을 지원하지 않는 게임에서 켜면 2P가 움직이지 않을 수 있어요.\n이 게임에만 적용돼요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+                    MainActivity.sharedSettings(this).edit().putInt("multitap:" + this.saveBaseName, choice).apply();
+                    long handle = this.nativeHandle;
+                    if (handle != 0) {
+                        NativeGba.setPlayers(handle, playerPads().players(), multitapNow());
+                    }
+                    refreshPlayers(false);
+                    reopen.run();
+                }));
+    }
+
+    // Who plays as 1P-4P, with 바꾸기 for each place and 순서 다시 정하기.
+    private void showPlayersSheet() {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        final Runnable[] build = new Runnable[1];
+        build[0] = () -> dialog.setContentView(playersPanel(dialog, build[0]));
+        build[0].run();
+        this.holdPause = true;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            this.pauseDialog.dismiss();
+        }
+        dialog.setOnDismissListener(d -> {
+            this.holdPause = false;
+            resumeUnlessExiting();
+        });
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+        }
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
+        }
+    }
+
+    private View playersPanel(android.app.Dialog dialog, Runnable rebuild) {
+        refreshPlayers(false);
+        PlayerPads pads = playerPads();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        panel.setBackground(roundRect(Color.WHITE, dp(22)));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.PAD, COLOR_PLAYERS), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("플레이어 · 패드");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(this.gameTitle + " · " + consoleName() + " (" + consolePlayers() + "명까지)");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(sub);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header);
+        java.util.List<android.view.InputDevice> controllers = PlayerPads.controllers();
+        for (int p = 0; p < pads.maxPlayers(); p++) {
+            final int player = p;
+            java.util.List<Integer> ids = pads.devicesOf(p);
+            StringBuilder names = new StringBuilder();
+            for (int id : ids) {
+                android.view.InputDevice device = android.view.InputDevice.getDevice(id);
+                if (device != null) {
+                    names.append(names.length() == 0 ? "" : " · ").append(device.getName());
+                }
+            }
+            boolean empty = p > 0 && ids.isEmpty();
+            String name = p == 0 ? (names.length() == 0 ? "터치 버튼" : "터치 버튼 + " + names) : empty ? "—" : names.toString();
+            String detail = p == 0 ? "휴대폰 화면" + (ids.isEmpty() ? "" : " · 패드") : empty ? "패드를 하나 더 연결하면 " + (p + 1) + "P가 돼요" : "게임패드";
+            LinearLayout slot = new LinearLayout(this);
+            slot.setOrientation(0);
+            slot.setGravity(16);
+            slot.setPadding(dp(12), dp(9), dp(12), dp(9));
+            android.graphics.drawable.GradientDrawable slotBackground = roundRect(empty ? Color.WHITE : Color.rgb(246, 247, 249), dp(13));
+            if (empty) {
+                slotBackground.setStroke(dp(1), Color.rgb(203, 213, 225), dp(4), dp(3));
+            }
+            slot.setBackground(slotBackground);
+            slot.addView(playerChip(p, !empty), new LinearLayout.LayoutParams(dp(30), dp(22)));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            TextView nameView = new TextView(this);
+            nameView.setText(name);
+            nameView.setTextSize(13.5f);
+            nameView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            nameView.setTextColor(Color.rgb(31, 41, 51));
+            nameView.setSingleLine(true);
+            nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            texts.addView(nameView);
+            TextView detailView = new TextView(this);
+            detailView.setText(detail);
+            detailView.setTextSize(11.0f);
+            detailView.setTextColor(Color.rgb(107, 114, 128));
+            texts.addView(detailView);
+            LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            textsParams.setMargins(dp(10), 0, dp(6), 0);
+            slot.addView(texts, textsParams);
+            TextView action = new TextView(this);
+            action.setText(controllers.isEmpty() ? (empty ? "비어 있음" : "") : "바꾸기 ›");
+            action.setTextSize(12.5f);
+            action.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            action.setTextColor(controllers.isEmpty() ? Color.rgb(156, 163, 175) : Color.rgb(37, 99, 235));
+            slot.addView(action);
+            if (!controllers.isEmpty()) {
+                slot.setOnClickListener(view -> choosePadFor(player, controllers, rebuild));
+            }
+            LinearLayout.LayoutParams slotParams = new LinearLayout.LayoutParams(-1, -2);
+            slotParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(slot, slotParams);
+        }
+        if (controllers.size() > 1 && pads.maxPlayers() > 1) {
+            TextView reorder = new TextView(this);
+            reorder.setText("버튼 눌러서 순서 다시 정하기");
+            reorder.setTextSize(13.0f);
+            reorder.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            reorder.setTextColor(COLOR_PLAYERS);
+            reorder.setGravity(Gravity.CENTER);
+            android.graphics.drawable.GradientDrawable outline = roundRect(Color.WHITE, dp(12));
+            outline.setStroke(dp(2), COLOR_PLAYERS);
+            reorder.setBackground(outline);
+            reorder.setOnClickListener(view -> showPlayerOrderPicker(rebuild));
+            LinearLayout.LayoutParams reorderParams = new LinearLayout.LayoutParams(-1, dp(42));
+            reorderParams.setMargins(0, dp(10), 0, 0);
+            panel.addView(reorder, reorderParams);
+        }
+        TextView note = new TextView(this);
+        note.setText(pads.maxPlayers() < 2
+                ? (multitapSupported() ? "지금은 2명까지예요. 3명 이상은 \"멀티탭\"을 켜세요." : "이 게임기는 한 명만 해요. 연결한 패드는 모두 1P예요.")
+                : "패드 버튼 설정은 패드마다 기억해요. 같은 패드는 다음에도 같은 자리로 들어가요. 자리보다 패드가 많으면 남는 패드는 1P예요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(17, 94, 89));
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(roundRect(Color.rgb(240, 253, 250), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(note, noteParams);
+        TextView close = dialogButton("닫기", COLOR_PLAYERS, Color.WHITE);
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(close, closeParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        return scroll;
+    }
+
+    // 바꾸기: which pad plays as this player.
+    private void choosePadFor(int player, java.util.List<android.view.InputDevice> controllers, Runnable rebuild) {
+        String[] names = new String[controllers.size()];
+        PlayerPads pads = playerPads();
+        for (int k = 0; k < names.length; k++) {
+            android.view.InputDevice device = controllers.get(k);
+            names[k] = device.getName() + "  (지금 " + (pads.playerOf(device) + 1) + "P)";
+        }
+        new AppDialog.Builder(this).setTitle((player + 1) + "P가 될 패드").setItems(names, (d, which) -> {
+            pads.move(controllers.get(which).getId(), player);
+            releaseController();
+            refreshPlayers(false);
+            rebuild.run();
+        }).setNegativeButton("취소", null).show();
+    }
+
+    // 순서 다시 정하기: each pad's first button press takes the next place.
+    private void showPlayerOrderPicker(Runnable rebuild) {
+        final PlayerPads pads = playerPads();
+        final int target = Math.min(pads.maxPlayers(), PlayerPads.controllers().size());
+        final java.util.List<Integer> order = new java.util.ArrayList<>();
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setGravity(Gravity.CENTER_HORIZONTAL);
+        panel.setPadding(dp(18), dp(22), dp(18), dp(18));
+        panel.setBackground(roundRect(Color.WHITE, dp(22)));
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(0);
+        chips.setGravity(Gravity.CENTER);
+        panel.addView(chips);
+        TextView ask = new TextView(this);
+        ask.setTextSize(17.0f);
+        ask.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        ask.setTextColor(Color.rgb(31, 41, 51));
+        ask.setGravity(Gravity.CENTER);
+        ask.setPadding(0, dp(14), 0, 0);
+        panel.addView(ask);
+        TextView hint = new TextView(this);
+        hint.setTextSize(12.0f);
+        hint.setTextColor(Color.rgb(107, 114, 128));
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, dp(8), 0, 0);
+        panel.addView(hint);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        TextView restart = dialogButton("처음부터", Color.rgb(241, 243, 245), Color.rgb(55, 65, 81));
+        TextView done = dialogButton("여기까지", COLOR_PLAYERS, Color.WHITE);
+        buttons.addView(restart, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams doneParams = new LinearLayout.LayoutParams(0, dp(46), 1.4f);
+        doneParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(done, doneParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(16), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        final Runnable show = () -> {
+            chips.removeAllViews();
+            for (int p = 0; p < pads.maxPlayers(); p++) {
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+                chipParams.setMargins(p == 0 ? 0 : dp(6), 0, 0, 0);
+                TextView chip = playerChip(p, p < order.size());
+                if (p == order.size()) {
+                    android.graphics.drawable.GradientDrawable next = roundRect(Color.TRANSPARENT, dp(7));
+                    next.setStroke(dp(2), PLAYER_COLORS[p], dp(4), dp(3));
+                    chip.setBackground(next);
+                    chip.setTextColor(PLAYER_COLORS[p]);
+                    chip.setAlpha(1.0f);
+                }
+                chips.addView(chip, chipParams);
+            }
+            ask.setText((order.size() + 1) + "P가 될 패드의\n아무 버튼이나 누르세요");
+            StringBuilder fixed = new StringBuilder();
+            for (int p = 0; p < order.size(); p++) {
+                fixed.append(fixed.length() == 0 ? "" : " · ").append(p + 1).append("P");
+            }
+            hint.setText((order.isEmpty() ? "" : fixed + "는 정해졌어요.\n") + "남은 패드가 없으면 \"여기까지\"를 누르세요.");
+        };
+        final Runnable finish = () -> {
+            if (!order.isEmpty()) {
+                pads.setOrder(order);
+            }
+            releaseController();
+            refreshPlayers(false);
+            dialog.dismiss();
+            rebuild.run();
+        };
+        restart.setOnClickListener(view -> {
+            order.clear();
+            show.run();
+        });
+        done.setOnClickListener(view -> finish.run());
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (!isControllerEvent(event)) {
+                return false;
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP && !order.contains(event.getDeviceId())) {
+                order.add(event.getDeviceId());
+                if (order.size() >= target) {
+                    finish.run();
+                } else {
+                    show.run();
+                }
+            }
+            return true;
+        });
+        show.run();
+        dialog.setContentView(panel);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+        }
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(48), dp(380)), -2);
+        }
     }
 
     private void addLandscapeActionButton(FrameLayout frameLayout, String str, int i, int i2, int i3) {
@@ -2140,6 +2745,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void onPadsChanged() {
+        if (!this.destroyed) {
+            refreshPlayers(true);
+        }
         if (this.destroyed || isPadScreen() || isMame139()) return;
         boolean connected = PadMapping.firstController() != null;
         if (connected && !this.padMode) {
@@ -4321,6 +4929,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));
         padParams.setMargins(0, dp(8), 0, 0);
         panel.addView(createPadMappingRow(refresh), padParams);
+        if (consolePlayers() > 1 || multitapSupported()) {
+            LinearLayout.LayoutParams playersParams = new LinearLayout.LayoutParams(-1, dp(52));
+            playersParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createPlayersRow(), playersParams);
+        }
+        if (multitapSupported()) {
+            LinearLayout.LayoutParams tapParams = new LinearLayout.LayoutParams(-1, dp(52));
+            tapParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createMultitapRow(refresh), tapParams);
+        }
         if (!isPadScreen() && !isMame139()) {
             LinearLayout.LayoutParams autoParams = new LinearLayout.LayoutParams(-1, dp(52));
             autoParams.setMargins(0, dp(8), 0, 0);
@@ -4654,6 +5272,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setPowerMode(powerMode());
                     NativeGba.setNoAutoState(stvBoard());
                     NativeGba.setMotionEnabled(motionActive());
+                    NativeGba.setPlayers(0, 1, multitapNow());
                     if (isDolphin()) {
                         int lan = gcLanMode();
                         NativeGba.setGcLan(lan == 2 && gcLanHost() == null ? 0 : lan, lan == 2 ? gcLanHost() : null);
@@ -4704,6 +5323,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         this.nativeHandle = handle;
+        refreshPlayers(false);
         startAdhocBeaconIfHosting();
         shareVpnInviteIfPending();
         startMotionIfOn();

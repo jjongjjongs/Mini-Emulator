@@ -27,6 +27,15 @@ final class NativeGba {
 
     static native void setAnalogRight(long j, int x, int y);
 
+    // Players 2-4 (player 1-3): their pad's buttons and sticks.
+    static native void setPlayerInput(long handle, int player, int mask);
+
+    static native void setPlayerAnalog(long handle, int player, int lx, int ly, int rx, int ry);
+
+    // How many players have a pad, and the 멀티탭 (0 off, 1 on, 2 Team Player, 3 EA 4-Way Play).
+    // Handle 0 sets the 멀티탭 for the next game.
+    static native void setPlayers(long handle, int players, int multitap);
+
     // Touch on the game screen (DS): x and y in -32767..32767 across the screen view.
     static native void setPointer(long handle, int x, int y, boolean pressed);
 

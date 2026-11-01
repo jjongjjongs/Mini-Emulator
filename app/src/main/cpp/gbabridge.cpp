@@ -379,6 +379,12 @@ struct Core {
     // million, so the game follows the speaker's clock; the audio sink asks for it.
     std::atomic<int> audioPacePpm{0};
     std::atomic<int> inputMask{0};
+    // Players 2-4 (ports 1-3): the extra pads' buttons and sticks (left x/y, right x/y).
+    std::atomic<int> playerMask[4] = {};
+    std::atomic<int> playerAxes[4][4] = {};
+    // What the ports were last set to for the extra players (setPlayers).
+    int portsPlayers = 1;
+    int portsMultitap = 0;
     // Rewind: the buffer exists while the setting is on (guarded by coreMutex); held while
     // the button is down; cleared after a load or reset so it doesn't jump across them.
     std::unique_ptr<Rewind> rewind;
@@ -1437,6 +1443,9 @@ std::string n64RomName(const std::string& path) {
 // Dolphin's port 1 device for Wii games: remote + nunchuk (3<<8 | joypad), remote held
 // sideways (2<<8) or classic controller (4<<8). Set per game before it starts.
 std::atomic<int> gWiiDevice{(3 << 8) | RETRO_DEVICE_JOYPAD};
+// 멀티탭 for the next game and the running one: 0 off, 1 on (Super Famicom, PS1),
+// 2 Sega Team Player, 3 EA 4-Way Play (Mega Drive).
+std::atomic<int> gMultitap{0};
 // GameCube / Wii resolution (1-3) and picture shape (0 the game's, 1 4:3, 2 stretched 16:9,
 // 3 widescreen hack) for the next game.
 std::atomic<int> gDolphinScale{1};
@@ -1471,6 +1480,8 @@ const char* fixedVariable(const char* key) {
         value = gWiiuResolution;
         return value.c_str();
     }
+    // PS1 멀티탭 in the first port: players 1-4 are its four pads.
+    if (strcmp(key, "pcsx_rearmed_multitap") == 0) return gMultitap.load() == 1 ? "port 1" : "disabled";
     if (strcmp(key, "mgba_use_bios") == 0) return "ON";
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
@@ -2479,8 +2490,30 @@ int mame2010ButtonBitFor(unsigned id) {
     }
 }
 
+int16_t joypadPressed(Core* core, int mask, unsigned id);
+
 int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned index, unsigned id) {
     Core* core = gCore;
+    if (port > 0 && port < 4 && core != nullptr) {
+        // Players 2-4: their own pad's buttons and sticks, read like player 1's.
+        if (device == RETRO_DEVICE_ANALOG && (index == RETRO_DEVICE_INDEX_ANALOG_LEFT || index == RETRO_DEVICE_INDEX_ANALOG_RIGHT)) {
+            int axis = (index == RETRO_DEVICE_INDEX_ANALOG_RIGHT ? 2 : 0) + (id == RETRO_DEVICE_ID_ANALOG_X ? 0 : 1);
+            return static_cast<int16_t>(core->playerAxes[port][axis].load());
+        }
+        if (device != RETRO_DEVICE_JOYPAD) {
+            return 0;
+        }
+        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) {
+            int16_t buttons = 0;
+            for (unsigned button = 0; button < 16; ++button) {
+                if (inputStateCallback(port, device, index, button) != 0) {
+                    buttons = static_cast<int16_t>(buttons | (1 << button));
+                }
+            }
+            return buttons;
+        }
+        return joypadPressed(core, core->playerMask[port].load(), id);
+    }
     if (port == 0 && device == RETRO_DEVICE_ANALOG && core != nullptr && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
         return static_cast<int16_t>(id == RETRO_DEVICE_ID_ANALOG_X ? core->analogX.load() : core->analogY.load());
     }
@@ -2510,7 +2543,11 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         }
         return buttons;
     }
-    int mask = core->inputMask.load();
+    return joypadPressed(core, core->inputMask.load(), id);
+}
+
+// Whether a joypad id is down for a player's button bits.
+int16_t joypadPressed(Core* core, int mask, unsigned id) {
     int bit;
     if (core->coreId == "mame2010" || core->coreId == "mame2015") {
         bit = mame2010ButtonBitFor(id);
@@ -4184,6 +4221,93 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setAnalogRight(
         core->analogRX.store(x);
         core->analogRY.store(y);
     }
+}
+
+// Players 2-4 (player 1-3 here, the core's ports): buttons from that player's pad.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPlayerInput(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint player, jint mask) {
+    Core* core = fromHandle(handle);
+    if (core != nullptr && player > 0 && player < 4) {
+        core->playerMask[player].store(mask);
+    }
+}
+
+// Players 2-4: both sticks, -32767..32767.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPlayerAnalog(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint player, jint lx, jint ly, jint rx, jint ry) {
+    Core* core = fromHandle(handle);
+    if (core != nullptr && player > 0 && player < 4) {
+        core->playerAxes[player][0].store(lx);
+        core->playerAxes[player][1].store(ly);
+        core->playerAxes[player][2].store(rx);
+        core->playerAxes[player][3].store(ry);
+    }
+}
+
+// Connects what the consoles need for players 2-4: pads in the empty ports (GameCube / Wii,
+// Dreamcast), DualShocks (PS1), or the 멀티탭 (Super Famicom, Mega Drive; PS1 through its
+// core option). Ports already right are left alone, so nothing changes for one player.
+void applyPlayerPorts(Core* core, int players, int multitap) {
+    auto set = core->retroSetControllerPortDevice;
+    const std::string& id = core->coreId;
+    if (set != nullptr && (id == "dolphin" || id == "flycast")) {
+        unsigned device = id == "dolphin" ? static_cast<unsigned>(gWiiDevice.load()) : RETRO_DEVICE_JOYPAD;
+        for (int port = 1; port < 4; ++port) {
+            bool want = port < players;
+            if (want != (port < core->portsPlayers)) {
+                set(port, want ? device : RETRO_DEVICE_NONE);
+            }
+        }
+    } else if (set != nullptr && id == "pcsx_rearmed") {
+        for (int port = 1; port < 4; ++port) {
+            if (port < players && port >= core->portsPlayers) {
+                set(port, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1));
+            }
+        }
+    } else if (set != nullptr && id == "snes9x" && multitap != core->portsMultitap) {
+        // Snes9x's multitap in the second port reads ports 1-4 as players 2-5.
+        set(1, multitap == 1 ? ((1u << 8) | RETRO_DEVICE_JOYPAD) : RETRO_DEVICE_JOYPAD);
+    } else if (set != nullptr && id == "genesis_plus_gx" && multitap != core->portsMultitap) {
+        // Team Player in the second port (players 2-5 after the first pad), or EA's 4-Way
+        // Play across both (players 1-4); three-button pads, which every such game takes.
+        if (multitap == 2) {
+            set(0, RETRO_DEVICE_JOYPAD);
+            set(1, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 5));
+        } else if (multitap == 3) {
+            set(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 3));
+        } else {
+            set(0, RETRO_DEVICE_JOYPAD);
+            set(1, RETRO_DEVICE_JOYPAD);
+        }
+    }
+    core->portsPlayers = players;
+    core->portsMultitap = multitap;
+}
+
+// How many players have a pad and which 멀티탭; handle 0 sets the 멀티탭 for the next game.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPlayers(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint players, jint multitap) {
+    if (gMultitap.exchange(multitap) != multitap && handle != 0) {
+        gVariablesUpdated.store(true);
+    }
+    Core* core = fromHandle(handle);
+    if (core == nullptr || !core->gameLoaded) {
+        return;
+    }
+    int count = players < 1 ? 1 : players > 4 ? 4 : players;
+    for (int player = count; player < 4; ++player) {
+        if (player > 0) {
+            core->playerMask[player].store(0);
+            for (auto& axis : core->playerAxes[player]) axis.store(0);
+        }
+    }
+    if (count == core->portsPlayers && multitap == core->portsMultitap) {
+        return;
+    }
+    callCore(core, [core, count, multitap] {
+        applyPlayerPorts(core, count, multitap);
+        return true;
+    });
 }
 
 // Touch on the game screen: x and y in -32767..32767 across the screen view.

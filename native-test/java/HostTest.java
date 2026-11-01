@@ -67,6 +67,21 @@ public class HostTest {
         sav = Files.readAllBytes(new File(saves, "test.sav").toPath());
         check((sav[1] & 0xFF) == 0xFD, String.format("B maps to GBA B (0x%02X)", sav[1] & 0xFF));
         NativeGba.setInput(h, 0);
+        // 2P's pad goes to the core's second port only: 1P (the GBA) sees nothing.
+        NativeGba.setPlayers(h, 2, 0);
+        NativeGba.setPlayerInput(h, 1, 1 | 2 | 512);
+        NativeGba.setPlayerAnalog(h, 1, 32767, -32767, 0, 0);
+        Thread.sleep(200);
+        NativeGba.saveSramNow(h);
+        sav = Files.readAllBytes(new File(saves, "test.sav").toPath());
+        check((sav[1] & 0xFF) == 0xFF, String.format("2P pad leaves 1P alone (0x%02X)", sav[1] & 0xFF));
+        NativeGba.setInput(h, 1);
+        Thread.sleep(200);
+        NativeGba.saveSramNow(h);
+        sav = Files.readAllBytes(new File(saves, "test.sav").toPath());
+        check((sav[1] & 0xFF) == 0xFE, String.format("1P still works with 2P on (0x%02X)", sav[1] & 0xFF));
+        NativeGba.setInput(h, 0);
+        NativeGba.setPlayers(h, 1, 0);
 
         check(NativeGba.saveStateNow(h), "saveStateNow");
         File state = new File(saves, "test.state");
