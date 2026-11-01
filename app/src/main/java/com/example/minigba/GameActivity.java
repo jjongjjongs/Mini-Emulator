@@ -143,7 +143,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.wiiuPadWindow = null;
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
-        linearLayout.addView(createTopBar(), new LinearLayout.LayoutParams(-1, dp(64)));
+        LinearLayout topBar = createTopBar();
+        this.layoutGuards.clear();
+        this.layoutGuards.add(topBar);
+        linearLayout.addView(topBar, new LinearLayout.LayoutParams(-1, dp(64)));
         boolean full = isFullScreenStyle();
         int dp = full ? 0 : dp(4);
         int dp2 = full ? 0 : dp(2);
@@ -3056,6 +3059,90 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     static final String SCREEN_LAYOUT_ID = "Screen#0";
 
+    // The app's own buttons the moved controls may not cover (the top bar in portrait, the
+    // two top corners in landscape); set as each layout is built.
+    private final java.util.List<View> layoutGuards = new java.util.ArrayList<>();
+
+    private static android.graphics.RectF windowBox(View view) {
+        int[] at = new int[2];
+        view.getLocationInWindow(at);
+        return new android.graphics.RectF(at[0], at[1], at[0] + view.getWidth() * view.getScaleX(), at[1] + view.getHeight() * view.getScaleY());
+    }
+
+    // Once everything is laid out (the boxes are needed), for the layout still on screen.
+    private void scheduleUncoverLayoutGuards(java.util.Map<String, float[]> edits, int generation) {
+        if (edits.isEmpty() || this.layoutGuards.isEmpty()) {
+            return;
+        }
+        View guard = this.layoutGuards.get(0);
+        Runnable run = () -> {
+            if (!this.destroyed && generation == this.controlsGeneration && this.layoutEditor == null) {
+                uncoverLayoutGuards(edits);
+            }
+        };
+        if (guard.isLaidOut() && guard.getWidth() > 0) {
+            guard.post(run);
+            return;
+        }
+        guard.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                if (guard.getWidth() == 0) return;
+                guard.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                guard.post(run);
+            }
+        });
+    }
+
+    // A saved layout from before the guard that covers the top bar or a corner: the controls
+    // that do go down just below it, the rest stays, and the fixed layout is saved.
+    private void uncoverLayoutGuards(java.util.Map<String, float[]> edits) {
+        if (edits.isEmpty() || this.layoutGuards.isEmpty()) {
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        boolean changed = false;
+        for (int k = 0; k < this.layoutControls.size(); k++) {
+            View view = this.layoutControls.get(k);
+            float[] edit = edits.get(this.layoutIds.get(k));
+            if (edit == null || view.getVisibility() != View.VISIBLE || !view.isAttachedToWindow()) {
+                continue;
+            }
+            android.graphics.RectF box = windowBox(view);
+            box.inset(dp(1), dp(1));
+            float down = 0;
+            for (View guard : this.layoutGuards) {
+                if (guard.getVisibility() != View.VISIBLE || !guard.isAttachedToWindow() || guard.getWidth() == 0) {
+                    continue;
+                }
+                android.graphics.RectF guardBox = windowBox(guard);
+                if (android.graphics.RectF.intersects(box, guardBox)) {
+                    down = Math.max(down, guardBox.bottom - box.top + dp(1));
+                }
+            }
+            if (down > 0) {
+                edit[1] += down / density;
+                applyLayoutEdit(k, edit[0], edit[1], edit[2], edit[3]);
+                changed = true;
+            }
+        }
+        if (!changed) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (java.util.Map.Entry<String, float[]> entry : edits.entrySet()) {
+            float[] edit = entry.getValue();
+            sb.append(entry.getKey()).append('=').append(Math.round(edit[0])).append(',').append(Math.round(edit[1])).append(',')
+                    .append(Math.round(edit[2] * 100) / 100.0f);
+            if (Math.abs(edit[2] - edit[3]) >= 0.005f) {
+                sb.append(',').append(Math.round(edit[3] * 100) / 100.0f);
+            }
+            sb.append(';');
+        }
+        MainActivity.sharedSettings(this).edit().putString(layoutKey(), sb.toString()).apply();
+        showInfoNotice("버튼 배치를 조금 고쳤어요", this.landscapeMode ? "위쪽 모서리 버튼을 가리던 것을 바로 아래로 내렸어요" : "상단바를 가리던 것을 바로 아래로 내렸어요", 5000);
+    }
+
     private void applyLayoutEdit(int index, float dxDp, float dyDp, float scale) {
         applyLayoutEdit(index, dxDp, dyDp, scale, scale);
     }
@@ -3260,6 +3347,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 float[] edit = edits.get(this.layoutIds.get(k));
                 applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1, edit != null ? edit[3] : 1);
             }
+            scheduleUncoverLayoutGuards(edits, generation);
             for (android.view.ViewGroup parent : this.comboParents) {
                 layoutComboZones(parent, true);
             }
@@ -3433,6 +3521,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 finishLayoutEditor(null);
             }
         });
+        editor.setGuards(new java.util.ArrayList<>(this.layoutGuards));
         addContentView(editor, new FrameLayout.LayoutParams(-1, -1));
         this.layoutEditor = editor;
     }
@@ -5411,6 +5500,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
         leftParams.setMargins(dp(6), dp(6), 0, 0);
         frameLayout.addView(left, leftParams);
+        this.layoutGuards.clear();
+        this.layoutGuards.add(left);
 
         LinearLayout right = new LinearLayout(this);
         right.addView(createIconButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "회전", 34, 10, view -> toggleOrientation()), new LinearLayout.LayoutParams(dp(48), -2));
@@ -5418,6 +5509,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams rightParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
         rightParams.setMargins(0, dp(6), dp(6), 0);
         frameLayout.addView(right, rightParams);
+        this.layoutGuards.add(right);
 
         SpeedButtonView speedButtonView = new SpeedButtonView(this, this::onSpeedChanged);
         this.fastForwardButton = speedButtonView;

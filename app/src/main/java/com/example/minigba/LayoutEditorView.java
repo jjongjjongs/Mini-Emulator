@@ -62,6 +62,11 @@ final class LayoutEditorView extends FrameLayout {
     private float startScaleY;
     private boolean aspectLocked = true;
     private boolean snapped;
+    // The app's own buttons the controls may not cover: the top bar in portrait, the two
+    // top corners in landscape.
+    private List<View> guards = new java.util.ArrayList<>();
+    private final Paint guardFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint guardLine = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     LayoutEditorView(Context context, List<View> controls, float[][] edits, int screenIndex, Listener listener) {
         super(context);
@@ -96,6 +101,12 @@ final class LayoutEditorView extends FrameLayout {
         snapLine.setStrokeWidth(dp(1.5f));
         snapLine.setColor(Color.rgb(245, 158, 11));
         snapLine.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(6), dp(5)}, 0));
+        guardFill.setStyle(Paint.Style.FILL);
+        guardFill.setColor(Color.argb(70, 245, 158, 11));
+        guardLine.setStyle(Paint.Style.STROKE);
+        guardLine.setStrokeWidth(dp(2));
+        guardLine.setColor(Color.rgb(245, 158, 11));
+        guardLine.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(6), dp(5)}, 0));
 
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -156,6 +167,54 @@ final class LayoutEditorView extends FrameLayout {
         card.setClickable(true);
         refreshScreenRow();
         updateSizeText();
+    }
+
+    void setGuards(List<View> guards) {
+        this.guards = guards;
+        invalidate();
+    }
+
+    private List<RectF> guardBoxes() {
+        List<RectF> boxes = new java.util.ArrayList<>();
+        for (View guard : guards) {
+            if (guard != null && guard.getVisibility() == VISIBLE && guard.isAttachedToWindow() && guard.getWidth() > 0) {
+                boxes.add(boxOf(guard));
+            }
+        }
+        return boxes;
+    }
+
+    // Whether a control's box runs into the top bar or a corner.
+    private boolean hitsGuard(int index) {
+        RectF box = boxOf(controls.get(index));
+        box.inset(dp(1), dp(1));
+        for (RectF guard : guardBoxes()) {
+            if (RectF.intersects(box, guard)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Moves a control down below the guards it runs into; false when it then leaves the
+    // phone screen at the bottom.
+    private boolean pushBelowGuards(int index) {
+        for (int pass = 0; pass < 3; pass++) {
+            RectF box = boxOf(controls.get(index));
+            box.inset(dp(1), dp(1));
+            float down = 0;
+            for (RectF guard : guardBoxes()) {
+                if (RectF.intersects(box, guard)) {
+                    down = Math.max(down, guard.bottom - box.top + dp(1));
+                }
+            }
+            if (down <= 0) {
+                return boxOf(controls.get(index)).bottom <= getHeight() + dp(1);
+            }
+            edits[index][1] += down / density;
+            listener.apply(index, edits[index][0], edits[index][1], edits[index][2], edits[index][3]);
+        }
+        return !hitsGuard(index);
     }
 
     private int dp(float value) {
@@ -233,10 +292,18 @@ final class LayoutEditorView extends FrameLayout {
     private void setScale(int index, float scaleX, float scaleY) {
         float min = index == screenIndex ? MIN_SCREEN : MIN_SCALE;
         float max = index == screenIndex ? MAX_SCREEN : MAX_SCALE;
+        float[] before = edits[index].clone();
+        boolean wasClear = !hitsGuard(index);
         edits[index][2] = Math.max(min, Math.min(max, scaleX));
         edits[index][3] = Math.max(min, Math.min(max, scaleY));
         if (index == screenIndex) {
             keepScreenInside();
+        }
+        listener.apply(index, edits[index][0], edits[index][1], edits[index][2], edits[index][3]);
+        // Growing into the top bar or a corner: down below it if there is room, else the
+        // size stops where it was.
+        if (wasClear && hitsGuard(index) && !pushBelowGuards(index)) {
+            System.arraycopy(before, 0, edits[index], 0, 4);
         }
         applyEdit(index);
     }
@@ -289,6 +356,10 @@ final class LayoutEditorView extends FrameLayout {
             edits[selected][1] += (getHeight() / 2f - box.centerY()) / density;
         }
         keepScreenInside();
+        listener.apply(selected, edits[selected][0], edits[selected][1], edits[selected][2], edits[selected][3]);
+        if (hitsGuard(selected)) {
+            pushBelowGuards(selected);
+        }
         applyEdit(selected);
     }
 
@@ -380,6 +451,13 @@ final class LayoutEditorView extends FrameLayout {
 
     @Override
     protected void dispatchDraw(Canvas canvas) {
+        // The top bar / corner buttons: shaded, with the line the controls stop at.
+        for (RectF guard : guardBoxes()) {
+            canvas.drawRect(guard, guardFill);
+            canvas.drawLine(guard.left, guard.bottom, guard.right, guard.bottom, guardLine);
+            if (guard.left > dp(2)) canvas.drawLine(guard.left, guard.top, guard.left, guard.bottom, guardLine);
+            if (guard.right < getWidth() - dp(2)) canvas.drawLine(guard.right, guard.top, guard.right, guard.bottom, guardLine);
+        }
         for (int k = 0; k < controls.size(); k++) {
             View view = controls.get(k);
             if (view.getVisibility() != VISIBLE || !view.isAttachedToWindow()) {
@@ -433,13 +511,27 @@ final class LayoutEditorView extends FrameLayout {
                     float factor = distance(event) / startDistance;
                     setScale(selected, startScaleX * factor, startScaleY * factor);
                 } else if (event.getPointerCount() == 1) {
-                    edits[selected][0] += (event.getX() - lastX) / density;
-                    edits[selected][1] += (event.getY() - lastY) / density;
+                    float[] before = edits[selected].clone();
+                    boolean wasClear = !hitsGuard(selected);
+                    float dx = (event.getX() - lastX) / density;
+                    float dy = (event.getY() - lastY) / density;
                     lastX = event.getX();
                     lastY = event.getY();
-                    if (screenSelected()) {
-                        snapScreen();
-                        keepScreenInside();
+                    // A control stops at the top bar and the corner buttons: the move along
+                    // the blocked direction is dropped, the other one kept.
+                    float[][] tries = wasClear ? new float[][]{{dx, dy}, {dx, 0}, {0, dy}, {0, 0}} : new float[][]{{dx, dy}};
+                    for (float[] step : tries) {
+                        System.arraycopy(before, 0, edits[selected], 0, 4);
+                        edits[selected][0] += step[0];
+                        edits[selected][1] += step[1];
+                        if (screenSelected()) {
+                            snapScreen();
+                            keepScreenInside();
+                        }
+                        listener.apply(selected, edits[selected][0], edits[selected][1], edits[selected][2], edits[selected][3]);
+                        if (!wasClear || !hitsGuard(selected)) {
+                            break;
+                        }
                     }
                     applyEdit(selected);
                 }
