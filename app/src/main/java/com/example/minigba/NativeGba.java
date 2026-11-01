@@ -168,6 +168,9 @@ final class NativeGba {
     // Wii 인터넷 (Wiimmfi) for the next game.
     static native void setWiimmfi(boolean on);
 
+    // WiiLink WFC for the next game: Dolphin's cheats on, so the code in the game's settings file runs.
+    static native void setWiiLink(boolean on);
+
     // 모션 (자이로): offered to the next game created; readings in the screen's axes,
     // the accelerometer in g and the gyroscope in rad/s.
     static native void setMotionEnabled(boolean on);

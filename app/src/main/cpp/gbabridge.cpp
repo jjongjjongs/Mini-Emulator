@@ -1446,6 +1446,9 @@ std::atomic<int> gWiiDevice{(3 << 8) | RETRO_DEVICE_JOYPAD};
 // 멀티탭 for the next game and the running one: 0 off, 1 on (Super Famicom, PS1),
 // 2 Sega Team Player, 3 EA 4-Way Play (Mega Drive).
 std::atomic<int> gMultitap{0};
+// WiiLink WFC for the next game: Dolphin's internal cheats on (the app puts WiiLink's code
+// in the game's settings file).
+std::atomic<bool> gWiiLink{false};
 // GameCube / Wii resolution (1-3) and picture shape (0 the game's, 1 4:3, 2 stretched 16:9,
 // 3 widescreen hack) for the next game.
 std::atomic<int> gDolphinScale{1};
@@ -1481,6 +1484,7 @@ const char* fixedVariable(const char* key) {
         return value.c_str();
     }
     // PS1 멀티탭 in the first port: players 1-4 are its four pads.
+    if (strcmp(key, "dolphin_cheats_enabled") == 0) return gWiiLink.load() ? "enabled" : "disabled";
     if (strcmp(key, "pcsx_rearmed_multitap") == 0) return gMultitap.load() == 1 ? "port 1" : "disabled";
     if (strcmp(key, "mgba_use_bios") == 0) return "ON";
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
@@ -3970,6 +3974,10 @@ JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_gcLanPeers(JNIEnv* /*e
 }
 
 // Wii 인터넷 (Wiimmfi) for the next game.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiLink(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    gWiiLink.store(on == JNI_TRUE);
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiimmfi(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
     gWiimmfi.store(on == JNI_TRUE);
 }

@@ -1551,7 +1551,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        params.setMargins(0, dp(isDolphin() && wiimmfiOn() ? 34 : 8), dp(8), 0);
+        params.setMargins(0, dp(isDolphin() && wiiServer() != 0 ? 34 : 8), dp(8), 0);
         screenFrame.addView(row, params);
         this.playerBadgeRow = row;
         updatePlayerBadges();
@@ -4579,7 +4579,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // doesn't stop the game and goes away by itself; it opens 발열 줄이는 법.
     private void showStartNotices() {
         long delay = 0;
-        if (wiimmfiOn() && cheatsSupported() && Cheats.countOn(cheats()) > 0) {
+        if (wiiServer() != 0 && cheatsSupported() && Cheats.countOn(cheats()) > 0) {
             // Wiimmfi turns cheaters away; once per session, before going online.
             new AppDialog.Builder(this).setTitle("치트가 켜져 있어요")
                     .setMessage("Wiimmfi는 치트를 쓰면 접속을 막아요. 온라인 동안은 꺼 둘까요?")
@@ -5369,6 +5369,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setDolphinVideo(dolphinScale(), dolphinAspect());
                         NativeGba.setWiiPointer(isWiiGame() && wiiPointer() == 1);
                         NativeGba.setWiimmfi(wiimmfiOn());
+                        NativeGba.setWiiLink(applyWiiLinkCode());
                     }
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
@@ -7227,8 +7228,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
                 panel.addView(createWiiPointerRow(dialog), tabRowParams(panel));
                 panel.addView(createWiimmfiRow(dialog), tabRowParams(panel));
-                if (wiimmfiOn()) {
-                    panel.addView(createSettingRow(RoundIconView.GLOBE, Color.rgb(234, 88, 12), "Wiimmfi 기록", "바꾼 주소 보기", view -> showWiimmfiLog()), tabRowParams(panel));
+                if (wiiServer() != 0) {
+                    panel.addView(createSettingRow(RoundIconView.GLOBE, wiiServerColor(), "접속 기록", wiiServer() == 2 ? "켠 코드 · 접속 과정 보기" : "바꾼 주소 보기", view -> showWiimmfiLog()), tabRowParams(panel));
                     if (!wiiCertificatesReady()) {
                         TextView hint = new TextView(this);
                         hint.setText("인증서가 없으면 접속 단계에서 막힐 수 있어요.\n게임큐브 · Wii 목록 화면의 \"Wii 시스템 업데이트\"를 먼저 해 주세요.");
@@ -9546,22 +9547,178 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Wii 인터넷 (Wiimmfi), per game: the bridge points the game's Nintendo Wi-Fi Connection
     // addresses in memory at Wiimmfi (as the Wiimmfi patcher does to the disc).
     private boolean wiimmfiOn() {
-        return isDolphin() && isWiiGame() && MainActivity.sharedSettings(this).getBoolean("wiimmfi:" + this.saveBaseName, false);
+        return wiiServer() == 1;
+    }
+
+    // 인터넷 서버, per Wii game: 0 off, 1 Wiimmfi (the bridge rewrites the addresses in memory),
+    // 2 WiiLink WFC (WiiLink's own first-stage Gecko code, from assets/wiilink_wfc.txt).
+    private int wiiServer() {
+        if (!isDolphin() || !isWiiGame()) {
+            return 0;
+        }
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        int value = prefs.getInt("wii_server:" + this.saveBaseName, prefs.getBoolean("wiimmfi:" + this.saveBaseName, false) ? 1 : 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private int wiiServerColor() {
+        return wiiServer() == 2 ? Color.rgb(8, 145, 178) : Color.rgb(234, 88, 12);
+    }
+
+    private static final String[] WII_SERVER_NAMES = {"꺼짐", "Wiimmfi", "WiiLink WFC"};
+
+    // The disc's game ID (6 letters) and revision: ISO at 0, WBFS at 0x200, RVZ / WIA in the
+    // copy of the disc header they keep at 0x58. Null when it cannot be read.
+    private String[] wiiGameId;
+
+    private String[] wiiGameId() {
+        if (this.wiiGameId != null) {
+            return this.wiiGameId.length == 2 ? this.wiiGameId : null;
+        }
+        this.wiiGameId = new String[0];
+        if (this.romPath == null) {
+            return null;
+        }
+        try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(this.romPath, "r")) {
+            byte[] head = new byte[0x60];
+            file.readFully(head);
+            int magic = ((head[0] & 0xFF) << 24) | ((head[1] & 0xFF) << 16) | ((head[2] & 0xFF) << 8) | (head[3] & 0xFF);
+            int at;
+            if (magic == 0x52565A01 || magic == 0x57494101) {
+                at = 0x58;
+            } else if (this.romPath.toLowerCase(Locale.US).endsWith(".wbfs")) {
+                file.seek(0x200);
+                file.readFully(head, 0, 8);
+                at = 0;
+            } else {
+                at = 0;
+            }
+            StringBuilder id = new StringBuilder();
+            for (int k = 0; k < 6; k++) {
+                char c = (char) (head[at + k] & 0xFF);
+                if (!Character.isLetterOrDigit(c)) {
+                    return null;
+                }
+                id.append(c);
+            }
+            this.wiiGameId = new String[]{id.toString(), String.format(Locale.US, "%02X", head[at + 7] & 0xFF)};
+            return this.wiiGameId;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    // WiiLink's title for the disc (game ID's first four letters, D, revision): RMCKD00.
+    private String wiiLinkTitle() {
+        String[] id = wiiGameId();
+        return id == null ? null : id[0].substring(0, 4) + "D" + id[1];
+    }
+
+    // The WiiLink WFC code lines for this game, or null when WiiLink has none for it.
+    private java.util.List<String> wiiLinkCode() {
+        String title = wiiLinkTitle();
+        if (title == null) {
+            return null;
+        }
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(getAssets().open("wiilink_wfc.txt"), "UTF-8"))) {
+            java.util.List<String> lines = null;
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("[")) {
+                    if (lines != null) {
+                        break;
+                    }
+                    if (line.equals("[" + title + "]")) {
+                        lines = new java.util.ArrayList<>();
+                    }
+                } else if (lines != null && !line.trim().isEmpty()) {
+                    lines.add(line.trim());
+                }
+            }
+            return lines == null || lines.isEmpty() ? null : lines;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    // Dolphin turns on only the codes in a game's settings file: with WiiLink WFC the game's
+    // user settings file (<saves>/dolphin/User/GameSettings/<ID>.ini) gets the code, enabled;
+    // otherwise the file the app wrote is removed. True when the code is in place.
+    private boolean applyWiiLinkCode() {
+        String[] id = wiiGameId();
+        if (id == null) {
+            return false;
+        }
+        File ini = new File(getFilesDir(), "saves/dolphin/User/GameSettings/" + id[0] + ".ini");
+        boolean ours = false;
+        if (ini.isFile()) {
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(ini))) {
+                String first = reader.readLine();
+                ours = first != null && first.startsWith("# Mini Emulator WiiLink WFC");
+            } catch (IOException e) {
+                ours = false;
+            }
+        }
+        java.util.List<String> code = wiiServer() == 2 ? wiiLinkCode() : null;
+        if (code == null) {
+            if (ours) {
+                ini.delete();
+            }
+            return false;
+        }
+        if (ini.isFile() && !ours) {
+            // The player's own settings file: leave it alone.
+            return false;
+        }
+        StringBuilder text = new StringBuilder("# Mini Emulator WiiLink WFC (" + wiiLinkTitle() + "). Online communications credit to WiiLink WFC - https://wfc.wiilink.ca\n");
+        text.append("[Gecko]\n$WiiLink WFC [WiiLink]\n");
+        for (String line : code) {
+            text.append(line).append('\n');
+        }
+        text.append("[Gecko_Enabled]\n$WiiLink WFC\n");
+        File dir = ini.getParentFile();
+        if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
+            return false;
+        }
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(ini)) {
+            out.write(text.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private String wiiServerShown() {
+        int server = wiiServer();
+        if (server == 0) {
+            return "꺼짐";
+        }
+        return WII_SERVER_NAMES[server] + (wiiCertificatesReady() ? "" : " · 인증서 없음");
     }
 
     private LinearLayout createWiimmfiRow(android.app.Dialog menu) {
-        boolean on = wiimmfiOn();
-        int orange = Color.rgb(234, 88, 12);
-        return createSettingRow(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", on ? (wiiCertificatesReady() ? "켜짐" : "켜짐 · 인증서 없음") : "꺼짐",
-                view -> showChoiceDialog(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", new String[]{"꺼짐", "켜짐"},
-                        new String[]{"게임의 Wi-Fi 메뉴는 접속 오류가 나요 (원래 서버가 닫혔어요)", "게임의 Wi-Fi 메뉴가 대체 서버 Wiimmfi로 접속해요"}, on ? 1 : 0,
-                        "원본 게임 파일은 그대로예요. 게임이 켜질 때 앱이 메모리 속 접속 주소만 Wiimmfi로 바꿔요. 치트는 꺼야 해요 (켜면 접속이 막혀요).\n"
-                                + "마리오카트 Wii 중심으로 맞췄고, 다른 게임은 안 될 수 있어요. 에러 번호가 나오면 알려 주세요.",
-                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 이어하기", choice -> {
-                    if ((choice == 1) == on) {
+        int server = wiiServer();
+        String title = wiiLinkTitle();
+        boolean hasCode = wiiLinkCode() != null;
+        String[] notes = {"게임의 Wi-Fi 메뉴는 접속 오류가 나요 (원래 서버가 닫혔어요)",
+                "메모리 속 접속 주소를 Wiimmfi로 · 실제 Wii 본체 정보가 없으면 23934로 막힐 수 있어요",
+                hasCode ? "WiiLink 공식 접속 코드를 켜요 · 이 게임용 코드 있음 ✓ (" + title + ")"
+                        : "이 게임은 아직 없음" + (title == null ? " (게임 ID를 못 읽었어요)" : " (" + title + ")")};
+        return createSettingRow(RoundIconView.GLOBE, wiiServerColor(), "인터넷 서버", wiiServerShown(),
+                view -> showChoiceDialog(RoundIconView.GLOBE, Color.rgb(8, 145, 178), "인터넷 서버", WII_SERVER_NAMES, notes, server,
+                        "원본 게임 파일은 그대로예요. 켜 둔 치트는 꺼야 해요 (온라인에서 치트를 쓰면 막혀요).\n"
+                                + "WiiLink 코드는 원본 게임 기준이에요. Wiimmfi용으로 고쳐진 파일이면 안 맞을 수 있으니, 안 되면 원본 덤프로 해 보세요.\n"
+                                + "WiiLink WFC: 온라인 기능 제공 WiiLink (wfc.wiilink.ca). 저장하고 그 장면에서 이어져요.",
+                        Color.rgb(236, 254, 255), Color.rgb(21, 94, 117), "적용하고 이어하기", choice -> {
+                    if (choice == server) {
                         return;
                     }
-                    MainActivity.sharedSettings(this).edit().putBoolean("wiimmfi:" + this.saveBaseName, choice == 1).commit();
+                    if (choice == 2 && !hasCode) {
+                        Toast.makeText(this, "WiiLink WFC에 이 게임용 코드가 아직 없어요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("wii_server:" + this.saveBaseName, choice)
+                            .remove("wiimmfi:" + this.saveBaseName).commit();
                     menu.dismiss();
                     relaunchGame();
                 }));
@@ -9571,30 +9728,38 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // the game still cannot connect.
     private void showWiimmfiLog() {
         StringBuilder lines = new StringBuilder();
+        if (wiiServer() == 2) {
+            java.util.List<String> code = wiiLinkCode();
+            String[] id = wiiGameId();
+            lines.append("WiiLink 코드: ").append(wiiLinkTitle()).append(code == null ? " · 없음" : " · " + code.size() + "줄")
+                    .append(id == null ? "" : " · 게임 ID " + id[0]).append('\n');
+            lines.append("인증서: ").append(wiiCertificatesReady() ? "있음" : "없음 (Wii 시스템 업데이트 필요)").append('\n');
+        }
         for (String line : CrashReports.readGameLog(this).split("\n")) {
-            if (line.contains("Wiimmfi")) {
+            if (line.contains("Wiimmfi") || line.contains("WiiLink") || line.contains("Gecko") || line.contains("Patch")) {
                 lines.append(line.replace("[Mini] Wiimmfi: ", "")).append('\n');
             }
         }
-        final String text = lines.length() == 0 ? "아직 바꾼 주소가 없어요. 게임을 켜고 몇 초 뒤에 다시 봐 주세요." : lines.toString().trim();
-        new AppDialog.Builder(this).setTitle("Wiimmfi 기록")
+        final String text = lines.length() == 0 ? "아직 기록이 없어요. 게임을 켜고 몇 초 뒤에 다시 봐 주세요." : lines.toString().trim();
+        final String server = WII_SERVER_NAMES[wiiServer()];
+        new AppDialog.Builder(this).setTitle("접속 기록 · " + server)
                 .setMessage(text)
                 .setNegativeButton("닫기", null)
-                .setPositiveButton("공유", (d, w) -> shareText("Mini Emulator Wiimmfi 기록 (" + this.gameTitle + ")\n" + text)).show();
+                .setPositiveButton("공유", (d, w) -> shareText("Mini Emulator 접속 기록 · " + server + " (" + this.gameTitle + ")\n" + text)).show();
     }
 
     // On the picture's top right while Wiimmfi is on.
     private void addWiimmfiBadge(FrameLayout screenFrame) {
-        if (!wiimmfiOn()) {
+        if (wiiServer() == 0) {
             return;
         }
         TextView badge = new TextView(this);
-        badge.setText("🌐 Wiimmfi");
+        badge.setText("🌐 " + WII_SERVER_NAMES[wiiServer()]);
         badge.setTextSize(11.0f);
         badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         badge.setTextColor(Color.WHITE);
         badge.setPadding(dp(9), dp(3), dp(9), dp(3));
-        badge.setBackground(roundRect(Color.argb(230, 234, 88, 12), dp(11)));
+        badge.setBackground(roundRect((wiiServerColor() & 0x00FFFFFF) | 0xE6000000, dp(11)));
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
         params.setMargins(0, dp(8), dp(8), 0);
         screenFrame.addView(badge, params);
