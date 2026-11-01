@@ -31,18 +31,22 @@ if [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)" != "$WIILINK_COMMIT" 
     git -C "$SRC" fetch -q --depth 1 origin "$WIILINK_COMMIT"
     git -C "$SRC" checkout -q --force FETCH_HEAD
 fi
-rm -rf "$SRC/stage1/build" "$SRC/patch/build"
 
 # WiiLink built their stage 1 with some devkitPPC release; a different compiler gives a
 # different binary. Try the devkitPPC images, newest first, until one makes the same stage 1.
 stage1_hash() {
     python3 -c 'import hashlib,sys; print(hashlib.md5(b"\x01\x2C" + open(sys.argv[1], "rb").read()).hexdigest())' "$SRC/stage1/build/stage1.bin"
 }
+# The container runs as root: it clears its own build folder first and hands the files back
+# to the runner's user at the end, so the next try (and the cache) can use them.
 build_in() {
     docker run --rm -v "$SRC:/src" -w /src "devkitpro/devkitppc:$1" bash -c "
-        set -e
+        rm -rf /src/$2/build
         command -v python3 > /dev/null || { apt-get update -qq && apt-get install -y -qq python3 > /dev/null; }
         cd /src/$2 && python3 $3
+        status=\$?
+        chown -R $(id -u):$(id -g) /src
+        exit \$status
     "
 }
 TAGS="$(curl -sS -m 60 'https://hub.docker.com/v2/repositories/devkitpro/devkitppc/tags?page_size=100' \
@@ -53,7 +57,6 @@ TRIES=0
 for TAG in $TAGS; do
     TRIES=$((TRIES + 1))
     [ "$TRIES" -le 15 ] || break
-    rm -rf "$SRC/stage1/build"
     echo "== stage 1 with devkitpro/devkitppc:$TAG"
     if ! build_in "$TAG" stage1 make-stage1.py > "$WORK/stage1-$TAG.log" 2>&1; then
         echo "   build failed"
@@ -73,7 +76,6 @@ if [ -z "$IMAGE" ]; then
     exit 1
 fi
 echo "== codes with devkitpro/devkitppc:$IMAGE"
-rm -rf "$SRC/patch/build"
 build_in "$IMAGE" patch "make-patch.py -j"
 HASH="$(stage1_hash)"
 echo "   stage 1 hash matches WiiLink's ($HASH)"
