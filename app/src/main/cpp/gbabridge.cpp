@@ -4053,6 +4053,64 @@ JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_installCia(
     return install(dir.c_str(), path.c_str(), ciaProgress, &ctx);
 }
 
+namespace {
+struct WiiUpdateContext {
+    JNIEnv* env;
+    jobject callback;
+    jmethodID method;
+};
+
+int wiiUpdateProgress(unsigned long done, unsigned long total, unsigned long long titleId, void* user) {
+    auto* ctx = static_cast<WiiUpdateContext*>(user);
+    if (ctx == nullptr || ctx->callback == nullptr || ctx->method == nullptr) {
+        return 1;
+    }
+    jboolean go = ctx->env->CallBooleanMethod(ctx->callback, ctx->method, static_cast<jint>(done), static_cast<jint>(total),
+                                              static_cast<jlong>(titleId));
+    if (ctx->env->ExceptionCheck()) {
+        ctx->env->ExceptionClear();
+        return 1;
+    }
+    return go == JNI_TRUE ? 1 : 0;
+}
+}  // namespace
+
+// Wii 시스템 업데이트 through the Dolphin core (cores/patches/dolphin-mini-wii-update.patch):
+// the system titles from Nintendo's servers into <userDir>/Wii, then the SSL certificates
+// out of IOS13. Blocking; run it off the main thread, in the app's main process (games run
+// in their own). Returns Dolphin's update result (0 updated, 1 already up to date, 5 server,
+// 6 download, 7 import failed, 8 cancelled), 100 + that when the certificates were not
+// found, -1 when the core or the function is missing.
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_wiiSystemUpdate(
+        JNIEnv* env, jclass /*cls*/, jstring userDir, jstring sysDir, jstring region, jobject callback) {
+    static void* library = nullptr;
+    static std::mutex updateMutex;
+    std::lock_guard<std::mutex> lock(updateMutex);
+    if (library == nullptr) {
+        library = dlopen("libdolphin_libretro_android.so", RTLD_NOW);
+        if (library == nullptr) {
+            LOGE("dlopen dolphin failed: %s", dlerror());
+            return -1;
+        }
+    }
+    using UpdateFn = int (*)(const char*, const char*, const char*, int (*)(unsigned long, unsigned long, unsigned long long, void*), void*);
+    auto update = reinterpret_cast<UpdateFn>(dlsym(library, "retro_mini_wii_update"));
+    if (update == nullptr) {
+        LOGE("retro_mini_wii_update missing from the core");
+        return -1;
+    }
+    WiiUpdateContext ctx{env, callback, nullptr};
+    if (callback != nullptr) {
+        jclass cls = env->GetObjectClass(callback);
+        ctx.method = env->GetMethodID(cls, "onProgress", "(IIJ)Z");
+        env->DeleteLocalRef(cls);
+    }
+    std::string user = jstringToString(env, userDir);
+    std::string sys = jstringToString(env, sysDir);
+    std::string area = jstringToString(env, region);
+    return update(user.c_str(), sys.c_str(), area.c_str(), wiiUpdateProgress, &ctx);
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gN3dsScale.store(scale >= 1 && scale <= 3 ? scale : 1);
 }

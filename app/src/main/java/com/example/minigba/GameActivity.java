@@ -7229,6 +7229,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 panel.addView(createWiimmfiRow(dialog), tabRowParams(panel));
                 if (wiimmfiOn()) {
                     panel.addView(createSettingRow(RoundIconView.GLOBE, Color.rgb(234, 88, 12), "Wiimmfi 기록", "바꾼 주소 보기", view -> showWiimmfiLog()), tabRowParams(panel));
+                    if (!wiiCertificatesReady()) {
+                        TextView hint = new TextView(this);
+                        hint.setText("인증서가 없으면 접속 단계에서 막힐 수 있어요.\n게임큐브 · Wii 목록 화면의 \"Wii 시스템 업데이트\"를 먼저 해 주세요.");
+                        hint.setTextSize(11.5f);
+                        hint.setTextColor(Color.rgb(154, 52, 18));
+                        hint.setLineSpacing(0, 1.15f);
+                        hint.setPadding(dp(12), dp(10), dp(12), dp(10));
+                        hint.setBackground(roundRect(Color.rgb(255, 247, 237), dp(12)));
+                        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
+                        hintParams.setMargins(0, dp(8), 0, 0);
+                        panel.addView(hint, hintParams);
+                    }
                 }
             }
             panel.addView(createDolphinScaleRow(dialog), tabRowParams(panel));
@@ -9520,6 +9532,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }));
     }
 
+    // The Wii's SSL certificates, from 게임큐브 · Wii › Wii 시스템 업데이트 (the core's Wii folder).
+    private boolean wiiCertificatesReady() {
+        File wii = new File(getFilesDir(), "saves/dolphin/User/Wii");
+        for (String name : new String[]{"clientca.pem", "clientcakey.pem", "rootca.pem"}) {
+            if (!new File(wii, name).isFile()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // Wii 인터넷 (Wiimmfi), per game: the bridge points the game's Nintendo Wi-Fi Connection
     // addresses in memory at Wiimmfi (as the Wiimmfi patcher does to the disc).
     private boolean wiimmfiOn() {
@@ -9529,7 +9552,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private LinearLayout createWiimmfiRow(android.app.Dialog menu) {
         boolean on = wiimmfiOn();
         int orange = Color.rgb(234, 88, 12);
-        return createSettingRow(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", on ? "켜짐" : "꺼짐",
+        return createSettingRow(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", on ? (wiiCertificatesReady() ? "켜짐" : "켜짐 · 인증서 없음") : "꺼짐",
                 view -> showChoiceDialog(RoundIconView.GLOBE, orange, "인터넷 (Wiimmfi)", new String[]{"꺼짐", "켜짐"},
                         new String[]{"게임의 Wi-Fi 메뉴는 접속 오류가 나요 (원래 서버가 닫혔어요)", "게임의 Wi-Fi 메뉴가 대체 서버 Wiimmfi로 접속해요"}, on ? 1 : 0,
                         "원본 게임 파일은 그대로예요. 게임이 켜질 때 앱이 메모리 속 접속 주소만 Wiimmfi로 바꿔요. 치트는 꺼야 해요 (켜면 접속이 막혀요).\n"

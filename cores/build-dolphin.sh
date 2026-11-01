@@ -50,6 +50,8 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1
 # Fixes on top of the pinned commit:
 #   bba-tap: the broadband adapter's TAP server address from MINI_EMULATOR_BBA_TAP, so the
 #     app's GameCube LAN relay can take the frames (게임큐브 LAN 대전).
+#   mini-wii-update: retro_mini_wii_update, the Wii system update and its SSL certificates
+#     for the app (Wii 시스템 업데이트), with no game running.
 #   android-network: the Wii's network info from sockets and getifaddrs, not from the Java
 #     side of Dolphin's own Android app, which a libretro core does not have (a game going
 #     online crashed in JavaVM::GetEnv).

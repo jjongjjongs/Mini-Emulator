@@ -58,6 +58,14 @@ final class NativeGba {
 
     static native int installCia(String userDir, String ciaPath, CiaProgress progress);
 
+    // Wii 시스템 업데이트 through the Dolphin core; see the bridge for the result codes.
+    interface WiiUpdateProgress {
+        /** Returns false to stop. */
+        boolean onProgress(int done, int total, long titleId);
+    }
+
+    static native int wiiSystemUpdate(String userDir, String sysDir, String region, WiiUpdateProgress progress);
+
     // PSP ad-hoc over the LAN: 0 off, 1 host (built-in server), 2 guest; server is the address to join.
     static native void setPspAdhoc(int mode, String server);
 

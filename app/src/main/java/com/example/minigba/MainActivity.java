@@ -215,6 +215,7 @@ public final class MainActivity extends Activity {
     private TextView n3dsKeysBanner;
     private TextView wiiuKeysStatusView;
     private TextView wiiuBanner;
+    private TextView wiiOnlineStatusView;
     private TextView mcdBiosStatusView;
     private TextView saturnBiosStatusView;
     private static final int REQUEST_IMPORT_SATURN_BIOS = 1033;
@@ -437,6 +438,7 @@ public final class MainActivity extends Activity {
         this.n3dsKeysBanner = null;
         this.wiiuKeysStatusView = null;
         this.wiiuBanner = null;
+        this.wiiOnlineStatusView = null;
         this.naomiBiosStatusView = null;
         this.naomiBanner = null;
     }
@@ -887,6 +889,189 @@ public final class MainActivity extends Activity {
 
     private boolean gameIndexLoading;
 
+    // ---- "Wii 시스템 업데이트": the Wii system from Nintendo's servers through the Dolphin
+    // core, and the SSL certificates out of its IOS13, which the Wii's online games need ----
+    private static final String[] WII_REGION_CODES = {"KOR", "JPN", "USA", "EUR"};
+    private static final String[] WII_REGION_NAMES = {"한국", "일본", "미국", "유럽"};
+
+    private File dolphinUserDir() {
+        return new File(new File(new File(getFilesDir(), "saves"), "dolphin"), "User");
+    }
+
+    private boolean wiiCertificatesReady() {
+        File wii = new File(dolphinUserDir(), "Wii");
+        for (String name : new String[]{"clientca.pem", "clientcakey.pem", "rootca.pem"}) {
+            if (!new File(wii, name).isFile()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String wiiOnlineStatusText() {
+        return wiiCertificatesReady() ? "온라인 준비됨 · 인증서 3개" : "인증서 없음 · Wiimmfi에 필요";
+    }
+
+    private void showWiiUpdateSheet() {
+        if (android.os.Build.VERSION.SDK_INT < 26) {
+            showError("게임큐브·Wii는 안드로이드 8 이상에서만 쓸 수 있어요.");
+            return;
+        }
+        if (!new File(getApplicationInfo().nativeLibraryDir, "libdolphin_libretro_android.so").isFile()) {
+            showError("이 버전에는 게임큐브·Wii 엔진이 들어 있지 않아요.");
+            return;
+        }
+        int region = Arrays.asList(WII_REGION_CODES).indexOf(settingsPrefs().getString("wii_update_region", "KOR"));
+        final int[] chosen = {region < 0 ? 0 : region};
+        String[] notes = {"한국판 게임 (마리오 카트 Wii 한국판 등)", "일본판 게임", "북미판 게임", "유럽판 게임"};
+        String[] items = new String[WII_REGION_NAMES.length];
+        for (int k = 0; k < items.length; k++) {
+            items[k] = WII_REGION_NAMES[k] + " · " + notes[k];
+        }
+        new AppDialog.Builder(this).setTitle("Wii 시스템 업데이트")
+                .setMessage((wiiCertificatesReady() ? "이미 인증서가 있어요. 다시 받으려면 지역을 고르세요.\n\n" : "")
+                        + "닌텐도 서버에서 Wii 시스템을 직접 받아 온라인에 필요한 인증서 3개를 꺼내 둬요.\n"
+                        + "와이파이에서 하세요 · 약 100~200MB · 몇 분 걸려요. 받은 시스템은 이 앱 안에만 저장되고, 게임 세이브는 그대로예요.\n\n"
+                        + "게임 지역을 고르세요 (인증서는 어느 지역이든 같아요).")
+                .setItems(items, (dialog, which) -> {
+                    settingsPrefs().edit().putString("wii_update_region", WII_REGION_CODES[which]).apply();
+                    runWiiUpdate(WII_REGION_CODES[which], WII_REGION_NAMES[which]);
+                })
+                .setNegativeButton("취소", null).show();
+    }
+
+    private void runWiiUpdate(String region, String regionName) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setCancelable(false);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(20), dp(18), dp(16));
+        panel.setBackground(rounded(-1, dp(22)));
+        TextView title = new TextView(this);
+        title.setText("Wii 시스템 업데이트 중");
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(regionName + " · 닌텐도 서버에 연결하는 중…");
+        sub.setTextColor(STATUS_TEXT_COLOR);
+        sub.setTextSize(12.5f);
+        sub.setPadding(0, dp(4), 0, dp(14));
+        panel.addView(sub);
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(true);
+        bar.setMax(1000);
+        panel.addView(bar, new LinearLayout.LayoutParams(-1, dp(14)));
+        TextView note = new TextView(this);
+        note.setText("끝날 때까지 이 창을 열어 두세요. 끊기면 처음부터 다시 받아요.");
+        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setTextSize(11.5f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+        final boolean[] stop = {false};
+        TextView cancel = new TextView(this);
+        cancel.setText("그만두기");
+        cancel.setTextColor(Color.rgb(55, 65, 81));
+        cancel.setTextSize(14.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(241, 243, 245), dp(12)));
+        cancel.setOnClickListener(view -> {
+            stop[0] = true;
+            cancel.setText("그만두는 중…");
+            cancel.setEnabled(false);
+        });
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(46));
+        cancelParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(cancel, cancelParams);
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+        dialog.show();
+        final File user = dolphinUserDir();
+        final File sys = new File(new File(systemDir(), "dolphin-emu"), "Sys");
+        new Thread(() -> {
+            int result;
+            if (!user.isDirectory() && !user.mkdirs()) {
+                result = -2;
+            } else if (!unpackSystemAsset("dolphin_sys.zip", sys)) {
+                result = -3;
+            } else {
+                try {
+                    result = NativeGba.wiiSystemUpdate(user.getAbsolutePath(), sys.getAbsolutePath(), region, (done, total, titleId) -> {
+                        runOnUiThread(() -> {
+                            if (total > 0) {
+                                bar.setIndeterminate(false);
+                                bar.setProgress((int) (1000L * done / total));
+                                sub.setText(String.format(Locale.US, "%s · %d / %d · %s", regionName, done, total, wiiTitleName(titleId)));
+                            }
+                        });
+                        return !stop[0];
+                    });
+                } catch (UnsatisfiedLinkError e) {
+                    result = -1;
+                }
+            }
+            final int code = result;
+            runOnUiThread(() -> {
+                dialog.dismiss();
+                onWiiUpdateDone(code);
+            });
+        }, "wii-update").start();
+    }
+
+    private static String wiiTitleName(long titleId) {
+        if (titleId == 0x0000000100000002L) return "Wii 메뉴";
+        if ((titleId >>> 32) == 1 && (titleId & 0xFFFFFFFFL) < 0x100) return "IOS" + (titleId & 0xFFFFFFFFL);
+        return String.format(Locale.US, "%016X", titleId);
+    }
+
+    private void onWiiUpdateDone(int code) {
+        updateHomeStatusCards();
+        String message;
+        boolean ok = false;
+        switch (code) {
+            case 0:
+            case 1:
+                ok = wiiCertificatesReady();
+                message = ok ? "인증서 3개를 꺼냈어요. 게임 안 Wi-Fi 메뉴에서 접속해 보세요 (Wiimmfi를 켠 게임)."
+                        : "업데이트는 됐는데 인증서 파일이 보이지 않아요.";
+                break;
+            case 100:
+            case 101:
+                message = "Wii 시스템은 받았지만 IOS13에서 인증서를 꺼내지 못했어요.";
+                break;
+            case 5:
+                message = "닌텐도 서버(업데이트 목록)에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 해 주세요.";
+                break;
+            case 6:
+                message = "받는 도중에 실패했어요. 와이파이에서 다시 해 주세요.";
+                break;
+            case 7:
+                message = "받은 시스템을 설치하지 못했어요. 저장 공간을 확인해 주세요.";
+                break;
+            case 8:
+                message = "그만뒀어요. 다음에 처음부터 다시 받아요.";
+                break;
+            case -1:
+                message = "엔진에 업데이트 기능이 없어요. 앱을 최신 버전으로 업데이트해 주세요.";
+                break;
+            default:
+                message = "업데이트하지 못했어요 (코드 " + code + ").";
+                break;
+        }
+        new AppDialog.Builder(this).setTitle(ok ? "Wii 온라인 준비 완료" : "Wii 시스템 업데이트").setMessage(message).setPositiveButton("확인", null).show();
+    }
+
     private String modeStatusText(String mode) {
         if (!isModeAvailable(mode)) {
             return "준비 중";
@@ -1002,6 +1187,11 @@ public final class MainActivity extends Activity {
                 this.n3dsKeysStatusView = (TextView) keysTile.getTag();
                 actionRow.addView(keysTile, actionTileParams());
                 actionRow.addView(createActionCard("CIA 설치", "게임 · 업데이트 · DLC", R.drawable.action_import, COLOR_N3DS, view -> showCiaSheet()), actionTileParams());
+            }
+            if (MODE_GC.equals(this.currentMode)) {
+                LinearLayout wiiTile = createActionCard("Wii 시스템 업데이트", wiiOnlineStatusText(), R.drawable.action_check, Color.rgb(234, 88, 12), view -> showWiiUpdateSheet());
+                this.wiiOnlineStatusView = (TextView) wiiTile.getTag();
+                actionRow.addView(wiiTile, actionTileParams());
             }
             if (MODE_WIIU.equals(this.currentMode)) {
                 LinearLayout keysTile = createActionCard("Wii U 키 파일", wiiuKeysStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showWiiuKeysSheet());
@@ -1557,6 +1747,10 @@ public final class MainActivity extends Activity {
 
 
     private void updateHomeStatusCards() {
+        if (this.wiiOnlineStatusView != null) {
+            this.wiiOnlineStatusView.setText(wiiOnlineStatusText());
+            this.wiiOnlineStatusView.setTextColor(wiiCertificatesReady() ? Color.rgb(22, 163, 74) : Color.rgb(234, 88, 12));
+        }
         if (this.saturnBiosStatusView != null) {
             this.saturnBiosStatusView.setText(saturnBiosStatusText());
             this.saturnBiosStatusView.setTextColor(saturnBiosFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
