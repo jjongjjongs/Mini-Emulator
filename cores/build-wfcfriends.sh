@@ -59,7 +59,7 @@ docker run --rm -v "$PATCHER:/src" -w /src devkitpro/devkitppc bash -c "
 "
 test -s "$PATCHER/dist/stage1.bin"
 test -s "$PATCHER/dist/private-key.pem"
-ls "$PATCHER/dist/binary" | head -3
+echo "   $(find "$PATCHER/dist/binary" -type f | wc -l) payloads"
 
 python3 - "$PATCHER" "$PATCHER_COMMIT" "$ASSETS/wfc_room_codes.txt" "$DOMAIN" <<'PY'
 import csv, os, sys
