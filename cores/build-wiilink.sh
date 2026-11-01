@@ -72,8 +72,11 @@ for TAG in $TAGS; do
     docker rmi -f "devkitpro/devkitppc:$TAG" > /dev/null 2>&1 || true
 done
 if [ -z "$IMAGE" ]; then
-    echo "no devkitPPC image makes WiiLink's stage 1 ($STAGE1_MD5): the codes would not connect"
-    exit 1
+    # Ship no codes rather than codes that cannot connect: the app then shows WiiLink WFC as
+    # "not available yet" for every game.
+    echo "no devkitPPC image makes WiiLink's stage 1 ($STAGE1_MD5): shipping no codes"
+    printf '# WiiLink WFC codes not built: stage 1 hash did not match WiiLink'"'"'s\n' > "$OUT"
+    exit 0
 fi
 echo "== codes with devkitpro/devkitppc:$IMAGE"
 build_in "$IMAGE" patch "make-patch.py -j"
