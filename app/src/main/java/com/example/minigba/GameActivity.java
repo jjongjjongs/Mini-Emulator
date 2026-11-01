@@ -6515,6 +6515,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 panel.addView(createWiiControlRow(dialog), tabRowParams(panel));
                 panel.addView(createWiiPointerRow(dialog), tabRowParams(panel));
                 panel.addView(createWiimmfiRow(dialog), tabRowParams(panel));
+                if (wiimmfiOn()) {
+                    panel.addView(createSettingRow(RoundIconView.GLOBE, Color.rgb(234, 88, 12), "Wiimmfi 기록", "바꾼 주소 보기", view -> showWiimmfiLog()), tabRowParams(panel));
+                }
             }
             panel.addView(createDolphinScaleRow(dialog), tabRowParams(panel));
             panel.addView(createDolphinAspectRow(dialog), tabRowParams(panel));
@@ -8827,6 +8830,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     menu.dismiss();
                     relaunchGame();
                 }));
+    }
+
+    // What the bridge changed in memory, from the engine log; shared to the developer when
+    // the game still cannot connect.
+    private void showWiimmfiLog() {
+        StringBuilder lines = new StringBuilder();
+        for (String line : CrashReports.readGameLog(this).split("\n")) {
+            if (line.contains("Wiimmfi")) {
+                lines.append(line.replace("[Mini] Wiimmfi: ", "")).append('\n');
+            }
+        }
+        final String text = lines.length() == 0 ? "아직 바꾼 주소가 없어요. 게임을 켜고 몇 초 뒤에 다시 봐 주세요." : lines.toString().trim();
+        new AppDialog.Builder(this).setTitle("Wiimmfi 기록")
+                .setMessage(text)
+                .setNegativeButton("닫기", null)
+                .setPositiveButton("공유", (d, w) -> shareText("Mini Emulator Wiimmfi 기록 (" + this.gameTitle + ")\n" + text)).show();
     }
 
     // On the picture's top right while Wiimmfi is on.

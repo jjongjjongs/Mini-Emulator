@@ -984,6 +984,7 @@ void remember(const char* text) {
     }
 }
 
+
 void mapLogFile(const std::string& filesDir) {
     std::string path = filesDir + "/game_log.bin";
     size_t size = 4 + static_cast<size_t>(kLines) * kLineLength;
@@ -2984,33 +2985,37 @@ static bool parseMemoryCheat(const std::string& code, Core::MemoryCheat& out) {
 std::atomic<bool> gWiimmfi{false};
 
 namespace wiimmfi {
+// One C string, rewritten as Wiimm's ISO Tools' --wiimmfi does (patch.c, PatchDomain):
+//  - "https" at the start of a string, or followed by "://", loses its "s"; "https://naswii."
+//    becomes "http://nas.". A bare "https" counts: some games put the address together from
+//    "%s://%s/..." with the scheme in a string of its own.
+//  - "<x>.nintendowifi.net" (then the end, '/' or ':') becomes "<x>.wiimmfi.de".
+//  - "sake.gamespy.com" becomes "sake.wiimmfi.de".
+// Never longer than it was.
 bool rewrite(std::string& text) {
     std::string out = text;
-    bool nintendo = out.find("nintendowifi.net") != std::string::npos;
-    bool sake = out.find("sake.gamespy.com") != std::string::npos;
-    // As the patcher does, every https:// URL becomes http:// too: Mario Kart Wii puts the
-    // login URL together from "https://%s/ac" and the host, and Wiimmfi refuses HTTPS (23934).
-    bool url = out.compare(0, 8, "https://") == 0;
-    if (!nintendo && !sake && !url) return false;
-    size_t https = out.find("https://");
-    if (https != std::string::npos) {
-        if (out.compare(https + 8, 7, "naswii.") == 0) {
-            out.replace(https, 15, "http://nas.");
-        } else {
-            out.replace(https, 8, "http://");
+    size_t at = 0;
+    while ((at = out.find("https", at)) != std::string::npos) {
+        bool scheme = out.compare(at + 5, 3, "://") == 0;
+        if (at == 0 || scheme) {
+            if (scheme && out.compare(at + 8, 7, "naswii.") == 0) {
+                out.replace(at, 15, "http://nas.");
+            } else {
+                out.erase(at + 4, 1);
+            }
         }
+        at += 4;
     }
     auto domain = [&out](const char* from, size_t keep) {
-        // keep: how much of `from` stays (".nintendowifi.net" keeps the dot, "sake.gamespy.com" keeps "sake.").
-        size_t at = 0;
+        size_t pos = 0;
         size_t len = strlen(from);
-        while ((at = out.find(from, at)) != std::string::npos) {
-            size_t after = at + len;
+        while ((pos = out.find(from, pos)) != std::string::npos) {
+            size_t after = pos + len;
             if (after == out.size() || out[after] == '/' || out[after] == ':') {
-                out.replace(at + keep, len - keep, "wiimmfi.de");
-                at += keep + 10;
+                out.replace(pos + keep, len - keep, "wiimmfi.de");
+                pos += keep + 10;
             } else {
-                at += len;
+                pos += len;
             }
         }
     };
@@ -3021,10 +3026,20 @@ bool rewrite(std::string& text) {
     return true;
 }
 
+namespace crash_log {
+// What the Wiimmfi patch changed, in the engine log (the first 40 each run).
+void note(const std::string& before, const std::string& after) {
+    static std::atomic<int> count{0};
+    if (count.fetch_add(1) >= 40) return;
+    std::string line = "[Mini] Wiimmfi: " + before.substr(0, 80) + " -> " + after.substr(0, 80);
+    crash::remember(line.c_str());
+}
+}  // namespace crash_log
+
 // Finds the strings around each mention in the memory and rewrites them, padding with NULs.
 int patch(uint8_t* ram, size_t size) {
     int changed = 0;
-    for (const char* needle : {"nintendowifi.net", "sake.gamespy.com", "https://"}) {
+    for (const char* needle : {"nintendowifi.net", "sake.gamespy.com", "https"}) {
         size_t needleLen = strlen(needle);
         size_t offset = 0;
         while (offset + needleLen <= size) {
@@ -3035,14 +3050,16 @@ int patch(uint8_t* ram, size_t size) {
             while (start > 0 && at - start < 200 && ram[start - 1] >= 0x21 && ram[start - 1] < 0x7F) start--;
             size_t end = at + needleLen;
             while (end < size && end - at < 200 && ram[end] >= 0x21 && ram[end] < 0x7F) end++;
-            // Only whole C strings: a NUL right after.
-            if (end < size && ram[end] == 0) {
+            // Only whole C strings: a NUL right before and right after.
+            if (end < size && ram[end] == 0 && (start == 0 || ram[start - 1] == 0)) {
                 std::string text(reinterpret_cast<char*>(ram + start), end - start);
+                std::string before = text;
                 size_t length = text.size();
                 if (rewrite(text)) {
                     memcpy(ram + start, text.data(), text.size());
                     memset(ram + start + text.size(), 0, length - text.size());
                     changed++;
+                    crash_log::note(before, text);
                 }
             }
             offset = end > at ? end : at + 1;
