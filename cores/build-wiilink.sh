@@ -33,19 +33,49 @@ if [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)" != "$WIILINK_COMMIT" 
 fi
 rm -rf "$SRC/stage1/build" "$SRC/patch/build"
 
-echo "== building stage 1 and the codes (devkitPPC)"
-docker run --rm -v "$SRC:/src" -w /src devkitpro/devkitppc bash -c '
-    set -e
-    command -v python3 > /dev/null || { apt-get update -qq && apt-get install -y -qq python3 > /dev/null; }
-    cd /src/stage1 && python3 make-stage1.py
-    cd /src/patch && python3 make-patch.py -j
-'
-
-HASH="$(python3 -c 'import hashlib,sys; print(hashlib.md5(b"\x01\x2C" + open(sys.argv[1], "rb").read()).hexdigest())' "$SRC/stage1/build/stage1.bin")"
-if [ "$HASH" != "$STAGE1_MD5" ]; then
-    echo "stage 1 hash $HASH is not WiiLink's $STAGE1_MD5: the codes would not connect"
+# WiiLink built their stage 1 with some devkitPPC release; a different compiler gives a
+# different binary. Try the devkitPPC images, newest first, until one makes the same stage 1.
+stage1_hash() {
+    python3 -c 'import hashlib,sys; print(hashlib.md5(b"\x01\x2C" + open(sys.argv[1], "rb").read()).hexdigest())' "$SRC/stage1/build/stage1.bin"
+}
+build_in() {
+    docker run --rm -v "$SRC:/src" -w /src "devkitpro/devkitppc:$1" bash -c "
+        set -e
+        command -v python3 > /dev/null || { apt-get update -qq && apt-get install -y -qq python3 > /dev/null; }
+        cd /src/$2 && python3 $3
+    "
+}
+TAGS="$(curl -sS -m 60 'https://hub.docker.com/v2/repositories/devkitpro/devkitppc/tags?page_size=100' \
+    | python3 -c 'import json,sys; print(" ".join(t["name"] for t in sorted(json.load(sys.stdin)["results"], key=lambda t: t["last_updated"], reverse=True)))' || true)"
+TAGS="latest ${TAGS:-}"
+IMAGE=""
+TRIES=0
+for TAG in $TAGS; do
+    TRIES=$((TRIES + 1))
+    [ "$TRIES" -le 15 ] || break
+    rm -rf "$SRC/stage1/build"
+    echo "== stage 1 with devkitpro/devkitppc:$TAG"
+    if ! build_in "$TAG" stage1 make-stage1.py > "$WORK/stage1-$TAG.log" 2>&1; then
+        echo "   build failed"
+        docker rmi -f "devkitpro/devkitppc:$TAG" > /dev/null 2>&1 || true
+        continue
+    fi
+    HASH="$(stage1_hash)"
+    echo "   $HASH"
+    if [ "$HASH" = "$STAGE1_MD5" ]; then
+        IMAGE="$TAG"
+        break
+    fi
+    docker rmi -f "devkitpro/devkitppc:$TAG" > /dev/null 2>&1 || true
+done
+if [ -z "$IMAGE" ]; then
+    echo "no devkitPPC image makes WiiLink's stage 1 ($STAGE1_MD5): the codes would not connect"
     exit 1
 fi
+echo "== codes with devkitpro/devkitppc:$IMAGE"
+rm -rf "$SRC/patch/build"
+build_in "$IMAGE" patch "make-patch.py -j"
+HASH="$(stage1_hash)"
 echo "   stage 1 hash matches WiiLink's ($HASH)"
 
 python3 - "$SRC" "$WIILINK_COMMIT" "$OUT" <<'PY'
