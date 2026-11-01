@@ -431,6 +431,12 @@ struct Core {
     std::atomic<double> pacedFps{0};
     // PCEE2 (patched): whether its GS has presented a game picture yet.
     bool (*pcee2HasPicture)() = nullptr;
+    // The memory regions the core announced (RETRO_ENVIRONMENT_SET_MEMORY_MAPS): Dolphin's
+    // MEM1 and, for Wii games, MEM2.
+    std::vector<std::pair<uint8_t*, size_t>> memoryRegions;
+    // Wii 인터넷 (Wiimmfi): the thread that keeps the game's addresses pointed at Wiimmfi.
+    std::thread wiimmfiThread;
+    std::atomic<bool> wiimmfiRunning{false};
     // Cemu (cores/patches/cemu-mini-layout.patch): where the TV and GamePad pictures go.
     void (*cemuSetLayout)(int, int, const float*, const float*) = nullptr;
     // A negotiation interface handed over before SET_HW_RENDER made the Vulkan host.
@@ -1856,6 +1862,18 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (dsnet::mode() == 0) return false;
             dsnet::setCallback(static_cast<const retro_netpacket_callback*>(data));
             return true;
+        case RETRO_ENVIRONMENT_SET_MEMORY_MAPS: {
+            auto* map = static_cast<const retro_memory_map*>(data);
+            if (map == nullptr || map->descriptors == nullptr) return false;
+            core->memoryRegions.clear();
+            for (unsigned k = 0; k < map->num_descriptors; k++) {
+                const retro_memory_descriptor& desc = map->descriptors[k];
+                if (desc.ptr != nullptr && desc.len > 0) {
+                    core->memoryRegions.emplace_back(static_cast<uint8_t*>(desc.ptr) + desc.offset, desc.len);
+                }
+            }
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE: {
             if (data == nullptr || !motion::enabled.load()) return false;
             auto* sensors = static_cast<retro_sensor_interface*>(data);
@@ -3158,16 +3176,6 @@ void runLoop(Core* core) {
             if (core->coreId == "melonds") dsnet::tick();
             core->retroRun();
             applyMemoryCheats(core);
-            // Wii 인터넷: every two seconds, so code loaded later (Mario Kart Wii's StaticR.rel)
-            // is caught well before the game goes online.
-            if (core->coreId == "dolphin" && gWiimmfi.load() && core->framesRun % 120 == 30) {
-                void* ram = core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM);
-                size_t ramSize = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
-                if (ram != nullptr && ramSize > 0) {
-                    int changed = wiimmfi::patch(static_cast<uint8_t*>(ram), ramSize);
-                    if (changed > 0) LOGI("Wiimmfi: %d strings pointed at wiimmfi.de", changed);
-                }
-            }
             core->framesRun++;
             core->framesCounted.fetch_add(1);
             if (rewound) {
@@ -3271,6 +3279,11 @@ void* emulationThread(void* arg) {
 }
 
 void destroyCore(Core* core) {
+    // A std::thread still joinable when the Core is deleted would end the process.
+    if (core->wiimmfiThread.joinable()) {
+        core->wiimmfiRunning.store(false);
+        core->wiimmfiThread.join();
+    }
     if (core == nullptr) {
         return;
     }
@@ -3284,6 +3297,10 @@ void destroyCore(Core* core) {
     }
     if (core->coreId == "dolphin") {
         gclan::end();
+    }
+    if (core->wiimmfiThread.joinable()) {
+        core->wiimmfiRunning.store(false);
+        core->wiimmfiThread.join();
     }
     stopPresenter(core);
     if (core->window != nullptr) {
@@ -3548,6 +3565,28 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         return 0;
     }
     if (core->coreId == "melonds") dsnet::begin();
+    if (core->coreId == "dolphin" && gWiimmfi.load()) {
+        // Every two seconds, off the emulation thread (MEM1 and MEM2 are 88 MB), so code loaded
+        // later (Mario Kart Wii's StaticR.rel) and the login address the game assembles in its
+        // heap are caught before it goes online.
+        std::vector<std::pair<uint8_t*, size_t>> regions = core->memoryRegions;
+        if (regions.empty()) {
+            void* ram = core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM);
+            size_t ramSize = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
+            if (ram != nullptr && ramSize > 0) regions.emplace_back(static_cast<uint8_t*>(ram), ramSize);
+        }
+        core->wiimmfiRunning.store(true);
+        core->wiimmfiThread = std::thread([core, regions]() {
+            while (core->wiimmfiRunning.load()) {
+                int changed = 0;
+                for (const auto& region : regions) changed += wiimmfi::patch(region.first, region.second);
+                if (changed > 0) LOGI("Wiimmfi: %d strings pointed at wiimmfi.de", changed);
+                for (int k = 0; k < 20 && core->wiimmfiRunning.load(); k++) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+            }
+        });
+    }
     return reinterpret_cast<jlong>(core);
 }
 
