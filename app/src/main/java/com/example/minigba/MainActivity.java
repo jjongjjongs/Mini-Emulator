@@ -337,6 +337,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         CrashReports.installJavaHandler(this);
+        registerDownloadReceiver();
         relaunchGameIfAsked(getIntent());
         importPresetIfOpened(getIntent());
         ensureDownloadFolder();
@@ -461,6 +462,10 @@ public final class MainActivity extends Activity {
         desc.setTextSize(13.0f);
         desc.setPadding(0, dp(2), 0, dp(12));
         root.addView(desc, new LinearLayout.LayoutParams(-1, -2));
+        this.updateBannerSlot = new LinearLayout(this);
+        this.updateBannerSlot.setOrientation(1);
+        root.addView(this.updateBannerSlot, new LinearLayout.LayoutParams(-1, -2));
+        fillUpdateBanner();
         this.gameIndex = null;
         root.addView(createModeBrowser(null, this::onModePicked, file -> {
             onModePicked(modeForFile(file));
@@ -1072,6 +1077,359 @@ public final class MainActivity extends Activity {
         new AppDialog.Builder(this).setTitle(ok ? "Wii 온라인 준비 완료" : "Wii 시스템 업데이트").setMessage(message).setPositiveButton("확인", null).show();
     }
 
+    // ---- 앱 업데이트 (AppUpdate): the newest GitHub release, downloaded and installed from here ----
+    private AppUpdate.Release pendingRelease;
+    private LinearLayout updateBannerSlot;
+    private boolean updateDialogShown;
+    private boolean updateChecking;
+    private boolean installAfterPermission;
+    private android.content.BroadcastReceiver downloadReceiver;
+
+    @Override
+    protected void onDestroy() {
+        if (this.downloadReceiver != null) {
+            try {
+                unregisterReceiver(this.downloadReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // Not registered.
+            }
+            this.downloadReceiver = null;
+        }
+        super.onDestroy();
+    }
+
+    private void registerDownloadReceiver() {
+        this.downloadReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(android.content.Context context, Intent intent) {
+                long id = intent.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id != -1 && id == AppUpdate.downloadId(settingsPrefs())) {
+                    onUpdateDownloaded();
+                }
+            }
+        };
+        android.content.IntentFilter filter = new android.content.IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(this.downloadReceiver, filter, 2 /* RECEIVER_EXPORTED: sent by the download manager */);
+        } else {
+            registerReceiver(this.downloadReceiver, filter);
+        }
+    }
+
+    // On resume: a daily check, and an install that waited for the "이 출처 허용" setting or
+    // for the app to come back after the download finished.
+    private void resumeAppUpdate() {
+        if (this.installAfterPermission && canInstallPackages()) {
+            this.installAfterPermission = false;
+            installUpdate();
+            return;
+        }
+        long id = AppUpdate.downloadId(settingsPrefs());
+        if (id != -1) {
+            long[] state = AppUpdate.progress(this, id);
+            if (state[0] == android.app.DownloadManager.STATUS_SUCCESSFUL
+                    && AppUpdate.compare(AppUpdate.downloadVersion(settingsPrefs()), AppUpdate.currentVersion(this)) > 0) {
+                onUpdateDownloaded();
+                return;
+            }
+            if (state[0] == 0 || state[0] == android.app.DownloadManager.STATUS_FAILED
+                    || AppUpdate.compare(AppUpdate.downloadVersion(settingsPrefs()), AppUpdate.currentVersion(this)) <= 0) {
+                // Gone, failed, or already installed.
+                AppUpdate.clearDownload(settingsPrefs());
+            }
+        }
+        if (AppUpdate.dueForCheck(settingsPrefs())) {
+            checkForUpdate(false);
+        }
+    }
+
+    private void checkForUpdate(boolean manual) {
+        if (this.updateChecking) {
+            return;
+        }
+        this.updateChecking = true;
+        if (manual) {
+            Toast.makeText(this, "새 버전을 확인하는 중…", Toast.LENGTH_SHORT).show();
+        }
+        new Thread(() -> {
+            AppUpdate.Release release;
+            String error = null;
+            try {
+                release = AppUpdate.fetchLatest();
+            } catch (IOException | RuntimeException e) {
+                release = null;
+                error = e.getMessage();
+            }
+            final AppUpdate.Release found = release;
+            final String failure = error;
+            runOnUiThread(() -> {
+                this.updateChecking = false;
+                if (isFinishing()) {
+                    return;
+                }
+                if (failure != null) {
+                    if (manual) {
+                        Toast.makeText(this, "확인하지 못했어요. 인터넷 연결을 확인해 주세요.", Toast.LENGTH_LONG).show();
+                    }
+                    return;
+                }
+                AppUpdate.markChecked(settingsPrefs());
+                String current = AppUpdate.currentVersion(this);
+                if (found == null || AppUpdate.compare(found.version, current) <= 0) {
+                    this.pendingRelease = null;
+                    fillUpdateBanner();
+                    if (manual) {
+                        Toast.makeText(this, "최신 버전이에요 (" + current + ")", Toast.LENGTH_SHORT).show();
+                    }
+                    return;
+                }
+                this.pendingRelease = found;
+                fillUpdateBanner();
+                if (manual || (!this.updateDialogShown && !AppUpdate.skipped(settingsPrefs(), found.version))) {
+                    this.updateDialogShown = true;
+                    showUpdateDialog(found);
+                }
+            });
+        }, "update-check").start();
+    }
+
+    // The band at the top of the start screen while a newer version is known.
+    private void fillUpdateBanner() {
+        LinearLayout slot = this.updateBannerSlot;
+        if (slot == null) {
+            return;
+        }
+        slot.removeAllViews();
+        AppUpdate.Release release = this.pendingRelease;
+        if (release == null || AppUpdate.skipped(settingsPrefs(), release.version)) {
+            return;
+        }
+        LinearLayout band = new LinearLayout(this);
+        band.setOrientation(0);
+        band.setGravity(16);
+        band.setPadding(dp(12), dp(10), dp(12), dp(10));
+        GradientDrawable background = rounded(Color.rgb(236, 254, 255), dp(14));
+        background.setStroke(dp(1), Color.rgb(103, 232, 249));
+        band.setBackground(background);
+        TextView icon = new TextView(this);
+        icon.setText("↓");
+        icon.setTextColor(-1);
+        icon.setTextSize(14.0f);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(17);
+        icon.setBackground(rounded(Color.rgb(22, 185, 207), dp(15)));
+        band.addView(icon, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        texts.setPadding(dp(10), 0, dp(8), 0);
+        TextView title = new TextView(this);
+        title.setText("새 버전 " + release.version + "이 있어요");
+        title.setTextColor(Color.rgb(21, 94, 117));
+        title.setTextSize(13.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        texts.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("지금 " + AppUpdate.currentVersion(this) + (release.size > 0 ? " · " + AppUpdate.sizeText(release.size) : ""));
+        sub.setTextColor(Color.rgb(14, 116, 144));
+        sub.setTextSize(11.0f);
+        texts.addView(sub);
+        band.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView go = new TextView(this);
+        go.setText("업데이트");
+        go.setTextColor(-1);
+        go.setTextSize(12.0f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setPadding(dp(11), dp(7), dp(11), dp(7));
+        go.setBackground(rounded(Color.rgb(22, 185, 207), dp(10)));
+        band.addView(go);
+        band.setOnClickListener(view -> showUpdateDialog(release));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, 0, 0, dp(12));
+        slot.addView(band, params);
+    }
+
+    private void showUpdateDialog(AppUpdate.Release release) {
+        StringBuilder message = new StringBuilder();
+        message.append(AppUpdate.currentVersion(this)).append(" → ").append(release.version);
+        if (release.size > 0) {
+            message.append(" · ").append(AppUpdate.sizeText(release.size));
+        }
+        if (!release.notes.isEmpty()) {
+            message.append("\n\n바뀐 점\n").append(release.notes.length() > 900 ? release.notes.substring(0, 900) + "…" : release.notes);
+        }
+        message.append("\n\n게임 · 세이브 · 설정은 그대로예요. 와이파이에서 받기를 권해요.");
+        new AppDialog.Builder(this).setTitle("새 버전이 있어요")
+                .setMessage(message.toString())
+                .setNeutralButton("이 버전 건너뛰기", (d, w) -> {
+                    AppUpdate.skip(settingsPrefs(), release.version);
+                    fillUpdateBanner();
+                })
+                .setNegativeButton("나중에", null)
+                .setPositiveButton("받기", (d, w) -> startUpdateDownload(release)).show();
+    }
+
+    private void startUpdateDownload(AppUpdate.Release release) {
+        long id;
+        try {
+            id = AppUpdate.startDownload(this, settingsPrefs(), release);
+        } catch (RuntimeException e) {
+            showError("다운로드를 시작하지 못했어요: " + e.getMessage());
+            return;
+        }
+        showUpdateProgress(id, release);
+    }
+
+    private void showUpdateProgress(long id, AppUpdate.Release release) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(20), dp(18), dp(16));
+        panel.setBackground(rounded(-1, dp(22)));
+        TextView title = new TextView(this);
+        title.setText("받는 중");
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("Mini-Emulator-" + release.version + ".apk · GitHub");
+        sub.setTextColor(STATUS_TEXT_COLOR);
+        sub.setTextSize(12.5f);
+        sub.setPadding(0, dp(3), 0, dp(14));
+        panel.addView(sub);
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        bar.setIndeterminate(true);
+        panel.addView(bar, new LinearLayout.LayoutParams(-1, dp(14)));
+        TextView amount = new TextView(this);
+        amount.setTextColor(Color.rgb(75, 85, 99));
+        amount.setTextSize(12.0f);
+        amount.setPadding(0, dp(8), 0, 0);
+        panel.addView(amount);
+        TextView note = new TextView(this);
+        note.setText("숨겨도 계속 받아요 (알림에 진행이 보여요). 다 받으면 설치 화면이 떠요.");
+        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setTextSize(11.5f);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView stop = new TextView(this);
+        stop.setText("그만두기");
+        stop.setTextColor(Color.rgb(55, 65, 81));
+        stop.setTextSize(14.0f);
+        stop.setTypeface(Typeface.DEFAULT_BOLD);
+        stop.setGravity(17);
+        stop.setBackground(rounded(Color.rgb(241, 243, 245), dp(12)));
+        TextView hide = new TextView(this);
+        hide.setText("숨기기");
+        hide.setTextColor(-1);
+        hide.setTextSize(14.0f);
+        hide.setTypeface(Typeface.DEFAULT_BOLD);
+        hide.setGravity(17);
+        hide.setBackground(rounded(Color.rgb(22, 185, 207), dp(12)));
+        buttons.addView(stop, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams hideParams = new LinearLayout.LayoutParams(0, dp(46), 1.4f);
+        hideParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(hide, hideParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
+        }
+        final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        final Runnable[] poll = new Runnable[1];
+        poll[0] = () -> {
+            if (!dialog.isShowing()) {
+                return;
+            }
+            long[] state = AppUpdate.progress(this, id);
+            if (state[2] > 0) {
+                bar.setIndeterminate(false);
+                bar.setProgress((int) (1000L * state[1] / state[2]));
+                amount.setText(String.format(Locale.US, "%d / %dMB · %d%%", state[1] >> 20, state[2] >> 20, 100L * state[1] / state[2]));
+            }
+            if (state[0] == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                dialog.dismiss();
+                return;
+            }
+            if (state[0] == android.app.DownloadManager.STATUS_FAILED || state[0] == 0) {
+                dialog.dismiss();
+                AppUpdate.clearDownload(settingsPrefs());
+                showError("받지 못했어요. 인터넷 연결을 확인하고 다시 해 주세요.");
+                return;
+            }
+            handler.postDelayed(poll[0], 500);
+        };
+        stop.setOnClickListener(view -> {
+            AppUpdate.cancel(this, id);
+            AppUpdate.clearDownload(settingsPrefs());
+            dialog.dismiss();
+        });
+        hide.setOnClickListener(view -> dialog.dismiss());
+        dialog.show();
+        poll[0].run();
+    }
+
+    private void onUpdateDownloaded() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        installUpdate();
+    }
+
+    private boolean canInstallPackages() {
+        return android.os.Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls();
+    }
+
+    // Android's installer for the downloaded APK; first the one-time "이 출처 허용" when needed.
+    private void installUpdate() {
+        long id = AppUpdate.downloadId(settingsPrefs());
+        android.net.Uri uri = id == -1 ? null : AppUpdate.downloadedUri(this, id);
+        if (uri == null) {
+            AppUpdate.clearDownload(settingsPrefs());
+            showError("받은 파일을 찾지 못했어요. 다시 받아 주세요.");
+            return;
+        }
+        if (!canInstallPackages()) {
+            new AppDialog.Builder(this).setTitle("설치 허용이 한 번 필요해요")
+                    .setMessage("안드로이드는 앱이 업데이트를 설치하려면 한 번 허용을 받아요.\n다음 화면에서 \"이 출처 허용\"을 켜고 돌아오면 바로 설치 화면이 떠요.")
+                    .setNegativeButton("취소", null)
+                    .setPositiveButton("설정 열기", (d, w) -> {
+                        this.installAfterPermission = true;
+                        try {
+                            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    android.net.Uri.parse("package:" + getPackageName())));
+                        } catch (RuntimeException e) {
+                            this.installAfterPermission = false;
+                            showError("설정 화면을 열지 못했어요. 휴대폰 설정 › 앱 › Mini Emulator에서 '출처를 알 수 없는 앱 설치'를 허용해 주세요.");
+                        }
+                    }).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, "application/vnd.android.package-archive");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+        } catch (RuntimeException e) {
+            showError("설치 화면을 열지 못했어요: " + e.getMessage());
+        }
+    }
+
+    private String updateRowShown() {
+        String current = AppUpdate.currentVersion(this);
+        AppUpdate.Release release = this.pendingRelease;
+        return release != null ? current + " · 새 버전 " + release.version : current + " · 확인하기";
+    }
+
     private String modeStatusText(String mode) {
         if (!isModeAvailable(mode)) {
             return "준비 중";
@@ -1360,6 +1718,43 @@ public final class MainActivity extends Activity {
             onModePicked(modeForFile(file));
             launchGame(file);
         }), new LinearLayout.LayoutParams(-1, -2));
+        // 앱 업데이트: check now, and the daily check on or off.
+        for (int k = 0; k < 2; k++) {
+            final boolean auto = k == 1;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(0);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(12), dp(12), dp(12));
+            row.setBackground(rounded(auto ? Color.rgb(246, 247, 249) : Color.rgb(236, 254, 255), dp(12)));
+            TextView label = new TextView(this);
+            label.setText(auto ? "업데이트 자동 확인" : "앱 업데이트");
+            label.setTextColor(Color.rgb(31, 41, 51));
+            label.setTextSize(13.5f);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            TextView value = new TextView(this);
+            value.setText(auto ? (AppUpdate.autoCheck(settingsPrefs()) ? "켜짐 · 하루 한 번 ›" : "꺼짐 ›") : updateRowShown() + " ›");
+            value.setTextColor(STATUS_TEXT_COLOR);
+            value.setTextSize(12.0f);
+            row.addView(value);
+            row.setOnClickListener(view -> {
+                if (auto) {
+                    boolean on = !AppUpdate.autoCheck(settingsPrefs());
+                    AppUpdate.setAutoCheck(settingsPrefs(), on);
+                    value.setText(on ? "켜짐 · 하루 한 번 ›" : "꺼짐 ›");
+                    return;
+                }
+                dialog.dismiss();
+                if (this.pendingRelease != null) {
+                    showUpdateDialog(this.pendingRelease);
+                } else {
+                    checkForUpdate(true);
+                }
+            });
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.setMargins(0, dp(k == 0 ? 14 : 6), 0, 0);
+            sheet.addView(row, rowParams);
+        }
         // Kept crash reports are reached from here (the list card only shows new ones).
         List<CrashReports.Report> reports = CrashReports.list(this);
         if (!reports.isEmpty()) {
@@ -1436,6 +1831,7 @@ public final class MainActivity extends Activity {
         updateCrashCard();
         // Left by 0.0.112-0.0.113, which showed the PS2 engine log after each PS2 game.
         new File(getFilesDir(), "ps2_log_pending").delete();
+        resumeAppUpdate();
     }
 
 
