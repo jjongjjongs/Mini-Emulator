@@ -142,6 +142,10 @@ final class AppUpdate {
         return autoCheck(prefs) && System.currentTimeMillis() - prefs.getLong(PREFS_LAST_CHECK, 0) > DAY_MS;
     }
 
+    static long lastCheck(SharedPreferences prefs) {
+        return prefs.getLong(PREFS_LAST_CHECK, 0);
+    }
+
     static void markChecked(SharedPreferences prefs) {
         prefs.edit().putLong(PREFS_LAST_CHECK, System.currentTimeMillis()).apply();
     }

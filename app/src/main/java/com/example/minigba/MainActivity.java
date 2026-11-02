@@ -455,17 +455,23 @@ public final class MainActivity extends Activity {
         title.setTextColor(Color.rgb(31, 41, 51));
         title.setTextSize(22.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        // The title and its line on the left, the update icon on the right.
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(0);
+        LinearLayout headingTexts = new LinearLayout(this);
+        headingTexts.setOrientation(1);
+        headingTexts.addView(title, new LinearLayout.LayoutParams(-1, -2));
         TextView desc = new TextView(this);
         desc.setText("게임기를 고르면 게임 목록으로 들어가요. 길게 누르면 즐겨찾기.");
         desc.setTextColor(STATUS_TEXT_COLOR);
         desc.setTextSize(13.0f);
         desc.setPadding(0, dp(2), 0, dp(12));
-        root.addView(desc, new LinearLayout.LayoutParams(-1, -2));
-        this.updateBannerSlot = new LinearLayout(this);
-        this.updateBannerSlot.setOrientation(1);
-        root.addView(this.updateBannerSlot, new LinearLayout.LayoutParams(-1, -2));
-        fillUpdateBanner();
+        headingTexts.addView(desc, new LinearLayout.LayoutParams(-1, -2));
+        heading.addView(headingTexts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(-2, -2);
+        iconParams.setMargins(dp(10), 0, 0, 0);
+        heading.addView(createUpdateIcon(), iconParams);
+        root.addView(heading, new LinearLayout.LayoutParams(-1, -2));
         this.gameIndex = null;
         root.addView(createModeBrowser(null, this::onModePicked, file -> {
             onModePicked(modeForFile(file));
@@ -1079,7 +1085,6 @@ public final class MainActivity extends Activity {
 
     // ---- 앱 업데이트 (AppUpdate): the newest GitHub release, downloaded and installed from here ----
     private AppUpdate.Release pendingRelease;
-    private LinearLayout updateBannerSlot;
     private boolean updateDialogShown;
     private boolean updateChecking;
     private boolean installAfterPermission;
@@ -1148,6 +1153,7 @@ public final class MainActivity extends Activity {
             return;
         }
         this.updateChecking = true;
+        refreshUpdateIcon();
         if (manual) {
             Toast.makeText(this, "새 버전을 확인하는 중…", Toast.LENGTH_SHORT).show();
         }
@@ -1167,6 +1173,7 @@ public final class MainActivity extends Activity {
                 if (isFinishing()) {
                     return;
                 }
+                refreshUpdateIcon();
                 if (failure != null) {
                     if (manual) {
                         Toast.makeText(this, "확인하지 못했어요. 인터넷 연결을 확인해 주세요.", Toast.LENGTH_LONG).show();
@@ -1177,14 +1184,14 @@ public final class MainActivity extends Activity {
                 String current = AppUpdate.currentVersion(this);
                 if (found == null || AppUpdate.compare(found.version, current) <= 0) {
                     this.pendingRelease = null;
-                    fillUpdateBanner();
+                    refreshUpdateIcon();
                     if (manual) {
                         Toast.makeText(this, "최신 버전이에요 (" + current + ")", Toast.LENGTH_SHORT).show();
                     }
                     return;
                 }
                 this.pendingRelease = found;
-                fillUpdateBanner();
+                refreshUpdateIcon();
                 if (manual || (!this.updateDialogShown && !AppUpdate.skipped(settingsPrefs(), found.version))) {
                     this.updateDialogShown = true;
                     showUpdateDialog(found);
@@ -1193,59 +1200,269 @@ public final class MainActivity extends Activity {
         }, "update-check").start();
     }
 
-    // The band at the top of the start screen while a newer version is known.
-    private void fillUpdateBanner() {
-        LinearLayout slot = this.updateBannerSlot;
-        if (slot == null) {
+    // ---- The update icon at the top right of the start screen ----
+    /** A round button: ↻ (up to date), ↓ with a red dot (newer version), a ring while downloading. */
+    private static final class UpdateRing extends View {
+        static final int OK = 0, NEW = 1, DOWNLOADING = 2, CHECKING = 3;
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final float density;
+        int state;
+        float progress;
+
+        UpdateRing(android.content.Context context) {
+            super(context);
+            this.density = context.getResources().getDisplayMetrics().density;
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            float w = getWidth();
+            float h = getHeight();
+            float cx = w / 2f;
+            float cy = h / 2f;
+            float r = Math.min(w, h) / 2f - 2 * density;
+            int accent = Color.rgb(22, 185, 207);
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(state == NEW ? Color.rgb(236, 254, 255) : Color.WHITE);
+            canvas.drawCircle(cx, cy, r, paint);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            if (state == DOWNLOADING || state == CHECKING) {
+                paint.setStrokeWidth(4 * density);
+                paint.setColor(Color.rgb(226, 232, 240));
+                canvas.drawCircle(cx, cy, r - 2 * density, paint);
+                paint.setColor(accent);
+                android.graphics.RectF arc = new android.graphics.RectF(cx - r + 2 * density, cy - r + 2 * density, cx + r - 2 * density, cy + r - 2 * density);
+                float sweep = state == CHECKING ? 90 : Math.max(4, 360 * progress);
+                float start = state == CHECKING ? (System.currentTimeMillis() / 3 % 360) : -90;
+                canvas.drawArc(arc, start, sweep, false, paint);
+                if (state == DOWNLOADING) {
+                    paint.setStyle(android.graphics.Paint.Style.FILL);
+                    paint.setColor(Color.rgb(14, 116, 144));
+                    paint.setTextSize(10 * density);
+                    paint.setTypeface(Typeface.DEFAULT_BOLD);
+                    paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+                    canvas.drawText(Math.round(progress * 100) + "%", cx, cy + 3.5f * density, paint);
+                } else {
+                    postInvalidateOnAnimation();
+                }
+                return;
+            }
+            paint.setStrokeWidth(1.5f * density);
+            paint.setColor(state == NEW ? Color.rgb(103, 232, 249) : Color.rgb(229, 231, 235));
+            canvas.drawCircle(cx, cy, r, paint);
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(state == NEW ? Color.rgb(14, 116, 144) : accent);
+            paint.setTextSize(19 * density);
+            paint.setTypeface(Typeface.DEFAULT_BOLD);
+            paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+            canvas.drawText(state == NEW ? "↓" : "↻", cx, cy + 6.5f * density, paint);
+            if (state == NEW) {
+                paint.setColor(Color.rgb(238, 242, 247));
+                canvas.drawCircle(cx + r * 0.72f, cy - r * 0.72f, 7 * density, paint);
+                paint.setColor(Color.rgb(239, 68, 68));
+                canvas.drawCircle(cx + r * 0.72f, cy - r * 0.72f, 5 * density, paint);
+            }
+        }
+    }
+
+    private UpdateRing updateRing;
+    private TextView updateLabel;
+    private final Runnable updateRingPoll = this::refreshUpdateIcon;
+
+    private View createUpdateIcon() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setGravity(1);
+        UpdateRing ring = new UpdateRing(this);
+        box.addView(ring, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        TextView label = new TextView(this);
+        label.setTextSize(9.5f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setGravity(1);
+        label.setPadding(0, dp(2), 0, 0);
+        box.addView(label, new LinearLayout.LayoutParams(-2, -2));
+        box.setContentDescription("앱 업데이트");
+        box.setOnClickListener(this::showUpdatePopup);
+        this.updateRing = ring;
+        this.updateLabel = label;
+        refreshUpdateIcon();
+        return box;
+    }
+
+    private boolean updateDownloading() {
+        long id = AppUpdate.downloadId(settingsPrefs());
+        if (id == -1) {
+            return false;
+        }
+        long[] state = AppUpdate.progress(this, id);
+        return state[0] == android.app.DownloadManager.STATUS_RUNNING || state[0] == android.app.DownloadManager.STATUS_PENDING
+                || state[0] == android.app.DownloadManager.STATUS_PAUSED;
+    }
+
+    // Follows the check, the newest version known and the download (polled while it runs).
+    private void refreshUpdateIcon() {
+        UpdateRing ring = this.updateRing;
+        TextView label = this.updateLabel;
+        if (ring == null || label == null || !ring.isAttachedToWindow() && ring.getWidth() > 0) {
             return;
         }
-        slot.removeAllViews();
-        AppUpdate.Release release = this.pendingRelease;
-        if (release == null || AppUpdate.skipped(settingsPrefs(), release.version)) {
-            return;
+        ring.removeCallbacks(this.updateRingPoll);
+        long id = AppUpdate.downloadId(settingsPrefs());
+        if (id != -1 && updateDownloading()) {
+            long[] state = AppUpdate.progress(this, id);
+            ring.state = UpdateRing.DOWNLOADING;
+            ring.progress = state[2] > 0 ? (float) state[1] / state[2] : 0;
+            label.setText("받는 중");
+            label.setTextColor(Color.rgb(14, 116, 144));
+            ring.postDelayed(this.updateRingPoll, 700);
+        } else if (this.updateChecking) {
+            ring.state = UpdateRing.CHECKING;
+            label.setText("확인 중");
+            label.setTextColor(Color.rgb(107, 114, 128));
+        } else if (this.pendingRelease != null && !AppUpdate.skipped(settingsPrefs(), this.pendingRelease.version)) {
+            ring.state = UpdateRing.NEW;
+            label.setText("새 버전");
+            label.setTextColor(Color.rgb(220, 38, 38));
+        } else {
+            ring.state = UpdateRing.OK;
+            label.setText("v" + AppUpdate.currentVersion(this));
+            label.setTextColor(Color.rgb(156, 163, 175));
         }
-        LinearLayout band = new LinearLayout(this);
-        band.setOrientation(0);
-        band.setGravity(16);
-        band.setPadding(dp(12), dp(10), dp(12), dp(10));
-        GradientDrawable background = rounded(Color.rgb(236, 254, 255), dp(14));
-        background.setStroke(dp(1), Color.rgb(103, 232, 249));
-        band.setBackground(background);
-        TextView icon = new TextView(this);
-        icon.setText("↓");
-        icon.setTextColor(-1);
-        icon.setTextSize(14.0f);
-        icon.setTypeface(Typeface.DEFAULT_BOLD);
-        icon.setGravity(17);
-        icon.setBackground(rounded(Color.rgb(22, 185, 207), dp(15)));
-        band.addView(icon, new LinearLayout.LayoutParams(dp(30), dp(30)));
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(1);
-        texts.setPadding(dp(10), 0, dp(8), 0);
-        TextView title = new TextView(this);
-        title.setText("새 버전 " + release.version + "이 있어요");
-        title.setTextColor(Color.rgb(21, 94, 117));
-        title.setTextSize(13.0f);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        texts.addView(title);
-        TextView sub = new TextView(this);
-        sub.setText("지금 " + AppUpdate.currentVersion(this) + (release.size > 0 ? " · " + AppUpdate.sizeText(release.size) : ""));
-        sub.setTextColor(Color.rgb(14, 116, 144));
-        sub.setTextSize(11.0f);
-        texts.addView(sub);
-        band.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
-        TextView go = new TextView(this);
-        go.setText("업데이트");
-        go.setTextColor(-1);
-        go.setTextSize(12.0f);
-        go.setTypeface(Typeface.DEFAULT_BOLD);
-        go.setPadding(dp(11), dp(7), dp(11), dp(7));
-        go.setBackground(rounded(Color.rgb(22, 185, 207), dp(10)));
-        band.addView(go);
-        band.setOnClickListener(view -> showUpdateDialog(release));
+        ring.invalidate();
+    }
+
+    private TextView popupRow(LinearLayout parent, String name, String value, View.OnClickListener onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(11), dp(9), dp(11), dp(9));
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(11)));
+        TextView label = new TextView(this);
+        label.setText(name);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextSize(12.5f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView shown = new TextView(this);
+        shown.setText(value);
+        shown.setTextColor(Color.rgb(75, 85, 99));
+        shown.setTextSize(11.5f);
+        row.addView(shown);
+        row.setOnClickListener(onClick);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.setMargins(0, 0, 0, dp(12));
-        slot.addView(band, params);
+        params.setMargins(0, dp(6), 0, 0);
+        parent.addView(row, params);
+        return shown;
+    }
+
+    // The small window under the icon: up to date (check now, daily check), a newer version
+    // (what changed, get it), or the download in progress.
+    private void showUpdatePopup(View anchor) {
+        long id = AppUpdate.downloadId(settingsPrefs());
+        if (id != -1 && updateDownloading()) {
+            String version = AppUpdate.downloadVersion(settingsPrefs());
+            showUpdateProgress(id, new AppUpdate.Release(version, "", "", 0));
+            return;
+        }
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(14), dp(14), dp(14), dp(12));
+        panel.setBackground(rounded(Color.WHITE, dp(18)));
+        panel.setElevation(dp(10));
+        final android.widget.PopupWindow popup = new android.widget.PopupWindow(panel, dp(260), -2, true);
+        popup.setBackgroundDrawable(new ColorDrawable(0));
+        popup.setElevation(dp(10));
+        TextView title = new TextView(this);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextSize(15.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setTextSize(11.5f);
+        sub.setPadding(0, dp(2), 0, 0);
+        panel.addView(sub);
+        AppUpdate.Release release = this.pendingRelease;
+        String current = AppUpdate.currentVersion(this);
+        if (release != null && AppUpdate.compare(release.version, current) > 0) {
+            title.setText("새 버전 " + release.version);
+            sub.setText("지금 " + current + (release.size > 0 ? " · " + AppUpdate.sizeText(release.size) : ""));
+            sub.setTextColor(Color.rgb(107, 114, 128));
+            if (!release.notes.isEmpty()) {
+                TextView notes = new TextView(this);
+                notes.setText("바뀐 점\n" + (release.notes.length() > 320 ? release.notes.substring(0, 320) + "…" : release.notes));
+                notes.setTextColor(Color.rgb(55, 65, 81));
+                notes.setTextSize(11.0f);
+                notes.setLineSpacing(0, 1.15f);
+                notes.setPadding(dp(11), dp(9), dp(11), dp(9));
+                notes.setBackground(rounded(Color.rgb(246, 247, 249), dp(11)));
+                LinearLayout.LayoutParams notesParams = new LinearLayout.LayoutParams(-1, -2);
+                notesParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(notes, notesParams);
+            }
+            LinearLayout buttons = new LinearLayout(this);
+            TextView later = new TextView(this);
+            later.setText("나중에");
+            later.setTextColor(Color.rgb(55, 65, 81));
+            later.setTextSize(13.0f);
+            later.setTypeface(Typeface.DEFAULT_BOLD);
+            later.setGravity(17);
+            later.setBackground(rounded(Color.rgb(241, 243, 245), dp(11)));
+            later.setOnClickListener(view -> popup.dismiss());
+            TextView get = new TextView(this);
+            get.setText("받기");
+            get.setTextColor(Color.WHITE);
+            get.setTextSize(13.0f);
+            get.setTypeface(Typeface.DEFAULT_BOLD);
+            get.setGravity(17);
+            get.setBackground(rounded(Color.rgb(22, 185, 207), dp(11)));
+            get.setOnClickListener(view -> {
+                popup.dismiss();
+                startUpdateDownload(release);
+            });
+            buttons.addView(later, new LinearLayout.LayoutParams(0, dp(38), 1.0f));
+            LinearLayout.LayoutParams getParams = new LinearLayout.LayoutParams(0, dp(38), 1.4f);
+            getParams.setMargins(dp(6), 0, 0, 0);
+            buttons.addView(get, getParams);
+            LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+            buttonsParams.setMargins(0, dp(10), 0, 0);
+            panel.addView(buttons, buttonsParams);
+            TextView skip = new TextView(this);
+            skip.setText("이 버전 건너뛰기");
+            skip.setTextColor(Color.rgb(156, 163, 175));
+            skip.setTextSize(11.0f);
+            skip.setGravity(17);
+            skip.setPadding(0, dp(8), 0, 0);
+            skip.setOnClickListener(view -> {
+                AppUpdate.skip(settingsPrefs(), release.version);
+                popup.dismiss();
+                refreshUpdateIcon();
+            });
+            panel.addView(skip, new LinearLayout.LayoutParams(-1, -2));
+        } else {
+            title.setText("앱 업데이트");
+            long last = AppUpdate.lastCheck(settingsPrefs());
+            sub.setText(last > 0 ? "✓ 최신 버전이에요 · " + current : "지금 " + current + " · 아직 확인하지 않았어요");
+            sub.setTextColor(last > 0 ? Color.rgb(22, 163, 74) : Color.rgb(107, 114, 128));
+            popupRow(panel, "지금 확인", "↻", view -> {
+                popup.dismiss();
+                checkForUpdate(true);
+            });
+            final TextView[] auto = new TextView[1];
+            auto[0] = popupRow(panel, "자동 확인", AppUpdate.autoCheck(settingsPrefs()) ? "켜짐 · 하루 한 번" : "꺼짐", view -> {
+                boolean on = !AppUpdate.autoCheck(settingsPrefs());
+                AppUpdate.setAutoCheck(settingsPrefs(), on);
+                auto[0].setText(on ? "켜짐 · 하루 한 번" : "꺼짐");
+            });
+            if (last > 0) {
+                TextView when = new TextView(this);
+                when.setText("마지막 확인: " + new SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(new Date(last)));
+                when.setTextColor(Color.rgb(156, 163, 175));
+                when.setTextSize(10.5f);
+                when.setPadding(0, dp(8), 0, 0);
+                panel.addView(when);
+            }
+        }
+        popup.showAsDropDown(anchor, -dp(260) + anchor.getWidth(), dp(4));
     }
 
     private void showUpdateDialog(AppUpdate.Release release) {
@@ -1262,7 +1479,7 @@ public final class MainActivity extends Activity {
                 .setMessage(message.toString())
                 .setNeutralButton("이 버전 건너뛰기", (d, w) -> {
                     AppUpdate.skip(settingsPrefs(), release.version);
-                    fillUpdateBanner();
+                    refreshUpdateIcon();
                 })
                 .setNegativeButton("나중에", null)
                 .setPositiveButton("받기", (d, w) -> startUpdateDownload(release)).show();
@@ -1277,6 +1494,7 @@ public final class MainActivity extends Activity {
             return;
         }
         showUpdateProgress(id, release);
+        refreshUpdateIcon();
     }
 
     private void showUpdateProgress(long id, AppUpdate.Release release) {
