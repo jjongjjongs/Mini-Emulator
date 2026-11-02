@@ -108,7 +108,7 @@ public final class MainActivity extends Activity {
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
             {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
-            {MODE_DC, "flycast", ".chd,.cdi", ".chd / .cdi", "roms_dc", "1025"},
+            {MODE_DC, "flycast", ".gdi,.chd,.cdi,.bin,.raw", ".gdi+트랙 / .chd / .cdi", "roms_dc", "1025"},
             // Naomi / Naomi 2 / Atomiswave arcade sets (MAME-named ZIPs, GD-ROM games with
             // their disc image beside them) on the same Flycast engine.
             {MODE_NAOMI, "flycast", ".zip,.chd,.gdi", "ROM .zip (+ .chd)", "roms_naomi", "1040"},
@@ -175,7 +175,7 @@ public final class MainActivity extends Activity {
     private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, "neogeo", "arcade"};
     private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
     private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
@@ -2753,6 +2753,20 @@ public final class MainActivity extends Activity {
         }
         Uri data = intent.getData();
         if (i == REQUEST_PICK_PATCH) {
+            if (this.patchRom != null && isDiscSheet(this.patchRom)) {
+                List<Uri> uris = new ArrayList<>();
+                android.content.ClipData clip = intent.getClipData();
+                for (int k = 0; clip != null && k < clip.getItemCount(); k++) {
+                    if (clip.getItemAt(k).getUri() != null) {
+                        uris.add(clip.getItemAt(k).getUri());
+                    }
+                }
+                if (uris.isEmpty() && data != null) {
+                    uris.add(data);
+                }
+                onDiscPatchesPicked(uris);
+                return;
+            }
             onPatchPicked(data);
             return;
         }
@@ -4240,7 +4254,7 @@ public final class MainActivity extends Activity {
         if (romDirFor(MODE_NAOMI).equals(dir) && !file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
             return false;
         }
-        return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_SS).equals(dir)) && isCueTrack(file));
+        return file.isFile() && isSupportedRom(file) && !((romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_SS).equals(dir) || romDirFor(MODE_DC).equals(dir)) && isCueTrack(file));
     }
 
     private LinearLayout createRomRow(final File file) {
@@ -4323,6 +4337,10 @@ public final class MainActivity extends Activity {
         sb.append("  |  게임: ").append(displayGameNameFor);
         if (patchedFrom != null) {
             sb.append("  |  원본: ").append(patchedFrom);
+            String patchedTracks = romPrefs().getString("patched_tracks:" + file.getName(), "");
+            if (!patchedTracks.isEmpty()) {
+                sb.append(" · 패치한 트랙 ").append(patchedTracks);
+            }
         }
         long max = Math.max(saveFileFor.exists() ? saveFileFor.lastModified() : 0L, stateFileFor.exists() ? stateFileFor.lastModified() : 0L);
         if (max > 0) {
@@ -4714,7 +4732,7 @@ public final class MainActivity extends Activity {
     private File patchRom;
 
     private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP,
-            MODE_PS1, MODE_PSP, MODE_PS2};
+            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC};
 
     // Cartridge games, and PS1 (BIN/CUE, ISO), PSP and PS2 (ISO) discs. Compressed images
     // (CHD, CSO, PBP) would have to be unpacked first; arcade sets are not patched here.
@@ -4724,10 +4742,15 @@ public final class MainActivity extends Activity {
             return false;
         }
         String name = file.getName().toLowerCase(Locale.ROOT);
+        // CD games with tracks: patched track by track (CUE: PS1, PC엔진 CD, 메가CD, 새턴; GDI: 드림캐스트).
         if (name.endsWith(".cue")) {
-            return MODE_PS1.equals(mode);
+            return MODE_PS1.equals(mode) || MODE_PCE.equals(mode) || MODE_MCD.equals(mode) || MODE_SS.equals(mode);
         }
-        return !(name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp") || name.endsWith(".m3u") || name.endsWith(".7z"));
+        if (name.endsWith(".gdi")) {
+            return MODE_DC.equals(mode);
+        }
+        return !(name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp") || name.endsWith(".m3u") || name.endsWith(".7z")
+                || name.endsWith(".ccd") || name.endsWith(".mds"));
     }
 
     // Why this game can't be patched, for the formats that look patchable but aren't.
@@ -5236,6 +5259,10 @@ public final class MainActivity extends Activity {
     }
 
     private void pickPatch(File file) {
+        if (isDiscSheet(file)) {
+            pickDiscPatches(file);
+            return;
+        }
         this.patchRom = file;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -5258,6 +5285,9 @@ public final class MainActivity extends Activity {
         List<String> cueLines;
         List<Integer> cueFileLines = new ArrayList<>();
         List<File> tracks = new ArrayList<>();
+        // A GDI sheet (드림캐스트) instead of a CUE; which tracks hold data (not music).
+        boolean gdi;
+        List<Boolean> dataTracks = new ArrayList<>();
     }
 
     private static final java.util.regex.Pattern CUE_FILE = java.util.regex.Pattern.compile("^(\\s*FILE\\s+)(\"([^\"]+)\"|(\\S+))(\\s+.*)$", java.util.regex.Pattern.CASE_INSENSITIVE);
@@ -5706,6 +5736,535 @@ public final class MainActivity extends Activity {
             }
         }
         return false;
+    }
+
+    // ---- Patches for disc games with several tracks (CUE: PS1 · PC엔진 CD · 메가CD · 새턴;
+    // GDI: 드림캐스트): each patch goes to its own track ("track5.bin에 적용"), found from the
+    // patch (BPS / UPS original CRC, how far an xdelta reads), its file name, or picked. ----
+    private static final java.util.regex.Pattern GDI_LINE = java.util.regex.Pattern.compile("^(\\s*\\d+\\s+\\d+\\s+(\\d+)\\s+\\d+\\s+)(\"([^\"]+)\"|(\\S+))(\\s+.*)?$");
+    private static final java.util.regex.Pattern TRACK_HINT = java.util.regex.Pattern.compile("(?i)track\\s*[_\\-]?\\s*0*(\\d{1,2})(?!\\d)");
+
+    private static final class DiscPatch {
+        String name;
+        File file;
+        RomPatcher.Big patch;
+        int format;
+        int track = -1;          // index into the source's tracks; -1 not decided
+        String reason = "";
+        boolean noMatch;         // the patch says none of the tracks is its original
+    }
+
+    private static boolean isDiscSheet(File file) {
+        String lower = file.getName().toLowerCase(Locale.ROOT);
+        return lower.endsWith(".cue") || lower.endsWith(".gdi");
+    }
+
+    // A GDI sheet: "count" then per track "number lba type sector-size file offset"; type 4 is data.
+    private PatchSource gdiSourceFor(File file) throws IOException {
+        PatchSource source = new PatchSource();
+        source.cue = file;
+        source.gdi = true;
+        source.extension = ".gdi";
+        source.cueLines = new ArrayList<>();
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(file), "ISO-8859-1"))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                java.util.regex.Matcher match = GDI_LINE.matcher(line);
+                if (!source.cueLines.isEmpty() && match.matches()) {
+                    String raw = match.group(4) != null ? match.group(4) : match.group(5);
+                    File track = new File(file.getParentFile(), new File(new String(raw.getBytes("ISO-8859-1"), "UTF-8")).getName());
+                    if (!track.isFile()) {
+                        throw new IOException("GDI에 적힌 트랙 파일(" + track.getName() + ")이 없어요. 트랙 파일도 함께 가져와 주세요.");
+                    }
+                    source.cueFileLines.add(source.cueLines.size());
+                    source.tracks.add(track);
+                    source.dataTracks.add("4".equals(match.group(2)));
+                }
+                source.cueLines.add(line);
+            }
+        }
+        if (source.tracks.isEmpty()) {
+            throw new IOException("GDI 파일에 트랙이 없어요.");
+        }
+        source.rom = source.tracks.get(0);
+        return source;
+    }
+
+    // Which tracks of a CUE sheet hold data (the TRACK line after each FILE line is not AUDIO).
+    private static void markCueDataTracks(PatchSource source) {
+        source.dataTracks.clear();
+        for (int k = 0; k < source.cueFileLines.size(); k++) {
+            int from = source.cueFileLines.get(k) + 1;
+            int to = k + 1 < source.cueFileLines.size() ? source.cueFileLines.get(k + 1) : source.cueLines.size();
+            boolean data = true;
+            for (int line = from; line < to; line++) {
+                String text = source.cueLines.get(line).trim().toUpperCase(Locale.ROOT);
+                if (text.startsWith("TRACK")) {
+                    data = !text.contains("AUDIO");
+                    break;
+                }
+            }
+            source.dataTracks.add(data);
+        }
+    }
+
+    private String trackLabel(PatchSource source, int k) {
+        boolean data = k < source.dataTracks.size() && source.dataTracks.get(k);
+        return String.format(Locale.ROOT, "Track %02d", k + 1) + " · " + source.tracks.get(k).getName() + " · " + formatSize(source.tracks.get(k).length())
+                + " · " + (data ? "데이터" : "음악");
+    }
+
+    // The track a patch belongs to, from what the patch says, then its name.
+    private void placeDiscPatch(DiscPatch item, PatchSource source) throws IOException {
+        boolean anyRejects = false;
+        int rejects = 0;
+        if (item.format == RomPatcher.BPS || item.format == RomPatcher.UPS || item.format == RomPatcher.PPF) {
+            for (int k = 0; k < source.tracks.size(); k++) {
+                RomPatcher.Check check = RomPatcher.check(item.patch, source.tracks.get(k));
+                if (check.sourceMatches > 0) {
+                    item.track = k;
+                    item.reason = "원본 CRC 일치";
+                    return;
+                }
+                if (check.sourceMatches < 0) {
+                    anyRejects = true;
+                    rejects++;
+                }
+            }
+            if (anyRejects && rejects == source.tracks.size()) {
+                item.noMatch = true;
+                item.reason = "이 디스크의 트랙과 맞지 않아요";
+                return;
+            }
+        }
+        if (item.format == RomPatcher.XDELTA) {
+            long end = RomPatcher.xdeltaSourceEnd(item.patch);
+            if (end > 0) {
+                int only = -1;
+                int count = 0;
+                for (int k = 0; k < source.tracks.size(); k++) {
+                    if (source.dataTracks.get(k) && source.tracks.get(k).length() >= end) {
+                        only = k;
+                        count++;
+                    }
+                }
+                if (count == 1) {
+                    item.track = only;
+                    item.reason = "원본 크기와 맞음";
+                    return;
+                }
+            }
+        }
+        java.util.regex.Matcher hint = TRACK_HINT.matcher(item.name);
+        if (hint.find()) {
+            int k = Integer.parseInt(hint.group(1)) - 1;
+            if (k >= 0 && k < source.tracks.size()) {
+                item.track = k;
+                item.reason = "파일 이름";
+                return;
+            }
+        }
+        if (source.tracks.size() == 1) {
+            item.track = 0;
+            item.reason = "트랙이 하나뿐";
+        }
+    }
+
+    private void pickDiscPatches(File file) {
+        this.patchRom = file;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        try {
+            startActivityForResult(intent, REQUEST_PICK_PATCH);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    private void onDiscPatchesPicked(final List<Uri> uris) {
+        final File file = this.patchRom;
+        if (file == null || uris.isEmpty()) {
+            return;
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("패치 파일과 트랙을 확인하는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            List<DiscPatch> items = new ArrayList<>();
+            PatchSource source = null;
+            String error = null;
+            try {
+                source = file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi") ? gdiSourceFor(file) : patchSourceFor(file);
+                if (!source.gdi) {
+                    markCueDataTracks(source);
+                }
+                for (int k = 0; k < uris.size(); k++) {
+                    DiscPatch item = new DiscPatch();
+                    String shown = displayNameFor(uris.get(k));
+                    item.name = shown == null ? "패치 " + (k + 1) : shown;
+                    item.file = new File(getCacheDir(), "patch_input_" + k);
+                    try (InputStream in = getContentResolver().openInputStream(uris.get(k)); OutputStream out = new FileOutputStream(item.file)) {
+                        if (in == null) {
+                            throw new IOException(item.name + "을(를) 열 수 없어요.");
+                        }
+                        byte[] buffer = new byte[1 << 16];
+                        int n;
+                        while ((n = in.read(buffer)) > 0) {
+                            out.write(buffer, 0, n);
+                        }
+                    }
+                    item.patch = RomPatcher.Big.map(item.file, 0, item.file.length(), false);
+                    item.format = RomPatcher.detect(item.patch);
+                    placeDiscPatch(item, source);
+                    items.add(item);
+                }
+            } catch (IOException e) {
+                error = e.getMessage();
+            } catch (OutOfMemoryError e) {
+                error = "패치 파일이 너무 커서 열 수 없어요.";
+            }
+            if (error != null) {
+                deleteDiscPatchFiles(items);
+            }
+            final PatchSource found = source;
+            final String why = error;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                showDiscPatchDialog(file, items, found);
+            });
+        }, "disc-patch-check").start();
+    }
+
+    private static void deleteDiscPatchFiles(List<DiscPatch> items) {
+        for (DiscPatch item : items) {
+            if (item.patch != null) {
+                item.patch.close();
+            }
+            if (item.file != null) {
+                item.file.delete();
+            }
+        }
+    }
+
+    private void showDiscPatchDialog(final File file, final List<DiscPatch> items, final PatchSource source) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.PATCH, RoundIconView.COLOR_PATCH), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("패치 적용");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        final String gameName = displayGameNameFor(file);
+        TextView sub = new TextView(this);
+        sub.setText(gameName + " · " + (source.gdi ? "GDI" : "CUE") + " 트랙 " + source.tracks.size() + "개");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        titles.addView(sub);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header);
+        TextView count = new TextView(this);
+        count.setText("패치 파일 " + items.size() + "개 · 줄을 누르면 트랙을 바꿔요");
+        count.setTextSize(12.0f);
+        count.setTypeface(Typeface.DEFAULT_BOLD);
+        count.setTextColor(Color.rgb(55, 65, 81));
+        count.setPadding(0, dp(12), 0, 0);
+        panel.addView(count);
+        final LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(1);
+        panel.addView(rows, new LinearLayout.LayoutParams(-1, -2));
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            rows.removeAllViews();
+            for (DiscPatch item : items) {
+                boolean open = item.track < 0;
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(1);
+                row.setPadding(dp(11), dp(9), dp(11), dp(9));
+                GradientDrawable background = rounded(open ? Color.rgb(255, 251, 235) : Color.rgb(246, 247, 249), dp(12));
+                if (open) {
+                    background.setStroke(dp(2), Color.rgb(245, 158, 11));
+                }
+                row.setBackground(background);
+                TextView name = new TextView(this);
+                name.setText(item.name + " · " + RomPatcher.formatName(item.format));
+                name.setTextSize(12.5f);
+                name.setTypeface(Typeface.DEFAULT_BOLD);
+                name.setTextColor(Color.rgb(31, 41, 51));
+                row.addView(name);
+                TextView target = new TextView(this);
+                if (open) {
+                    target.setText("→ 트랙 고르기 ▾ · " + (item.noMatch ? item.reason : "정해지지 않았어요"));
+                    target.setTextColor(Color.rgb(180, 83, 9));
+                } else {
+                    target.setText("→ " + trackLabel(source, item.track) + " · ✓ " + item.reason);
+                    target.setTextColor(Color.rgb(22, 101, 52));
+                }
+                target.setTextSize(11.0f);
+                row.addView(target);
+                row.setOnClickListener(view -> chooseTrack(item, source, render[0]));
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, dp(7), 0, 0);
+                rows.addView(row, rowParams);
+            }
+        };
+        render[0].run();
+        TextView nameLabel = new TextView(this);
+        nameLabel.setText("새 게임 이름");
+        nameLabel.setTextSize(12.0f);
+        nameLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        nameLabel.setTextColor(Color.rgb(55, 65, 81));
+        nameLabel.setPadding(0, dp(12), 0, 0);
+        panel.addView(nameLabel);
+        final EditText nameField = new EditText(this);
+        nameField.setSingleLine(true);
+        nameField.setText(gameName + " (한글)");
+        nameField.setTextSize(14.0f);
+        nameField.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable fieldBackground = rounded(-1, dp(10));
+        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Color.rgb(212, 215, 220));
+        nameField.setBackground(fieldBackground);
+        nameField.setPadding(dp(10), dp(8), dp(10), dp(8));
+        LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(-1, -2);
+        fieldParams.setMargins(0, dp(6), 0, 0);
+        panel.addView(nameField, fieldParams);
+        long total = 0;
+        for (File track : source.tracks) {
+            total += track.length();
+        }
+        long free = new android.os.StatFs(file.getParentFile().getAbsolutePath()).getAvailableBytes();
+        TextView note = new TextView(this);
+        note.setText("원본은 그대로 두고 새 게임으로 추가해요. 패치하지 않는 트랙은 그대로 복사돼요 (약 " + formatSize(total) + " 필요 · 남은 공간 " + formatSize(free) + "). 같은 트랙에 패치가 둘이면 고른 순서대로 이어서 적용해요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(14, 95, 107));
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(236, 254, 255), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView apply = new TextView(this);
+        apply.setText("패치 적용");
+        apply.setTextSize(15.0f);
+        apply.setTypeface(Typeface.DEFAULT_BOLD);
+        apply.setTextColor(-1);
+        apply.setGravity(17);
+        apply.setBackground(rounded(RoundIconView.COLOR_PATCH, dp(14)));
+        apply.setOnClickListener(view -> {
+            for (DiscPatch item : items) {
+                if (item.track < 0) {
+                    showError(item.name + "을(를) 어느 트랙에 적용할지 골라 주세요.");
+                    return;
+                }
+            }
+            String newName = nameField.getText().toString().trim();
+            if (newName.isEmpty()) {
+                showError("이름을 비워둘 수 없습니다.");
+                return;
+            }
+            this.patchRunning = true;
+            dialog.dismiss();
+            runDiscPatch(file, gameName, newName, items, source);
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        dialog.setOnDismissListener(d -> {
+            if (!this.patchRunning) {
+                deleteDiscPatchFiles(items);
+            }
+        });
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    // "어느 트랙에 적용할까요?": every track, the likely one first marked, music tracks last.
+    private void chooseTrack(DiscPatch item, PatchSource source, Runnable done) {
+        int suggested = item.track;
+        if (suggested < 0) {
+            // The biggest data track: where a translation usually goes.
+            long best = -1;
+            for (int k = 0; k < source.tracks.size(); k++) {
+                if (source.dataTracks.get(k) && source.tracks.get(k).length() > best) {
+                    best = source.tracks.get(k).length();
+                    suggested = k;
+                }
+            }
+        }
+        String[] names = new String[source.tracks.size()];
+        for (int k = 0; k < names.length; k++) {
+            names[k] = trackLabel(source, k) + (k == suggested ? "  · 추천" : "");
+        }
+        new AppDialog.Builder(this).setTitle("어느 트랙에 적용할까요?")
+                .setMessage(item.name + "\n안내문에 적힌 트랙을 고르세요 (예: track5.bin → Track 05).")
+                .setItems(names, (d, which) -> {
+                    item.track = which;
+                    item.noMatch = false;
+                    item.reason = "직접 고름";
+                    done.run();
+                })
+                .setNegativeButton("취소", null).show();
+    }
+
+    private void runDiscPatch(File file, String originalName, String newName, List<DiscPatch> items, PatchSource source) {
+        File dir = file.getParentFile();
+        String base = sanitizeSaveBaseName(newName);
+        boolean multi = source.tracks.size() > 1;
+        String chosen = base;
+        for (int k = 2; patchTargetsExist(dir, chosen, source, true, multi); k++) {
+            chosen = base + " " + k;
+        }
+        final String name = chosen;
+        final File out = new File(dir, name + (source.gdi ? ".gdi" : ".cue"));
+        long needed = 0;
+        for (File track : source.tracks) {
+            needed += track.length();
+        }
+        long free = new android.os.StatFs(dir.getAbsolutePath()).getAvailableBytes();
+        if (free < needed + 64L * 1024 * 1024) {
+            deleteDiscPatchFiles(items);
+            this.patchRunning = false;
+            showError("저장 공간이 부족해요. 패치한 복사본을 만들려면 " + formatSize(needed) + " 정도가 필요한데, 남은 공간은 " + formatSize(free) + "예요.");
+            return;
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage(needed > 512L * 1024 * 1024 ? "패치를 적용하는 중… 디스크가 커서 몇 분 걸릴 수 있어요" : "패치를 적용하는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String error = null;
+            List<File> written = new ArrayList<>();
+            java.util.TreeSet<Integer> patchedTracks = new java.util.TreeSet<>();
+            try {
+                for (int k = 0; k < source.tracks.size(); k++) {
+                    File target = new File(dir, trackName(name, k, source, multi));
+                    File current = source.tracks.get(k);
+                    boolean first = true;
+                    for (DiscPatch item : items) {
+                        if (item.track != k) {
+                            continue;
+                        }
+                        RomPatcher.Check check = RomPatcher.check(item.patch, current);
+                        if (check.sourceMatches < 0) {
+                            throw new IOException(item.name + "이(가) Track " + String.format(Locale.ROOT, "%02d", k + 1) + "과(와) 맞지 않아요. 안내문의 트랙과 원본 버전을 확인해 주세요.");
+                        }
+                        File temp = new File(dir, "." + target.getName() + ".patching");
+                        RomPatcher.apply(item.patch, current, check, temp);
+                        if (!first) {
+                            current.delete();
+                        }
+                        current = temp;
+                        first = false;
+                        patchedTracks.add(k + 1);
+                    }
+                    if (first) {
+                        if (!copyFile(current, target)) {
+                            throw new IOException("트랙 파일을 복사하지 못했어요.");
+                        }
+                    } else if (!current.renameTo(target)) {
+                        current.delete();
+                        throw new IOException("패치한 트랙을 저장하지 못했어요.");
+                    }
+                    written.add(target);
+                }
+                // The sheet with the new track names; other lines as they were (bytes kept).
+                List<String> lines = new ArrayList<>(source.cueLines);
+                java.util.Set<Integer> renamed = new java.util.HashSet<>();
+                for (int k = 0; k < source.tracks.size(); k++) {
+                    int index = source.cueFileLines.get(k);
+                    String track = trackName(name, k, source, multi);
+                    if (source.gdi) {
+                        java.util.regex.Matcher match = GDI_LINE.matcher(lines.get(index));
+                        if (match.matches()) {
+                            lines.set(index, match.group(1) + "\"" + track + "\"" + (match.group(6) == null ? "" : match.group(6)));
+                            renamed.add(index);
+                        }
+                    } else {
+                        java.util.regex.Matcher match = CUE_FILE.matcher(lines.get(index));
+                        if (match.matches()) {
+                            lines.set(index, match.group(1) + "\"" + track + "\"" + match.group(5));
+                            renamed.add(index);
+                        }
+                    }
+                }
+                try (OutputStream writer = new FileOutputStream(out)) {
+                    for (int k = 0; k < lines.size(); k++) {
+                        writer.write(lines.get(k).getBytes(renamed.contains(k) ? "UTF-8" : "ISO-8859-1"));
+                        writer.write(new byte[]{'\r', '\n'});
+                    }
+                }
+                written.add(out);
+            } catch (IOException e) {
+                error = e.getMessage();
+            } catch (OutOfMemoryError e) {
+                error = "메모리가 부족해서 패치하지 못했어요.";
+            } finally {
+                deleteDiscPatchFiles(items);
+            }
+            if (error != null) {
+                for (File f : written) {
+                    f.delete();
+                }
+            }
+            final String why = error;
+            final String tracksText = android.text.TextUtils.join(" · ", patchedTracks);
+            runOnUiThread(() -> {
+                this.patchRunning = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                romPrefs().edit().putString("title:" + out.getName(), newName).putString("patched:" + out.getName(), originalName)
+                        .putString("patched_tracks:" + out.getName(), tracksText).apply();
+                Toast.makeText(this, "패치 " + items.size() + "개를 적용했어요 (Track " + tracksText + ") · 목록에 추가됨", Toast.LENGTH_LONG).show();
+                refreshLibrary();
+            });
+        }, "disc-patch").start();
     }
 
     private String patchedFrom(File file) {
@@ -7342,6 +7901,16 @@ public final class MainActivity extends Activity {
         if (data == null) {
             return tracks;
         }
+        if (cue.getName().toLowerCase(Locale.US).endsWith(".gdi")) {
+            String[] lines = new String(data, StandardCharsets.UTF_8).split("\\r?\\n");
+            for (int k = 1; k < lines.length; k++) {
+                java.util.regex.Matcher g = GDI_LINE.matcher(lines[k]);
+                if (g.matches()) {
+                    tracks.add(new File(g.group(4) != null ? g.group(4) : g.group(5)).getName());
+                }
+            }
+            return tracks;
+        }
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?im)^\\s*FILE\\s+(?:\"([^\"]+)\"|(\\S+))").matcher(new String(data, StandardCharsets.UTF_8));
         while (m.find()) {
             String name = m.group(1) != null ? m.group(1) : m.group(2);
@@ -7354,10 +7923,10 @@ public final class MainActivity extends Activity {
     private static boolean isCueTrack(File file) {
         File dir = file.getParentFile();
         String lower = file.getName().toLowerCase(Locale.US);
-        if (dir == null || lower.endsWith(".cue")) {
+        if (dir == null || lower.endsWith(".cue") || lower.endsWith(".gdi")) {
             return false;
         }
-        File[] cues = dir.listFiles((d, name) -> name.toLowerCase(Locale.US).endsWith(".cue"));
+        File[] cues = dir.listFiles((d, name) -> name.toLowerCase(Locale.US).endsWith(".cue") || name.toLowerCase(Locale.US).endsWith(".gdi"));
         if (cues == null) {
             return false;
         }
@@ -7374,7 +7943,7 @@ public final class MainActivity extends Activity {
     // Deletes a game's file, and for a .cue sheet the tracks no other sheet uses.
     private boolean deleteRomFiles(File file) {
         List<File> tracks = new ArrayList<>();
-        if (file.getName().toLowerCase(Locale.US).endsWith(".cue")) {
+        if (isDiscSheet(file)) {
             for (String track : cueTracks(file)) {
                 tracks.add(new File(file.getParentFile(), track));
             }
@@ -7501,7 +8070,20 @@ public final class MainActivity extends Activity {
             return checkMegaDriveHeader(file);
         }
         if (MODE_DC.equals(mode)) {
-            // CHD images start with "MComprHD"; CDI images carry no signature at the start.
+            // CHD images start with "MComprHD"; CDI images carry no signature at the start;
+            // a GDI sheet lists its tracks.
+            if (file.getName().toLowerCase(Locale.US).endsWith(".gdi")) {
+                List<String> tracks = cueTracks(file);
+                if (tracks.isEmpty()) {
+                    return new RomCheck(false, "트랙이 적혀 있지 않은 .gdi");
+                }
+                for (String track : tracks) {
+                    if (!new File(file.getParentFile(), track).isFile()) {
+                        return new RomCheck(false, "트랙 파일 없음: " + track);
+                    }
+                }
+                return new RomCheck(true, "GDI 트랙 " + tracks.size() + "개 정상");
+            }
             if (file.getName().toLowerCase(Locale.US).endsWith(".chd")) {
                 byte[] head = readHead(file, 8);
                 return head != null && new String(head, StandardCharsets.ISO_8859_1).equals("MComprHD")

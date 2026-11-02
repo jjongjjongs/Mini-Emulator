@@ -377,6 +377,47 @@ final class RomPatcher {
     // xdelta3's id for LZMA secondary compression; DJW (1) and FGK (16) are not supported.
     private static final int SECONDARY_LZMA = 2;
 
+    // How far into the original an xdelta patch reads (the end of its furthest source window),
+    // or -1 when it reads none or cannot be parsed: a track shorter than this is not its original.
+    static long xdeltaSourceEnd(Big p) {
+        try {
+            int indicator = p.u8(4);
+            long[] at = {5};
+            if ((indicator & 0x01) != 0) {
+                at[0]++;
+            }
+            if ((indicator & 0x02) != 0) {
+                return -1;
+            }
+            if ((indicator & 0x04) != 0) {
+                long length = vcdInt(p, at);
+                at[0] += length;
+            }
+            long end = -1;
+            while (at[0] < p.size) {
+                int win = p.u8(at[0]++);
+                if ((win & 0x03) != 0) {
+                    long segLen = vcdInt(p, at);
+                    long segPos = vcdInt(p, at);
+                    if ((win & 0x01) != 0) {
+                        end = Math.max(end, segPos + segLen);
+                    }
+                }
+                vcdInt(p, at);
+                vcdInt(p, at);
+                at[0]++;
+                long sections = vcdInt(p, at) + vcdInt(p, at) + vcdInt(p, at);
+                if ((win & 0x04) != 0) {
+                    at[0] += 4;
+                }
+                at[0] += sections;
+            }
+            return end;
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
     private static void applyXdelta(Big p, Big src, File out) throws IOException {
         int indicator = p.u8(4);
         long[] at = {5};
