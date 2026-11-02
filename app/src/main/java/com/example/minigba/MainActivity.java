@@ -4341,6 +4341,10 @@ public final class MainActivity extends Activity {
             if (!patchedTracks.isEmpty()) {
                 sb.append(" · 패치한 트랙 ").append(patchedTracks);
             }
+            String patchedNote = romPrefs().getString("patched_note:" + file.getName(), "");
+            if (!patchedNote.isEmpty()) {
+                sb.append(" · ").append(patchedNote);
+            }
         }
         long max = Math.max(saveFileFor.exists() ? saveFileFor.lastModified() : 0L, stateFileFor.exists() ? stateFileFor.lastModified() : 0L);
         if (max > 0) {
@@ -4696,6 +4700,11 @@ public final class MainActivity extends Activity {
             patchParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createPatchRow(dialog, file), patchParams);
         }
+        if (isDcChd(file, mode)) {
+            LinearLayout.LayoutParams unpackParams = new LinearLayout.LayoutParams(-1, dp(52));
+            unpackParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createUnpackRow(dialog, file), unpackParams);
+        }
         if (MODE_PSP.equals(mode)) {
             LinearLayout.LayoutParams dlcParams = new LinearLayout.LayoutParams(-1, dp(52));
             dlcParams.setMargins(0, dp(9), 0, 0);
@@ -4749,6 +4758,9 @@ public final class MainActivity extends Activity {
         if (name.endsWith(".gdi")) {
             return MODE_DC.equals(mode);
         }
+        if (name.endsWith(".chd") && MODE_DC.equals(mode)) {
+            return true;  // unpacked to GDI first
+        }
         return !(name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp") || name.endsWith(".m3u") || name.endsWith(".7z")
                 || name.endsWith(".ccd") || name.endsWith(".mds"));
     }
@@ -4756,6 +4768,9 @@ public final class MainActivity extends Activity {
     // Why this game can't be patched, for the formats that look patchable but aren't.
     private String unpatchableReason(File file) {
         String name = file.getName().toLowerCase(Locale.ROOT);
+        if (isDcChd(file, modeForFile(file))) {
+            return null;
+        }
         if (name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp")) {
             return "압축된 디스크(" + name.substring(name.lastIndexOf('.') + 1).toUpperCase(Locale.ROOT)
                     + ")는 패치할 수 없어요. 패치는 보통 BIN/CUE나 ISO용이라, 그 형식의 원본이 필요해요.";
@@ -4799,7 +4814,7 @@ public final class MainActivity extends Activity {
         TextView value = new TextView(this);
         String mode = modeForFile(file);
         boolean disc = MODE_PS1.equals(mode) || MODE_PSP.equals(mode) || MODE_PS2.equals(mode);
-        value.setText(disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
+        value.setText(MODE_DC.equals(mode) ? "xdelta·.dcp  ›" : disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
         value.setTextColor(Color.rgb(122, 130, 140));
@@ -5259,6 +5274,10 @@ public final class MainActivity extends Activity {
     }
 
     private void pickPatch(File file) {
+        if (isDcChd(file, modeForFile(file))) {
+            showChdUnpack(file, true);
+            return;
+        }
         if (isDiscSheet(file)) {
             pickDiscPatches(file);
             return;
@@ -5379,6 +5398,10 @@ public final class MainActivity extends Activity {
             return;
         }
         final String patchName = displayNameFor(uri);
+        if (patchName != null && patchName.toLowerCase(Locale.ROOT).endsWith(".dcp")) {
+            showError(".dcp 패치는 드림캐스트 GDI 게임에만 적용할 수 있어요. CDI에는 xdelta 패치를 쓰고, CHD는 먼저 GDI로 풀어 주세요.");
+            return;
+        }
         final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
         progress.setMessage("패치 파일을 확인하는 중…");
         progress.setCancelable(false);
@@ -5901,6 +5924,50 @@ public final class MainActivity extends Activity {
                 if (!source.gdi) {
                     markCueDataTracks(source);
                 }
+                int dcps = 0;
+                for (Uri uri : uris) {
+                    String shown = displayNameFor(uri);
+                    if (shown != null && shown.toLowerCase(Locale.ROOT).endsWith(".dcp")) {
+                        dcps++;
+                    }
+                }
+                if (dcps > 0) {
+                    if (!source.gdi) {
+                        throw new IOException(".dcp 패치는 드림캐스트 GDI 게임에만 적용할 수 있어요.");
+                    }
+                    if (uris.size() > 1) {
+                        throw new IOException(".dcp 패치는 한 번에 하나만 골라 주세요 (다른 패치와 함께 고를 수 없어요).");
+                    }
+                    DiscPatch item = new DiscPatch();
+                    item.name = displayNameFor(uris.get(0));
+                    item.file = new File(getCacheDir(), "patch_input.dcp");
+                    try (InputStream in = getContentResolver().openInputStream(uris.get(0)); OutputStream out = new FileOutputStream(item.file)) {
+                        if (in == null) {
+                            throw new IOException(item.name + "을(를) 열 수 없어요.");
+                        }
+                        byte[] buffer = new byte[1 << 16];
+                        int n;
+                        while ((n = in.read(buffer)) > 0) {
+                            out.write(buffer, 0, n);
+                        }
+                    }
+                    final DcpPatcher.Plan plan;
+                    try {
+                        plan = DcpPatcher.inspect(file, item.file);
+                    } catch (IOException e) {
+                        item.file.delete();
+                        throw e;
+                    }
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed()) {
+                            item.file.delete();
+                            return;
+                        }
+                        progress.dismiss();
+                        showDcpDialog(file, item, plan);
+                    });
+                    return;
+                }
                 for (int k = 0; k < uris.size(); k++) {
                     DiscPatch item = new DiscPatch();
                     String shown = displayNameFor(uris.get(k));
@@ -6265,6 +6332,542 @@ public final class MainActivity extends Activity {
                 refreshLibrary();
             });
         }, "disc-patch").start();
+    }
+
+    // ---- 드림캐스트 CHD 풀기 · .dcp 패치 ----
+
+    private static boolean isDcChd(File file, String mode) {
+        return MODE_DC.equals(mode) && file.getName().toLowerCase(Locale.ROOT).endsWith(".chd");
+    }
+
+    private LinearLayout createUnpackRow(Dialog dialog, File file) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+        row.addView(new RoundIconView(this, RoundIconView.FOLDER, MODE_COLORS[modeIndex(MODE_DC)]), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText("GDI로 풀기");
+        label.setTextSize(14.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1.0f));
+        TextView value = new TextView(this);
+        value.setText(".gdi + 트랙  ›");
+        value.setTextSize(12.5f);
+        value.setTypeface(Typeface.DEFAULT_BOLD);
+        value.setTextColor(Color.rgb(122, 130, 140));
+        row.addView(value);
+        row.setClickable(true);
+        row.setOnClickListener(view -> {
+            dialog.dismiss();
+            showChdUnpack(file, false);
+        });
+        return row;
+    }
+
+    // A dialog of numbered steps with a bar, for work that takes minutes.
+    private final class StepDialog {
+        final Dialog dialog = new Dialog(MainActivity.this);
+        final android.widget.ProgressBar bar;
+        final TextView sub;
+        final TextView[] marks;
+        final TextView[] titles;
+        final TextView[] details;
+        final int color;
+        volatile boolean cancelled;
+
+        StepDialog(String title, String subtitle, int icon, int color, String[] steps, String[] stepDetails) {
+            this.color = color;
+            this.dialog.requestWindowFeature(1);
+            this.dialog.setCancelable(false);
+            LinearLayout panel = new LinearLayout(MainActivity.this);
+            panel.setOrientation(1);
+            panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+            panel.setBackground(rounded(-1, dp(24)));
+            LinearLayout header = new LinearLayout(MainActivity.this);
+            header.setGravity(16);
+            header.addView(new RoundIconView(MainActivity.this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+            LinearLayout texts = new LinearLayout(MainActivity.this);
+            texts.setOrientation(1);
+            TextView name = new TextView(MainActivity.this);
+            name.setText(title);
+            name.setTextSize(17.0f);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            texts.addView(name);
+            this.sub = new TextView(MainActivity.this);
+            this.sub.setText(subtitle);
+            this.sub.setTextSize(12.0f);
+            this.sub.setTextColor(Color.rgb(122, 130, 140));
+            texts.addView(this.sub);
+            LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            textsParams.setMargins(dp(10), 0, 0, 0);
+            header.addView(texts, textsParams);
+            panel.addView(header);
+            this.bar = new android.widget.ProgressBar(MainActivity.this, null, android.R.attr.progressBarStyleHorizontal);
+            this.bar.setMax(1000);
+            this.bar.setProgressTintList(android.content.res.ColorStateList.valueOf(color));
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, dp(10));
+            barParams.setMargins(0, dp(12), 0, dp(4));
+            panel.addView(this.bar, barParams);
+            this.marks = new TextView[steps.length];
+            this.titles = new TextView[steps.length];
+            this.details = new TextView[steps.length];
+            for (int k = 0; k < steps.length; k++) {
+                LinearLayout row = new LinearLayout(MainActivity.this);
+                row.setGravity(16);
+                this.marks[k] = new TextView(MainActivity.this);
+                this.marks[k].setGravity(17);
+                this.marks[k].setTextSize(11.0f);
+                this.marks[k].setTypeface(Typeface.DEFAULT_BOLD);
+                this.marks[k].setTextColor(-1);
+                row.addView(this.marks[k], new LinearLayout.LayoutParams(dp(22), dp(22)));
+                LinearLayout lines = new LinearLayout(MainActivity.this);
+                lines.setOrientation(1);
+                this.titles[k] = new TextView(MainActivity.this);
+                this.titles[k].setText(steps[k]);
+                this.titles[k].setTextSize(13.0f);
+                this.titles[k].setTypeface(Typeface.DEFAULT_BOLD);
+                lines.addView(this.titles[k]);
+                this.details[k] = new TextView(MainActivity.this);
+                this.details[k].setText(stepDetails[k]);
+                this.details[k].setTextSize(11.0f);
+                this.details[k].setTextColor(Color.rgb(107, 114, 128));
+                this.details[k].setSingleLine(true);
+                this.details[k].setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+                lines.addView(this.details[k]);
+                LinearLayout.LayoutParams linesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+                linesParams.setMargins(dp(10), 0, 0, 0);
+                row.addView(lines, linesParams);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(row, rowParams);
+            }
+            TextView note = new TextView(MainActivity.this);
+            note.setText("다른 앱으로 넘어가도 계속돼요. 취소하면 만들던 파일은 지워요.");
+            note.setTextSize(11.5f);
+            note.setTextColor(Color.rgb(75, 85, 99));
+            note.setPadding(dp(12), dp(9), dp(12), dp(9));
+            note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+            LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+            noteParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(note, noteParams);
+            TextView cancel = new TextView(MainActivity.this);
+            cancel.setText("취소");
+            cancel.setTextSize(15.0f);
+            cancel.setTypeface(Typeface.DEFAULT_BOLD);
+            cancel.setTextColor(Color.rgb(75, 85, 99));
+            cancel.setGravity(17);
+            cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
+            cancel.setOnClickListener(view -> {
+                this.cancelled = true;
+                cancel.setText("취소하는 중…");
+            });
+            LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(46));
+            cancelParams.setMargins(0, dp(12), 0, 0);
+            panel.addView(cancel, cancelParams);
+            this.dialog.setContentView(panel);
+            Window window = this.dialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawable(new ColorDrawable(0));
+                window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+            set(0, null, 0);
+            this.dialog.show();
+        }
+
+        // Step "current" (0-based) is running; the ones before are done.
+        void set(int current, String detail, int permille) {
+            for (int k = 0; k < this.marks.length; k++) {
+                boolean done = k < current;
+                boolean now = k == current;
+                this.marks[k].setText(done ? "✓" : now ? "…" : String.valueOf(k + 1));
+                this.marks[k].setBackground(rounded(done ? Color.rgb(22, 163, 74) : now ? this.color : Color.rgb(203, 213, 225), dp(11)));
+                this.titles[k].setTextColor(done || now ? Color.rgb(31, 41, 51) : Color.rgb(156, 163, 175));
+            }
+            if (detail != null && current < this.details.length) {
+                this.details[current].setText(detail);
+            }
+            this.bar.setProgress(permille);
+        }
+
+        void dismiss() {
+            if (this.dialog.isShowing()) {
+                this.dialog.dismiss();
+            }
+        }
+    }
+
+    // "패치하려면 GDI로 풀어야 해요" / "GDI로 풀기": how big it gets, then unpack.
+    private void showChdUnpack(final File chd, final boolean thenPatch) {
+        if (!ChdGdi.load()) {
+            showError("이 기기에서 CHD 풀기를 쓸 수 없어요.");
+            return;
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("CHD를 확인하는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String[] error = new String[1];
+            long[] info = ChdGdi.info(chd.getAbsolutePath(), error);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (info == null) {
+                    showError(error[0] == null ? "CHD를 읽지 못했어요." : error[0]);
+                    return;
+                }
+                showChdUnpackDialog(chd, thenPatch, info[0], (int) info[1]);
+            });
+        }, "chd-info").start();
+    }
+
+    private void showChdUnpackDialog(final File chd, final boolean thenPatch, final long bytes, final int tracks) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        int color = MODE_COLORS[modeIndex(MODE_DC)];
+        cardHeader(panel, RoundIconView.FOLDER, color, thenPatch ? "패치하려면 GDI로 풀어야 해요" : "GDI로 풀기",
+                displayGameNameFor(chd) + " · CHD · 트랙 " + tracks + "개");
+        TextView text = new TextView(this);
+        text.setText(thenPatch ? "CHD는 압축돼 있어서 트랙에 바로 패치할 수 없어요. 먼저 GDI로 풀고, 이어서 패치 창(트랙 고르기 · .dcp)으로 넘어가요."
+                : "CHD를 .gdi와 트랙 파일로 풀어서 목록에 새 게임으로 추가해요. 풀어 두면 트랙별 패치와 .dcp 패치를 쓸 수 있어요.");
+        text.setTextSize(13.0f);
+        text.setTextColor(Color.rgb(55, 65, 81));
+        text.setLineSpacing(0, 1.15f);
+        text.setPadding(0, dp(10), 0, 0);
+        panel.addView(text);
+        long free = new android.os.StatFs(chd.getParentFile().getAbsolutePath()).getAvailableBytes();
+        final boolean fits = free > bytes + 64L * 1024 * 1024;
+        TextView sizes = new TextView(this);
+        sizes.setText("풀면 크기: 약 " + formatSize(bytes) + " (CHD " + formatSize(chd.length()) + ")\n남은 공간: " + formatSize(free) + (fits ? " ✓" : " · 부족해요")
+                + "\n걸리는 시간: " + (bytes > 600L * 1024 * 1024 ? "1~3분" : "1분 안쪽"));
+        sizes.setTextSize(12.0f);
+        sizes.setTextColor(fits ? Color.rgb(55, 65, 81) : Color.rgb(185, 28, 28));
+        sizes.setLineSpacing(0, 1.2f);
+        sizes.setPadding(dp(12), dp(9), dp(12), dp(9));
+        sizes.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams sizesParams = new LinearLayout.LayoutParams(-1, -2);
+        sizesParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(sizes, sizesParams);
+        final android.widget.CheckBox remove = new android.widget.CheckBox(this);
+        remove.setText("풀고 나서 원본 CHD 지우기");
+        remove.setTextSize(13.0f);
+        remove.setTextColor(Color.rgb(55, 65, 81));
+        remove.setChecked(false);
+        LinearLayout.LayoutParams removeParams = new LinearLayout.LayoutParams(-1, -2);
+        removeParams.setMargins(0, dp(6), 0, 0);
+        panel.addView(remove, removeParams);
+        TextView note = new TextView(this);
+        note.setText("푼 게임은 목록에 따로 추가되고 세이브도 따로예요. CHD 원본은 지우지 않으면 그대로 남아요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(146, 64, 14));
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(255, 251, 235), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(6), 0, 0);
+        panel.addView(note, noteParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView go = new TextView(this);
+        go.setText(thenPatch ? "풀고 패치하기" : "GDI로 풀기");
+        go.setTextSize(15.0f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setTextColor(-1);
+        go.setGravity(17);
+        go.setBackground(rounded(color, dp(14)));
+        go.setOnClickListener(view -> {
+            if (!fits) {
+                showError("저장 공간이 부족해요. 풀려면 " + formatSize(bytes) + " 정도가 필요해요.");
+                return;
+            }
+            dialog.dismiss();
+            runChdUnpack(chd, thenPatch, remove.isChecked(), bytes, tracks);
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        goParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(go, goParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    // A free name for a new GDI game in dir: neither the sheet nor any of its tracks exist.
+    private static String freeGdiName(File dir, String base) {
+        String chosen = base;
+        for (int k = 2; ; k++) {
+            boolean taken = new File(dir, chosen + ".gdi").exists();
+            for (int t = 1; !taken && t <= 99; t++) {
+                for (String extension : new String[]{".bin", ".raw", ".iso"}) {
+                    if (new File(dir, String.format(Locale.ROOT, "%s (Track %02d)%s", chosen, t, extension)).exists()) {
+                        taken = true;
+                    }
+                }
+            }
+            if (!taken) {
+                return chosen;
+            }
+            chosen = base + " " + k;
+        }
+    }
+
+    private void runChdUnpack(final File chd, final boolean thenPatch, final boolean removeChd, final long bytes, final int tracks) {
+        final File dir = chd.getParentFile();
+        final String title = displayGameNameFor(chd);
+        final String name = freeGdiName(dir, sanitizeSaveBaseName(title));
+        final StepDialog steps = new StepDialog("GDI로 푸는 중", title + " · " + formatSize(bytes), RoundIconView.FOLDER, MODE_COLORS[modeIndex(MODE_DC)],
+                thenPatch ? new String[]{"CHD 확인", "트랙 풀기", "GDI 저장", "패치 창 열기"} : new String[]{"CHD 확인", "트랙 풀기", "GDI 저장"},
+                thenPatch ? new String[]{"GD-ROM · 트랙 " + tracks + "개", "", name + ".gdi", "트랙 고르기 · .dcp"} : new String[]{"GD-ROM · 트랙 " + tracks + "개", "", name + ".gdi"});
+        steps.set(1, "0%", 0);
+        new Thread(() -> {
+            final long[] last = {0};
+            String error = ChdGdi.convert(chd.getAbsolutePath(), dir.getAbsolutePath(), name, (done, total) -> {
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - last[0] > 200) {
+                    last[0] = now;
+                    final int permille = (int) (done * 1000 / Math.max(1, total));
+                    runOnUiThread(() -> steps.set(1, formatSize(done) + " / " + formatSize(total) + " · " + permille / 10 + "%", permille));
+                }
+                return !steps.cancelled;
+            });
+            final File gdi = new File(dir, name + ".gdi");
+            runOnUiThread(() -> {
+                steps.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (error != null) {
+                    if (!steps.cancelled) {
+                        showError(error);
+                    }
+                    return;
+                }
+                romPrefs().edit().putString("title:" + gdi.getName(), title).apply();
+                if (removeChd) {
+                    deleteRomFiles(chd);
+                }
+                refreshLibrary();
+                Toast.makeText(this, "GDI로 풀었어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
+                if (thenPatch) {
+                    pickDiscPatches(gdi);
+                }
+            });
+        }, "chd-unpack").start();
+    }
+
+    private void showDcpDialog(final File gdi, final DiscPatch item, final DcpPatcher.Plan plan) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        final int violet = Color.rgb(124, 58, 237);
+        final String gameName = displayGameNameFor(gdi);
+        cardHeader(panel, RoundIconView.PATCH, violet, "패치 적용 · .dcp", gameName + " · GDI");
+        StringBuilder what = new StringBuilder();
+        what.append(item.name).append(" · ").append(formatSize(item.file.length())).append("\nUniversal Dreamcast Patcher 형식");
+        if (plan.replaced > 0) {
+            what.append("\n· 디스크 안 파일 ").append(plan.replaced).append("개 바꾸기");
+        }
+        if (plan.patched > 0) {
+            what.append("\n· 파일 ").append(plan.patched).append("개 고치기 (xdelta)");
+        }
+        if (plan.added > 0) {
+            what.append("\n· 새 파일 ").append(plan.added).append("개 넣기");
+        }
+        if (plan.ipBin) {
+            what.append("\n· 부트 정보(IP.BIN) 바꾸기");
+        }
+        if (!plan.files.isEmpty()) {
+            what.append("\n(").append(android.text.TextUtils.join(", ", plan.files.subList(0, Math.min(3, plan.files.size())))).append(plan.files.size() > 3 ? " …)" : ")");
+        }
+        TextView box = new TextView(this);
+        box.setText(what.toString());
+        box.setTextSize(12.0f);
+        box.setTextColor(Color.rgb(76, 29, 149));
+        box.setLineSpacing(0, 1.2f);
+        box.setPadding(dp(12), dp(10), dp(12), dp(10));
+        box.setBackground(rounded(Color.rgb(245, 243, 255), dp(12)));
+        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(-1, -2);
+        boxParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(box, boxParams);
+        long free = new android.os.StatFs(gdi.getParentFile().getAbsolutePath()).getAvailableBytes();
+        final boolean fits = free > plan.needed;
+        TextView checks = new TextView(this);
+        checks.setText("✓ 원본 GDI의 파일 목록을 읽었어요\n✓ 패치가 고치는 파일이 원본 디스크에 모두 있어요\n" + (fits ? "✓" : "✕") + " 남은 공간 (약 "
+                + formatSize(plan.needed) + " 필요 · " + formatSize(free) + " 남음)\n⏱ 디스크를 다시 만드는 데 1~3분 걸려요");
+        checks.setTextSize(12.0f);
+        checks.setTextColor(fits ? Color.rgb(55, 65, 81) : Color.rgb(185, 28, 28));
+        checks.setLineSpacing(0, 1.2f);
+        checks.setPadding(dp(12), dp(9), dp(12), dp(9));
+        checks.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams checksParams = new LinearLayout.LayoutParams(-1, -2);
+        checksParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(checks, checksParams);
+        TextView nameLabel = new TextView(this);
+        nameLabel.setText("새 게임 이름");
+        nameLabel.setTextSize(12.0f);
+        nameLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        nameLabel.setTextColor(Color.rgb(55, 65, 81));
+        nameLabel.setPadding(0, dp(12), 0, 0);
+        panel.addView(nameLabel);
+        final EditText nameField = new EditText(this);
+        nameField.setSingleLine(true);
+        nameField.setText(gameName + " (한글)");
+        nameField.setTextSize(14.0f);
+        nameField.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable fieldBackground = rounded(-1, dp(10));
+        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Color.rgb(212, 215, 220));
+        nameField.setBackground(fieldBackground);
+        nameField.setPadding(dp(10), dp(8), dp(10), dp(8));
+        LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(-1, -2);
+        fieldParams.setMargins(0, dp(6), 0, 0);
+        panel.addView(nameField, fieldParams);
+        TextView note = new TextView(this);
+        note.setText(".dcp는 트랙에 덮어쓰는 패치가 아니라, 디스크 안의 파일을 바꿔 끼우고 데이터 트랙을 새로 만드는 방식이에요. 원본은 그대로예요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(91, 33, 182));
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(245, 243, 255), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView apply = new TextView(this);
+        apply.setText("패치 적용");
+        apply.setTextSize(15.0f);
+        apply.setTypeface(Typeface.DEFAULT_BOLD);
+        apply.setTextColor(-1);
+        apply.setGravity(17);
+        apply.setBackground(rounded(violet, dp(14)));
+        apply.setOnClickListener(view -> {
+            String newName = nameField.getText().toString().trim();
+            if (newName.isEmpty()) {
+                showError("이름을 비워둘 수 없습니다.");
+                return;
+            }
+            if (!fits) {
+                showError("저장 공간이 부족해요. 패치한 디스크를 만들려면 " + formatSize(plan.needed) + " 정도가 필요해요.");
+                return;
+            }
+            this.patchRunning = true;
+            dialog.dismiss();
+            runDcp(gdi, gameName, newName, item, plan);
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        dialog.setOnDismissListener(d -> {
+            if (!this.patchRunning) {
+                item.file.delete();
+            }
+        });
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    private void runDcp(final File gdi, final String originalName, final String newName, final DiscPatch item, final DcpPatcher.Plan plan) {
+        final File dir = gdi.getParentFile();
+        final String name = freeGdiName(dir, sanitizeSaveBaseName(newName));
+        final StepDialog steps = new StepDialog("디스크 다시 만드는 중", newName, RoundIconView.PATCH, Color.rgb(124, 58, 237),
+                new String[]{"원본 디스크 읽기", "파일 바꿔 끼우기", "데이터 트랙 다시 만들기", "GDI로 저장"},
+                new String[]{"파일 목록", (plan.replaced + plan.added + plan.patched) + "개" + (plan.ipBin ? " · IP.BIN" : ""), "", "음악 · 앞쪽 트랙은 그대로 복사"});
+        new Thread(() -> {
+            final long[] last = {0};
+            String error = null;
+            File out = null;
+            try {
+                out = DcpPatcher.apply(gdi, item.file, dir, name, new File(dir, "." + name + ".dcpwork"), (stage, done, total, detail) -> {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - last[0] > 200 || done == total) {
+                        last[0] = now;
+                        // Rough weights: reading 2%, swapping 8%, data 75%, copying 15%.
+                        double[] from = {0, 0, 0.02, 0.10, 0.85};
+                        double[] span = {0, 0.02, 0.08, 0.75, 0.15};
+                        final int permille = (int) (1000 * (from[stage] + span[stage] * done / Math.max(1, total)));
+                        final String text = stage == 2 && detail != null && !detail.isEmpty() ? detail
+                                : stage == 3 ? formatSize(done * 2048) + " / " + formatSize(total * 2048) : null;
+                        runOnUiThread(() -> steps.set(stage - 1, text, permille));
+                    }
+                    return !steps.cancelled;
+                });
+            } catch (IOException e) {
+                error = e.getMessage();
+            } catch (OutOfMemoryError e) {
+                error = "메모리가 부족해서 패치하지 못했어요.";
+            } finally {
+                item.file.delete();
+            }
+            final String why = error;
+            final File sheet = out;
+            runOnUiThread(() -> {
+                this.patchRunning = false;
+                steps.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (why != null) {
+                    if (!steps.cancelled) {
+                        showError(why);
+                    }
+                    return;
+                }
+                romPrefs().edit().putString("title:" + sheet.getName(), newName).putString("patched:" + sheet.getName(), originalName)
+                        .putString("patched_note:" + sheet.getName(), ".dcp 패치").apply();
+                Toast.makeText(this, ".dcp 패치를 적용했어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
+                refreshLibrary();
+            });
+        }, "dcp-patch").start();
     }
 
     private String patchedFrom(File file) {
