@@ -364,6 +364,52 @@ final class Covers {
         return tmp.renameTo(cover);
     }
 
+    // A picture from the web (an http(s) address, or a data: URI the page holds inline), at
+    // most 16 MB; null when it can't be had. Off the main thread.
+    static byte[] fetchImage(String address) throws IOException {
+        if (address.startsWith("data:")) {
+            int comma = address.indexOf(',');
+            if (comma < 0 || !address.substring(0, comma).contains(";base64")) {
+                return null;
+            }
+            return android.util.Base64.decode(address.substring(comma + 1), android.util.Base64.DEFAULT);
+        }
+        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(20000);
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36");
+        try {
+            if (connection.getResponseCode() != 200) {
+                return null;
+            }
+            try (InputStream in = connection.getInputStream()) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[16384];
+                int read;
+                while ((read = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, read);
+                    if (out.size() > 16 * 1024 * 1024) {
+                        return null;
+                    }
+                }
+                return out.toByteArray();
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    // A picture already cropped by the player, as this game's cover.
+    static boolean setCustomBitmap(Context context, File rom, Bitmap bitmap) {
+        Context app = context.getApplicationContext();
+        boolean ok = save(app, rom, bitmap);
+        if (ok) {
+            prefs(app).edit().putString(key(rom), "custom").apply();
+        }
+        return ok;
+    }
+
     // A picture the player chose (from the gallery or files) as this game's cover.
     static void setCustom(Context context, File rom, android.net.Uri uri, Runnable onDone, Runnable onFail) {
         Context app = context.getApplicationContext();

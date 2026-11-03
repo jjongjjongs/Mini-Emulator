@@ -8,6 +8,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -4740,6 +4741,277 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // ---- 게임 표지 · 구글 이미지에서 고르기: Google image search in a small browser; a picture
+    // long-pressed (or the biggest one on screen, after opening it large) becomes the cover,
+    // cropped to the chosen shape. ----
+
+    private static final String BIGGEST_IMAGE_JS = "(function(){var best=null,area=0,h=window.innerHeight,w=window.innerWidth;"
+            + "var imgs=document.getElementsByTagName('img');for(var i=0;i<imgs.length;i++){var r=imgs[i].getBoundingClientRect();"
+            + "var vw=Math.min(r.right,w)-Math.max(r.left,0),vh=Math.min(r.bottom,h)-Math.max(r.top,0);if(vw<=40||vh<=40)continue;"
+            + "var a=vw*vh;var s=imgs[i].currentSrc||imgs[i].src;if(s&&a>area){area=a;best=s;}}return best;})()";
+
+    private String coverQuery(File file) {
+        String mode = modeForFile(file);
+        String console = MODE_PSP.equals(mode) ? "PSP" : MODE_PS1.equals(mode) ? "PS1" : MODE_PS2.equals(mode) ? "PS2" : MODE_NDS.equals(mode) ? "Nintendo DS"
+                : MODE_GBA.equals(mode) ? "GBA" : MODE_SNES.equals(mode) ? "Super Famicom" : MODE_NES.equals(mode) ? "Famicom" : MODE_N64.equals(mode) ? "N64"
+                : MODE_DC.equals(mode) ? "Dreamcast" : MODE_SS.equals(mode) ? "Saturn" : MODE_GC.equals(mode) ? "GameCube" : MODE_N3DS.equals(mode) ? "3DS"
+                : MODE_NAMES[modeIndex(mode)];
+        String name = displayGameNameFor(file).replaceAll("\\s*[\\(\\[][^\\)\\]]*[\\)\\]]", "").trim();
+        return name + " " + console;
+    }
+
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    private void showCoverWebSearch(final File file) {
+        final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_Light_NoActionBar);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(1);
+        root.setBackgroundColor(Color.WHITE);
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(1);
+        top.setPadding(dp(10), dp(10), dp(10), dp(8));
+        LinearLayout searchRow = new LinearLayout(this);
+        searchRow.setGravity(16);
+        TextView close = new TextView(this);
+        close.setText("✕");
+        close.setTextSize(18.0f);
+        close.setTextColor(Color.rgb(55, 65, 81));
+        close.setPadding(dp(8), dp(4), dp(10), dp(4));
+        close.setOnClickListener(view -> dialog.dismiss());
+        searchRow.addView(close);
+        final EditText query = new EditText(this);
+        query.setSingleLine(true);
+        query.setText(coverQuery(file) + " cover");
+        query.setTextSize(13.5f);
+        query.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        query.setBackground(rounded(Color.rgb(241, 243, 244), dp(18)));
+        query.setPadding(dp(14), dp(8), dp(14), dp(8));
+        searchRow.addView(query, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView go = new TextView(this);
+        go.setText("검색");
+        go.setTextSize(13.5f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setTextColor(Color.rgb(26, 115, 232));
+        go.setPadding(dp(12), dp(6), dp(6), dp(6));
+        searchRow.addView(go);
+        top.addView(searchRow);
+        android.widget.HorizontalScrollView chipScroll = new android.widget.HorizontalScrollView(this);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        chipScroll.addView(chips);
+        LinearLayout.LayoutParams chipsParams = new LinearLayout.LayoutParams(-1, -2);
+        chipsParams.setMargins(0, dp(8), 0, 0);
+        top.addView(chipScroll, chipsParams);
+        root.addView(top);
+        final android.webkit.WebView web = new android.webkit.WebView(this);
+        web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setDomStorageEnabled(true);
+        web.setWebViewClient(new android.webkit.WebViewClient());
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(1);
+        bottom.setPadding(dp(12), dp(8), dp(12), dp(12));
+        bottom.setBackgroundColor(Color.rgb(17, 24, 39));
+        TextView hint = new TextView(this);
+        hint.setText("사진을 길게 누르거나, 눌러서 크게 연 다음 아래 버튼을 눌러요");
+        hint.setTextSize(11.5f);
+        hint.setTextColor(Color.rgb(209, 213, 219));
+        bottom.addView(hint);
+        TextView use = multiDeleteButton("이 사진을 표지로 (화면에서 가장 큰 사진)", Color.rgb(251, 146, 60), -1);
+        use.setTextSize(13.5f);
+        LinearLayout.LayoutParams useParams = new LinearLayout.LayoutParams(-1, dp(44));
+        useParams.setMargins(0, dp(8), 0, 0);
+        bottom.addView(use, useParams);
+        root.addView(bottom);
+        final Runnable search = () -> {
+            String text = query.getText().toString().trim();
+            if (text.isEmpty()) {
+                return;
+            }
+            try {
+                web.loadUrl("https://www.google.com/search?tbm=isch&q=" + java.net.URLEncoder.encode(text, "UTF-8"));
+            } catch (java.io.UnsupportedEncodingException ignored) {
+                // UTF-8 is always there.
+            }
+            android.view.inputmethod.InputMethodManager input = (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (input != null) {
+                input.hideSoftInputFromWindow(query.getWindowToken(), 0);
+            }
+        };
+        String base = coverQuery(file);
+        String[][] words = {{"cover", " cover"}, {"box art", " box art"}, {"표지", " 표지"}, {"한국판", " 한국판 표지"}};
+        for (final String[] word : words) {
+            TextView chip = multiDeleteChip(word[0]);
+            chip.setOnClickListener(view -> {
+                query.setText(base + word[1]);
+                search.run();
+            });
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(0, 0, dp(6), 0);
+            chips.addView(chip, chipParams);
+        }
+        go.setOnClickListener(view -> search.run());
+        query.setOnEditorActionListener((view, action, event) -> {
+            search.run();
+            return true;
+        });
+        web.setOnLongClickListener(view -> {
+            android.webkit.WebView.HitTestResult hit = web.getHitTestResult();
+            if (hit != null && (hit.getType() == android.webkit.WebView.HitTestResult.IMAGE_TYPE
+                    || hit.getType() == android.webkit.WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) && hit.getExtra() != null) {
+                loadCoverCandidate(file, hit.getExtra(), dialog);
+                return true;
+            }
+            return false;
+        });
+        use.setOnClickListener(view -> web.evaluateJavascript(BIGGEST_IMAGE_JS, value -> {
+            String src = value == null || "null".equals(value) ? null : value;
+            if (src != null && src.length() >= 2 && src.startsWith("\"")) {
+                src = src.substring(1, src.length() - 1).replace("\\u003d", "=").replace("\\u0026", "&").replace("\\/", "/");
+            }
+            if (src == null || src.isEmpty()) {
+                showMessage("화면에서 사진을 찾지 못했어요. 사진을 길게 눌러 골라 주세요.");
+                return;
+            }
+            loadCoverCandidate(file, src, dialog);
+        }));
+        dialog.setContentView(root);
+        dialog.setOnDismissListener(d -> web.destroy());
+        dialog.show();
+        search.run();
+    }
+
+    private void loadCoverCandidate(final File file, final String address, final Dialog browser) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("사진을 받는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            Bitmap bitmap = null;
+            String host = "";
+            try {
+                if (!address.startsWith("data:")) {
+                    host = Uri.parse(address).getHost();
+                }
+                byte[] data = Covers.fetchImage(address);
+                if (data != null) {
+                    android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+                    options.inJustDecodeBounds = true;
+                    android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, options);
+                    options.inSampleSize = 1;
+                    while (Math.max(options.outWidth, options.outHeight) / (options.inSampleSize * 2) >= 1400) {
+                        options.inSampleSize *= 2;
+                    }
+                    options.inJustDecodeBounds = false;
+                    bitmap = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, options);
+                }
+            } catch (IOException | RuntimeException e) {
+                bitmap = null;
+            }
+            final Bitmap picture = bitmap;
+            final String from = host == null || host.isEmpty() ? "구글 이미지 미리보기" : host;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (picture == null) {
+                    showError("이 사진은 받을 수 없어요. 사진을 눌러 크게 연 다음 다시 골라 보세요.");
+                    return;
+                }
+                showCoverCrop(file, picture, from, browser);
+            });
+        }, "cover-web").start();
+    }
+
+    private void showCoverCrop(final File file, final Bitmap picture, String from, final Dialog browser) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        TextView title = new TextView(this);
+        title.setText("이 사진을 표지로 쓸까요?");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(17, 24, 39));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        boolean small = Math.max(picture.getWidth(), picture.getHeight()) < 300;
+        sub.setText(picture.getWidth() + " × " + picture.getHeight() + " · " + from + (small ? " · 작은 미리보기예요. 크게 연 다음 고르면 더 선명해요" : ""));
+        sub.setTextSize(11.5f);
+        sub.setTextColor(small ? Color.rgb(180, 83, 9) : Color.rgb(107, 114, 128));
+        panel.addView(sub);
+        final CropView crop = new CropView(this, picture);
+        crop.setBackground(rounded(Color.rgb(17, 24, 39), dp(12)));
+        LinearLayout.LayoutParams cropParams = new LinearLayout.LayoutParams(-1, dp(300));
+        cropParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(crop, cropParams);
+        TextView tip = new TextView(this);
+        tip.setText("점선 칸을 끌어서 맞춰요");
+        tip.setTextSize(11.0f);
+        tip.setTextColor(Color.rgb(107, 114, 128));
+        tip.setGravity(17);
+        tip.setPadding(0, dp(4), 0, 0);
+        panel.addView(tip);
+        String mode = modeForFile(file);
+        float caseRatio = MODE_PSP.equals(mode) ? 0.58f : MODE_PS2.equals(mode) || MODE_GC.equals(mode) || MODE_NDS.equals(mode) || MODE_N3DS.equals(mode)
+                || MODE_WIIU.equals(mode) ? 0.71f : MODE_N64.equals(mode) || MODE_SNES.equals(mode) ? 1.37f : 1.0f;
+        final String[] names = {"게임기 케이스 비율", "정사각형", "원본 그대로"};
+        final float[] ratios = {caseRatio, 1.0f, 0};
+        LinearLayout shapes = new LinearLayout(this);
+        final TextView[] chips = new TextView[3];
+        for (int k = 0; k < 3; k++) {
+            final int index = k;
+            chips[k] = multiDeleteChip(names[k]);
+            chips[k].setOnClickListener(view -> {
+                crop.setRatio(ratios[index]);
+                for (int j = 0; j < 3; j++) {
+                    styleMultiDeleteChip(chips[j], j == index ? Color.rgb(251, 146, 60) : 0);
+                }
+            });
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(0, 0, dp(6), 0);
+            shapes.addView(chips[k], chipParams);
+        }
+        styleMultiDeleteChip(chips[0], Color.rgb(251, 146, 60));
+        crop.setRatio(caseRatio);
+        LinearLayout.LayoutParams shapesParams = new LinearLayout.LayoutParams(-1, -2);
+        shapesParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(shapes, shapesParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView other = multiDeleteButton("다른 사진", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        other.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(other, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView use = multiDeleteButton("표지로 쓰기", Color.rgb(251, 146, 60), -1);
+        use.setOnClickListener(view -> {
+            Bitmap cut = crop.crop();
+            if (Covers.setCustomBitmap(this, file, cut)) {
+                dialog.dismiss();
+                if (browser != null && browser.isShowing()) {
+                    browser.dismiss();
+                }
+                onCoverFound(file, Covers.file(this, file));
+                Toast.makeText(this, "표지를 바꿨어요", Toast.LENGTH_SHORT).show();
+            } else {
+                showError("표지를 저장하지 못했어요.");
+            }
+        });
+        LinearLayout.LayoutParams useParams = new LinearLayout.LayoutParams(0, dp(46), 1.5f);
+        useParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(use, useParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(24), dp(440)), -2);
+        }
+        dialog.show();
+    }
+
     private void showCoverChooser(final File file) {
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(1);
@@ -4782,6 +5054,10 @@ public final class MainActivity extends Activity {
                 onCoverFound(file, null);
                 showMessage(message);
             });
+        }));
+        panel.addView(createChoiceRow(RoundIconView.GLOBE, Color.rgb(234, 67, 53), "구글 이미지에서 고르기", "구글 이미지 검색 결과에서 직접 골라요", () -> {
+            dialog.dismiss();
+            showCoverWebSearch(file);
         }));
         if (Covers.file(this, file).exists()) {
             panel.addView(createChoiceRow(RoundIconView.TRASH, RoundIconView.COLOR_EXIT, "표지 지우기", "회색 칸으로 두고 다시 받지 않기", () -> {
