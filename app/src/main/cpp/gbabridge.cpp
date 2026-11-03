@@ -4130,6 +4130,62 @@ JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_wiiSystemUpdate(
     return update(user.c_str(), sys.c_str(), area.c_str(), wiiUpdateProgress, &ctx);
 }
 
+namespace {
+struct NandImportContext {
+    JNIEnv* env;
+    jobject callback;
+    jmethodID method;
+};
+
+int nandImportProgress(int step, int done, int total, void* opaque) {
+    auto* ctx = static_cast<NandImportContext*>(opaque);
+    if (ctx == nullptr || ctx->callback == nullptr || ctx->method == nullptr) {
+        return 1;
+    }
+    jboolean go = ctx->env->CallBooleanMethod(ctx->callback, ctx->method, static_cast<jint>(step), static_cast<jint>(done), static_cast<jint>(total));
+    if (ctx->env->ExceptionCheck()) {
+        ctx->env->ExceptionClear();
+        return 1;
+    }
+    return go == JNI_TRUE ? 1 : 0;
+}
+}  // namespace
+
+// 내 Wii NAND 가져오기 through the Dolphin core (cores/patches/dolphin-mini-wiinand.patch): a
+// BootMii nand.bin (keys inside, or keysPath) into <userDir>/Wii. Blocking, off the main
+// thread, with no game running. Returns 0 done, 1 not a BootMii backup, 2 keys missing,
+// 3 nothing extracted, 4 stopped, -1 the core or the function is missing.
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_wiiImportNand(
+        JNIEnv* env, jclass /*cls*/, jstring userDir, jstring sysDir, jstring nandPath, jstring keysPath, jobject callback) {
+    static void* library = nullptr;
+    static std::mutex importMutex;
+    std::lock_guard<std::mutex> lock(importMutex);
+    if (library == nullptr) {
+        library = dlopen("libdolphin_libretro_android.so", RTLD_NOW);
+        if (library == nullptr) {
+            LOGE("dlopen dolphin failed: %s", dlerror());
+            return -1;
+        }
+    }
+    using ImportFn = int (*)(const char*, const char*, const char*, const char*, int (*)(int, int, int, void*), void*);
+    auto import = reinterpret_cast<ImportFn>(dlsym(library, "retro_mini_import_nand"));
+    if (import == nullptr) {
+        LOGE("retro_mini_import_nand missing from the core");
+        return -1;
+    }
+    NandImportContext ctx{env, callback, nullptr};
+    if (callback != nullptr) {
+        jclass cls = env->GetObjectClass(callback);
+        ctx.method = env->GetMethodID(cls, "onProgress", "(III)Z");
+        env->DeleteLocalRef(cls);
+    }
+    std::string user = jstringToString(env, userDir);
+    std::string sys = jstringToString(env, sysDir);
+    std::string nand = jstringToString(env, nandPath);
+    std::string keys = keysPath == nullptr ? "" : jstringToString(env, keysPath);
+    return import(user.c_str(), sys.c_str(), nand.c_str(), keys.c_str(), nandImportProgress, &ctx);
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gN3dsScale.store(scale >= 1 && scale <= 3 ? scale : 1);
 }

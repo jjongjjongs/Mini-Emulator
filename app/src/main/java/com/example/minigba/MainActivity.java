@@ -1954,7 +1954,7 @@ public final class MainActivity extends Activity {
                 actionRow.addView(createActionCard("CIA 설치", "게임 · 업데이트 · DLC", R.drawable.action_import, COLOR_N3DS, view -> showCiaSheet()), actionTileParams());
             }
             if (MODE_GC.equals(this.currentMode)) {
-                LinearLayout wiiTile = createActionCard("Wii 시스템 업데이트", wiiOnlineStatusText(), R.drawable.action_check, Color.rgb(234, 88, 12), view -> showWiiUpdateSheet());
+                LinearLayout wiiTile = createActionCard("Wii 온라인", wiiOnlineTileText(), R.drawable.action_check, Color.rgb(234, 88, 12), view -> showWiiOnline());
                 this.wiiOnlineStatusView = (TextView) wiiTile.getTag();
                 actionRow.addView(wiiTile, actionTileParams());
             }
@@ -2563,7 +2563,7 @@ public final class MainActivity extends Activity {
 
     private void updateHomeStatusCards() {
         if (this.wiiOnlineStatusView != null) {
-            this.wiiOnlineStatusView.setText(wiiOnlineStatusText());
+            this.wiiOnlineStatusView.setText(wiiOnlineTileText());
             this.wiiOnlineStatusView.setTextColor(wiiCertificatesReady() ? Color.rgb(22, 163, 74) : Color.rgb(234, 88, 12));
         }
         if (this.saturnBiosStatusView != null) {
@@ -2953,6 +2953,18 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri data = intent.getData();
+        if (i == REQUEST_PICK_NAND) {
+            if (intent.getData() != null) {
+                onNandPicked(intent.getData());
+            }
+            return;
+        }
+        if (i == REQUEST_PICK_NAND_KEYS) {
+            if (intent.getData() != null) {
+                onNandKeysPicked(intent.getData());
+            }
+            return;
+        }
         if (i == REQUEST_CLOUD_FOLDER) {
             onCloudFolderPicked(intent);
             return;
@@ -9438,6 +9450,289 @@ public final class MainActivity extends Activity {
             showError("백업 파일을 읽지 못했어요.");
         }
         return done;
+    }
+
+    // ---- Wii 온라인: 내 Wii 본체 정보 (a BootMii NAND backup of the player's own Wii, through
+    // Dolphin's importer), Wii 시스템 업데이트 and 오류 코드 안내 ----
+
+    private static final int REQUEST_PICK_NAND = 1062;
+    private static final int REQUEST_PICK_NAND_KEYS = 1063;
+    private static final long NAND_BIN_SIZE = 0x21000000L;
+    private Uri pendingNand;
+
+    private File wiiBeforeNand() {
+        return new File(dolphinUserDir(), "Wii.before-nand");
+    }
+
+    // {device id hex, region} of the Wii here when it is the player's own, else null.
+    private String[] ownWiiInfo() {
+        File root = WiiHelp.wiiRoot(this);
+        File keys = new File(root, "keys.bin");
+        if (!keys.isFile()) {
+            return null;
+        }
+        String id = "?";
+        byte[] head = readHead(keys, 0x128);
+        if (head != null) {
+            id = String.format(Locale.ROOT, "0x%02X%02X%02X%02X", head[0x124], head[0x125], head[0x126], head[0x127]);
+        }
+        String region = "";
+        File setting = new File(root, "title/00000001/00000002/data/setting.txt");
+        byte[] data = readHead(setting, (int) Math.min(setting.length(), 0x100));
+        if (data != null) {
+            // setting.txt is XORed with a rolling key.
+            long key = 0x73B5DBFAL;
+            StringBuilder text = new StringBuilder();
+            for (byte b : data) {
+                text.append((char) ((b ^ key) & 0xFF));
+                key = ((key << 1) | (key >>> 31)) & 0xFFFFFFFFL;
+            }
+            java.util.regex.Matcher match = java.util.regex.Pattern.compile("AREA=([A-Z]{3})").matcher(text);
+            if (match.find()) {
+                String area = match.group(1);
+                region = "KOR".equals(area) ? "한국 (KOR)" : "JPN".equals(area) ? "일본 (JPN)" : "USA".equals(area) ? "미국 (USA)" : "EUR".equals(area) ? "유럽 (EUR)" : area;
+            }
+        }
+        return new String[]{id, region};
+    }
+
+    private String wiiOnlineTileText() {
+        return (WiiHelp.ownConsole(this) ? "내 Wii" : "기본 본체") + " · " + (wiiCertificatesReady() ? "인증서 있음" : "인증서 없음");
+    }
+
+    private void showWiiOnline() {
+        if (android.os.Build.VERSION.SDK_INT < 26) {
+            showError("게임큐브·Wii는 안드로이드 8 이상에서만 쓸 수 있어요.");
+            return;
+        }
+        final Dialog dialog = new Dialog(this);
+        final int indigo = Color.rgb(99, 102, 241);
+        LinearLayout body = pageDialog(dialog, "Wii 온라인", "게임큐브 · Wii 모드", indigo);
+        String[] own = ownWiiInfo();
+        if (own != null) {
+            addPageRow(body, settingsRow("✓ 내 Wii" + (own[1].isEmpty() ? "" : " · " + own[1]), "기기 번호 " + own[0] + " · 공개 서버(WiiLink WFC · Wiimmfi)에 접속할 수 있어요", null));
+        } else {
+            addPageRow(body, settingsRow("Dolphin 기본 본체 (모두 같은 정보)", "친구끼리 방 · 오프라인은 그대로 돼요 · 공개 서버(WiiLink · Wiimmfi)는 막혀요 (22001 · 23934)", null));
+        }
+        addPageRow(body, settingsRow(own == null ? "내 Wii NAND 가져오기" : "다른 NAND로 바꾸기",
+                "BootMii로 내 Wii에서 만든 nand.bin (약 528MB, 예전 BootMii면 keys.bin도)", () -> {
+                    dialog.dismiss();
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
+                    try {
+                        startActivityForResult(intent, REQUEST_PICK_NAND);
+                    } catch (Exception e) {
+                        showError("파일을 고르는 화면을 열 수 없어요.");
+                    }
+                }));
+        if (own != null) {
+            final boolean hasBefore = wiiBeforeNand().isDirectory();
+            addPageRow(body, settingsRow("Dolphin 기본 본체로 되돌리기", hasBefore ? "가져오기 전 상태로 돌아가요" : "앱 안의 Wii 저장 데이터가 지워져요 (가져오기 전 백업이 없어요)", () -> {
+                new AppDialog.Builder(this).setTitle("기본 본체로 되돌릴까요?")
+                        .setMessage(hasBefore ? "내 Wii NAND를 지우고, 가져오기 전의 Dolphin 상태로 돌아가요." : "내 Wii NAND와 그 안의 Wii 세이브 · 채널을 지워요. 되돌릴 수 없어요.")
+                        .setNegativeButton("취소", null).setPositiveButton("되돌리기", (d, which) -> {
+                            File root = WiiHelp.wiiRoot(this);
+                            deleteTree(root);
+                            if (hasBefore && !wiiBeforeNand().renameTo(root)) {
+                                showError("되돌리지 못했어요.");
+                            }
+                            dialog.dismiss();
+                            updateHomeStatusCards();
+                            showWiiOnline();
+                        }).show();
+            }));
+        }
+        addPageRow(body, settingsRow("Wii 시스템 업데이트", wiiCertificatesReady() ? "인증서 3개 있음 · 다시 받기" : "인증서 없음 · 온라인에 필요해요 (20100)", () -> {
+            dialog.dismiss();
+            showWiiUpdateSheet();
+        }));
+        addPageRow(body, settingsRow("오류 코드 안내", "게임에 나온 숫자로 원인 · 해결 찾기", () -> WiiHelp.show(this)));
+        addPageRow(body, settingsRow("알아두기", "실제 Wii가 없으면 NAND 가져오기는 쓸 수 없어요 (공개 서버 대신 친구끼리 방을 써요). "
+                + "다른 사람의 백업을 쓰거나 같은 NAND를 여러 기기에 넣으면 서버가 계정을 막을 수 있어요. 가짜 본체 정보는 만들지 않아요.", null));
+        dialog.show();
+    }
+
+    private void onNandPicked(Uri uri) {
+        long size = sizeForUri(uri);
+        if (size != NAND_BIN_SIZE && size != NAND_BIN_SIZE + 0x400) {
+            showError("BootMii NAND 백업(nand.bin)이 아니에요. 크기가 " + (size < 0 ? "알 수 없어요" : formatSize(size)) + "인데, BootMii 백업은 528MB예요.");
+            return;
+        }
+        if (size == NAND_BIN_SIZE) {
+            this.pendingNand = uri;
+            new AppDialog.Builder(this).setTitle("keys.bin도 골라 주세요")
+                    .setMessage("이 nand.bin에는 본체 키가 들어 있지 않아요 (예전 BootMii). BootMii가 같은 폴더에 만든 keys.bin을 골라 주세요.")
+                    .setNegativeButton("취소", null).setPositiveButton("keys.bin 고르기", (d, which) -> {
+                        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        intent.setType("*/*");
+                        try {
+                            startActivityForResult(intent, REQUEST_PICK_NAND_KEYS);
+                        } catch (Exception e) {
+                            showError("파일을 고르는 화면을 열 수 없어요.");
+                        }
+                    }).show();
+            return;
+        }
+        confirmNandImport(uri, null);
+    }
+
+    private void onNandKeysPicked(Uri keys) {
+        Uri nand = this.pendingNand;
+        this.pendingNand = null;
+        if (nand == null) {
+            return;
+        }
+        long size = sizeForUri(keys);
+        if (size >= 0 && size < 0x400) {
+            showError("keys.bin이 아니에요 (크기가 너무 작아요).");
+            return;
+        }
+        confirmNandImport(nand, keys);
+    }
+
+    private void confirmNandImport(final Uri nand, final Uri keys) {
+        long free = new android.os.StatFs(getFilesDir().getAbsolutePath()).getAvailableBytes();
+        final long needed = NAND_BIN_SIZE + 600L * 1024 * 1024;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        final CheckBox backup = new CheckBox(this);
+        backup.setText("지금 앱 안의 Wii 저장 데이터 백업해 두기\n(미니 Wii 세이브 · 시스템 설정 · 받은 채널, 되돌리기용)");
+        backup.setTextSize(12.5f);
+        backup.setChecked(true);
+        panel.addView(backup);
+        new AppDialog.Builder(this).setTitle("내 Wii NAND 가져오기")
+                .setMessage(displayNameFor(nand) + (keys != null ? " + " + displayNameFor(keys) : " · 키 포함") + "\n\n"
+                        + "가져오면 앱 안의 Wii가 내 Wii로 바뀌어요. 내 Wii에 있던 세이브 · Mii · 인증서도 같이 들어와요.\n"
+                        + "필요한 공간 약 " + formatSize(needed) + " · 남은 공간 " + formatSize(free) + (free < needed ? " (부족해요)" : "") + "\n몇 분 걸려요.")
+                .setView(panel)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("가져오기", (d, which) -> {
+                    if (free < needed) {
+                        showError("저장 공간이 부족해요. " + formatSize(needed) + " 정도가 필요해요.");
+                        return;
+                    }
+                    runNandImport(nand, keys, backup.isChecked());
+                }).show();
+    }
+
+    private void runNandImport(final Uri nand, final Uri keys, final boolean keepBefore) {
+        final File user = dolphinUserDir();
+        final File sys = new File(new File(systemDir(), "dolphin-emu"), "Sys");
+        final File root = WiiHelp.wiiRoot(this);
+        final File aside = new File(user, "Wii.import-old");
+        final File nandCopy = new File(getFilesDir(), "nand_import.bin");
+        final File keysCopy = new File(getFilesDir(), "nand_keys.bin");
+        final StepDialog steps = new StepDialog("NAND 가져오는 중", displayNameFor(nand), RoundIconView.IMPORT, Color.rgb(99, 102, 241),
+                new String[]{"백업 파일 복사", "NAND 읽기", "파일 꺼내기", "확인"}, new String[]{"528MB", "", "", "본체 정보 · 인증서"});
+        new Thread(() -> {
+            String error = null;
+            try {
+                if (!user.isDirectory() && !user.mkdirs()) {
+                    throw new IOException("Dolphin 폴더를 만들 수 없어요.");
+                }
+                if (!unpackSystemAsset("dolphin_sys.zip", sys)) {
+                    throw new IOException("Dolphin 시스템 파일을 풀지 못했어요.");
+                }
+                long total = NAND_BIN_SIZE + 0x400;
+                long done = 0;
+                long last = 0;
+                try (InputStream in = getContentResolver().openInputStream(nand); OutputStream out = new FileOutputStream(nandCopy)) {
+                    if (in == null) {
+                        throw new IOException("nand.bin을 열 수 없어요.");
+                    }
+                    byte[] buffer = new byte[1 << 20];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        if (steps.cancelled) {
+                            throw new IOException("취소했어요.");
+                        }
+                        out.write(buffer, 0, n);
+                        done += n;
+                        long now = android.os.SystemClock.uptimeMillis();
+                        if (now - last > 200) {
+                            last = now;
+                            final long d = done;
+                            runOnUiThread(() -> steps.set(0, formatSize(d) + " / 528MB", (int) (300 * d / total)));
+                        }
+                    }
+                }
+                if (keys != null) {
+                    try (InputStream in = getContentResolver().openInputStream(keys); OutputStream out = new FileOutputStream(keysCopy)) {
+                        if (in == null) {
+                            throw new IOException("keys.bin을 열 수 없어요.");
+                        }
+                        copy(in, out);
+                    }
+                }
+                // The Wii here is put aside; the import goes into an empty one.
+                deleteTree(aside);
+                if (root.exists() && !root.renameTo(aside)) {
+                    throw new IOException("지금 Wii 데이터를 옮기지 못했어요.");
+                }
+                int result;
+                try {
+                    result = NativeGba.wiiImportNand(user.getAbsolutePath(), sys.getAbsolutePath(), nandCopy.getAbsolutePath(),
+                            keys != null ? keysCopy.getAbsolutePath() : null, (step, current, max) -> {
+                                final int permille = 300 + (step == 0 ? (int) (300L * current / Math.max(1, max)) : 600 + (int) (350L * current / Math.max(1, max)) - 300);
+                                runOnUiThread(() -> steps.set(step == 0 ? 1 : 2, current + " / " + max, Math.min(950, permille)));
+                                return !steps.cancelled;
+                            });
+                } catch (UnsatisfiedLinkError e) {
+                    result = -1;
+                }
+                if (result != 0) {
+                    deleteTree(root);
+                    if (aside.exists()) {
+                        aside.renameTo(root);
+                    }
+                    switch (result) {
+                        case 1:
+                            throw new IOException("BootMii NAND 백업이 아니에요.");
+                        case 2:
+                            throw new IOException("본체 키(keys.bin)가 없어요.");
+                        case 3:
+                            throw new IOException("백업에서 Wii 파일을 꺼내지 못했어요. 백업이 손상됐거나 다른 형식일 수 있어요.");
+                        case 4:
+                            throw new IOException("취소했어요.");
+                        default:
+                            throw new IOException("이 버전의 게임큐브·Wii 엔진에는 NAND 가져오기가 없어요. 앱을 업데이트해 주세요.");
+                    }
+                }
+                if (keepBefore && aside.exists()) {
+                    deleteTree(wiiBeforeNand());
+                    aside.renameTo(wiiBeforeNand());
+                } else {
+                    deleteTree(aside);
+                }
+            } catch (IOException e) {
+                error = e.getMessage();
+            } finally {
+                nandCopy.delete();
+                keysCopy.delete();
+            }
+            final String why = error;
+            runOnUiThread(() -> {
+                steps.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                updateHomeStatusCards();
+                if (why != null) {
+                    if (!steps.cancelled) {
+                        showError(why);
+                    }
+                    return;
+                }
+                String[] own = ownWiiInfo();
+                new AppDialog.Builder(this).setTitle("내 Wii로 바꿨어요")
+                        .setMessage((own == null ? "" : "기기 번호 " + own[0] + (own[1].isEmpty() ? "" : " · " + own[1]) + "\n")
+                                + (wiiCertificatesReady() ? "인증서도 들어왔어요. " : "인증서가 없으면 Wii 시스템 업데이트를 해 주세요. ")
+                                + "이제 게임의 인터넷 서버에서 WiiLink WFC나 Wiimmfi를 고르면 돼요.")
+                        .setPositiveButton("확인", null).show();
+            });
+        }, "nand-import").start();
     }
 
     private String patchedFrom(File file) {

@@ -66,6 +66,13 @@ final class NativeGba {
 
     static native int wiiSystemUpdate(String userDir, String sysDir, String region, WiiUpdateProgress progress);
 
+    interface NandProgress {
+        /** step 0 reading, 1 extracting. Returns false to stop. */
+        boolean onProgress(int step, int done, int total);
+    }
+
+    static native int wiiImportNand(String userDir, String sysDir, String nandPath, String keysPath, NandProgress progress);
+
     // PSP ad-hoc over the LAN: 0 off, 1 host (built-in server), 2 guest; server is the address to join.
     static native void setPspAdhoc(int mode, String server);
 

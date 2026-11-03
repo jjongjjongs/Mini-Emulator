@@ -7236,6 +7236,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 panel.addView(createWiimmfiRow(dialog), tabRowParams(panel));
                 if (wiiServer() != 0) {
                     panel.addView(createSettingRow(RoundIconView.GLOBE, wiiServerColor(), "접속 기록", wiiServer() == 2 ? "켠 코드 · 접속 과정 보기" : "바꾼 주소 보기", view -> showWiimmfiLog()), tabRowParams(panel));
+                    panel.addView(createSettingRow(RoundIconView.WARN, Color.rgb(220, 38, 38), "오류 코드 안내", "게임에 나온 숫자로 원인 · 해결 찾기", view -> WiiHelp.show(this)), tabRowParams(panel));
                     if (!wiiCertificatesReady()) {
                         TextView hint = new TextView(this);
                         hint.setText("인증서가 없으면 접속 단계에서 막힐 수 있어요.\n게임큐브 · Wii 목록 화면의 \"Wii 시스템 업데이트\"를 먼저 해 주세요.");
@@ -9771,10 +9772,29 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (choice == server) {
                         return;
                     }
-                    MainActivity.sharedSettings(this).edit().putInt("wii_server:" + this.saveBaseName, choice)
-                            .remove("wiimmfi:" + this.saveBaseName).commit();
-                    menu.dismiss();
-                    relaunchGame();
+                    Runnable apply = () -> {
+                        MainActivity.sharedSettings(this).edit().putInt("wii_server:" + this.saveBaseName, choice)
+                                .remove("wiimmfi:" + this.saveBaseName).commit();
+                        menu.dismiss();
+                        relaunchGame();
+                    };
+                    if ((choice == 1 || choice == 2) && !WiiHelp.ownConsole(this)) {
+                        // Public servers turn Dolphin's shared default console away.
+                        new AppDialog.Builder(this).setTitle("공개 서버는 실제 Wii 본체 정보가 필요해요")
+                                .setMessage("지금은 Dolphin 기본 본체라 " + (choice == 2 ? "WiiLink WFC에서 22001" : "Wiimmfi에서 23934") + " 오류로 막혀요.\n\n"
+                                        + "내 Wii가 있으면: 앱 첫 화면 → 게임큐브 · Wii → Wii 온라인 → 내 Wii NAND 가져오기.\n"
+                                        + "없으면: 친구끼리 방을 써 주세요 (본체 정보 필요 없음).")
+                                .setNegativeButton("그래도 켜기", (d, which) -> apply.run())
+                                .setPositiveButton("친구끼리로 바꾸기", (d, which) -> {
+                                    if (!roomShipped || !roomCode) {
+                                        Toast.makeText(this, !roomShipped ? "이 버전에는 방 서버가 들어 있지 않아요." : "이 게임은 친구끼리 대전이 아직 안 돼요.", Toast.LENGTH_LONG).show();
+                                        return;
+                                    }
+                                    showWiiRoomChoice(menu);
+                                }).show();
+                        return;
+                    }
+                    apply.run();
                 }));
     }
 
