@@ -1,5 +1,10 @@
-// CHD -> GDI for Dreamcast discs ("GDI로 풀기"), so a CHD game can be patched track by track
-// or with a .dcp like a GDI one. The tracks are read with libchdr (the library Flycast reads
+// CHD -> GDI for Dreamcast discs ("GDI로 풀기"), CHD -> CUE + BIN for CD games (PS1, Saturn,
+// Mega CD, PC Engine CD: "CUE로 풀기") and CHD -> ISO for DVDs (PS2: "ISO로 풀기"), so a CHD
+// game can be patched track by track like an unpacked one.
+// CD tracks are written the way chdman extracts them: a track's frames as stored (pregap
+// frames included when PGTYPE starts with 'V', then INDEX 00 / INDEX 01 in the sheet; a pregap
+// not stored becomes PREGAP), audio byte-swapped back to little-endian, the padding to four
+// frames left out. The tracks are read with libchdr (the library Flycast reads
 // CHD with) and laid out the way Flycast's own CHD reader places them: a track starts after its
 // pregap, pregap frames stored in the file (PGTYPE "V…") are skipped, the padding frames at the
 // end are not part of the track, and audio is stored big-endian in GD-ROM CHDs (tag CHGD).
@@ -9,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -23,6 +29,10 @@ constexpr uint32_t kPadding = 4;
 
 struct Track {
     int number = 0;
+    std::string type;       // CUE type: AUDIO, MODE1/2352, …
+    uint32_t pregap = 0;    // CD: frames before INDEX 01
+    bool pregapInFile = false;
+    uint32_t postgap = 0;
     uint32_t lba = 0;
     int ctrl = 0;           // 4 data, 0 audio
     uint32_t sectorSize = 2352;
@@ -32,8 +42,12 @@ struct Track {
     std::string file;
 };
 
+enum Kind { GDROM = 0, CDROM = 1, DVD = 2 };
+
 struct Disc {
     chd_file *chd = nullptr;
+    int kind = GDROM;
+    uint64_t dvdBytes = 0;
     uint32_t hunkBytes = 0;
     uint32_t framesPerHunk = 0;
     std::vector<Track> tracks;
@@ -57,7 +71,75 @@ uint32_t sectorSizeOf(const char *type, std::string &error) {
     return 0;
 }
 
-// Reads the track list. Only GD-ROM CHDs (the Dreamcast's own discs) are taken.
+// A CD track type from CHD metadata: its sector size and the CUE name (0 when not taken).
+uint32_t cdType(const char *type, std::string &cue) {
+    struct Kind { const char *chd; uint32_t size; const char *cue; };
+    static const Kind kinds[] = {
+            {"AUDIO", 2352, "AUDIO"}, {"MODE1", 2048, "MODE1/2048"}, {"MODE1/2048", 2048, "MODE1/2048"}, {"MODE1_RAW", 2352, "MODE1/2352"},
+            {"MODE1/2352", 2352, "MODE1/2352"}, {"MODE2", 2336, "MODE2/2336"}, {"MODE2/2336", 2336, "MODE2/2336"},
+            {"MODE2_FORM_MIX", 2336, "MODE2/2336"}, {"MODE2_RAW", 2352, "MODE2/2352"}, {"MODE2/2352", 2352, "MODE2/2352"}, {"CDI/2352", 2352, "CDI/2352"},
+    };
+    for (const Kind &kind : kinds) {
+        if (strcmp(type, kind.chd) == 0) {
+            cue = kind.cue;
+            return kind.size;
+        }
+    }
+    return 0;
+}
+
+std::string openCd(Disc &disc) {
+    uint64_t offset = 0;
+    for (;;) {
+        char meta[512];
+        uint32_t length = 0;
+        uint32_t tag = 0;
+        uint8_t flags = 0;
+        char type[32] = "", subtype[32] = "NONE", pgtype[32] = "NONE", pgsub[32] = "NONE";
+        int number = -1, frames = 0, pregap = 0, postgap = 0;
+        uint32_t index = (uint32_t) disc.tracks.size();
+        memset(meta, 0, sizeof(meta));
+        if (chd_get_metadata(disc.chd, CDROM_TRACK_METADATA2_TAG, index, meta, sizeof(meta) - 1, &length, &tag, &flags) == CHDERR_NONE) {
+            if (sscanf(meta, CDROM_TRACK_METADATA2_FORMAT, &number, type, subtype, &frames, &pregap, pgtype, pgsub, &postgap) < 4) {
+                return "CHD의 트랙 정보를 읽지 못했어요.";
+            }
+        } else if (chd_get_metadata(disc.chd, CDROM_TRACK_METADATA_TAG, index, meta, sizeof(meta) - 1, &length, &tag, &flags) == CHDERR_NONE) {
+            if (sscanf(meta, CDROM_TRACK_METADATA_FORMAT, &number, type, subtype, &frames) < 4) {
+                return "CHD의 트랙 정보를 읽지 못했어요.";
+            }
+        } else {
+            break;
+        }
+        if (number != (int) index + 1 || frames <= 0 || pregap < 0 || postgap < 0) {
+            return "CHD의 트랙 정보가 이상해요.";
+        }
+        Track track;
+        track.number = number;
+        track.sectorSize = cdType(type, track.type);
+        if (track.sectorSize == 0) {
+            return std::string("지원하지 않는 트랙 형식이에요 (") + type + ").";
+        }
+        track.ctrl = strcmp(type, "AUDIO") == 0 ? 0 : 4;
+        track.pregap = (uint32_t) pregap;
+        track.pregapInFile = pregap > 0 && pgtype[0] == 'V';
+        if (track.pregapInFile && pregap > frames) {
+            return "CHD의 트랙 정보가 이상해요.";
+        }
+        track.postgap = (uint32_t) postgap;
+        track.firstFrame = offset;
+        track.count = (uint32_t) frames;
+        track.swap = track.ctrl == 0;  // CD audio is stored big-endian
+        disc.tracks.push_back(track);
+        offset += (uint64_t) ((frames + kPadding - 1) / kPadding) * kPadding;
+    }
+    if (disc.tracks.empty()) {
+        return "CHD의 트랙 정보가 없어요.";
+    }
+    disc.kind = CDROM;
+    return "";
+}
+
+// Reads the track list: a GD-ROM (Dreamcast), a CD, or a DVD.
 std::string open(const char *path, Disc &disc) {
     chd_error err = chd_open(path, CHD_OPEN_READ, nullptr, &disc.chd);
     if (err != CHDERR_NONE) {
@@ -66,8 +148,22 @@ std::string open(const char *path, Disc &disc) {
     }
     const chd_header *header = chd_get_header(disc.chd);
     disc.hunkBytes = header->hunkbytes;
+    {
+        char meta[256];
+        uint32_t length = 0;
+        uint32_t tag = 0;
+        uint8_t flags = 0;
+        if (chd_get_metadata(disc.chd, DVD_METADATA_TAG, 0, meta, sizeof(meta), &length, &tag, &flags) == CHDERR_NONE) {
+            if (disc.hunkBytes == 0 || disc.hunkBytes % 2048 != 0) {
+                return "DVD CHD의 형식이 이상해요.";
+            }
+            disc.kind = DVD;
+            disc.dvdBytes = header->logicalbytes;
+            return "";
+        }
+    }
     if (disc.hunkBytes == 0 || disc.hunkBytes % kFrame != 0) {
-        return "CD 이미지 CHD가 아니에요.";
+        return "디스크 이미지 CHD가 아니에요 (하드디스크 · 레이저디스크 CHD는 풀 수 없어요).";
     }
     disc.framesPerHunk = disc.hunkBytes / kFrame;
     uint32_t total = 150;
@@ -90,9 +186,8 @@ std::string open(const char *path, Disc &disc) {
             err = chd_get_metadata(disc.chd, GDROM_TRACK_METADATA_TAG, index, meta, sizeof(meta) - 1, &length, &tag, &flags);
         }
         if (err != CHDERR_NONE) {
-            if (index == 0 && (chd_get_metadata(disc.chd, CDROM_TRACK_METADATA2_TAG, 0, meta, sizeof(meta) - 1, &length, &tag, &flags) == CHDERR_NONE
-                    || chd_get_metadata(disc.chd, CDROM_TRACK_METADATA_TAG, 0, meta, sizeof(meta) - 1, &length, &tag, &flags) == CHDERR_NONE)) {
-                return "드림캐스트 GD-ROM CHD가 아니에요 (일반 CD 이미지예요).";
+            if (index == 0) {
+                return openCd(disc);
             }
             break;
         }
@@ -131,6 +226,9 @@ std::string open(const char *path, Disc &disc) {
 }
 
 uint64_t outputBytes(const Disc &disc) {
+    if (disc.kind == DVD) {
+        return disc.dvdBytes;
+    }
     uint64_t bytes = 0;
     for (const Track &track : disc.tracks) {
         bytes += (uint64_t) track.count * track.sectorSize;
@@ -149,7 +247,49 @@ std::string jstr(JNIEnv *env, jstring value) {
 
 }  // namespace
 
-// {bytes the GDI takes, tracks}, or null with the reason through error[0].
+std::string msf(uint32_t frames) {
+    char text[16];
+    snprintf(text, sizeof(text), "%02u:%02u:%02u", frames / 4500, frames / 75 % 60, frames % 75);
+    return text;
+}
+
+// A DVD: the hunks' bytes up to the logical size, into one .iso.
+std::string writeDvd(JNIEnv *env, Disc &disc, const std::string &path, jobject progress, jmethodID onProgress) {
+    FILE *file = fopen(path.c_str(), "wb");
+    if (file == nullptr) {
+        return std::string("파일을 만들 수 없어요 (") + strerror(errno) + ").";
+    }
+    std::vector<uint8_t> hunk(disc.hunkBytes);
+    uint64_t done = 0;
+    std::string why;
+    for (uint32_t index = 0; done < disc.dvdBytes; index++) {
+        chd_error err = chd_read(disc.chd, index, hunk.data());
+        if (err != CHDERR_NONE) {
+            why = std::string("CHD를 읽는 중에 문제가 생겼어요 (") + chd_error_string(err) + ").";
+            break;
+        }
+        size_t n = (size_t) std::min<uint64_t>(disc.hunkBytes, disc.dvdBytes - done);
+        if (fwrite(hunk.data(), 1, n, file) != n) {
+            why = "저장 공간이 부족하거나 파일을 쓸 수 없어요.";
+            break;
+        }
+        done += n;
+        if ((index & 63) == 0 && onProgress != nullptr && !env->CallBooleanMethod(progress, onProgress, (jlong) done, (jlong) disc.dvdBytes)) {
+            why = "취소했어요.";
+            break;
+        }
+    }
+    if (fclose(file) != 0 && why.empty()) {
+        why = "저장 공간이 부족하거나 파일을 쓸 수 없어요.";
+    }
+    if (!why.empty()) {
+        remove(path.c_str());
+    }
+    return why;
+}
+
+// {bytes the unpacked game takes, tracks, kind (0 GD-ROM, 1 CD, 2 DVD)}, or null with the
+// reason through error[0].
 extern "C" JNIEXPORT jlongArray JNICALL Java_com_example_minigba_ChdGdi_info(JNIEnv *env, jclass, jstring chdPath, jobjectArray error) {
     Disc disc;
     std::string why = open(jstr(env, chdPath).c_str(), disc);
@@ -157,14 +297,16 @@ extern "C" JNIEXPORT jlongArray JNICALL Java_com_example_minigba_ChdGdi_info(JNI
         env->SetObjectArrayElement(error, 0, env->NewStringUTF(why.c_str()));
         return nullptr;
     }
-    jlong values[2] = {(jlong) outputBytes(disc), (jlong) disc.tracks.size()};
-    jlongArray result = env->NewLongArray(2);
-    env->SetLongArrayRegion(result, 0, 2, values);
+    jlong values[3] = {(jlong) outputBytes(disc), (jlong) (disc.kind == DVD ? 1 : disc.tracks.size()), (jlong) disc.kind};
+    jlongArray result = env->NewLongArray(3);
+    env->SetLongArrayRegion(result, 0, 3, values);
     return result;
 }
 
-// Writes "<base> (Track NN).bin/.raw/.iso" and "<base>.gdi" into dir. Null when done, else the
-// reason (files written so far are removed). progress.onProgress(done, total) false cancels.
+// Writes into dir: a GD-ROM as "<base> (Track NN).bin/.raw" + "<base>.gdi", a CD as
+// "<base> (Track NN).bin" (or "<base>.bin" for one track) + "<base>.cue", a DVD as
+// "<base>.iso". Null when done, else the reason (files written so far are removed).
+// progress.onProgress(done, total) false cancels.
 extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_ChdGdi_convert(JNIEnv *env, jclass, jstring chdPath, jstring dirPath, jstring baseName, jobject progress) {
     Disc disc;
     std::string why = open(jstr(env, chdPath).c_str(), disc);
@@ -179,6 +321,10 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_ChdGdi_convert(JNI
         onProgress = env->GetMethodID(type, "onProgress", "(JJ)Z");
         env->DeleteLocalRef(type);
     }
+    if (disc.kind == DVD) {
+        why = writeDvd(env, disc, dir + "/" + base + ".iso", progress, onProgress);
+        return why.empty() ? nullptr : env->NewStringUTF(why.c_str());
+    }
     uint64_t total = outputBytes(disc);
     uint64_t done = 0;
     std::vector<std::string> written;
@@ -189,8 +335,13 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_ChdGdi_convert(JNI
     bool failed = false;
     for (Track &track : disc.tracks) {
         char name[64];
-        snprintf(name, sizeof(name), " (Track %02d).%s", track.number, track.ctrl == 0 ? "raw" : track.sectorSize == 2048 ? "iso" : "bin");
-        track.file = base + name;
+        if (disc.kind == CDROM) {
+            snprintf(name, sizeof(name), " (Track %02d).bin", track.number);
+            track.file = disc.tracks.size() == 1 ? base + ".bin" : base + name;
+        } else {
+            snprintf(name, sizeof(name), " (Track %02d).%s", track.number, track.ctrl == 0 ? "raw" : track.sectorSize == 2048 ? "iso" : "bin");
+            track.file = base + name;
+        }
         std::string path = dir + "/" + track.file;
         FILE *file = fopen(path.c_str(), "wb");
         if (file == nullptr) {
@@ -245,7 +396,37 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_ChdGdi_convert(JNI
             break;
         }
     }
-    if (!failed) {
+    if (!failed && disc.kind == CDROM) {
+        std::string cue;
+        for (const Track &track : disc.tracks) {
+            char number[8];
+            snprintf(number, sizeof(number), "%02d", track.number);
+            cue += "FILE \"" + track.file + "\" BINARY\r\n";
+            cue += std::string("  TRACK ") + number + " " + track.type + "\r\n";
+            if (track.pregapInFile) {
+                cue += "    INDEX 00 00:00:00\r\n";
+                cue += "    INDEX 01 " + msf(track.pregap) + "\r\n";
+            } else {
+                if (track.pregap > 0) {
+                    cue += "    PREGAP " + msf(track.pregap) + "\r\n";
+                }
+                cue += "    INDEX 01 00:00:00\r\n";
+            }
+            if (track.postgap > 0) {
+                cue += "    POSTGAP " + msf(track.postgap) + "\r\n";
+            }
+        }
+        std::string path = dir + "/" + base + ".cue";
+        FILE *file = fopen(path.c_str(), "wb");
+        if (file == nullptr || fwrite(cue.data(), 1, cue.size(), file) != cue.size()) {
+            why = "CUE 파일을 쓸 수 없어요.";
+            failed = true;
+        }
+        if (file != nullptr) {
+            fclose(file);
+            written.push_back(path);
+        }
+    } else if (!failed) {
         std::string gdi = std::to_string(disc.tracks.size()) + "\r\n";
         for (const Track &track : disc.tracks) {
             gdi += std::to_string(track.number) + " " + std::to_string(track.lba) + " " + std::to_string(track.ctrl) + " " + std::to_string(track.sectorSize)

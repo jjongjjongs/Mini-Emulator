@@ -4517,6 +4517,9 @@ public final class MainActivity extends Activity {
         }
         sb.append(str);
         sb.append("  |  게임: ").append(displayGameNameFor);
+        if (romPrefs().getBoolean("unpacked:" + file.getName(), false)) {
+            sb.append("  |  CHD에서 풂");
+        }
         if (patchedFrom != null) {
             sb.append("  |  원본: ").append(patchedFrom);
             String patchedTracks = romPrefs().getString("patched_tracks:" + file.getName(), "");
@@ -4940,8 +4943,8 @@ public final class MainActivity extends Activity {
         if (name.endsWith(".gdi")) {
             return MODE_DC.equals(mode);
         }
-        if (name.endsWith(".chd") && MODE_DC.equals(mode)) {
-            return true;  // unpacked to GDI first
+        if (isDcChd(file, mode)) {
+            return true;  // unpacked to GDI / CUE / ISO first
         }
         return !(name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp") || name.endsWith(".m3u") || name.endsWith(".7z")
                 || name.endsWith(".ccd") || name.endsWith(".mds"));
@@ -6518,8 +6521,19 @@ public final class MainActivity extends Activity {
 
     // ---- 드림캐스트 CHD 풀기 · .dcp 패치 ----
 
+    // CHD games that can be unpacked: Dreamcast (GDI), CD consoles (CUE + BIN), PS2 (ISO).
     private static boolean isDcChd(File file, String mode) {
-        return MODE_DC.equals(mode) && file.getName().toLowerCase(Locale.ROOT).endsWith(".chd");
+        return file.getName().toLowerCase(Locale.ROOT).endsWith(".chd") && (MODE_DC.equals(mode) || MODE_PS1.equals(mode) || MODE_SS.equals(mode)
+                || MODE_MCD.equals(mode) || MODE_PCE.equals(mode) || MODE_PS2.equals(mode));
+    }
+
+    // "GDI" / "CUE" / "ISO": what a console's CHD unpacks to.
+    private static String unpackFormat(String mode) {
+        return MODE_DC.equals(mode) ? "GDI" : MODE_PS2.equals(mode) ? "ISO" : "CUE";
+    }
+
+    private static String unpackFiles(String mode) {
+        return MODE_DC.equals(mode) ? ".gdi + 트랙" : MODE_PS2.equals(mode) ? ".iso 한 파일" : ".cue + 트랙";
     }
 
     private LinearLayout createUnpackRow(Dialog dialog, File file) {
@@ -6528,9 +6542,10 @@ public final class MainActivity extends Activity {
         row.setGravity(16);
         row.setPadding(dp(14), 0, dp(14), 0);
         row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
-        row.addView(new RoundIconView(this, RoundIconView.FOLDER, MODE_COLORS[modeIndex(MODE_DC)]), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        String mode = modeForFile(file);
+        row.addView(new RoundIconView(this, RoundIconView.FOLDER, MODE_COLORS[modeIndex(mode)]), new LinearLayout.LayoutParams(dp(32), dp(32)));
         TextView label = new TextView(this);
-        label.setText("GDI로 풀기");
+        label.setText(unpackFormat(mode) + "로 풀기");
         label.setTextSize(14.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
         label.setTextColor(Color.rgb(31, 41, 51));
@@ -6539,7 +6554,7 @@ public final class MainActivity extends Activity {
         row.addView(label, labelParams);
         row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1.0f));
         TextView value = new TextView(this);
-        value.setText(".gdi + 트랙  ›");
+        value.setText(unpackFiles(mode) + "  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
         value.setTextColor(Color.rgb(122, 130, 140));
@@ -6708,6 +6723,15 @@ public final class MainActivity extends Activity {
                     showError(error[0] == null ? "CHD를 읽지 못했어요." : error[0]);
                     return;
                 }
+                String mode = modeForFile(chd);
+                int kind = info.length > 2 ? (int) info[2] : 0;
+                int wanted = MODE_DC.equals(mode) ? 0 : MODE_PS2.equals(mode) ? 2 : 1;
+                if (kind != wanted) {
+                    showError(MODE_DC.equals(mode) ? "드림캐스트 GD-ROM CHD가 아니에요."
+                            : MODE_PS2.equals(mode) ? (kind == 1 ? "CD로 된 PS2 CHD는 아직 풀 수 없어요 (DVD CHD만 ISO로 풀어요)." : "PS2 DVD CHD가 아니에요.")
+                            : "이 게임기의 CD 이미지 CHD가 아니에요.");
+                    return;
+                }
                 showChdUnpackDialog(chd, thenPatch, info[0], (int) info[1]);
             });
         }, "chd-info").start();
@@ -6720,12 +6744,17 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(16), dp(18), dp(16), dp(16));
         panel.setBackground(rounded(-1, dp(24)));
-        int color = MODE_COLORS[modeIndex(MODE_DC)];
-        cardHeader(panel, RoundIconView.FOLDER, color, thenPatch ? "패치하려면 GDI로 풀어야 해요" : "GDI로 풀기",
-                displayGameNameFor(chd) + " · CHD · 트랙 " + tracks + "개");
+        final String mode = modeForFile(chd);
+        final String format = unpackFormat(mode);
+        boolean dvd = MODE_PS2.equals(mode);
+        int color = MODE_COLORS[modeIndex(mode)];
+        cardHeader(panel, RoundIconView.FOLDER, color, thenPatch ? "패치하려면 " + format + "로 풀어야 해요" : format + "로 풀기",
+                displayGameNameFor(chd) + " · CHD" + (dvd ? " · DVD" : " · 트랙 " + tracks + "개"));
         TextView text = new TextView(this);
-        text.setText(thenPatch ? "CHD는 압축돼 있어서 트랙에 바로 패치할 수 없어요. 먼저 GDI로 풀고, 이어서 패치 창(트랙 고르기 · .dcp)으로 넘어가요."
-                : "CHD를 .gdi와 트랙 파일로 풀어서 목록에 새 게임으로 추가해요. 풀어 두면 트랙별 패치와 .dcp 패치를 쓸 수 있어요.");
+        String files = MODE_DC.equals(mode) ? ".gdi와 트랙 파일" : dvd ? ".iso 한 파일" : ".cue와 트랙 파일(.bin)";
+        String patches = MODE_DC.equals(mode) ? "트랙 고르기 · .dcp" : dvd ? "xdelta · PPF" : "트랙 고르기";
+        text.setText(thenPatch ? "CHD는 압축돼 있어서 바로 패치할 수 없어요. 먼저 " + format + "로 풀고, 이어서 패치 창(" + patches + ")으로 넘어가요."
+                : "CHD를 " + files + "로 풀어서 목록에 새 게임으로 추가해요. 풀어 두면 패치(" + patches + ")를 쓸 수 있어요. 게임 엔진이 그대로 읽는 형식이라 바로 실행돼요.");
         text.setTextSize(13.0f);
         text.setTextColor(Color.rgb(55, 65, 81));
         text.setLineSpacing(0, 1.15f);
@@ -6772,7 +6801,7 @@ public final class MainActivity extends Activity {
         cancel.setOnClickListener(view -> dialog.dismiss());
         buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
         TextView go = new TextView(this);
-        go.setText(thenPatch ? "풀고 패치하기" : "GDI로 풀기");
+        go.setText(thenPatch ? "풀고 패치하기" : format + "로 풀기");
         go.setTextSize(15.0f);
         go.setTypeface(Typeface.DEFAULT_BOLD);
         go.setTextColor(-1);
@@ -6807,7 +6836,8 @@ public final class MainActivity extends Activity {
     private static String freeGdiName(File dir, String base) {
         String chosen = base;
         for (int k = 2; ; k++) {
-            boolean taken = new File(dir, chosen + ".gdi").exists();
+            boolean taken = new File(dir, chosen + ".gdi").exists() || new File(dir, chosen + ".cue").exists() || new File(dir, chosen + ".iso").exists()
+                    || new File(dir, chosen + ".bin").exists();
             for (int t = 1; !taken && t <= 99; t++) {
                 for (String extension : new String[]{".bin", ".raw", ".iso"}) {
                     if (new File(dir, String.format(Locale.ROOT, "%s (Track %02d)%s", chosen, t, extension)).exists()) {
@@ -6826,9 +6856,15 @@ public final class MainActivity extends Activity {
         final File dir = chd.getParentFile();
         final String title = displayGameNameFor(chd);
         final String name = freeGdiName(dir, sanitizeSaveBaseName(title));
-        final StepDialog steps = new StepDialog("GDI로 푸는 중", title + " · " + formatSize(bytes), RoundIconView.FOLDER, MODE_COLORS[modeIndex(MODE_DC)],
-                thenPatch ? new String[]{"CHD 확인", "트랙 풀기", "GDI 저장", "패치 창 열기"} : new String[]{"CHD 확인", "트랙 풀기", "GDI 저장"},
-                thenPatch ? new String[]{"GD-ROM · 트랙 " + tracks + "개", "", name + ".gdi", "트랙 고르기 · .dcp"} : new String[]{"GD-ROM · 트랙 " + tracks + "개", "", name + ".gdi"});
+        final String mode = modeForFile(chd);
+        final String format = unpackFormat(mode);
+        final boolean dvd = MODE_PS2.equals(mode);
+        final String sheetName = name + "." + format.toLowerCase(Locale.ROOT);
+        String disc = MODE_DC.equals(mode) ? "GD-ROM · 트랙 " + tracks + "개" : dvd ? "DVD" : "CD · 트랙 " + tracks + "개";
+        String patches = MODE_DC.equals(mode) ? "트랙 고르기 · .dcp" : dvd ? "xdelta · PPF" : "트랙 고르기";
+        final StepDialog steps = new StepDialog(format + "로 푸는 중", title + " · " + formatSize(bytes), RoundIconView.FOLDER, MODE_COLORS[modeIndex(mode)],
+                thenPatch ? new String[]{"CHD 확인", dvd ? "디스크 풀기" : "트랙 풀기", format + " 저장", "패치 창 열기"} : new String[]{"CHD 확인", dvd ? "디스크 풀기" : "트랙 풀기", format + " 저장"},
+                thenPatch ? new String[]{disc, "", sheetName, patches} : new String[]{disc, "", sheetName});
         steps.set(1, "0%", 0);
         new Thread(() -> {
             final long[] last = {0};
@@ -6841,7 +6877,7 @@ public final class MainActivity extends Activity {
                 }
                 return !steps.cancelled;
             });
-            final File gdi = new File(dir, name + ".gdi");
+            final File gdi = new File(dir, sheetName);
             runOnUiThread(() -> {
                 steps.dismiss();
                 if (isFinishing() || isDestroyed()) {
@@ -6853,14 +6889,14 @@ public final class MainActivity extends Activity {
                     }
                     return;
                 }
-                romPrefs().edit().putString("title:" + gdi.getName(), title).apply();
+                romPrefs().edit().putString("title:" + gdi.getName(), title).putBoolean("unpacked:" + gdi.getName(), true).apply();
                 if (removeChd) {
                     deleteRomFiles(chd);
                 }
                 refreshLibrary();
-                Toast.makeText(this, "GDI로 풀었어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, format + "로 풀었어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 if (thenPatch) {
-                    pickDiscPatches(gdi);
+                    pickPatch(gdi);
                 }
             });
         }, "chd-unpack").start();
