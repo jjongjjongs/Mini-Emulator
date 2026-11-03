@@ -4935,6 +4935,15 @@ public final class MainActivity extends Activity {
         }, "cover-web").start();
     }
 
+    private static int gcd(int a, int b) {
+        while (b != 0) {
+            int t = a % b;
+            a = b;
+            b = t;
+        }
+        return Math.max(1, Math.abs(a));
+    }
+
     private void showCoverCrop(final File file, final Bitmap picture, String from, final Dialog browser) {
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(1);
@@ -4960,7 +4969,7 @@ public final class MainActivity extends Activity {
         cropParams.setMargins(0, dp(10), 0, 0);
         panel.addView(crop, cropParams);
         TextView tip = new TextView(this);
-        tip.setText("점선 칸을 끌어서 맞춰요");
+        tip.setText("끌어서 옮기기 · 두 손가락으로 크기 · 모서리를 끌어도 돼요");
         tip.setTextSize(11.0f);
         tip.setTextColor(Color.rgb(107, 114, 128));
         tip.setGravity(17);
@@ -4969,7 +4978,7 @@ public final class MainActivity extends Activity {
         String mode = modeForFile(file);
         float caseRatio = MODE_PSP.equals(mode) ? 0.58f : MODE_PS2.equals(mode) || MODE_GC.equals(mode) || MODE_NDS.equals(mode) || MODE_N3DS.equals(mode)
                 || MODE_WIIU.equals(mode) ? 0.71f : MODE_N64.equals(mode) || MODE_SNES.equals(mode) ? 1.37f : 1.0f;
-        final String[] names = {"게임기 케이스 비율", "정사각형", "원본 그대로"};
+        final String[] names = {"게임기 케이스 비율", "정사각형", "자유롭게"};
         final float[] ratios = {caseRatio, 1.0f, 0};
         LinearLayout shapes = new LinearLayout(this);
         final TextView[] chips = new TextView[3];
@@ -4978,6 +4987,7 @@ public final class MainActivity extends Activity {
             chips[k] = multiDeleteChip(names[k]);
             chips[k].setOnClickListener(view -> {
                 crop.setRatio(ratios[index]);
+                tip.setText(index == 2 ? "자유롭게: 모서리 · 가장자리를 끌어 가로 · 세로를 따로" : "끌어서 옮기기 · 두 손가락으로 크기 · 모서리를 끌어도 돼요");
                 for (int j = 0; j < 3; j++) {
                     styleMultiDeleteChip(chips[j], j == index ? Color.rgb(251, 146, 60) : 0);
                 }
@@ -4991,6 +5001,69 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams shapesParams = new LinearLayout.LayoutParams(-1, -2);
         shapesParams.setMargins(0, dp(10), 0, 0);
         panel.addView(shapes, shapesParams);
+        // 크기: a slider for one hand, 맞춤 back to the largest.
+        LinearLayout sizeRow = new LinearLayout(this);
+        sizeRow.setGravity(16);
+        TextView sizeLabel = new TextView(this);
+        sizeLabel.setText("크기");
+        sizeLabel.setTextSize(12.0f);
+        sizeLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        sizeLabel.setTextColor(Color.rgb(100, 116, 139));
+        sizeRow.addView(sizeLabel);
+        final android.widget.SeekBar slider = new android.widget.SeekBar(this);
+        slider.setMax(85);
+        slider.setProgress(85);
+        slider.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(251, 146, 60)));
+        slider.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(251, 146, 60)));
+        sizeRow.addView(slider, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        final TextView percent = new TextView(this);
+        percent.setText("100%");
+        percent.setTextSize(12.0f);
+        percent.setTypeface(Typeface.DEFAULT_BOLD);
+        percent.setTextColor(Color.rgb(100, 116, 139));
+        percent.setMinWidth(dp(40));
+        sizeRow.addView(percent);
+        TextView fit = multiDeleteChip("맞춤");
+        fit.setOnClickListener(view -> crop.setSize(1.0f));
+        sizeRow.addView(fit);
+        LinearLayout.LayoutParams sizeParams = new LinearLayout.LayoutParams(-1, -2);
+        sizeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(sizeRow, sizeParams);
+        final TextView info = new TextView(this);
+        info.setTextSize(11.0f);
+        info.setTextColor(Color.rgb(107, 114, 128));
+        panel.addView(info);
+        final boolean[] fromSlider = {false};
+        slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar bar, int value, boolean user) {
+                if (user) {
+                    fromSlider[0] = true;
+                    crop.setSize((value + 15) / 100.0f);
+                    fromSlider[0] = false;
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar bar) {
+            }
+        });
+        crop.setListener((size, w, h) -> {
+            int value = Math.round(size * 100);
+            percent.setText(value + "%");
+            if (!fromSlider[0]) {
+                slider.setProgress(Math.max(0, value - 15));
+            }
+            int g = gcd(w, h);
+            String shape = w > 0 && h > 0 && w / g <= 30 && h / g <= 30 ? (w / g) + " : " + (h / g) : String.format(Locale.ROOT, "%.2f : 1", w / (float) Math.max(1, h));
+            boolean tiny = Math.max(w, h) < 300;
+            info.setText("지금 칸: " + shape + " · " + w + " × " + h + " 픽셀" + (tiny ? " · 작아서 흐릴 수 있어요" : ""));
+            info.setTextColor(tiny ? Color.rgb(180, 83, 9) : Color.rgb(107, 114, 128));
+        });
         LinearLayout buttons = new LinearLayout(this);
         TextView other = multiDeleteButton("다른 사진", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
         other.setOnClickListener(view -> dialog.dismiss());
