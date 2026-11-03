@@ -7699,6 +7699,9 @@ public final class MainActivity extends Activity {
     }
 
     // Pick several games of this mode at once, then delete their saves or the ROMs themselves.
+    // "여러 개 삭제": the list scrolls, the buttons stay at the bottom. Search, 전체 선택 (the
+    // games shown), 패치본만, the save button (전체 → 세이브 있음 → 세이브 없음) and 선택 해제
+    // narrow it down; what was picked stays picked while the view changes.
     private void showMultiDelete(File preselected) {
         final File[] files = currentRomDir().listFiles(this::isRomFile);
         if (files == null || files.length == 0) {
@@ -7706,21 +7709,343 @@ public final class MainActivity extends Activity {
             return;
         }
         Arrays.sort(files, this::compareRomsForLibrary);
-        String[] labels = new String[files.length];
-        final boolean[] checked = new boolean[files.length];
-        for (int i = 0; i < files.length; i++) {
-            boolean hasSave = saveFileFor(files[i]).exists() || stateFileFor(files[i]).exists();
-            labels[i] = displayGameNameFor(files[i]) + (hasSave ? "  · 세이브 있음" : "");
+        final int count = files.length;
+        final String[] names = new String[count];
+        final boolean[] saves = new boolean[count];
+        final boolean[] patched = new boolean[count];
+        final long[] sizes = new long[count];
+        final boolean[] checked = new boolean[count];
+        for (int i = 0; i < count; i++) {
+            names[i] = displayGameNameFor(files[i]);
+            saves[i] = saveFileFor(files[i]).exists() || stateFileFor(files[i]).exists();
+            patched[i] = patchedFrom(files[i]) != null;
+            sizes[i] = romBytes(files[i]);
             checked[i] = files[i].equals(preselected);
         }
-        android.app.Dialog dialog = new AppDialog.Builder(this)
-                .setTitle("삭제할 게임 선택")
-                .setMultiChoiceItems(labels, checked, (d, which, isChecked) -> checked[which] = isChecked)
-                .setNegativeButton("취소", null)
-                .setNeutralButton("세이브 삭제", (d, which) -> confirmMultiDelete(selectedFiles(files, checked), false))
-                .setPositiveButton("ROM 삭제", (d, which) -> confirmMultiDelete(selectedFiles(files, checked), true))
-                .create();
+        final int teal = Color.rgb(14, 116, 144);
+        final int blue = Color.rgb(37, 99, 235);
+        final int orange = Color.rgb(234, 88, 12);
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setBackground(rounded(-1, dp(24)));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(1);
+        top.setPadding(dp(16), dp(16), dp(16), dp(6));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.MULTI, RoundIconView.COLOR_EXIT), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("삭제할 게임 선택");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(17, 24, 39));
+        titles.addView(title);
+        final TextView sub = new TextView(this);
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(107, 114, 128));
+        titles.addView(sub);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        top.addView(header);
+        final EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setHint("🔍 게임 이름 검색");
+        search.setTextSize(13.0f);
+        search.setBackground(rounded(Color.rgb(241, 245, 249), dp(10)));
+        search.setPadding(dp(10), dp(7), dp(10), dp(7));
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, -2);
+        searchParams.setMargins(0, dp(10), 0, 0);
+        top.addView(search, searchParams);
+        android.widget.HorizontalScrollView chipScroll = new android.widget.HorizontalScrollView(this);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        chipScroll.addView(chips);
+        LinearLayout.LayoutParams chipsParams = new LinearLayout.LayoutParams(-1, -2);
+        chipsParams.setMargins(0, dp(8), 0, 0);
+        top.addView(chipScroll, chipsParams);
+        panel.addView(top);
+        final LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(1);
+        rows.setPadding(dp(16), 0, dp(16), dp(10));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(rows);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(1);
+        bottom.setPadding(dp(16), dp(10), dp(16), dp(14));
+        GradientDrawable bottomLine = new GradientDrawable();
+        bottomLine.setColor(-1);
+        bottomLine.setCornerRadii(new float[]{0, 0, 0, 0, dp(24), dp(24), dp(24), dp(24)});
+        bottom.setBackground(bottomLine);
+        bottom.setElevation(dp(6));
+        LinearLayout summary = new LinearLayout(this);
+        summary.setGravity(16);
+        final TextView picked = new TextView(this);
+        picked.setTextSize(13.0f);
+        picked.setTypeface(Typeface.DEFAULT_BOLD);
+        picked.setTextColor(Color.rgb(17, 24, 39));
+        summary.addView(picked, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        final TextView onlyPicked = new TextView(this);
+        onlyPicked.setTextSize(12.0f);
+        onlyPicked.setTypeface(Typeface.DEFAULT_BOLD);
+        onlyPicked.setTextColor(teal);
+        onlyPicked.setPadding(dp(6), dp(4), 0, dp(4));
+        summary.addView(onlyPicked);
+        bottom.addView(summary);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = multiDeleteButton("취소", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        final TextView deleteSaves = multiDeleteButton("세이브 삭제", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        TextView deleteRoms = multiDeleteButton("ROM 삭제", Color.rgb(225, 29, 72), -1);
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams savesParams = new LinearLayout.LayoutParams(0, dp(46), 1.1f);
+        savesParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(deleteSaves, savesParams);
+        LinearLayout.LayoutParams romsParams = new LinearLayout.LayoutParams(0, dp(46), 1.4f);
+        romsParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(deleteRoms, romsParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(8), 0, 0);
+        bottom.addView(buttons, buttonsParams);
+        panel.addView(bottom);
+        // 0 every game, 1 with saves, 2 without saves.
+        final int[] saveView = {0};
+        final boolean[] patchedOnly = {false};
+        final boolean[] pickedOnly = {false};
+        final TextView selectAll = multiDeleteChip("전체 선택");
+        final TextView patchedChip = multiDeleteChip("패치본만");
+        final TextView saveChip = multiDeleteChip("💾 세이브 ⇄");
+        final TextView clear = multiDeleteChip("선택 해제");
+        for (TextView chip : new TextView[]{selectAll, patchedChip, saveChip, clear}) {
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(0, 0, dp(6), 0);
+            chips.addView(chip, chipParams);
+        }
+        final Runnable[] render = new Runnable[1];
+        final java.util.function.IntPredicate shown = i -> {
+            if (pickedOnly[0] && !checked[i]) {
+                return false;
+            }
+            if (patchedOnly[0] && !patched[i]) {
+                return false;
+            }
+            if (saveView[0] == 1 && !saves[i] || saveView[0] == 2 && saves[i]) {
+                return false;
+            }
+            String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            return query.isEmpty() || names[i].toLowerCase(Locale.ROOT).contains(query);
+        };
+        final Runnable summarize = () -> {
+            int n = 0;
+            long bytes = 0;
+            for (int i = 0; i < count; i++) {
+                if (checked[i]) {
+                    n++;
+                    bytes += sizes[i];
+                }
+            }
+            sub.setText(count + "개 중 " + n + "개 선택");
+            picked.setText(n + "개 선택" + (n > 0 ? " · " + formatSize(bytes) : ""));
+            onlyPicked.setText(pickedOnly[0] ? "전체 보기 ›" : "선택한 것만 보기 ›");
+        };
+        render[0] = () -> {
+            rows.removeAllViews();
+            int visible = 0;
+            for (int i = 0; i < count; i++) {
+                if (!shown.test(i)) {
+                    continue;
+                }
+                visible++;
+                final int index = i;
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(16);
+                row.setPadding(dp(12), dp(10), dp(12), dp(10));
+                row.setBackground(rounded(checked[i] ? Color.rgb(236, 254, 255) : Color.rgb(246, 247, 249), dp(12)));
+                View box = new View(this);
+                GradientDrawable boxShape = rounded(checked[i] ? teal : -1, dp(6));
+                if (!checked[i]) {
+                    boxShape.setStroke(dp(2), Color.rgb(203, 213, 225));
+                }
+                box.setBackground(boxShape);
+                row.addView(box, new LinearLayout.LayoutParams(dp(20), dp(20)));
+                TextView name = new TextView(this);
+                name.setText(names[i]);
+                name.setTextSize(13.5f);
+                name.setSingleLine(true);
+                name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                name.setTypeface(checked[i] ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+                name.setTextColor(checked[i] ? teal : Color.rgb(31, 41, 51));
+                LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+                nameParams.setMargins(dp(10), 0, 0, 0);
+                row.addView(name, nameParams);
+                if (saves[i]) {
+                    TextView tag = new TextView(this);
+                    tag.setText("💾 세이브");
+                    tag.setTextSize(10.5f);
+                    tag.setTypeface(Typeface.DEFAULT_BOLD);
+                    tag.setTextColor(blue);
+                    tag.setPadding(dp(6), dp(1), dp(6), dp(1));
+                    tag.setBackground(rounded(Color.rgb(219, 234, 254), dp(7)));
+                    LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(-2, -2);
+                    tagParams.setMargins(dp(6), 0, 0, 0);
+                    row.addView(tag, tagParams);
+                }
+                row.setOnClickListener(view -> {
+                    checked[index] = !checked[index];
+                    render[0].run();
+                });
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, dp(6), 0, 0);
+                rows.addView(row, rowParams);
+            }
+            String state = null;
+            int color = Color.rgb(148, 163, 184);
+            if (saveView[0] == 1) {
+                state = "세이브 있는 게임 " + visible + "개만 보는 중";
+                color = blue;
+            } else if (saveView[0] == 2) {
+                state = "세이브 없는 게임 " + visible + "개만 보는 중 · 지워도 잃을 세이브가 없어요";
+                color = orange;
+            } else if (pickedOnly[0] || patchedOnly[0] || !search.getText().toString().trim().isEmpty()) {
+                state = visible + "개 보는 중";
+            }
+            if (visible == 0) {
+                state = "조건에 맞는 게임이 없어요";
+            }
+            if (state != null) {
+                TextView note = new TextView(this);
+                note.setText(state);
+                note.setTextSize(11.5f);
+                note.setTextColor(color);
+                note.setGravity(17);
+                note.setPadding(0, dp(12), 0, dp(4));
+                rows.addView(note, new LinearLayout.LayoutParams(-1, -2));
+            }
+            // Chips show what is on.
+            styleMultiDeleteChip(patchedChip, patchedOnly[0] ? teal : 0);
+            saveChip.setText(saveView[0] == 1 ? "💾 세이브 있음" : saveView[0] == 2 ? "⊘ 세이브 없음" : "💾 세이브 ⇄");
+            styleMultiDeleteChip(saveChip, saveView[0] == 1 ? blue : saveView[0] == 2 ? orange : 0);
+            boolean anySave = false;
+            for (int i = 0; i < count; i++) {
+                if (checked[i] && saves[i]) {
+                    anySave = true;
+                }
+            }
+            deleteSaves.setTextColor(anySave ? Color.rgb(55, 65, 81) : Color.rgb(203, 213, 225));
+            summarize.run();
+        };
+        selectAll.setOnClickListener(view -> {
+            for (int i = 0; i < count; i++) {
+                if (shown.test(i)) {
+                    checked[i] = true;
+                }
+            }
+            render[0].run();
+        });
+        patchedChip.setOnClickListener(view -> {
+            patchedOnly[0] = !patchedOnly[0];
+            render[0].run();
+        });
+        saveChip.setOnClickListener(view -> {
+            saveView[0] = (saveView[0] + 1) % 3;
+            render[0].run();
+            scroll.scrollTo(0, 0);
+        });
+        clear.setOnClickListener(view -> {
+            Arrays.fill(checked, false);
+            pickedOnly[0] = false;
+            render[0].run();
+        });
+        onlyPicked.setOnClickListener(view -> {
+            pickedOnly[0] = !pickedOnly[0];
+            render[0].run();
+            scroll.scrollTo(0, 0);
+        });
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int before, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int after) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                render[0].run();
+            }
+        });
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        deleteSaves.setOnClickListener(view -> {
+            List<File> selected = selectedFiles(files, checked);
+            if (selected.isEmpty()) {
+                showMessage("선택한 게임이 없습니다.");
+                return;
+            }
+            confirmMultiDelete(selected, false, dialog);
+        });
+        deleteRoms.setOnClickListener(view -> {
+            List<File> selected = selectedFiles(files, checked);
+            if (selected.isEmpty()) {
+                showMessage("선택한 게임이 없습니다.");
+                return;
+            }
+            confirmMultiDelete(selected, true, dialog);
+        });
+        render[0].run();
+        dialog.setContentView(panel);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(460)), (int) (metrics.heightPixels * 0.88f));
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
         dialog.show();
+    }
+
+    private TextView multiDeleteButton(String text, int background, int color) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(14.5f);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setTextColor(color);
+        button.setGravity(17);
+        button.setBackground(rounded(background, dp(13)));
+        return button;
+    }
+
+    private TextView multiDeleteChip(String text) {
+        TextView chip = new TextView(this);
+        chip.setText(text);
+        chip.setTextSize(12.0f);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setPadding(dp(11), dp(6), dp(11), dp(6));
+        styleMultiDeleteChip(chip, 0);
+        return chip;
+    }
+
+    // color 0: off (grey); otherwise filled with it.
+    private void styleMultiDeleteChip(TextView chip, int color) {
+        GradientDrawable shape = rounded(color == 0 ? Color.rgb(241, 245, 249) : color, dp(15));
+        shape.setStroke(Math.max(1, dp(1)), color == 0 ? Color.rgb(226, 232, 240) : color);
+        chip.setBackground(shape);
+        chip.setTextColor(color == 0 ? Color.rgb(71, 85, 105) : -1);
+    }
+
+    // A game's size on disk, with a sheet's tracks.
+    private static long romBytes(File file) {
+        long bytes = file.length();
+        if (isDiscSheet(file)) {
+            for (String track : cueTracks(file)) {
+                bytes += new File(file.getParentFile(), track).length();
+            }
+        }
+        return bytes;
     }
 
     private static List<File> selectedFiles(File[] files, boolean[] checked) {
@@ -7733,17 +8058,22 @@ public final class MainActivity extends Activity {
         return selected;
     }
 
-    private void confirmMultiDelete(final List<File> files, final boolean roms) {
-        if (files.isEmpty()) {
-            showMessage("선택한 게임이 없습니다.");
-            return;
+    private void confirmMultiDelete(final List<File> files, final boolean roms, final Dialog list) {
+        StringBuilder message = new StringBuilder();
+        for (int i = 0; i < Math.min(5, files.size()); i++) {
+            message.append("· ").append(displayGameNameFor(files.get(i))).append('\n');
         }
-        String message = roms
-                ? "선택한 " + files.size() + "개 게임의 ROM을 삭제합니다. 원본 파일과 세이브는 그대로 둡니다."
-                : "선택한 " + files.size() + "개 게임의 .sav 파일과 빠른 저장 파일을 삭제합니다.";
-        new AppDialog.Builder(this).setTitle(roms ? "ROM을 삭제할까요?" : "세이브를 삭제할까요?").setMessage(message)
-                .setNegativeButton(17039360, null)
-                .setPositiveButton(17039370, (d, which) -> deleteMany(files, roms)).show();
+        if (files.size() > 5) {
+            message.append("· 외 ").append(files.size() - 5).append("개\n");
+        }
+        message.append('\n').append(roms ? "세이브는 남겨둬요 · Mini Emulator 안의 복사본만 지우고 원본 파일은 그대로예요."
+                : ".sav 파일과 빠른 저장 파일을 지워요. ROM은 그대로예요.");
+        new AppDialog.Builder(this).setTitle((roms ? "ROM " : "세이브 ") + files.size() + "개를 삭제할까요?").setMessage(message.toString())
+                .setNegativeButton("취소", null)
+                .setPositiveButton("삭제", (d, which) -> {
+                    list.dismiss();
+                    deleteMany(files, roms);
+                }).show();
     }
 
     private void deleteMany(List<File> files, boolean roms) {
