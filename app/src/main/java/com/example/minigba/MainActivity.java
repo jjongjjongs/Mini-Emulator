@@ -5317,6 +5317,11 @@ public final class MainActivity extends Activity {
             unpackParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createUnpackRow(dialog, file), unpackParams);
         }
+        if (!isLink(file) && !isInstalledCiaGame(file)) {
+            LinearLayout.LayoutParams exportParams = new LinearLayout.LayoutParams(-1, dp(52));
+            exportParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.EXPORT, Color.rgb(14, 116, 144), "게임 파일 내보내기", () -> exportGame(file)), exportParams);
+        }
         if (patchedFrom(file) != null) {
             LinearLayout.LayoutParams historyParams = new LinearLayout.LayoutParams(-1, dp(52));
             historyParams.setMargins(0, dp(9), 0, 0);
@@ -6199,6 +6204,7 @@ public final class MainActivity extends Activity {
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
 
+        addSaveWhereSection(panel, file);
         final CheckBox carry = addSaveCarryBox(panel, file, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
@@ -6265,7 +6271,7 @@ public final class MainActivity extends Activity {
     private boolean patchRunning;
 
     private void runPatch(File file, String originalName, String newName, RomPatcher.Big patch, PatchSource source, RomPatcher.Check check) {
-        File dir = file.getParentFile();
+        File dir = outputDirFor(file);
         String base = sanitizeSaveBaseName(newName);
         boolean cue = source.cue != null;
         boolean multi = cue && source.tracks.size() > 1;
@@ -6769,6 +6775,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
+        addSaveWhereSection(panel, file);
         final CheckBox carry = addSaveCarryBox(panel, file, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
@@ -6858,7 +6865,7 @@ public final class MainActivity extends Activity {
     }
 
     private void runDiscPatch(File file, String originalName, String newName, List<DiscPatch> items, PatchSource source) {
-        File dir = file.getParentFile();
+        File dir = outputDirFor(file);
         String base = sanitizeSaveBaseName(newName);
         boolean multi = source.tracks.size() > 1;
         String chosen = base;
@@ -7259,6 +7266,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(6), 0, 0);
         panel.addView(note, noteParams);
+        addSaveWhereSection(panel, chd);
         final CheckBox carry = addSaveCarryBox(panel, chd, true, "세이브도 같이 옮기기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
@@ -7323,7 +7331,7 @@ public final class MainActivity extends Activity {
     }
 
     private void runChdUnpack(final File chd, final boolean thenPatch, final boolean removeChd, final long bytes, final int tracks, final boolean carrySaves) {
-        final File dir = chd.getParentFile();
+        final File dir = outputDirFor(chd);
         final String title = displayGameNameFor(chd);
         final String name = freeGdiName(dir, sanitizeSaveBaseName(title));
         final String mode = modeForFile(chd);
@@ -7363,14 +7371,14 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 romPrefs().edit().putString("title:" + gdi.getName(), title).putBoolean("unpacked:" + gdi.getName(), true).apply();
-                finishNewGame(chd, gdi, carrySaves);
+                final File placed = finishNewGame(chd, gdi, carrySaves);
                 if (removeChd) {
                     deleteRomFiles(chd);
                 }
                 refreshLibrary();
                 Toast.makeText(this, format + "로 풀었어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 if (thenPatch) {
-                    pickPatch(gdi);
+                    pickPatch(placed);
                 }
             });
         }, "chd-unpack").start();
@@ -7456,6 +7464,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
+        addSaveWhereSection(panel, gdi);
         final CheckBox carry = addSaveCarryBox(panel, gdi, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
@@ -7515,7 +7524,7 @@ public final class MainActivity extends Activity {
     }
 
     private void runDcp(final File gdi, final String originalName, final String newName, final DiscPatch item, final DcpPatcher.Plan plan) {
-        final File dir = gdi.getParentFile();
+        final File dir = outputDirFor(gdi);
         final String name = freeGdiName(dir, sanitizeSaveBaseName(newName));
         final StepDialog steps = new StepDialog("디스크 다시 만드는 중", newName, RoundIconView.PATCH, Color.rgb(124, 58, 237),
                 new String[]{"원본 디스크 읽기", "파일 바꿔 끼우기", "데이터 트랙 다시 만들기", "GDI로 저장"},
@@ -7742,13 +7751,15 @@ public final class MainActivity extends Activity {
 
     // A new game made from source (unpacked or patched): remember where it came from, and
     // bring the saves along when that was asked.
-    private void finishNewGame(File source, File made, boolean carry) {
+    private File finishNewGame(File source, File made, boolean carry) {
         this.prepUris.clear();
         this.prepRom = null;
-        romPrefs().edit().putString("source:" + made.getName(), source.getName()).apply();
+        File game = placeNewGame(source, made);
+        romPrefs().edit().putString("source:" + game.getName(), source.getName()).apply();
         if (carry) {
-            copySaves(saveSetFor(source), made, true, true, true);
+            copySaves(saveSetFor(source), game, true, true, true);
         }
+        return game;
     }
 
     private LinearLayout createSaveImportRow(Dialog dialog, File file) {
@@ -8094,6 +8105,14 @@ public final class MainActivity extends Activity {
         addPageRow(body, settingsRow("패치 기록", "패치한 게임 " + patchedGames().size() + "개", () -> {
             dialog.dismiss();
             showPatchHistory(null);
+        }));
+        addPageRow(body, settingsRow("📤 게임 파일 내보내기", "앱 안에 복사해 둔 게임을 폰 폴더로 (백업)", () -> {
+            dialog.dismiss();
+            showBulkExport();
+        }));
+        addPageRow(body, settingsRow("📖 도움말", "기능 설명서 · 이 버전(" + AppUpdate.currentVersion(this) + ") 기준", () -> {
+            dialog.dismiss();
+            showHelp();
         }));
         addPageRow(body, settingsRow("오픈소스 라이선스", "엔진 · 라이브러리 " + licenseIndex().size() + "개", () -> {
             dialog.dismiss();
@@ -10508,6 +10527,458 @@ public final class MainActivity extends Activity {
             }
             refreshLibrary();
         }).setNegativeButton("취소", null).show();
+    }
+
+    // ---- 저장할 곳 (patched / unpacked games): inside the app, next to a linked original
+    // (made there and linked), or inside the app and copied to a phone folder too ----
+
+    private static final int SAVE_IN_APP = 0;
+    private static final int SAVE_IN_FOLDER = 1;      // made in the folder, linked into the app
+    private static final int SAVE_ALSO_FOLDER = 2;    // made in the app, copied to the folder
+    private static final String PREF_SAVE_FOLDER = "save_folder";
+    private int saveWhere = SAVE_IN_APP;
+    private File saveFolder;
+
+    private File defaultPhoneFolder() {
+        String last = settingsPrefs().getString(PREF_SAVE_FOLDER, null);
+        if (last != null && new File(last).isDirectory()) {
+            return new File(last);
+        }
+        return new File(new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS), "Mini Emulator");
+    }
+
+    private String phonePathText(File dir) {
+        String root = phoneRoot().getAbsolutePath();
+        String path = dir.getAbsolutePath();
+        return path.startsWith(root) ? (path.length() == root.length() ? "내 폰" : path.substring(root.length())) : path;
+    }
+
+    // "저장할 곳" under a patch / unpack window; sets saveWhere / saveFolder as it is changed.
+    private void addSaveWhereSection(LinearLayout panel, File source) {
+        final boolean linked = isLink(source);
+        final File origin = linked && linkTarget(source) != null ? linkTarget(source).getParentFile() : null;
+        this.saveWhere = linked && origin != null ? SAVE_IN_FOLDER : SAVE_IN_APP;
+        this.saveFolder = linked && origin != null ? origin : defaultPhoneFolder();
+        TextView label = new TextView(this);
+        label.setText("저장할 곳");
+        label.setTextSize(12.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(55, 65, 81));
+        label.setPadding(0, dp(12), 0, 0);
+        panel.addView(label);
+        final android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        panel.addView(group);
+        final List<int[]> kinds = new ArrayList<>();
+        final List<android.widget.RadioButton> buttons = new ArrayList<>();
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            group.removeAllViews();
+            kinds.clear();
+            buttons.clear();
+            if (linked && origin != null) {
+                addWhere(group, kinds, buttons, SAVE_IN_FOLDER, 0, "원본과 같은 폴더", phonePathText(origin) + " · 목록에는 🔗 연결로");
+                addWhere(group, kinds, buttons, SAVE_IN_APP, 0, "앱 안", "원본 폴더는 그대로");
+                addWhere(group, kinds, buttons, SAVE_IN_FOLDER, 1, "다른 폴더 고르기",
+                        this.saveFolder.equals(origin) ? "앱 안 탐색기로 고르기" : phonePathText(this.saveFolder) + " · 바꾸려면 다시 누르기");
+            } else {
+                addWhere(group, kinds, buttons, SAVE_IN_APP, 0, "앱 안", "원본도 앱 안에 있어요");
+                addWhere(group, kinds, buttons, SAVE_ALSO_FOLDER, 1, "폰 폴더에도 저장", phonePathText(this.saveFolder) + " · 누르면 폴더를 바꿀 수 있어요");
+            }
+            for (int k = 0; k < kinds.size(); k++) {
+                boolean on = kinds.get(k)[0] == this.saveWhere && (kinds.get(k)[0] == SAVE_IN_APP
+                        || (linked && origin != null ? (kinds.get(k)[1] == 1) == !this.saveFolder.equals(origin) : true));
+                buttons.get(k).setChecked(on);
+            }
+        };
+        render[0].run();
+        group.setOnCheckedChangeListener((g, id) -> {
+            for (int k = 0; k < buttons.size(); k++) {
+                if (buttons.get(k).getId() != id || !buttons.get(k).isPressed()) {
+                    continue;
+                }
+                final int[] kind = kinds.get(k);
+                if (kind[0] == SAVE_IN_APP) {
+                    this.saveWhere = SAVE_IN_APP;
+                } else if (kind[1] == 0 && origin != null) {
+                    this.saveWhere = SAVE_IN_FOLDER;
+                    this.saveFolder = origin;
+                } else {
+                    withAllFilesAccess(() -> showFolderPicker(this.saveFolder.isDirectory() ? this.saveFolder : phoneRoot(), "저장할 폴더 고르기", picked -> {
+                        this.saveWhere = kind[0];
+                        this.saveFolder = picked;
+                        settingsPrefs().edit().putString(PREF_SAVE_FOLDER, picked.getAbsolutePath()).apply();
+                        render[0].run();
+                    }));
+                }
+            }
+        });
+    }
+
+    private void addWhere(android.widget.RadioGroup group, List<int[]> kinds, List<android.widget.RadioButton> buttons, int where, int variant, String title, String detail) {
+        android.widget.RadioButton button = new android.widget.RadioButton(this);
+        button.setId(View.generateViewId());
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder(title + "\n" + detail);
+        text.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, title.length(), 0);
+        text.setSpan(new android.text.style.RelativeSizeSpan(0.85f), title.length() + 1, text.length(), 0);
+        text.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(107, 114, 128)), title.length() + 1, text.length(), 0);
+        button.setText(text);
+        button.setTextSize(13.0f);
+        button.setTextColor(Color.rgb(31, 41, 51));
+        button.setPadding(dp(4), dp(4), 0, dp(4));
+        group.addView(button);
+        kinds.add(new int[]{where, variant});
+        buttons.add(button);
+    }
+
+    // Where a new game from source is made (and checked for space).
+    private File outputDirFor(File source) {
+        if (this.saveWhere == SAVE_IN_FOLDER && this.saveFolder != null && (this.saveFolder.isDirectory() || this.saveFolder.mkdirs())) {
+            return this.saveFolder;
+        }
+        return source.getParentFile() != null && !isLink(source) ? source.getParentFile() : romDirFor(modeForFile(source));
+    }
+
+    // A folder chooser: the folder shown is picked with "이 폴더 선택"; "+ 새 폴더" makes one.
+    private void showFolderPicker(final File dir, final String title, final java.util.function.Consumer<File> onPick) {
+        File[] children = dir.listFiles(f -> f.isDirectory() && !f.getName().startsWith("."));
+        final List<File> folders = new ArrayList<>(Arrays.asList(children == null ? new File[0] : children));
+        java.util.Collections.sort(folders, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+        final boolean top = dir.equals(phoneRoot());
+        List<String> names = new ArrayList<>();
+        names.add("✓ 이 폴더 선택 · " + phonePathText(dir));
+        names.add("+ 새 폴더 만들기");
+        if (!top) {
+            names.add("📁 ..  (위 폴더)");
+        } else {
+            names.add("⬇ Download");
+        }
+        for (File folder : folders) {
+            names.add("📁 " + folder.getName());
+        }
+        new AppDialog.Builder(this).setTitle(title).setItems(names.toArray(new String[0]), (d, which) -> {
+            if (which == 0) {
+                onPick.accept(dir);
+            } else if (which == 1) {
+                final EditText name = new EditText(this);
+                name.setSingleLine(true);
+                name.setText("Mini Emulator");
+                new AppDialog.Builder(this).setTitle("새 폴더").setView(name).setNegativeButton("취소", null).setPositiveButton("만들기", (d2, w2) -> {
+                    File made = new File(dir, sanitizeFileName(name.getText().toString().trim().isEmpty() ? "Mini Emulator" : name.getText().toString().trim()));
+                    if (!made.isDirectory() && !made.mkdirs()) {
+                        showError("폴더를 만들 수 없어요.");
+                        showFolderPicker(dir, title, onPick);
+                        return;
+                    }
+                    showFolderPicker(made, title, onPick);
+                }).show();
+            } else if (which == 2) {
+                showFolderPicker(top ? new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS) : dir.getParentFile(), title, onPick);
+            } else {
+                showFolderPicker(folders.get(which - 3), title, onPick);
+            }
+        }).setNegativeButton("취소", null).show();
+    }
+
+    private static boolean copyPlain(File from, File to) {
+        File temp = new File(to.getPath() + ".copying");
+        try (InputStream in = new FileInputStream(from); OutputStream out = new FileOutputStream(temp)) {
+            byte[] buffer = new byte[1 << 20];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                out.write(buffer, 0, n);
+            }
+        } catch (IOException e) {
+            temp.delete();
+            return false;
+        }
+        return temp.renameTo(to) || (to.delete() && temp.renameTo(to));
+    }
+
+    // After a new game was made: in a phone folder it is linked into the app; "폰 폴더에도
+    // 저장" copies it there in the background. Returns the game as the app lists it.
+    private File placeNewGame(File source, File made) {
+        String mode = modeForFile(source);
+        File inApp = made;
+        if (!romDirFor(mode).equals(made.getParentFile())) {
+            try {
+                if (linkGame(made, mode) < 0) {
+                    showError("앱 안에 이름이 같은 다른 게임이 있어서 목록에 넣지 못했어요. 파일은 " + phonePathText(made) + "에 있어요.");
+                } else {
+                    inApp = new File(romDirFor(mode), made.getName());
+                }
+            } catch (IOException e) {
+                showError(e.getMessage());
+            }
+        } else if (this.saveWhere == SAVE_ALSO_FOLDER && this.saveFolder != null) {
+            final File folder = this.saveFolder;
+            final List<File> files = gameFiles(made);
+            new Thread(() -> {
+                boolean ok = folder.isDirectory() || folder.mkdirs();
+                for (File part : files) {
+                    ok &= ok && copyPlain(part, new File(folder, part.getName()));
+                }
+                final boolean done = ok;
+                runOnUiThread(() -> Toast.makeText(this, done ? "폰 폴더에도 저장했어요 · " + phonePathText(folder) : "폰 폴더에 저장하지 못했어요", Toast.LENGTH_LONG).show());
+            }, "save-also").start();
+        }
+        this.saveWhere = SAVE_IN_APP;
+        return inApp;
+    }
+
+    // ---- 게임 파일 내보내기: a copy of games in the app into a phone folder ----
+
+    private static final String PREF_EXPORT_FOLDER = "export_folder";
+
+    private void exportGame(final File game) {
+        withAllFilesAccess(() -> {
+            String last = settingsPrefs().getString(PREF_EXPORT_FOLDER, null);
+            File start = last != null && new File(last).isDirectory() ? new File(last) : new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS);
+            showFolderPicker(start, "내보낼 폴더 고르기", folder -> {
+                settingsPrefs().edit().putString(PREF_EXPORT_FOLDER, folder.getAbsolutePath()).apply();
+                final List<File> parts = gameFiles(game);
+                long bytes = 0;
+                for (File part : parts) {
+                    bytes += part.length();
+                }
+                long free = new android.os.StatFs(folder.getAbsolutePath()).getAvailableBytes();
+                if (free < bytes + 16L * 1024 * 1024) {
+                    showError("공간이 부족해요. " + formatSize(bytes) + "가 필요한데 " + formatSize(free) + " 남았어요.");
+                    return;
+                }
+                final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+                progress.setMessage(displayGameNameFor(game) + " 내보내는 중… " + formatSize(bytes));
+                progress.setCancelable(false);
+                progress.show();
+                new Thread(() -> {
+                    boolean ok = true;
+                    for (File part : parts) {
+                        File to = new File(folder, part.getName());
+                        if (to.isFile() && to.length() == part.length()) {
+                            continue;
+                        }
+                        ok &= copyPlain(part, to);
+                    }
+                    final boolean done = ok;
+                    runOnUiThread(() -> {
+                        progress.dismiss();
+                        if (!done) {
+                            showError("내보내지 못했어요. 폴더와 공간을 확인해 주세요.");
+                            return;
+                        }
+                        final File exported = new File(folder, game.getName());
+                        new AppDialog.Builder(this).setTitle("내보냈어요")
+                                .setMessage(phonePathText(exported) + "\n\n이제 앱을 지우거나 롬을 실수로 지워도 이 파일로 다시 가져올 수 있어요.\n\n"
+                                        + "앱 안 복사본을 지우고 내보낸 파일을 🔗 연결로 쓰면 " + formatSize(romBytes(game)) + "가 비어요. 세이브는 그대로 이어져요.")
+                                .setNegativeButton("두 군데 다 두기", null)
+                                .setPositiveButton("연결로 바꾸기", (d, which) -> {
+                                    try {
+                                        long freed = linkGame(exported, modeForFile(game));
+                                        refreshLibrary();
+                                        Toast.makeText(this, "🔗 연결로 바꿨어요 · " + formatSize(Math.max(0, freed)) + " 비었어요", Toast.LENGTH_LONG).show();
+                                    } catch (IOException e) {
+                                        showError(e.getMessage());
+                                    }
+                                }).show();
+                    });
+                }, "export-game").start();
+            });
+        });
+    }
+
+    // 설정 → 게임 파일 내보내기: every game kept inside the app, a folder per console.
+    private void showBulkExport() {
+        withAllFilesAccess(() -> {
+            final java.util.LinkedHashMap<String, List<File>> byMode = new java.util.LinkedHashMap<>();
+            long total = 0;
+            int count = 0;
+            for (String mode : MODE_IDS) {
+                File[] files = romDirFor(mode).listFiles(this::isRomFile);
+                List<File> list = new ArrayList<>();
+                for (File file : files == null ? new File[0] : files) {
+                    if (!isLink(file)) {
+                        list.add(file);
+                        total += romBytes(file);
+                    }
+                }
+                if (!list.isEmpty()) {
+                    byMode.put(mode, list);
+                    count += list.size();
+                }
+            }
+            if (count == 0) {
+                showMessage("앱 안에 복사해 둔 게임이 없어요 (연결한 게임은 이미 폰에 있어요).");
+                return;
+            }
+            final long bytes = total;
+            final int games = count;
+            final File[] target = {new File(new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS), "Mini Emulator 백업")};
+            final Dialog dialog = new Dialog(this);
+            final int teal = Color.rgb(14, 116, 144);
+            LinearLayout body = pageDialog(dialog, "게임 파일 한꺼번에 내보내기", "앱 안 게임 " + games + "개 · " + formatSize(bytes), teal);
+            StringBuilder list = new StringBuilder();
+            for (java.util.Map.Entry<String, List<File>> entry : byMode.entrySet()) {
+                long size = 0;
+                for (File file : entry.getValue()) {
+                    size += romBytes(file);
+                }
+                list.append(MODE_NAMES[modeIndex(entry.getKey())]).append(" · ").append(entry.getValue().size()).append("개 · ").append(formatSize(size)).append('\n');
+            }
+            addPageRow(body, settingsRow("내보낼 게임", list.toString().trim(), null));
+            final LinearLayout[] whereRow = new LinearLayout[1];
+            final LinearLayout holder = new LinearLayout(this);
+            holder.setOrientation(1);
+            addPageRow(body, holder);
+            final Runnable[] showWhere = new Runnable[1];
+            showWhere[0] = () -> {
+                holder.removeAllViews();
+                whereRow[0] = settingsRow("내보낼 곳 · 바꾸려면 누르기", phonePathText(target[0]) + "\n게임기마다 폴더를 나눠요 · 이미 같은 파일이 있으면 건너뛰어요", () ->
+                        showFolderPicker(target[0].isDirectory() ? target[0] : target[0].getParentFile(), "내보낼 곳 고르기", picked -> {
+                            target[0] = picked;
+                            showWhere[0].run();
+                        }));
+                holder.addView(whereRow[0]);
+            };
+            showWhere[0].run();
+            final CheckBox toLinks = new CheckBox(this);
+            toLinks.setText("끝나면 전부 연결로 바꾸기 (앱 안 복사본을 지워 " + formatSize(bytes) + "를 비워요)");
+            toLinks.setTextSize(12.5f);
+            addPageRow(body, toLinks);
+            TextView go = multiDeleteButton(games + "개 내보내기 · " + formatSize(bytes), teal, -1);
+            go.setOnClickListener(view -> {
+                long free = new android.os.StatFs((target[0].isDirectory() ? target[0] : phoneRoot()).getAbsolutePath()).getAvailableBytes();
+                if (free < bytes + 64L * 1024 * 1024) {
+                    showError("공간이 부족해요. " + formatSize(bytes) + "가 필요한데 " + formatSize(free) + " 남았어요.");
+                    return;
+                }
+                dialog.dismiss();
+                runBulkExport(byMode, target[0], toLinks.isChecked(), bytes);
+            });
+            addPageRow(body, go);
+            dialog.show();
+        });
+    }
+
+    private void runBulkExport(final java.util.Map<String, List<File>> byMode, final File target, final boolean toLinks, final long bytes) {
+        final StepDialog steps = new StepDialog("게임 파일 내보내는 중", phonePathText(target), RoundIconView.EXPORT, Color.rgb(14, 116, 144),
+                new String[]{"복사", toLinks ? "연결로 바꾸기" : "확인"}, new String[]{"", ""});
+        new Thread(() -> {
+            long done = 0;
+            int copied = 0;
+            int skipped = 0;
+            long freed = 0;
+            String error = null;
+            outer:
+            for (java.util.Map.Entry<String, List<File>> entry : byMode.entrySet()) {
+                File folder = new File(target, sanitizeFileName(MODE_NAMES[modeIndex(entry.getKey())]));
+                if (!folder.isDirectory() && !folder.mkdirs()) {
+                    error = "폴더를 만들 수 없어요: " + folder.getName();
+                    break;
+                }
+                for (File game : entry.getValue()) {
+                    if (steps.cancelled) {
+                        break outer;
+                    }
+                    for (File part : gameFiles(game)) {
+                        File to = new File(folder, part.getName());
+                        final String detail = part.getName();
+                        final int permille = (int) (900 * done / Math.max(1, bytes));
+                        runOnUiThread(() -> steps.set(0, detail, permille));
+                        if (to.isFile() && to.length() == part.length()) {
+                            skipped++;
+                        } else if (!copyPlain(part, to)) {
+                            error = part.getName() + "을(를) 복사하지 못했어요.";
+                            break outer;
+                        } else {
+                            copied++;
+                        }
+                        done += part.length();
+                    }
+                    if (toLinks) {
+                        try {
+                            freed += Math.max(0, linkGame(new File(folder, game.getName()), entry.getKey()));
+                        } catch (IOException e) {
+                            error = e.getMessage();
+                        }
+                    }
+                }
+            }
+            final String why = error;
+            final int c = copied;
+            final int s = skipped;
+            final long f = freed;
+            runOnUiThread(() -> {
+                steps.dismiss();
+                refreshLibrary();
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                new AppDialog.Builder(this).setTitle(steps.cancelled ? "그만뒀어요" : "내보냈어요")
+                        .setMessage(phonePathText(target) + "\n파일 " + c + "개 복사" + (s > 0 ? " · 이미 있어서 " + s + "개 건너뜀" : "")
+                                + (toLinks ? "\n🔗 연결로 바꿔서 " + formatSize(f) + "가 비었어요." : ""))
+                        .setPositiveButton("확인", null).show();
+            });
+        }, "bulk-export").start();
+    }
+
+    // ---- 도움말: the overview document of this version (assets/help) ----
+
+    @android.annotation.SuppressLint("SetJavaScriptEnabled")
+    private void showHelp() {
+        final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_Light_NoActionBar);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(1);
+        root.setBackgroundColor(Color.WHITE);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(16);
+        bar.setPadding(dp(14), dp(12), dp(14), dp(12));
+        bar.setBackgroundColor(Color.rgb(22, 163, 74));
+        TextView close = new TextView(this);
+        close.setText("✕");
+        close.setTextSize(18.0f);
+        close.setTextColor(Color.WHITE);
+        close.setPadding(0, 0, dp(14), 0);
+        close.setOnClickListener(view -> dialog.dismiss());
+        bar.addView(close);
+        TextView title = new TextView(this);
+        title.setText("도움말 · Mini Emulator " + AppUpdate.currentVersion(this));
+        title.setTextSize(16.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.WHITE);
+        bar.addView(title);
+        root.addView(bar);
+        final android.webkit.WebView web = new android.webkit.WebView(this);
+        web.getSettings().setJavaScriptEnabled(false);
+        web.getSettings().setBuiltInZoomControls(true);
+        web.getSettings().setDisplayZoomControls(false);
+        web.getSettings().setAllowFileAccess(true);
+        web.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
+                Uri url = request.getUrl();
+                if ("file".equals(url.getScheme())) {
+                    return false;
+                }
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, url));
+                } catch (Exception ignored) {
+                    // No browser.
+                }
+                return true;
+            }
+        });
+        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        dialog.setContentView(root);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.getAction() == android.view.KeyEvent.ACTION_UP && web.canGoBack()) {
+                web.goBack();
+                return true;
+            }
+            return false;
+        });
+        dialog.setOnDismissListener(d -> web.destroy());
+        web.loadUrl("file:///android_asset/help/overview.html");
+        dialog.show();
     }
 
     private String patchedFrom(File file) {

@@ -397,6 +397,9 @@ jobs:
             echo "::warning::Citra core not in the cache; 3DS games cannot run in this APK"
           fi
 
+      - name: In-app help (overview document of this version)
+        run: python3 docs/overview/render.py
+
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug
 
