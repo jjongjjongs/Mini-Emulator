@@ -2946,6 +2946,10 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri data = intent.getData();
+        if (i == REQUEST_PICK_PATCH_PREP) {
+            onPrepPatchesPicked(intent);
+            return;
+        }
         if (i == REQUEST_PICK_PATCH) {
             if (this.patchRom != null && isDiscSheet(this.patchRom)) {
                 List<Uri> uris = new ArrayList<>();
@@ -5485,6 +5489,10 @@ public final class MainActivity extends Activity {
             showChdUnpack(file, true);
             return;
         }
+        showPatchPrep(file);
+    }
+
+    private void pickPatchDirect(File file) {
         if (isDiscSheet(file)) {
             pickDiscPatches(file);
             return;
@@ -5712,6 +5720,7 @@ public final class MainActivity extends Activity {
         title.setPadding(dp(10), 0, 0, 0);
         header.addView(title);
         panel.addView(header);
+        panel.addView(patchStepBar(2));
         final String gameName = displayGameNameFor(file);
         TextView intro = new TextView(this);
         intro.setText(gameName + " · 원본 롬에 한글 패치 같은 패치 파일을 입혀요.");
@@ -5782,13 +5791,16 @@ public final class MainActivity extends Activity {
         final CheckBox carry = addSaveCarryBox(panel, file, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
-        cancel.setText("취소");
+        cancel.setText("← 이전");
         cancel.setTextSize(15.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
         cancel.setTextColor(Color.rgb(75, 85, 99));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
-        cancel.setOnClickListener(view -> dialog.dismiss());
+        cancel.setOnClickListener(view -> {
+            dialog.dismiss();
+            showPatchPrep(file);
+        });
         buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
         TextView apply = new TextView(this);
         apply.setText("패치 적용");
@@ -6265,6 +6277,7 @@ public final class MainActivity extends Activity {
         titlesParams.setMargins(dp(10), 0, 0, 0);
         header.addView(titles, titlesParams);
         panel.addView(header);
+        panel.addView(patchStepBar(2));
         TextView count = new TextView(this);
         count.setText("패치 파일 " + items.size() + "개 · 줄을 누르면 트랙을 바꿔요");
         count.setTextSize(12.0f);
@@ -6348,13 +6361,16 @@ public final class MainActivity extends Activity {
         final CheckBox carry = addSaveCarryBox(panel, file, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
-        cancel.setText("취소");
+        cancel.setText("← 이전");
         cancel.setTextSize(15.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
         cancel.setTextColor(Color.rgb(75, 85, 99));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
-        cancel.setOnClickListener(view -> dialog.dismiss());
+        cancel.setOnClickListener(view -> {
+            dialog.dismiss();
+            showPatchPrep(file);
+        });
         buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
         TextView apply = new TextView(this);
         apply.setText("패치 적용");
@@ -6959,6 +6975,7 @@ public final class MainActivity extends Activity {
         final int violet = Color.rgb(124, 58, 237);
         final String gameName = displayGameNameFor(gdi);
         cardHeader(panel, RoundIconView.PATCH, violet, "패치 적용 · .dcp", gameName + " · GDI");
+        panel.addView(patchStepBar(2));
         StringBuilder what = new StringBuilder();
         what.append(item.name).append(" · ").append(formatSize(item.file.length())).append("\nUniversal Dreamcast Patcher 형식");
         if (plan.replaced > 0) {
@@ -7031,13 +7048,16 @@ public final class MainActivity extends Activity {
         final CheckBox carry = addSaveCarryBox(panel, gdi, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
-        cancel.setText("취소");
+        cancel.setText("← 이전");
         cancel.setTextSize(15.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
         cancel.setTextColor(Color.rgb(75, 85, 99));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
-        cancel.setOnClickListener(view -> dialog.dismiss());
+        cancel.setOnClickListener(view -> {
+            dialog.dismiss();
+            showPatchPrep(gdi);
+        });
         buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
         TextView apply = new TextView(this);
         apply.setText("패치 적용");
@@ -7312,6 +7332,8 @@ public final class MainActivity extends Activity {
     // A new game made from source (unpacked or patched): remember where it came from, and
     // bring the saves along when that was asked.
     private void finishNewGame(File source, File made, boolean carry) {
+        this.prepUris.clear();
+        this.prepRom = null;
         romPrefs().edit().putString("source:" + made.getName(), source.getName()).apply();
         if (carry) {
             copySaves(saveSetFor(source), made, true, true, true);
@@ -8117,6 +8139,352 @@ public final class MainActivity extends Activity {
             action.run();
         });
         return row;
+    }
+
+    // ---- 한글 패치 적용 1단계: 원본 파일 (the game, fixed) and the patch files, then 다음 → the
+    // checking window (2단계), which has ← 이전 back to here with the same files. ----
+
+    private static final int REQUEST_PICK_PATCH_PREP = 1060;
+    private File prepRom;
+    private final List<Uri> prepUris = new ArrayList<>();
+    private String prepError;
+    private Dialog prepDialog;
+
+    private long sizeForUri(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri, new String[]{android.provider.OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                return cursor.getLong(0);
+            }
+        } catch (RuntimeException e) {
+            // Unknown.
+        }
+        return -1;
+    }
+
+    // The patch format from the file's first bytes ("IPS" …), ".dcp" by name, or null.
+    private String patchKindOf(Uri uri) {
+        String name = displayNameFor(uri);
+        if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".dcp")) {
+            return ".dcp";
+        }
+        byte[] head = new byte[8];
+        int got = 0;
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                return null;
+            }
+            int n;
+            while (got < head.length && (n = in.read(head, got, head.length - got)) > 0) {
+                got += n;
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        String text = new String(head, 0, got, StandardCharsets.ISO_8859_1);
+        if (text.startsWith("PATCH")) {
+            return "IPS";
+        }
+        if (text.startsWith("UPS1")) {
+            return "UPS";
+        }
+        if (text.startsWith("BPS1")) {
+            return "BPS";
+        }
+        if (text.startsWith("PPF10") || text.startsWith("PPF20") || text.startsWith("PPF30")) {
+            return "PPF";
+        }
+        if (got >= 3 && (head[0] & 0xFF) == 0xD6 && (head[1] & 0xFF) == 0xC3 && (head[2] & 0xFF) == 0xC4) {
+            return "xdelta";
+        }
+        return null;
+    }
+
+    // Opens 1단계 for a game; keeps the files already picked when it is the same game.
+    private void showPatchPrep(File file) {
+        if (!file.equals(this.prepRom)) {
+            this.prepRom = file;
+            this.prepUris.clear();
+        }
+        this.prepError = null;
+        renderPatchPrep();
+    }
+
+    private void renderPatchPrep() {
+        final File file = this.prepRom;
+        if (file == null) {
+            return;
+        }
+        if (this.prepDialog != null && this.prepDialog.isShowing()) {
+            this.prepDialog.dismiss();
+        }
+        final boolean sheet = isDiscSheet(file);
+        final int teal = RoundIconView.COLOR_PATCH;
+        final Dialog dialog = new Dialog(this);
+        this.prepDialog = dialog;
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        cardHeader(panel, RoundIconView.PATCH, teal, "한글 패치 적용", "1단계 · 원본과 패치 파일 고르기");
+        panel.addView(patchStepBar(1));
+        // 원본 파일
+        panel.addView(prepLabel("원본 파일"));
+        String type = file.getName().contains(".") ? file.getName().substring(file.getName().lastIndexOf('.') + 1).toUpperCase(Locale.ROOT) : "파일";
+        String detail = type + (sheet ? " · 트랙 " + cueTracks(file).size() + "개" : "") + " · " + formatSize(romBytes(file)) + " · 원본은 바뀌지 않아요";
+        LinearLayout source = prepCard(RoundIconView.FOLDER, MODE_COLORS[modeIndex(modeForFile(file))], file.getName(), detail, Color.rgb(246, 247, 249), 0);
+        TextView lock = new TextView(this);
+        lock.setText("🔒 원본");
+        lock.setTextSize(10.5f);
+        lock.setTypeface(Typeface.DEFAULT_BOLD);
+        lock.setTextColor(Color.rgb(148, 163, 184));
+        source.addView(lock);
+        panel.addView(source, prepCardParams());
+        // 패치 파일
+        panel.addView(prepLabel(sheet ? "패치 파일 (여러 개 가능)" : "패치 파일"));
+        for (final Uri uri : new ArrayList<>(this.prepUris)) {
+            String name = displayNameFor(uri);
+            long size = sizeForUri(uri);
+            String kind = patchKindOf(uri);
+            LinearLayout card = prepCard(RoundIconView.PATCH, teal, name == null ? "패치 파일" : name,
+                    (kind == null ? "?" : kind) + (size >= 0 ? " · " + formatSize(size) : "") + " · 패치 파일 맞음 ✓", Color.rgb(236, 254, 255), teal);
+            TextView remove = new TextView(this);
+            remove.setText("✕");
+            remove.setTextSize(15.0f);
+            remove.setTextColor(Color.rgb(148, 163, 184));
+            remove.setPadding(dp(8), dp(4), dp(4), dp(4));
+            remove.setOnClickListener(view -> {
+                this.prepUris.remove(uri);
+                renderPatchPrep();
+            });
+            card.addView(remove);
+            panel.addView(card, prepCardParams());
+        }
+        if (this.prepError != null) {
+            TextView error = new TextView(this);
+            error.setText(this.prepError);
+            error.setTextSize(12.0f);
+            error.setTextColor(Color.rgb(185, 28, 28));
+            error.setLineSpacing(0, 1.15f);
+            error.setPadding(dp(12), dp(10), dp(12), dp(10));
+            GradientDrawable box = rounded(Color.rgb(254, 242, 242), dp(12));
+            box.setStroke(dp(2), Color.rgb(252, 165, 165));
+            error.setBackground(box);
+            panel.addView(error, prepCardParams());
+        }
+        if (sheet || this.prepUris.isEmpty()) {
+            boolean first = this.prepUris.isEmpty();
+            TextView pick = new TextView(this);
+            pick.setText(this.prepError != null ? "📄 다시 고르기" : first ? "📄 패치 파일 고르기" : "📄 + 패치 더 고르기");
+            pick.setTextSize(13.5f);
+            pick.setTypeface(Typeface.DEFAULT_BOLD);
+            pick.setGravity(17);
+            boolean hl = this.prepError != null;
+            pick.setTextColor(hl ? teal : Color.rgb(100, 116, 139));
+            GradientDrawable dashed = rounded(hl ? Color.rgb(236, 254, 255) : Color.WHITE, dp(12));
+            dashed.setStroke(dp(2), hl ? teal : Color.rgb(203, 213, 225), dp(6), dp(4));
+            pick.setBackground(dashed);
+            pick.setOnClickListener(view -> pickPrepPatch(sheet));
+            LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(-1, dp(52));
+            pickParams.setMargins(0, dp(6), 0, 0);
+            panel.addView(pick, pickParams);
+        } else {
+            TextView change = new TextView(this);
+            change.setText("다른 파일로 바꾸기");
+            change.setTextSize(12.0f);
+            change.setTypeface(Typeface.DEFAULT_BOLD);
+            change.setTextColor(teal);
+            change.setPadding(dp(2), dp(8), 0, 0);
+            change.setOnClickListener(view -> pickPrepPatch(false));
+            panel.addView(change);
+        }
+        TextView kinds = new TextView(this);
+        kinds.setText(MODE_DC.equals(modeForFile(file)) && file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi")
+                ? "IPS · UPS · BPS · PPF · xdelta · .dcp" : "IPS · UPS · BPS · PPF · xdelta");
+        kinds.setTextSize(11.0f);
+        kinds.setTextColor(Color.rgb(107, 114, 128));
+        kinds.setPadding(dp(2), dp(6), 0, 0);
+        panel.addView(kinds);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = multiDeleteButton("취소", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        cancel.setOnClickListener(view -> {
+            this.prepUris.clear();
+            this.prepRom = null;
+            dialog.dismiss();
+        });
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        final boolean ready = !this.prepUris.isEmpty();
+        TextView next = multiDeleteButton("다음 →", ready ? teal : Color.rgb(203, 213, 225), -1);
+        next.setOnClickListener(view -> {
+            if (!ready) {
+                showMessage("패치 파일을 먼저 골라 주세요.");
+                return;
+            }
+            dialog.dismiss();
+            this.patchRom = file;
+            if (sheet) {
+                onDiscPatchesPicked(new ArrayList<>(this.prepUris));
+            } else {
+                onPatchPicked(this.prepUris.get(0));
+            }
+        });
+        LinearLayout.LayoutParams nextParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        nextParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(next, nextParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(16), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    // "1 파일 고르기 — 2 확인 · 적용" under a patch window's title.
+    private LinearLayout patchStepBar(int step) {
+        int teal = RoundIconView.COLOR_PATCH;
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(1);
+        bar.setPadding(0, dp(10), 0, 0);
+        LinearLayout lines = new LinearLayout(this);
+        for (int k = 1; k <= 2; k++) {
+            View line = new View(this);
+            line.setBackground(rounded(k <= step ? teal : Color.rgb(226, 232, 240), dp(2)));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(4), 1.0f);
+            params.setMargins(k == 1 ? 0 : dp(6), 0, 0, 0);
+            lines.addView(line, params);
+        }
+        bar.addView(lines);
+        LinearLayout labels = new LinearLayout(this);
+        String[] names = {"1 파일 고르기", "2 확인 · 적용"};
+        for (int k = 1; k <= 2; k++) {
+            TextView label = new TextView(this);
+            label.setText(names[k - 1]);
+            label.setTextSize(10.5f);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            label.setTextColor(k <= step ? teal : Color.rgb(148, 163, 184));
+            label.setGravity(k == 1 ? android.view.Gravity.START : android.view.Gravity.END);
+            labels.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        }
+        bar.addView(labels);
+        return bar;
+    }
+
+    private TextView prepLabel(String text) {
+        TextView label = new TextView(this);
+        android.text.SpannableStringBuilder value = new android.text.SpannableStringBuilder(text + " *");
+        value.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(229, 72, 77)), text.length() + 1, value.length(), 0);
+        label.setText(value);
+        label.setTextSize(13.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(55, 65, 81));
+        label.setPadding(0, dp(14), 0, 0);
+        return label;
+    }
+
+    private LinearLayout prepCard(int icon, int color, String name, String detail, int background, int stroke) {
+        LinearLayout card = new LinearLayout(this);
+        card.setGravity(16);
+        card.setPadding(dp(10), dp(9), dp(10), dp(9));
+        GradientDrawable shape = rounded(background, dp(12));
+        if (stroke != 0) {
+            shape.setStroke(dp(2), stroke);
+        }
+        card.setBackground(shape);
+        card.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(13.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        texts.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(detail);
+        sub.setTextSize(11.0f);
+        sub.setTextColor(stroke != 0 ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128));
+        texts.addView(sub);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, 0, 0);
+        card.addView(texts, textsParams);
+        return card;
+    }
+
+    private LinearLayout.LayoutParams prepCardParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(6), 0, 0);
+        return params;
+    }
+
+    private void pickPrepPatch(boolean multiple) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        if (multiple) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
+        try {
+            startActivityForResult(intent, REQUEST_PICK_PATCH_PREP);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    private void onPrepPatchesPicked(Intent intent) {
+        File file = this.prepRom;
+        if (file == null) {
+            return;
+        }
+        List<Uri> picked = new ArrayList<>();
+        android.content.ClipData clip = intent.getClipData();
+        for (int k = 0; clip != null && k < clip.getItemCount(); k++) {
+            if (clip.getItemAt(k).getUri() != null) {
+                picked.add(clip.getItemAt(k).getUri());
+            }
+        }
+        if (picked.isEmpty() && intent.getData() != null) {
+            picked.add(intent.getData());
+        }
+        boolean sheet = isDiscSheet(file);
+        boolean gdi = file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi");
+        List<String> bad = new ArrayList<>();
+        if (!sheet) {
+            this.prepUris.clear();
+        }
+        for (Uri uri : picked) {
+            String kind = patchKindOf(uri);
+            String name = displayNameFor(uri);
+            if (kind == null || (".dcp".equals(kind) && !gdi)) {
+                bad.add(name == null ? "고른 파일" : name);
+                continue;
+            }
+            if (".dcp".equals(kind) || this.prepUris.stream().anyMatch(u -> ".dcp".equals(patchKindOf(u)))) {
+                this.prepUris.clear();  // a .dcp goes alone
+            }
+            if (!this.prepUris.contains(uri)) {
+                this.prepUris.add(uri);
+            }
+            if (!sheet) {
+                break;
+            }
+        }
+        if (!bad.isEmpty()) {
+            String names = android.text.TextUtils.join(", ", bad);
+            boolean dcp = names.toLowerCase(Locale.ROOT).endsWith(".dcp");
+            this.prepError = dcp ? names + "는 드림캐스트 GDI 게임에만 쓸 수 있어요. 이 게임에는 IPS · UPS · BPS · PPF · xdelta 패치를 골라 주세요."
+                    : names + "는 패치 파일이 아니에요.\nIPS · UPS · BPS · PPF · xdelta 파일을 골라 주세요. 압축 파일(.zip)이면 먼저 풀어서 안의 패치 파일을 골라요.";
+        } else {
+            this.prepError = null;
+        }
+        renderPatchPrep();
     }
 
     private String patchedFrom(File file) {
