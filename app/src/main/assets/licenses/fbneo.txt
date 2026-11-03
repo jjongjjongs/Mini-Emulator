@@ -11,3 +11,6 @@ FinalBurn Neo license (non-commercial):
 https://github.com/libretro/FBNeo/blob/master/src/license.txt
 
 No ROM or BIOS files are bundled with this application.
+
+
+Please see the license [here](https://github.com/finalburnneo/FBNeo/blob/master/src/license.txt) for the full version

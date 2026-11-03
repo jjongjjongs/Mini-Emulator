@@ -485,6 +485,10 @@ public final class MainActivity extends Activity {
         remember.setOnCheckedChangeListener((button, checked) -> settingsPrefs().edit().putBoolean(PREF_REMEMBER_MODE, checked).apply());
         LinearLayout.LayoutParams rememberParams = new LinearLayout.LayoutParams(-1, -2);
         rememberParams.setMargins(0, dp(12), 0, 0);
+        LinearLayout settings = settingsRow("⚙ 설정", "세이브 백업 · 패치 기록 · 라이선스 · 앱 정보", this::showSettings);
+        LinearLayout.LayoutParams settingsParams = new LinearLayout.LayoutParams(-1, -2);
+        settingsParams.setMargins(0, dp(14), 0, 0);
+        root.addView(settings, settingsParams);
         root.addView(remember, rememberParams);
         ScrollView scrollView = new ScrollView(this);
         scrollView.setFillViewport(true);
@@ -2118,6 +2122,14 @@ public final class MainActivity extends Activity {
             onModePicked(modeForFile(file));
             launchGame(file);
         }), new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout settingsRow = settingsRow("⚙ 설정", "세이브 백업 · 패치 기록 · 라이선스", () -> {
+            dialog.dismiss();
+            showSettings();
+        });
+        settingsRow.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams settingsRowParams = new LinearLayout.LayoutParams(-1, -2);
+        settingsRowParams.setMargins(0, dp(14), 0, 0);
+        sheet.addView(settingsRow, settingsRowParams);
         // 앱 업데이트: check now, and the daily check on or off.
         for (int k = 0; k < 2; k++) {
             final boolean auto = k == 1;
@@ -4890,6 +4902,11 @@ public final class MainActivity extends Activity {
             unpackParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createUnpackRow(dialog, file), unpackParams);
         }
+        if (patchedFrom(file) != null) {
+            LinearLayout.LayoutParams historyParams = new LinearLayout.LayoutParams(-1, dp(52));
+            historyParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, RoundIconView.COLOR_PATCH, "패치 기록", () -> showPatchDetail(file)), historyParams);
+        }
         if (savesMovable(mode)) {
             LinearLayout.LayoutParams importParams = new LinearLayout.LayoutParams(-1, dp(52));
             importParams.setMargins(0, dp(9), 0, 0);
@@ -5791,6 +5808,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             this.carrySaveFrom = carry != null && carry.isChecked() ? file : null;
+            this.lastPatchName = patchName;
             this.patchRunning = true;
             dialog.dismiss();
             runPatch(file, gameName, newName, patch, source, check);
@@ -5926,6 +5944,8 @@ public final class MainActivity extends Activity {
                 romPrefs().edit().putString("title:" + out.getName(), newName).putString("patched:" + out.getName(), originalName).apply();
                 finishNewGame(file, out, this.carrySaveFrom != null);
                 this.carrySaveFrom = null;
+                recordPatch(out, RomPatcher.formatName(check.format), java.util.Collections.singletonList((this.lastPatchName == null ? "패치" : this.lastPatchName)
+                        + (check.sourceMatches > 0 ? " · 원본 CRC 일치" : "")));
                 Toast.makeText(this, "패치를 적용했어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 refreshLibrary();
             });
@@ -6526,6 +6546,11 @@ public final class MainActivity extends Activity {
                         .putString("patched_tracks:" + out.getName(), tracksText).apply();
                 finishNewGame(file, out, this.carrySaveFrom != null);
                 this.carrySaveFrom = null;
+                List<String> logLines = new ArrayList<>();
+                for (DiscPatch item : items) {
+                    logLines.add(item.name + " → " + String.format(Locale.ROOT, "Track %02d", item.track + 1) + (item.reason.isEmpty() ? "" : " (" + item.reason + ")"));
+                }
+                recordPatch(out, "트랙 패치", logLines);
                 Toast.makeText(this, "패치 " + items.size() + "개를 적용했어요 (Track " + tracksText + ") · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 refreshLibrary();
             });
@@ -6739,9 +6764,13 @@ public final class MainActivity extends Activity {
                 String mode = modeForFile(chd);
                 int kind = info.length > 2 ? (int) info[2] : 0;
                 int wanted = MODE_DC.equals(mode) ? 0 : MODE_PS2.equals(mode) ? 2 : 1;
+                if (MODE_PS2.equals(mode) && kind == 1) {
+                    kind = 2;  // a PS2 game on CD: its data track becomes the .iso
+                    psCdChd.add(chd.getAbsolutePath());
+                }
                 if (kind != wanted) {
                     showError(MODE_DC.equals(mode) ? "드림캐스트 GD-ROM CHD가 아니에요."
-                            : MODE_PS2.equals(mode) ? (kind == 1 ? "CD로 된 PS2 CHD는 아직 풀 수 없어요 (DVD CHD만 ISO로 풀어요)." : "PS2 DVD CHD가 아니에요.")
+                            : MODE_PS2.equals(mode) ? "PS2 게임 CHD가 아니에요."
                             : "이 게임기의 CD 이미지 CHD가 아니에요.");
                     return;
                 }
@@ -6882,7 +6911,7 @@ public final class MainActivity extends Activity {
         steps.set(1, "0%", 0);
         new Thread(() -> {
             final long[] last = {0};
-            String error = ChdGdi.convert(chd.getAbsolutePath(), dir.getAbsolutePath(), name, (done, total) -> {
+            ChdGdi.Progress onProgress = (done, total) -> {
                 long now = android.os.SystemClock.uptimeMillis();
                 if (now - last[0] > 200) {
                     last[0] = now;
@@ -6890,7 +6919,10 @@ public final class MainActivity extends Activity {
                     runOnUiThread(() -> steps.set(1, formatSize(done) + " / " + formatSize(total) + " · " + permille / 10 + "%", permille));
                 }
                 return !steps.cancelled;
-            });
+            };
+            String error = psCdChd.contains(chd.getAbsolutePath())
+                    ? ChdGdi.convertIso(chd.getAbsolutePath(), new File(dir, sheetName).getAbsolutePath(), onProgress)
+                    : ChdGdi.convert(chd.getAbsolutePath(), dir.getAbsolutePath(), name, onProgress);
             final File gdi = new File(dir, sheetName);
             runOnUiThread(() -> {
                 steps.dismiss();
@@ -7101,6 +7133,7 @@ public final class MainActivity extends Activity {
                         .putString("patched_note:" + sheet.getName(), ".dcp 패치").apply();
                 finishNewGame(gdi, sheet, this.carrySaveFrom != null);
                 this.carrySaveFrom = null;
+                recordPatch(sheet, ".dcp", java.util.Collections.singletonList(item.name + " · 파일 " + (plan.replaced + plan.added + plan.patched) + "개" + (plan.ipBin ? " · IP.BIN" : "")));
                 Toast.makeText(this, ".dcp 패치를 적용했어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 refreshLibrary();
             });
@@ -7112,6 +7145,9 @@ public final class MainActivity extends Activity {
     // first, which shows up as a source to bring them back. ----
 
     private File carrySaveFrom;
+    // PS2 CHDs that turned out to be CDs (unpacked from their data track).
+    private final java.util.Set<String> psCdChd = new java.util.HashSet<>();
+    private String lastPatchName;
 
     // A game's saves, or a backup's: the game's own save (.sav), the quick save (.state) and
     // the save slots.
@@ -7506,6 +7542,581 @@ public final class MainActivity extends Activity {
             window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
         }
         dialog.show();
+    }
+
+    // ---- 설정: 앱 업데이트 · 세이브 백업 관리 · 패치 기록 · 오픈소스 라이선스 · 앱 정보 ----
+
+    private LinearLayout settingsRow(String title, String detail, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(16);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(rounded(Color.WHITE, dp(14)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView name = new TextView(this);
+        name.setText(title);
+        name.setTextSize(14.0f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(Color.rgb(31, 41, 51));
+        texts.addView(name);
+        if (detail != null) {
+            TextView sub = new TextView(this);
+            sub.setText(detail);
+            sub.setTextSize(11.5f);
+            sub.setTextColor(Color.rgb(107, 114, 128));
+            texts.addView(sub);
+        }
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        if (action != null) {
+            TextView more = new TextView(this);
+            more.setText("›");
+            more.setTextSize(16.0f);
+            more.setTextColor(Color.rgb(148, 163, 184));
+            row.addView(more);
+            row.setOnClickListener(view -> action.run());
+        }
+        return row;
+    }
+
+    // A tall white sheet with a colored header and a scrolling body; returns the body.
+    private LinearLayout pageDialog(Dialog dialog, String title, String subtitle, int color) {
+        dialog.requestWindowFeature(1);
+        LinearLayout frame = new LinearLayout(this);
+        frame.setOrientation(1);
+        frame.setBackground(rounded(Color.rgb(238, 242, 247), dp(24)));
+        frame.setClipToOutline(true);
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(1);
+        header.setPadding(dp(18), dp(18), dp(18), dp(16));
+        GradientDrawable top = new GradientDrawable();
+        top.setColor(color);
+        top.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
+        header.setBackground(top);
+        TextView name = new TextView(this);
+        name.setText(title);
+        name.setTextSize(19.0f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(Color.WHITE);
+        header.addView(name);
+        if (subtitle != null) {
+            TextView sub = new TextView(this);
+            sub.setText(subtitle);
+            sub.setTextSize(12.0f);
+            sub.setTextColor(Color.argb(220, 255, 255, 255));
+            header.addView(sub);
+        }
+        frame.addView(header);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(1);
+        body.setPadding(dp(14), dp(8), dp(14), dp(16));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(body);
+        frame.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        TextView close = new TextView(this);
+        close.setText("닫기");
+        close.setTextSize(15.0f);
+        close.setTypeface(Typeface.DEFAULT_BOLD);
+        close.setTextColor(Color.rgb(55, 65, 81));
+        close.setGravity(17);
+        close.setBackground(rounded(Color.WHITE, dp(14)));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.setMargins(dp(14), 0, dp(14), dp(14));
+        frame.addView(close, closeParams);
+        dialog.setContentView(frame);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+            window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(460)), (int) (metrics.heightPixels * 0.86f));
+        }
+        return body;
+    }
+
+    private void addPageRow(LinearLayout body, View row) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(8), 0, 0);
+        body.addView(row, params);
+    }
+
+    private void showSettings() {
+        final Dialog dialog = new Dialog(this);
+        LinearLayout body = pageDialog(dialog, "설정", null, Color.rgb(22, 163, 74));
+        int[] backups = countSaveBackups();
+        addPageRow(body, settingsRow("앱 업데이트", "v" + AppUpdate.currentVersion(this) + " · 지금 확인", () -> {
+            dialog.dismiss();
+            checkForUpdate(true);
+        }));
+        addPageRow(body, settingsRow("세이브 백업 관리", backups[0] == 0 ? "백업 없음" : "백업 " + backups[0] + "개 · " + formatSize(backups[1]), () -> {
+            dialog.dismiss();
+            showBackupManager();
+        }));
+        addPageRow(body, settingsRow("패치 기록", "패치한 게임 " + patchedGames().size() + "개", () -> {
+            dialog.dismiss();
+            showPatchHistory(null);
+        }));
+        addPageRow(body, settingsRow("오픈소스 라이선스", "엔진 · 라이브러리 " + licenseIndex().size() + "개", () -> {
+            dialog.dismiss();
+            showLicenses();
+        }));
+        addPageRow(body, settingsRow("앱 정보", "Mini Emulator " + AppUpdate.currentVersion(this) + "\ngithub.com/jjongjjongs/Mini-Emulator", null));
+        dialog.show();
+    }
+
+    // ---- 오픈소스 라이선스 (assets/licenses: index.tsv and a text per entry) ----
+
+    private List<String[]> licenseIndex() {
+        List<String[]> list = new ArrayList<>();
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(getAssets().open("licenses/index.tsv"), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] parts = line.split("\t");
+                if (parts.length >= 5) {
+                    list.add(parts);
+                }
+            }
+        } catch (IOException e) {
+            // None bundled.
+        }
+        return list;
+    }
+
+    private void showLicenses() {
+        final List<String[]> all = licenseIndex();
+        final Dialog dialog = new Dialog(this);
+        final LinearLayout body = pageDialog(dialog, "오픈소스 라이선스", "앱에 들어간 엔진과 라이브러리 · " + all.size() + "개", Color.rgb(22, 163, 74));
+        final EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setHint("🔍 이름 검색");
+        search.setTextSize(13.0f);
+        search.setBackground(rounded(Color.WHITE, dp(10)));
+        search.setPadding(dp(10), dp(7), dp(10), dp(7));
+        addPageRow(body, search);
+        final LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(1);
+        body.addView(rows);
+        final Runnable render = () -> {
+            rows.removeAllViews();
+            String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            for (final String[] entry : all) {
+                if (!query.isEmpty() && !(entry[1] + " " + entry[2] + " " + entry[3]).toLowerCase(Locale.ROOT).contains(query)) {
+                    continue;
+                }
+                addPageRow(rows, settingsRow(entry[1], entry[2] + " · " + entry[3], () -> showLicense(entry)));
+            }
+        };
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+                render.run();
+            }
+        });
+        render.run();
+        dialog.show();
+    }
+
+    private void showLicense(String[] entry) {
+        final Dialog dialog = new Dialog(this);
+        LinearLayout body = pageDialog(dialog, entry[1], entry[2], Color.rgb(22, 163, 74));
+        addPageRow(body, settingsRow("어디에 쓰여요", entry[3], null));
+        addPageRow(body, settingsRow("원본 코드", entry[4], null));
+        String text;
+        try (InputStream in = getAssets().open("licenses/" + entry[0] + ".txt")) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            copy(in, out);
+            text = new String(out.toByteArray(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            text = "라이선스 전문을 읽지 못했어요.";
+        }
+        TextView full = new TextView(this);
+        full.setText(text);
+        full.setTextSize(10.5f);
+        full.setTypeface(Typeface.MONOSPACE);
+        full.setTextColor(Color.rgb(55, 65, 81));
+        full.setTextIsSelectable(true);
+        full.setPadding(dp(12), dp(12), dp(12), dp(12));
+        full.setBackground(rounded(Color.WHITE, dp(14)));
+        addPageRow(body, full);
+        dialog.show();
+    }
+
+    // ---- 패치 기록 ----
+
+    // "patch_log:<game file>": when (ms), what kind, then one line per patch.
+    private void recordPatch(File made, String kind, List<String> lines) {
+        romPrefs().edit().putString("patch_log:" + made.getName(), System.currentTimeMillis() + "\n" + kind + "\n" + android.text.TextUtils.join("\n", lines)).apply();
+    }
+
+    // Every patched game, newest first: {mode, file}.
+    private List<File> patchedGames() {
+        List<File> list = new ArrayList<>();
+        for (String mode : MODE_IDS) {
+            File[] files = romDirFor(mode).listFiles(this::isRomFile);
+            if (files == null) {
+                continue;
+            }
+            for (File file : files) {
+                if (patchedFrom(file) != null) {
+                    list.add(file);
+                }
+            }
+        }
+        java.util.Collections.sort(list, (a, b) -> Long.compare(patchTime(b), patchTime(a)));
+        return list;
+    }
+
+    private long patchTime(File file) {
+        String log = romPrefs().getString("patch_log:" + file.getName(), null);
+        if (log != null) {
+            try {
+                return Long.parseLong(log.split("\n", 2)[0]);
+            } catch (NumberFormatException e) {
+                // Fall through.
+            }
+        }
+        return file.lastModified();
+    }
+
+    private void showPatchHistory(final String onlyMode) {
+        final List<File> games = patchedGames();
+        final Dialog dialog = new Dialog(this);
+        final int teal = Color.rgb(13, 148, 136);
+        LinearLayout body = pageDialog(dialog, "패치 기록", "패치한 게임 " + games.size() + "개 · 최근 순", teal);
+        java.util.LinkedHashSet<String> modes = new java.util.LinkedHashSet<>();
+        for (File file : games) {
+            modes.add(modeForFile(file));
+        }
+        if (modes.size() > 1) {
+            android.widget.HorizontalScrollView chipScroll = new android.widget.HorizontalScrollView(this);
+            chipScroll.setHorizontalScrollBarEnabled(false);
+            LinearLayout chips = new LinearLayout(this);
+            chipScroll.addView(chips);
+            List<String> keys = new ArrayList<>();
+            keys.add(null);
+            keys.addAll(modes);
+            for (final String key : keys) {
+                TextView chip = multiDeleteChip(key == null ? "전체" : MODE_NAMES[modeIndex(key)]);
+                styleMultiDeleteChip(chip, java.util.Objects.equals(key, onlyMode) ? teal : 0);
+                chip.setOnClickListener(view -> {
+                    dialog.dismiss();
+                    showPatchHistory(key);
+                });
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+                chipParams.setMargins(0, 0, dp(6), 0);
+                chips.addView(chip, chipParams);
+            }
+            addPageRow(body, chipScroll);
+        }
+        int shown = 0;
+        for (final File file : games) {
+            String mode = modeForFile(file);
+            if (onlyMode != null && !onlyMode.equals(mode)) {
+                continue;
+            }
+            shown++;
+            String[] log = patchLog(file);
+            String what = log == null ? patchSummaryOld(file) : log[1] + " · " + (log.length > 2 ? log[2] : "");
+            addPageRow(body, settingsRow(displayGameNameFor(file), MODE_NAMES[modeIndex(mode)] + " · 원본: " + patchedFrom(file) + "\n" + what + " · "
+                    + playedAgo(patchTime(file)), () -> {
+                dialog.dismiss();
+                showPatchDetail(file);
+            }));
+        }
+        if (shown == 0) {
+            addPageRow(body, settingsRow("패치한 게임이 없어요", "게임 메뉴의 \"한글 패치 적용\"으로 만든 게임이 여기에 모여요.", null));
+        }
+        dialog.show();
+    }
+
+    private String[] patchLog(File file) {
+        String log = romPrefs().getString("patch_log:" + file.getName(), null);
+        return log == null ? null : log.split("\n");
+    }
+
+    private String patchSummaryOld(File file) {
+        String tracks = romPrefs().getString("patched_tracks:" + file.getName(), "");
+        String note = romPrefs().getString("patched_note:" + file.getName(), "");
+        return !note.isEmpty() ? note : !tracks.isEmpty() ? "패치한 트랙 " + tracks : "패치본";
+    }
+
+    private void showPatchDetail(final File file) {
+        final Dialog dialog = new Dialog(this);
+        LinearLayout body = pageDialog(dialog, displayGameNameFor(file), "패치 기록", Color.rgb(13, 148, 136));
+        String[] log = patchLog(file);
+        StringBuilder text = new StringBuilder();
+        text.append("원본: ").append(patchedFrom(file)).append('\n');
+        text.append("패치한 날: ").append(formatTimestamp(patchTime(file))).append('\n');
+        if (log != null) {
+            text.append("종류: ").append(log[1]).append('\n');
+            for (int k = 2; k < log.length; k++) {
+                text.append("· ").append(log[k]).append('\n');
+            }
+        } else {
+            text.append(patchSummaryOld(file)).append("\n(이전 버전에서 만든 패치본이라 패치 파일 이름은 기록이 없어요)\n");
+        }
+        text.append("패치본 크기: ").append(formatSize(romBytes(file)));
+        addPageRow(body, settingsRow("기록", text.toString(), null));
+        String sourceName = romPrefs().getString("source:" + file.getName(), null);
+        final File source = sourceName == null ? null : new File(file.getParentFile(), sourceName);
+        if (source != null && source.exists()) {
+            addPageRow(body, settingsRow("같은 원본에 다른 패치 적용", displayGameNameFor(source), () -> {
+                dialog.dismiss();
+                pickPatch(source);
+            }));
+        }
+        if (savesMovable(modeForFile(file))) {
+            addPageRow(body, settingsRow("세이브 가져오기", source != null && source.exists() ? "원본에서 · 다른 게임에서" : "다른 게임에서", () -> {
+                dialog.dismiss();
+                showSaveSources(file);
+            }));
+        }
+        addPageRow(body, settingsRow("이 게임 목록으로 가기", MODE_NAMES[modeIndex(modeForFile(file))], () -> {
+            dialog.dismiss();
+            onModePicked(modeForFile(file));
+        }));
+        dialog.show();
+    }
+
+    // ---- 세이브 백업 관리 ----
+
+    // {count, bytes} of every save backup.
+    private int[] countSaveBackups() {
+        int count = 0;
+        long bytes = 0;
+        File[] cores = new File(saveDir(), "backups").listFiles(File::isDirectory);
+        for (File core : cores == null ? new File[0] : cores) {
+            File[] games = core.listFiles(File::isDirectory);
+            for (File game : games == null ? new File[0] : games) {
+                File[] stamps = game.listFiles(File::isDirectory);
+                for (File stamp : stamps == null ? new File[0] : stamps) {
+                    count++;
+                    bytes += treeBytes(stamp);
+                }
+            }
+        }
+        return new int[]{count, (int) Math.min(Integer.MAX_VALUE, bytes)};
+    }
+
+    private static long treeBytes(File file) {
+        if (file.isFile()) {
+            return file.length();
+        }
+        long bytes = 0;
+        File[] children = file.listFiles();
+        for (File child : children == null ? new File[0] : children) {
+            bytes += treeBytes(child);
+        }
+        return bytes;
+    }
+
+    private static void deleteTree(File file) {
+        File[] children = file.listFiles();
+        for (File child : children == null ? new File[0] : children) {
+            deleteTree(child);
+        }
+        file.delete();
+    }
+
+    // The game a backup folder belongs to (null when that game was deleted).
+    private File gameForBackup(File gameDir) {
+        String core = gameDir.getParentFile().getName();
+        for (String mode : MODE_IDS) {
+            File[] files = romDirFor(mode).listFiles(this::isRomFile);
+            for (File file : files == null ? new File[0] : files) {
+                if (core.equals(coreFor(file)) && gameDir.getName().equals(saveBaseNameFor(file))) {
+                    return file;
+                }
+            }
+        }
+        return null;
+    }
+
+    private List<File> backupGameDirs() {
+        List<File> list = new ArrayList<>();
+        File[] cores = new File(saveDir(), "backups").listFiles(File::isDirectory);
+        for (File core : cores == null ? new File[0] : cores) {
+            File[] games = core.listFiles(File::isDirectory);
+            for (File game : games == null ? new File[0] : games) {
+                File[] stamps = game.listFiles(File::isDirectory);
+                if (stamps != null && stamps.length > 0) {
+                    list.add(game);
+                } else {
+                    game.delete();
+                }
+            }
+        }
+        java.util.Collections.sort(list, (a, b) -> Long.compare(newestBackup(b), newestBackup(a)));
+        return list;
+    }
+
+    private static long newestBackup(File gameDir) {
+        long newest = 0;
+        File[] stamps = gameDir.listFiles(File::isDirectory);
+        for (File stamp : stamps == null ? new File[0] : stamps) {
+            newest = Math.max(newest, stamp.lastModified());
+        }
+        return newest;
+    }
+
+    private void showBackupManager() {
+        final List<File> games = backupGameDirs();
+        int[] totals = countSaveBackups();
+        final Dialog dialog = new Dialog(this);
+        final int blue = Color.rgb(37, 99, 235);
+        LinearLayout body = pageDialog(dialog, "세이브 백업 관리", "백업 " + totals[0] + "개 · " + formatSize(totals[1]), blue);
+        if (games.isEmpty()) {
+            addPageRow(body, settingsRow("세이브 백업이 없어요", "세이브를 가져올 때 원래 세이브를 백업으로 남겨요. 그 백업이 여기에 모여요.", null));
+            dialog.show();
+            return;
+        }
+        TextView tidy = multiDeleteButton("오래된 백업 정리 (게임마다 최근 1개만 남기기)", Color.rgb(254, 226, 226), Color.rgb(185, 28, 28));
+        tidy.setTextSize(13.0f);
+        tidy.setOnClickListener(view -> {
+            int remove = 0;
+            long bytes = 0;
+            for (File game : games) {
+                File[] stamps = game.listFiles(File::isDirectory);
+                if (stamps == null) {
+                    continue;
+                }
+                Arrays.sort(stamps, (a, b) -> b.getName().compareTo(a.getName()));
+                for (int k = 1; k < stamps.length; k++) {
+                    remove++;
+                    bytes += treeBytes(stamps[k]);
+                }
+            }
+            if (remove == 0) {
+                showMessage("지울 오래된 백업이 없어요. 게임마다 백업이 하나씩이에요.");
+                return;
+            }
+            new AppDialog.Builder(this).setTitle("오래된 백업 정리").setMessage("게임마다 가장 최근 백업 1개만 남기고 지워요.\n지우는 백업: " + remove + "개 · " + formatSize(bytes))
+                    .setNegativeButton("취소", null).setPositiveButton("정리하기", (d, which) -> {
+                        for (File game : games) {
+                            File[] stamps = game.listFiles(File::isDirectory);
+                            if (stamps == null) {
+                                continue;
+                            }
+                            Arrays.sort(stamps, (a, b) -> b.getName().compareTo(a.getName()));
+                            for (int k = 1; k < stamps.length; k++) {
+                                deleteTree(stamps[k]);
+                            }
+                        }
+                        dialog.dismiss();
+                        showBackupManager();
+                    }).show();
+        });
+        LinearLayout.LayoutParams tidyParams = new LinearLayout.LayoutParams(-1, dp(44));
+        tidyParams.setMargins(0, dp(8), 0, 0);
+        body.addView(tidy, tidyParams);
+        for (final File game : games) {
+            File rom = gameForBackup(game);
+            File[] stamps = game.listFiles(File::isDirectory);
+            int n = stamps == null ? 0 : stamps.length;
+            String name = rom != null ? displayGameNameFor(rom) : game.getName() + " (목록에 없는 게임)";
+            String where = rom != null ? MODE_NAMES[modeIndex(modeForFile(rom))] + " · " : "";
+            addPageRow(body, settingsRow(name, where + "백업 " + n + "개 · " + formatSize(treeBytes(game)) + " · 최근 " + playedAgo(newestBackup(game)), () -> {
+                dialog.dismiss();
+                showGameBackups(game);
+            }));
+        }
+        dialog.show();
+    }
+
+    private void showGameBackups(final File game) {
+        final File rom = gameForBackup(game);
+        File[] stamps = game.listFiles(File::isDirectory);
+        if (stamps == null || stamps.length == 0) {
+            showBackupManager();
+            return;
+        }
+        Arrays.sort(stamps, (a, b) -> b.getName().compareTo(a.getName()));
+        final Dialog dialog = new Dialog(this);
+        final int blue = Color.rgb(37, 99, 235);
+        LinearLayout body = pageDialog(dialog, rom != null ? displayGameNameFor(rom) : game.getName(), "세이브 백업 " + stamps.length + "개", blue);
+        for (final File stamp : stamps) {
+            final SaveSet set = backupSet(stamp);
+            set.label = "세이브 백업 " + formatTimestamp(stamp.lastModified());
+            LinearLayout row = settingsRow(formatTimestamp(stamp.lastModified()), saveKinds(set) + " · " + formatSize(treeBytes(stamp)), null);
+            TextView restore = new TextView(this);
+            restore.setText("되돌리기");
+            restore.setTextSize(11.5f);
+            restore.setTypeface(Typeface.DEFAULT_BOLD);
+            restore.setTextColor(rom != null ? Color.WHITE : Color.rgb(148, 163, 184));
+            restore.setPadding(dp(9), dp(5), dp(9), dp(5));
+            restore.setBackground(rounded(rom != null ? blue : Color.rgb(226, 232, 240), dp(9)));
+            restore.setOnClickListener(view -> {
+                if (rom == null) {
+                    showError("이 백업의 게임이 목록에 없어서 되돌릴 수 없어요.");
+                    return;
+                }
+                dialog.dismiss();
+                confirmSaveImport(set, rom);
+            });
+            TextView delete = new TextView(this);
+            delete.setText("삭제");
+            delete.setTextSize(11.5f);
+            delete.setTypeface(Typeface.DEFAULT_BOLD);
+            delete.setTextColor(Color.rgb(185, 28, 28));
+            delete.setPadding(dp(9), dp(5), dp(9), dp(5));
+            delete.setBackground(rounded(Color.rgb(254, 226, 226), dp(9)));
+            delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("백업을 지울까요?")
+                    .setMessage(formatTimestamp(stamp.lastModified()) + " 백업 (" + saveKinds(set) + ")\n지우면 되돌릴 수 없어요.")
+                    .setNegativeButton("취소", null).setPositiveButton("삭제", (d, which) -> {
+                        deleteTree(stamp);
+                        dialog.dismiss();
+                        showGameBackups(game);
+                    }).show());
+            LinearLayout.LayoutParams restoreParams = new LinearLayout.LayoutParams(-2, -2);
+            restoreParams.setMargins(dp(6), 0, 0, 0);
+            row.addView(restore, restoreParams);
+            row.addView(delete, restoreParams);
+            addPageRow(body, row);
+        }
+        TextView note = new TextView(this);
+        note.setText("되돌리면 지금 세이브도 먼저 새 백업으로 남겨요. 백업을 지우면 되돌릴 수 없어요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(30, 64, 175));
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(239, 246, 255), dp(12)));
+        addPageRow(body, note);
+        dialog.show();
+    }
+
+    private LinearLayout createMenuActionRow(Dialog dialog, int icon, int color, String text, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+        row.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(14.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        TextView more = new TextView(this);
+        more.setText("›");
+        more.setTextSize(14.0f);
+        more.setTypeface(Typeface.DEFAULT_BOLD);
+        more.setTextColor(Color.rgb(122, 130, 140));
+        row.addView(more);
+        row.setClickable(true);
+        row.setOnClickListener(view -> {
+            dialog.dismiss();
+            action.run();
+        });
+        return row;
     }
 
     private String patchedFrom(File file) {

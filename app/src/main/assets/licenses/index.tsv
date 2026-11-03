@@ -1,0 +1,28 @@
+mgba	mGBA	MPL-2.0	GBA · GBC 엔진	https://github.com/libretro/mgba
+melonds	melonDS DS	GPL-3.0	닌텐도 DS 엔진	https://github.com/JesseTG/melonds-ds
+citra	Citra	GPL-2.0	닌텐도 3DS 엔진	https://github.com/libretro/citra
+cemu	Cemu	MPL-2.0	Wii U 엔진	https://github.com/WizzardSK/cemu-libretro
+snes9x	Snes9x	비상업 라이선스	슈퍼패미컴 엔진	https://github.com/libretro/snes9x
+fceumm	FCEUmm	GPL-2.0	패미컴 엔진	https://github.com/libretro/libretro-fceumm
+gpgx	Genesis Plus GX	비상업 라이선스	메가드라이브 · 마스터시스템 · 게임기어 엔진	https://github.com/libretro/Genesis-Plus-GX
+picodrive	PicoDrive	비상업 라이선스	메가CD · 32X 엔진	https://github.com/libretro/picodrive
+pce	Beetle PCE Fast	GPL-2.0	PC엔진 엔진	https://github.com/libretro/beetle-pce-fast-libretro
+mupen	Mupen64Plus-Next	GPL-2.0	닌텐도 64 엔진	https://github.com/libretro/mupen64plus-libretro-nx
+ppsspp	PPSSPP	GPL-2.0+	PSP 엔진	https://github.com/hrydgard/ppsspp
+pcsx	PCSX ReARMed	GPL-2.0	PS1 엔진	https://github.com/libretro/pcsx_rearmed
+play	Play!	BSD-2-Clause	PS2 엔진	https://github.com/jpd002/Play-
+pcsx2	PCSX2 (pcee2)	GPL-3.0	PS2 엔진 (PCSX2)	https://github.com/portableandroid/pcee2-libretro
+dolphin	Dolphin	GPL-2.0+	게임큐브 · Wii 엔진	https://github.com/libretro/dolphin
+yabasanshiro	YabaSanshiro	GPL-2.0	세가 새턴 엔진	https://github.com/libretro/yabause (yabasanshiro)
+flycast	Flycast	GPL-2.0	드림캐스트 · Naomi · Atomiswave 엔진	https://github.com/flyinghead/flycast
+wswan	Beetle Cygne	GPL-2.0	원더스완 엔진	https://github.com/libretro/beetle-wswan-libretro
+ngp	Beetle NeoPop	GPL-2.0	네오지오 포켓 엔진	https://github.com/libretro/beetle-ngp-libretro
+fbneo	FinalBurn Neo	비상업 라이선스	아케이드 · 네오지오 엔진	https://github.com/libretro/FBNeo
+mame2003-plus	MAME 2003-Plus	MAME 비상업 라이선스	아케이드 엔진	https://github.com/libretro/mame2003-plus-libretro
+mame2010	MAME 2010	MAME 비상업 라이선스	아케이드 엔진	https://github.com/libretro/mame2010-libretro
+mame2015	MAME 2015	MAME 비상업 라이선스	아케이드 엔진	https://github.com/libretro/mame2015-libretro
+wfcserver	WiiLink WFC 서버	AGPL-3.0	Wii 친구끼리 대전 때 방장 휴대폰이 켜는 서버	https://github.com/WiiLink24/wfc-server
+wfcpatcher	WiiLink WFC 패처	zlib	Wii 친구끼리 게임 접속 코드	https://github.com/WiiLink24/wfc-patcher-wii
+libchdr	libchdr	BSD-3-Clause	CHD 풀기 (LZMA · miniz · zstd 포함)	https://github.com/rtissera/libchdr
+xz	XZ for Java	퍼블릭 도메인	xdelta 패치의 LZMA 압축 풀기	https://tukaani.org/xz/java.html
+fsr	AMD FidelityFX FSR 1.0	MIT	화면 확대 (FSR)	https://github.com/GPUOpen-Effects/FidelityFX-FSR

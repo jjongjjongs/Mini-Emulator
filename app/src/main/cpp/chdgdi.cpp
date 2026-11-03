@@ -451,3 +451,90 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_ChdGdi_convert(JNI
     }
     return nullptr;
 }
+
+// A CD's data track as an .iso: the 2048 bytes of user data of each sector (PS2 games that
+// came on CD). The first data track is taken; music tracks are left out. Null when done.
+extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_ChdGdi_convertIso(JNIEnv *env, jclass, jstring chdPath, jstring outPath, jobject progress) {
+    Disc disc;
+    std::string why = open(jstr(env, chdPath).c_str(), disc);
+    if (!why.empty()) {
+        return env->NewStringUTF(why.c_str());
+    }
+    if (disc.kind != CDROM) {
+        return env->NewStringUTF("CD 이미지 CHD가 아니에요.");
+    }
+    const Track *data = nullptr;
+    for (const Track &track : disc.tracks) {
+        if (track.ctrl == 4) {
+            data = &track;
+            break;
+        }
+    }
+    if (data == nullptr) {
+        return env->NewStringUTF("데이터 트랙이 없어요.");
+    }
+    size_t at;
+    if (data->type == "MODE1/2048") {
+        at = 0;
+    } else if (data->type == "MODE1/2352") {
+        at = 16;
+    } else if (data->type == "MODE2/2352") {
+        at = 24;  // Mode 2 Form 1: sync, header and subheader first
+    } else if (data->type == "MODE2/2336") {
+        at = 8;
+    } else {
+        return env->NewStringUTF(("이 트랙 형식은 ISO로 풀 수 없어요 (" + data->type + ").").c_str());
+    }
+    jmethodID onProgress = nullptr;
+    if (progress != nullptr) {
+        jclass type = env->GetObjectClass(progress);
+        onProgress = env->GetMethodID(type, "onProgress", "(JJ)Z");
+        env->DeleteLocalRef(type);
+    }
+    std::string path = jstr(env, outPath);
+    FILE *file = fopen(path.c_str(), "wb");
+    if (file == nullptr) {
+        return env->NewStringUTF((std::string("파일을 만들 수 없어요 (") + strerror(errno) + ").").c_str());
+    }
+    // A stored pregap is not part of the file system.
+    uint32_t skip = data->pregapInFile ? data->pregap : 0;
+    uint64_t total = (uint64_t) (data->count - skip) * 2048;
+    uint64_t done = 0;
+    std::vector<uint8_t> hunk(disc.hunkBytes);
+    std::vector<uint8_t> out;
+    out.reserve(1 << 20);
+    uint64_t loaded = UINT64_MAX;
+    for (uint32_t k = skip; k < data->count && why.empty(); k++) {
+        uint64_t frame = data->firstFrame + k;
+        uint64_t index = frame / disc.framesPerHunk;
+        if (index != loaded) {
+            chd_error err = chd_read(disc.chd, (uint32_t) index, hunk.data());
+            if (err != CHDERR_NONE) {
+                why = std::string("CHD를 읽는 중에 문제가 생겼어요 (") + chd_error_string(err) + ").";
+                break;
+            }
+            loaded = index;
+        }
+        const uint8_t *sector = hunk.data() + (frame % disc.framesPerHunk) * kFrame + at;
+        out.insert(out.end(), sector, sector + 2048);
+        if (out.size() >= (1 << 20) || k + 1 == data->count) {
+            if (fwrite(out.data(), 1, out.size(), file) != out.size()) {
+                why = "저장 공간이 부족하거나 파일을 쓸 수 없어요.";
+                break;
+            }
+            done += out.size();
+            out.clear();
+            if (onProgress != nullptr && !env->CallBooleanMethod(progress, onProgress, (jlong) done, (jlong) total)) {
+                why = "취소했어요.";
+            }
+        }
+    }
+    if (fclose(file) != 0 && why.empty()) {
+        why = "저장 공간이 부족하거나 파일을 쓸 수 없어요.";
+    }
+    if (!why.empty()) {
+        remove(path.c_str());
+        return env->NewStringUTF(why.c_str());
+    }
+    return nullptr;
+}

@@ -33,4 +33,7 @@ final class ChdGdi {
     // Writes "<base>.gdi" / "<base>.cue" with "<base> (Track NN).bin…", or "<base>.iso", into dir.
     // Null when done, else why.
     static native String convert(String chd, String dir, String base, Progress progress);
+
+    // A CD's first data track as an .iso (2048 bytes a sector): PS2 games that came on CD.
+    static native String convertIso(String chd, String iso, Progress progress);
 }
