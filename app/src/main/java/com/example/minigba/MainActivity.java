@@ -3774,6 +3774,9 @@ public final class MainActivity extends Activity {
     }
 
     private String formatSize(long bytes) {
+        if (bytes >= 1024L * 1024 * 1024) {
+            return String.format(Locale.US, "%.1fGB", bytes / 1073741824.0);
+        }
         if (bytes >= 1024 * 1024) {
             return String.format(Locale.US, "%.1fMB", bytes / 1048576.0);
         }
@@ -8106,7 +8109,7 @@ public final class MainActivity extends Activity {
             dialog.dismiss();
             showPatchHistory(null);
         }));
-        addPageRow(body, settingsRow("📤 게임 파일 내보내기", "앱 안에 복사해 둔 게임을 폰 폴더로 (백업)", () -> {
+        addPageRow(body, settingsRow("📤 모든 게임 파일 내보내기", "앱 안에 복사해 둔 게임 전부를 폰 폴더로 (백업)", () -> {
             dialog.dismiss();
             showBulkExport();
         }));
@@ -9018,7 +9021,9 @@ public final class MainActivity extends Activity {
             addPageRow(body, settingsRow("백업 폴더", "구글 드라이브 · 원드라이브 · 드롭박스처럼 폰에 깔린 클라우드 앱의 폴더를 골라요. 앱은 고른 폴더만 볼 수 있어요.", null));
             TextView pick = multiDeleteButton("📁 백업 폴더 고르기", Color.rgb(240, 249, 255), blue);
             pick.setOnClickListener(view -> pickCloudFolder());
-            addPageRow(body, pick);
+            LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(-1, dp(48));
+            pickParams.setMargins(0, dp(8), 0, 0);
+            body.addView(pick, pickParams);
             addPageRow(body, settingsRow("안전하게", "세이브는 우리 쪽 서버로 가지 않아요. 고른 클라우드 앱이 내 계정으로 올려요.", null));
             dialog.show();
             return;
@@ -9479,6 +9484,7 @@ public final class MainActivity extends Activity {
         final CheckBox keepNewer = new CheckBox(this);
         keepNewer.setText("폰 세이브가 더 최신이면 그대로 두기\n끄면 백업으로 덮어써요 (덮기 전에 세이브 백업을 남겨요)");
         keepNewer.setTextSize(12.5f);
+        keepNewer.setTextColor(Color.rgb(31, 41, 51));
         keepNewer.setChecked(true);
         addPageRow(body, keepNewer);
         addPageRow(body, settingsRow("알아두기", "게임 파일(롬)은 백업에 없어요. 이 폰에 없는 게임의 세이브는 보관해 두었다가, 같은 이름의 롬을 가져오면 이어서 쓸 수 있어요.", null));
@@ -9732,6 +9738,7 @@ public final class MainActivity extends Activity {
         final CheckBox backup = new CheckBox(this);
         backup.setText("지금 앱 안의 Wii 저장 데이터 백업해 두기\n(미니 Wii 세이브 · 시스템 설정 · 받은 채널, 되돌리기용)");
         backup.setTextSize(12.5f);
+        backup.setTextColor(Color.rgb(31, 41, 51));
         backup.setChecked(true);
         panel.addView(backup);
         new AppDialog.Builder(this).setTitle("내 Wii NAND 가져오기")
@@ -10342,6 +10349,7 @@ public final class MainActivity extends Activity {
         final CheckBox auto = new CheckBox(this);
         auto.setText("이 폴더에 새 게임이 생기면 다음에 켤 때 자동으로 연결");
         auto.setTextSize(12.5f);
+        auto.setTextColor(Color.rgb(31, 41, 51));
         auto.setChecked(true);
         addPageRow(body, auto);
         TextView go = multiDeleteButton("연결하기", teal, -1);
@@ -10814,7 +10822,7 @@ public final class MainActivity extends Activity {
             final File[] target = {new File(new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS), "Mini Emulator 백업")};
             final Dialog dialog = new Dialog(this);
             final int teal = Color.rgb(14, 116, 144);
-            LinearLayout body = pageDialog(dialog, "게임 파일 한꺼번에 내보내기", "앱 안 게임 " + games + "개 · " + formatSize(bytes), teal);
+            LinearLayout body = pageDialog(dialog, "모든 게임 파일 내보내기", "앱 안 게임 " + games + "개 · " + formatSize(bytes), teal);
             StringBuilder list = new StringBuilder();
             for (java.util.Map.Entry<String, List<File>> entry : byMode.entrySet()) {
                 long size = 0;
@@ -10842,6 +10850,7 @@ public final class MainActivity extends Activity {
             final CheckBox toLinks = new CheckBox(this);
             toLinks.setText("끝나면 전부 연결로 바꾸기 (앱 안 복사본을 지워 " + formatSize(bytes) + "를 비워요)");
             toLinks.setTextSize(12.5f);
+        toLinks.setTextColor(Color.rgb(31, 41, 51));
             addPageRow(body, toLinks);
             TextView go = multiDeleteButton(games + "개 내보내기 · " + formatSize(bytes), teal, -1);
             go.setOnClickListener(view -> {
@@ -10853,7 +10862,9 @@ public final class MainActivity extends Activity {
                 dialog.dismiss();
                 runBulkExport(byMode, target[0], toLinks.isChecked(), bytes);
             });
-            addPageRow(body, go);
+            LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(-1, dp(48));
+            goParams.setMargins(0, dp(10), 0, 0);
+            body.addView(go, goParams);
             dialog.show();
         });
     }
