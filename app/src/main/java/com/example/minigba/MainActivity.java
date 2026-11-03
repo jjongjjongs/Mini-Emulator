@@ -556,6 +556,10 @@ public final class MainActivity extends Activity {
     }
 
     private View createModeTile(int index, int count, boolean favorite, boolean current, Runnable onPick, Runnable onChanged) {
+        return createModeTile(index, count, favorite, current, onPick, onChanged, null);
+    }
+
+    private View createModeTile(int index, int count, boolean favorite, boolean current, Runnable onPick, Runnable onChanged, String when) {
         SquareLayout tile = new SquareLayout(this);
         tile.setOrientation(1);
         tile.setPadding(dp(10), dp(9), dp(9), dp(9));
@@ -607,7 +611,7 @@ public final class MainActivity extends Activity {
         types.setEllipsize(android.text.TextUtils.TruncateAt.END);
         tile.addView(types);
         TextView status = new TextView(this);
-        status.setText(tileStatus(index, count));
+        status.setText(tileStatus(index, count) + (when == null ? "" : " · " + when));
         status.setTextColor(Color.argb(200, 255, 255, 255));
         status.setTextSize(9.5f);
         status.setTypeface(Typeface.DEFAULT_BOLD);
@@ -677,6 +681,11 @@ public final class MainActivity extends Activity {
     // Three tiles a row.
     private void addTileGrid(LinearLayout parent, List<Integer> indexes, java.util.Map<String, Integer> counts, String current,
                              java.util.function.Consumer<String> onPick, Runnable onChanged) {
+        addTileGrid(parent, indexes, counts, current, onPick, onChanged, null);
+    }
+
+    private void addTileGrid(LinearLayout parent, List<Integer> indexes, java.util.Map<String, Integer> counts, String current,
+                             java.util.function.Consumer<String> onPick, Runnable onChanged, java.util.Map<String, Long> played) {
         List<String> favorites = favoriteModes();
         LinearLayout row = null;
         for (int k = 0; k < indexes.size(); k++) {
@@ -690,16 +699,22 @@ public final class MainActivity extends Activity {
             int index = indexes.get(k);
             String mode = MODE_IDS[index];
             Integer count = counts.get(mode);
-            View tile = createModeTile(index, count == null ? 0 : count, favorites.contains(mode), mode.equals(current), () -> onPick.accept(mode), onChanged);
+            Long last = played == null ? null : played.get(mode);
+            View tile = createModeTile(index, count == null ? 0 : count, favorites.contains(mode), mode.equals(current), () -> onPick.accept(mode), onChanged,
+                    last == null || last <= 0 ? null : playedAgo(last));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
             params.setMargins(k % 3 == 0 ? 0 : dp(10), 0, 0, 0);
             row.addView(tile, params);
         }
         if (row != null) {
+            // The empty places get invisible tiles: a row of one or two is then measured like a
+            // full one (with plain spacers its tiles came out 0 tall and could not be seen).
             for (int fill = indexes.size() % 3; fill != 0 && fill < 3; fill++) {
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, 1, 1.0f);
+                SquareLayout empty = new SquareLayout(this);
+                empty.setVisibility(View.INVISIBLE);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
                 params.setMargins(dp(10), 0, 0, 0);
-                row.addView(new View(this), params);
+                row.addView(empty, params);
             }
         }
     }
@@ -729,7 +744,145 @@ public final class MainActivity extends Activity {
         return list;
     }
 
-    // The search box, 즐겨찾기 and 모든 게임기 in one view; onPick opens a console, onGame starts a game.
+    private static final String PREF_HOME_TAB = "home_tab";
+    private static final String PREF_HOME_SORT = "home_sort";
+
+    private static boolean isHangul(String text) {
+        return !text.isEmpty() && text.charAt(0) >= '\uAC00' && text.charAt(0) <= '\uD7A3';
+    }
+
+    // When a console's games were last played (0 never).
+    private long lastPlayed(String mode) {
+        File[] files = romDirFor(mode).listFiles(this::isRomFile);
+        long last = 0;
+        if (files != null) {
+            for (File file : files) {
+                last = Math.max(last, romPrefs().getLong(PREF_RECENT_PREFIX + file.getName(), 0L));
+            }
+        }
+        return last;
+    }
+
+    private static String playedAgo(long when) {
+        long minutes = Math.max(0, (System.currentTimeMillis() - when) / 60000);
+        if (minutes < 60) {
+            return "방금";
+        }
+        long days = minutes / (60 * 24);
+        if (days < 1) {
+            return "오늘";
+        }
+        if (days < 2) {
+            return "어제";
+        }
+        if (days < 7) {
+            return days + "일 전";
+        }
+        if (days < 30) {
+            return days / 7 + "주 전";
+        }
+        return Math.max(1, days / 30) + "달 전";
+    }
+
+    // [전체 | ★ 즐겨찾기] and the sort button under the search box.
+    private LinearLayout browserBar(boolean favTab, String sort, int favorites, Runnable onChanged) {
+        final int teal = Color.rgb(14, 116, 144);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(16);
+        bar.setPadding(0, dp(10), 0, dp(10));
+        LinearLayout segment = new LinearLayout(this);
+        segment.setPadding(dp(3), dp(3), dp(3), dp(3));
+        segment.setBackground(rounded(Color.rgb(226, 232, 240), dp(12)));
+        String[] labels = {"전체 " + MODE_IDS.length, "★ 즐겨찾기 " + favorites};
+        for (int k = 0; k < 2; k++) {
+            final int tab = k;
+            boolean on = (k == 1) == favTab;
+            TextView button = new TextView(this);
+            button.setText(labels[k]);
+            button.setTextSize(12.5f);
+            button.setTypeface(Typeface.DEFAULT_BOLD);
+            button.setTextColor(on ? teal : Color.rgb(100, 116, 139));
+            button.setPadding(dp(12), dp(6), dp(12), dp(6));
+            if (on) {
+                button.setBackground(rounded(Color.WHITE, dp(10)));
+                button.setElevation(dp(1));
+            }
+            button.setOnClickListener(view -> {
+                settingsPrefs().edit().putInt(PREF_HOME_TAB, tab).apply();
+                onChanged.run();
+            });
+            segment.addView(button);
+        }
+        bar.addView(segment);
+        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1.0f));
+        final TextView sortButton = new TextView(this);
+        sortButton.setText(sortLabel(sort) + "  ▾");
+        sortButton.setTextSize(12.5f);
+        sortButton.setTypeface(Typeface.DEFAULT_BOLD);
+        sortButton.setTextColor(Color.rgb(31, 41, 51));
+        sortButton.setPadding(dp(11), dp(7), dp(11), dp(7));
+        GradientDrawable sortBox = rounded(Color.WHITE, dp(12));
+        sortBox.setStroke(Math.max(1, dp(1)), Color.rgb(226, 232, 240));
+        sortButton.setBackground(sortBox);
+        sortButton.setOnClickListener(view -> showSortMenu(sortButton, sort, onChanged));
+        bar.addView(sortButton);
+        return bar;
+    }
+
+    private static String sortLabel(String sort) {
+        return "recent".equals(sort) ? "🕒 최근 플레이" : "name".equals(sort) ? "가 이름순" : "▦ 기본 순서";
+    }
+
+    private void showSortMenu(View anchor, String sort, Runnable onChanged) {
+        final int teal = Color.rgb(14, 116, 144);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(6), dp(6), dp(6), dp(6));
+        panel.setBackground(rounded(Color.WHITE, dp(16)));
+        panel.setElevation(dp(8));
+        TextView head = new TextView(this);
+        head.setText("정렬");
+        head.setTextSize(11.0f);
+        head.setTypeface(Typeface.DEFAULT_BOLD);
+        head.setTextColor(Color.rgb(148, 163, 184));
+        head.setPadding(dp(10), dp(6), dp(10), dp(4));
+        panel.addView(head);
+        final android.widget.PopupWindow popup = new android.widget.PopupWindow(panel, dp(200), -2, true);
+        popup.setBackgroundDrawable(new ColorDrawable(0));
+        popup.setElevation(dp(8));
+        for (String key : new String[]{"recent", "name", "default"}) {
+            boolean on = key.equals(sort);
+            LinearLayout item = new LinearLayout(this);
+            item.setGravity(16);
+            item.setPadding(dp(12), dp(11), dp(12), dp(11));
+            if (on) {
+                item.setBackground(rounded(Color.rgb(236, 254, 255), dp(10)));
+            }
+            TextView label = new TextView(this);
+            label.setText(sortLabel(key));
+            label.setTextSize(13.5f);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            label.setTextColor(on ? teal : Color.rgb(55, 65, 81));
+            item.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            if (on) {
+                TextView check = new TextView(this);
+                check.setText("✓");
+                check.setTextColor(teal);
+                check.setTypeface(Typeface.DEFAULT_BOLD);
+                item.addView(check);
+            }
+            item.setOnClickListener(view -> {
+                popup.dismiss();
+                settingsPrefs().edit().putString(PREF_HOME_SORT, key).apply();
+                onChanged.run();
+            });
+            panel.addView(item, new LinearLayout.LayoutParams(-1, -2));
+        }
+        popup.showAsDropDown(anchor, -dp(200) + anchor.getWidth(), dp(4));
+    }
+
+    // The search box, [전체 | 즐겨찾기] with a sort, and the consoles in one view; onPick opens a
+    // console, onGame starts a game.
     private LinearLayout createModeBrowser(String current, java.util.function.Consumer<String> onPick, java.util.function.Consumer<File> onGame) {
         LinearLayout browser = new LinearLayout(this);
         browser.setOrientation(1);
@@ -750,8 +903,10 @@ public final class MainActivity extends Activity {
         content.setOrientation(1);
         browser.addView(content, new LinearLayout.LayoutParams(-1, -2));
         java.util.Map<String, Integer> counts = new HashMap<>();
+        java.util.Map<String, Long> played = new HashMap<>();
         for (String mode : MODE_IDS) {
             counts.put(mode, romCount(mode));
+            played.put(mode, lastPlayed(mode));
         }
         final Runnable[] render = new Runnable[1];
         render[0] = () -> {
@@ -759,23 +914,50 @@ public final class MainActivity extends Activity {
             String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
             if (query.isEmpty()) {
                 List<String> favorites = favoriteModes();
-                if (!favorites.isEmpty()) {
-                    content.addView(browserSectionTitle("★ 즐겨찾기", favorites.size() + "개"));
-                    List<Integer> favIndexes = new ArrayList<>();
-                    for (String mode : favorites) {
-                        favIndexes.add(modeIndex(mode));
-                    }
-                    addTileGrid(content, favIndexes, counts, current, onPick, render[0]);
-                }
-                content.addView(browserSectionTitle("모든 게임기", MODE_IDS.length + "개"));
-                List<Integer> all = new ArrayList<>();
+                boolean favTab = settingsPrefs().getInt(PREF_HOME_TAB, 0) == 1;
+                String sort = settingsPrefs().getString(PREF_HOME_SORT, "default");
+                content.addView(browserBar(favTab, sort, favorites.size(), render[0]));
+                List<Integer> shown = new ArrayList<>();
                 for (int i = 0; i < MODE_IDS.length; i++) {
-                    if (!favorites.contains(MODE_IDS[i])) {
-                        all.add(i);
+                    if (!favTab || favorites.contains(MODE_IDS[i])) {
+                        shown.add(i);
                     }
                 }
-                addTileGrid(content, all, counts, current, onPick, render[0]);
-                if (favorites.isEmpty()) {
+                if (favTab && "default".equals(sort)) {
+                    // 즐겨찾기 in their own order (앞으로 / 뒤로).
+                    shown.clear();
+                    for (String mode : favorites) {
+                        shown.add(modeIndex(mode));
+                    }
+                }
+                if ("name".equals(sort)) {
+                    final java.text.Collator collator = java.text.Collator.getInstance(Locale.KOREAN);
+                    java.util.Collections.sort(shown, (a, b) -> {
+                        boolean ha = isHangul(MODE_NAMES[a]);
+                        boolean hb = isHangul(MODE_NAMES[b]);
+                        return ha != hb ? (ha ? -1 : 1) : collator.compare(MODE_NAMES[a], MODE_NAMES[b]);
+                    });
+                } else if ("recent".equals(sort)) {
+                    final List<Integer> base = new ArrayList<>(shown);
+                    java.util.Collections.sort(shown, (a, b) -> {
+                        long x = played.get(MODE_IDS[a]);
+                        long y = played.get(MODE_IDS[b]);
+                        return x != y ? Long.compare(y, x) : Integer.compare(base.indexOf(a), base.indexOf(b));
+                    });
+                }
+                if (shown.isEmpty()) {
+                    TextView tip = new TextView(this);
+                    tip.setText("아직 즐겨찾기한 게임기가 없어요.\n게임기 큐브를 길게 누르면 여기에 모여요.");
+                    tip.setTextColor(STATUS_TEXT_COLOR);
+                    tip.setTextSize(13.0f);
+                    tip.setGravity(17);
+                    tip.setLineSpacing(0, 1.2f);
+                    tip.setPadding(0, dp(30), 0, dp(30));
+                    content.addView(tip, new LinearLayout.LayoutParams(-1, -2));
+                    return;
+                }
+                addTileGrid(content, shown, counts, current, onPick, render[0], "recent".equals(sort) ? played : null);
+                if (favorites.isEmpty() && !favTab) {
                     TextView tip = new TextView(this);
                     tip.setText("게임기를 길게 누르면 즐겨찾기에 넣을 수 있어요.");
                     tip.setTextColor(STATUS_TEXT_COLOR);
