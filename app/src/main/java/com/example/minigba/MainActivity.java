@@ -338,6 +338,7 @@ public final class MainActivity extends Activity {
         super.onCreate(bundle);
         CrashReports.installJavaHandler(this);
         registerDownloadReceiver();
+        new Thread(() -> AppUpdate.cleanOldApks(getApplicationContext(), settingsPrefs()), "apk-cleanup").start();
         relaunchGameIfAsked(getIntent());
         importPresetIfOpened(getIntent());
         ensureDownloadFolder();

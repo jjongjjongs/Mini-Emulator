@@ -169,6 +169,31 @@ final class AppUpdate {
         return new File(dir, "Mini-Emulator-" + version + ".apk");
     }
 
+    // Downloaded APKs that are no longer needed: every version up to the installed one (it is
+    // installed, or older). A newer one is kept while it waits to be installed. Each is ~160 MB.
+    static void cleanOldApks(Context context, SharedPreferences prefs) {
+        File dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        File[] files = dir == null ? null : dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        String current = currentVersion(context);
+        String pending = downloadVersion(prefs);
+        for (File file : files) {
+            String name = file.getName();
+            if (!name.startsWith("Mini-Emulator-") || !name.endsWith(".apk")) {
+                continue;
+            }
+            String version = name.substring("Mini-Emulator-".length(), name.length() - ".apk".length());
+            if (compare(version, current) <= 0) {
+                file.delete();
+                if (version.equals(pending)) {
+                    clearDownload(prefs);
+                }
+            }
+        }
+    }
+
     static long startDownload(Context context, SharedPreferences prefs, Release release) {
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         File target = apkFile(context, release.version);
