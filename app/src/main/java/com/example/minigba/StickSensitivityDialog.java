@@ -79,7 +79,7 @@ final class StickSensitivityDialog {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(18), dp(18), dp(18), dp(14));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(20, 23, 28));
+        background.setColor(Theme.bg(Color.rgb(20, 23, 28)));
         background.setCornerRadius(dp(22));
         panel.setBackground(background);
 
@@ -106,7 +106,7 @@ final class StickSensitivityDialog {
         LinearLayout scopeRow = new LinearLayout(this.context);
         GradientDrawable scopeFrame = new GradientDrawable();
         scopeFrame.setCornerRadius(dp(20));
-        scopeFrame.setStroke(dp(1.5f), Color.rgb(75, 85, 99));
+        scopeFrame.setStroke(dp(1.5f), Theme.line(Color.rgb(75, 85, 99)));
         scopeRow.setBackground(scopeFrame);
         String[] scopeNames = {"이 게임만", "모든 게임"};
         for (int k = 0; k < 2; k++) {
@@ -199,9 +199,9 @@ final class StickSensitivityDialog {
             boolean on = (k == 0) == this.thisGame;
             GradientDrawable shape = new GradientDrawable();
             shape.setCornerRadius(dp(20));
-            shape.setColor(on ? ACCENT : Color.TRANSPARENT);
+            shape.setColor(Theme.bg(on ? ACCENT : Color.TRANSPARENT));
             this.scopes[k].setBackground(shape);
-            this.scopes[k].setTextColor(on ? Color.rgb(11, 26, 30) : Color.rgb(229, 231, 235));
+            this.scopes[k].setTextColor(Theme.text(on ? Color.rgb(11, 26, 30) : Color.rgb(229, 231, 235)));
         }
         this.scopeNote.setText(this.thisGame
                 ? this.gameName + "에만 적용 · 다른 게임은 모든 게임 값(" + format(this.allValue) + ")을 써요"
@@ -211,10 +211,10 @@ final class StickSensitivityDialog {
             boolean on = Math.abs(CHIPS[k] - this.value) < STEP / 2;
             GradientDrawable shape = new GradientDrawable();
             shape.setCornerRadius(dp(20));
-            shape.setColor(on ? ACCENT : Color.TRANSPARENT);
-            shape.setStroke(dp(1.5f), on ? ACCENT : Color.rgb(75, 85, 99));
+            shape.setColor(Theme.bg(on ? ACCENT : Color.TRANSPARENT));
+            shape.setStroke(dp(1.5f), Theme.line(on ? ACCENT : Color.rgb(75, 85, 99)));
             this.chips[k].setBackground(shape);
-            this.chips[k].setTextColor(on ? Color.rgb(11, 26, 30) : Color.rgb(229, 231, 235));
+            this.chips[k].setTextColor(Theme.text(on ? Color.rgb(11, 26, 30) : Color.rgb(229, 231, 235)));
         }
     }
 
@@ -222,7 +222,7 @@ final class StickSensitivityDialog {
         TextView view = new TextView(this.context);
         view.setText(value);
         view.setTextSize(sp);
-        view.setTextColor(color);
+        view.setTextColor(Theme.text(color));
         if (bold) {
             view.setTypeface(Typeface.DEFAULT_BOLD);
         }
@@ -234,8 +234,8 @@ final class StickSensitivityDialog {
         view.setGravity(Gravity.CENTER);
         GradientDrawable shape = new GradientDrawable();
         shape.setShape(GradientDrawable.OVAL);
-        shape.setColor(Color.TRANSPARENT);
-        shape.setStroke(dp(1.5f), Color.rgb(107, 114, 128));
+        shape.setColor(Theme.bg(Color.TRANSPARENT));
+        shape.setStroke(dp(1.5f), Theme.line(Color.rgb(107, 114, 128)));
         view.setBackground(shape);
         return view;
     }
@@ -246,9 +246,9 @@ final class StickSensitivityDialog {
         view.setPadding(dp(18), 0, dp(18), 0);
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(dp(22));
-        shape.setColor(fill);
+        shape.setColor(Theme.bg(fill));
         if (outlined) {
-            shape.setStroke(dp(1.5f), Color.rgb(75, 85, 99));
+            shape.setStroke(dp(1.5f), Theme.line(Color.rgb(75, 85, 99)));
         }
         view.setBackground(shape);
         return view;
@@ -282,7 +282,7 @@ final class StickSensitivityDialog {
                 boolean major = i % 10 == 0;
                 boolean half = i % 5 == 0;
                 boolean current = Math.abs(v - StickSensitivityDialog.this.value) < STEP / 2;
-                paint.setColor(current ? ACCENT : major ? Color.rgb(156, 163, 175) : Color.rgb(75, 85, 99));
+                paint.setColor(Theme.bg(current ? ACCENT : major ? Color.rgb(156, 163, 175) : Color.rgb(75, 85, 99)));
                 paint.setStrokeWidth(dp(current ? 3 : 1.5f));
                 float height = dp(major ? 18 : half ? 12 : 8);
                 float x = xFor(v);
@@ -290,7 +290,7 @@ final class StickSensitivityDialog {
                 if (major) {
                     paint.setStrokeWidth(0);
                     paint.setTextSize(dp(12));
-                    paint.setColor(current ? ACCENT : Color.rgb(156, 163, 175));
+                    paint.setColor(Theme.bg(current ? ACCENT : Color.rgb(156, 163, 175)));
                     canvas.drawText(format(v), x, base + dp(18), paint);
                 }
             }
@@ -302,7 +302,7 @@ final class StickSensitivityDialog {
             marker.lineTo(x, base - dp(20));
             marker.close();
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(ACCENT);
+            paint.setColor(Theme.bg(ACCENT));
             canvas.drawPath(marker, paint);
         }
 

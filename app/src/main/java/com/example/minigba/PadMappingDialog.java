@@ -119,7 +119,7 @@ final class PadMappingDialog {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout root = new LinearLayout(this.context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(22, 25, 32));
+        root.setBackgroundColor(Theme.bg(Color.rgb(22, 25, 32)));
         root.setPadding(dp(16), dp(12), dp(16), dp(12));
 
         LinearLayout header = new LinearLayout(this.context);
@@ -150,7 +150,7 @@ final class PadMappingDialog {
         LinearLayout scopeRow = new LinearLayout(this.context);
         GradientDrawable scopeFrame = new GradientDrawable();
         scopeFrame.setCornerRadius(dp(12));
-        scopeFrame.setColor(Color.rgb(36, 40, 50));
+        scopeFrame.setColor(Theme.bg(Color.rgb(36, 40, 50)));
         scopeRow.setBackground(scopeFrame);
         scopeRow.setPadding(dp(3), dp(3), dp(3), dp(3));
         String[] scopeNames = {"이 게임만", "모든 " + this.consoleName + " 게임"};
@@ -202,9 +202,9 @@ final class PadMappingDialog {
             boolean on = (k == 0) == this.thisGame;
             GradientDrawable background = new GradientDrawable();
             background.setCornerRadius(dp(10));
-            background.setColor(on ? Color.rgb(22, 25, 32) : Color.TRANSPARENT);
+            background.setColor(Theme.bg(on ? Color.rgb(22, 25, 32) : Color.TRANSPARENT));
             this.scopes[k].setBackground(background);
-            this.scopes[k].setTextColor(on ? ACCENT : MUTED);
+            this.scopes[k].setTextColor(Theme.text(on ? ACCENT : MUTED));
         }
         this.deviceView.setText(this.deviceName.isEmpty() ? "게임패드를 연결해 주세요" : "연결됨: " + this.deviceName);
         this.hint.setText(this.thisGame ? "바꿀 버튼을 그림에서 눌러요 · 바뀐 버튼은 파란색, 빈 버튼은 노란색"
@@ -254,7 +254,7 @@ final class PadMappingDialog {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(22), dp(20), dp(22), dp(18));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(22));
         panel.setBackground(background);
         panel.addView(text(target.label + " 버튼을 어디에 둘까요?", 18, Color.rgb(27, 31, 39), true));
@@ -266,8 +266,8 @@ final class PadMappingDialog {
         pulse.setGravity(Gravity.CENTER);
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
-        ring.setColor(Color.rgb(232, 251, 253));
-        ring.setStroke(dp(3), ACCENT, dp(8), dp(6));
+        ring.setColor(Theme.bg(Color.rgb(232, 251, 253)));
+        ring.setStroke(dp(3), Theme.line(ACCENT), dp(8), dp(6));
         pulse.setBackground(ring);
         LinearLayout.LayoutParams pulseParams = new LinearLayout.LayoutParams(dp(84), dp(84));
         pulseParams.gravity = Gravity.CENTER_HORIZONTAL;
@@ -284,9 +284,9 @@ final class PadMappingDialog {
         LinearLayout buttons = new LinearLayout(this.context);
         TextView clear = button("해제", Color.WHITE, Color.rgb(229, 72, 77));
         GradientDrawable clearBackground = new GradientDrawable();
-        clearBackground.setColor(Color.WHITE);
+        clearBackground.setColor(Theme.bg(Color.WHITE));
         clearBackground.setCornerRadius(dp(14));
-        clearBackground.setStroke(dp(1), Color.rgb(241, 213, 214));
+        clearBackground.setStroke(dp(1), Theme.line(Color.rgb(241, 213, 214)));
         clear.setBackground(clearBackground);
         clear.setOnClickListener(v -> {
             assign(target, PadMapping.SOURCE_NONE, null);
@@ -351,7 +351,7 @@ final class PadMappingDialog {
         TextView view = new TextView(this.context);
         view.setText(value);
         view.setTextSize(size);
-        view.setTextColor(color);
+        view.setTextColor(Theme.text(color));
         view.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         return view;
     }
@@ -361,7 +361,7 @@ final class PadMappingDialog {
         view.setGravity(Gravity.CENTER);
         view.setPadding(dp(16), 0, dp(16), 0);
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(background);
+        drawable.setColor(Theme.bg(background));
         drawable.setCornerRadius(dp(14));
         view.setBackground(drawable);
         return view;
@@ -432,16 +432,16 @@ final class PadMappingDialog {
                 boolean changed = this.custom.indexOfKey(target.bit) >= 0;
                 boolean empty = source == PadMapping.SOURCE_NONE;
                 int edge = empty ? WARN : changed ? ACCENT : spot.edge;
-                this.fill.setColor(spot.fill);
-                this.stroke.setColor(edge);
+                this.fill.setColor(Theme.bg(spot.fill));
+                this.stroke.setColor(Theme.bg(edge));
                 this.stroke.setStrokeWidth(changed || empty ? 2.4f : 1.1f);
                 // A soft shadow under each button.
-                this.fill.setColor(Color.argb(90, 0, 0, 0));
+                this.fill.setColor(Theme.bg(Color.argb(90, 0, 0, 0)));
                 drawShape(canvas, spot, 0, 1.6f, this.fill, null);
-                this.fill.setColor(spot.fill);
+                this.fill.setColor(Theme.bg(spot.fill));
                 drawShape(canvas, spot, 0, 0, this.fill, this.stroke);
                 // The console's own label inside.
-                this.label.setColor(spot.ink);
+                this.label.setColor(Theme.bg(spot.ink));
                 this.label.setTextSize(spot.textSize);
                 String inside = spot.glyph != null ? spot.glyph : target.label;
                 if (spot.kind == PadSheet.KIND_PILL && spot.rotation != 0) {
@@ -468,9 +468,9 @@ final class PadMappingDialog {
                     default: cy = spot.y + reachY + 3 + chipH / 2; break;
                 }
                 RectF chipRect = new RectF(cx - chipW / 2, cy - chipH / 2, cx + chipW / 2, cy + chipH / 2);
-                this.fill.setColor(empty ? WARN : changed ? ACCENT : this.sheet.chipBackground());
+                this.fill.setColor(Theme.bg(empty ? WARN : changed ? ACCENT : this.sheet.chipBackground()));
                 canvas.drawRoundRect(chipRect, 5.5f, 5.5f, this.fill);
-                this.label.setColor(empty || changed ? Color.WHITE : MUTED);
+                this.label.setColor(Theme.bg(empty || changed ? Color.WHITE : MUTED));
                 canvas.drawText(chip, cx, cy + 3, this.label);
             }
             canvas.restore();

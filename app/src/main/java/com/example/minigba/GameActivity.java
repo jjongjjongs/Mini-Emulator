@@ -78,6 +78,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        Theme.update(this);
         boolean z = MainActivity.sharedSettings(this).getInt("orientation_mode", 0) == 1;
         this.landscapeMode = z;
         setRequestedOrientation(z ? 6 : 1);
@@ -151,7 +152,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int dp = full ? 0 : dp(4);
         int dp2 = full ? 0 : dp(2);
         FrameLayout frameLayout = new FrameLayout(this);
-        frameLayout.setBackgroundColor(Color.rgb(18, 22, 32));
+        frameLayout.setBackgroundColor(Theme.bg(Color.rgb(18, 22, 32)));
         frameLayout.setPadding(0, dp, 0, dp2);
         SurfaceView surfaceView = new SurfaceView(this);
         this.surfaceView = surfaceView;
@@ -170,7 +171,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         layoutParams2.setMargins(side, full ? dp(6) : dp(18), side, 0);
         linearLayout.addView(frameLayout, layoutParams2);
         FrameLayout frameLayout2 = new FrameLayout(this);
-        frameLayout2.setBackgroundColor(0);
+        frameLayout2.setBackgroundColor(Theme.bg(0));
         addControls(frameLayout2);
         applyButtonAlpha(frameLayout2, null);
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
@@ -218,7 +219,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // The DS screens run from the top edge to the bottom edge, without a bezel.
         int dp = full || isDualScreen() ? 0 : dp(2);
         final FrameLayout frameLayout2 = new FrameLayout(this);
-        frameLayout2.setBackgroundColor(Color.rgb(18, 22, 32));
+        frameLayout2.setBackgroundColor(Theme.bg(Color.rgb(18, 22, 32)));
         frameLayout2.setPadding(dp, dp, dp, dp);
         SurfaceView surfaceView = new SurfaceView(this);
         this.surfaceView = surfaceView;
@@ -353,7 +354,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         setNdsLayout(this.landscapeMode ? 2 : 0);
         this.fastForwardButton = null;
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
+        root.setBackgroundColor(Theme.bg(Color.BLACK));
         SurfaceView surfaceView = new SurfaceView(this);
         this.surfaceView = surfaceView;
         surfaceView.getHolder().addCallback(this);
@@ -1672,12 +1673,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setText("플레이어 · 패드");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView sub = new TextView(this);
         sub.setText(this.gameTitle + " · " + consoleName() + " (" + consolePlayers() + "명까지)");
         sub.setTextSize(12.0f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         sub.setSingleLine(true);
         sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
         titles.addView(sub);
@@ -1705,7 +1706,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             slot.setPadding(dp(12), dp(9), dp(12), dp(9));
             android.graphics.drawable.GradientDrawable slotBackground = roundRect(empty ? Color.WHITE : Color.rgb(246, 247, 249), dp(13));
             if (empty) {
-                slotBackground.setStroke(dp(1), Color.rgb(203, 213, 225), dp(4), dp(3));
+                slotBackground.setStroke(dp(1), Theme.line(Color.rgb(203, 213, 225)), dp(4), dp(3));
             }
             slot.setBackground(slotBackground);
             slot.addView(playerChip(p, !empty), new LinearLayout.LayoutParams(dp(30), dp(22)));
@@ -1715,14 +1716,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             nameView.setText(name);
             nameView.setTextSize(13.5f);
             nameView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            nameView.setTextColor(Color.rgb(31, 41, 51));
+            nameView.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             nameView.setSingleLine(true);
             nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
             texts.addView(nameView);
             TextView detailView = new TextView(this);
             detailView.setText(detail);
             detailView.setTextSize(11.0f);
-            detailView.setTextColor(Color.rgb(107, 114, 128));
+            detailView.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
             texts.addView(detailView);
             LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
             textsParams.setMargins(dp(10), 0, dp(6), 0);
@@ -1731,7 +1732,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             action.setText(controllers.isEmpty() ? (empty ? "비어 있음" : "") : "바꾸기 ›");
             action.setTextSize(12.5f);
             action.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            action.setTextColor(controllers.isEmpty() ? Color.rgb(156, 163, 175) : Color.rgb(37, 99, 235));
+            action.setTextColor(Theme.text(controllers.isEmpty() ? Color.rgb(156, 163, 175) : Color.rgb(37, 99, 235)));
             slot.addView(action);
             if (!controllers.isEmpty()) {
                 slot.setOnClickListener(view -> choosePadFor(player, controllers, rebuild));
@@ -1745,10 +1746,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             reorder.setText("버튼 눌러서 순서 다시 정하기");
             reorder.setTextSize(13.0f);
             reorder.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            reorder.setTextColor(COLOR_PLAYERS);
+            reorder.setTextColor(Theme.text(COLOR_PLAYERS));
             reorder.setGravity(Gravity.CENTER);
             android.graphics.drawable.GradientDrawable outline = roundRect(Color.WHITE, dp(12));
-            outline.setStroke(dp(2), COLOR_PLAYERS);
+            outline.setStroke(dp(2), Theme.line(COLOR_PLAYERS));
             reorder.setBackground(outline);
             reorder.setOnClickListener(view -> showPlayerOrderPicker(rebuild));
             LinearLayout.LayoutParams reorderParams = new LinearLayout.LayoutParams(-1, dp(42));
@@ -1760,7 +1761,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 ? (multitapSupported() ? "지금은 2명까지예요. 3명 이상은 \"멀티탭\"을 켜세요." : "이 게임기는 한 명만 해요. 연결한 패드는 모두 1P예요.")
                 : "패드 버튼 설정은 패드마다 기억해요. 같은 패드는 다음에도 같은 자리로 들어가요. 자리보다 패드가 많으면 남는 패드는 1P예요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(17, 94, 89));
+        note.setTextColor(Theme.text(Color.rgb(17, 94, 89)));
         note.setLineSpacing(0, 1.15f);
         note.setPadding(dp(12), dp(10), dp(12), dp(10));
         note.setBackground(roundRect(Color.rgb(240, 253, 250), dp(12)));
@@ -1813,13 +1814,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         TextView ask = new TextView(this);
         ask.setTextSize(17.0f);
         ask.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        ask.setTextColor(Color.rgb(31, 41, 51));
+        ask.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         ask.setGravity(Gravity.CENTER);
         ask.setPadding(0, dp(14), 0, 0);
         panel.addView(ask);
         TextView hint = new TextView(this);
         hint.setTextSize(12.0f);
-        hint.setTextColor(Color.rgb(107, 114, 128));
+        hint.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, dp(8), 0, 0);
         panel.addView(hint);
@@ -1842,9 +1843,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 TextView chip = playerChip(p, p < order.size());
                 if (p == order.size()) {
                     android.graphics.drawable.GradientDrawable next = roundRect(Color.TRANSPARENT, dp(7));
-                    next.setStroke(dp(2), PLAYER_COLORS[p], dp(4), dp(3));
+                    next.setStroke(dp(2), Theme.line(PLAYER_COLORS[p]), dp(4), dp(3));
                     chip.setBackground(next);
-                    chip.setTextColor(PLAYER_COLORS[p]);
+                    chip.setTextColor(Theme.text(PLAYER_COLORS[p]));
                     chip.setAlpha(1.0f);
                 }
                 chips.addView(chip, chipParams);
@@ -2077,7 +2078,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         android.widget.CheckBox again = new android.widget.CheckBox(this);
         again.setText("이 게임은 다시 묻지 않기");
         again.setTextSize(12.5f);
-        again.setTextColor(Color.rgb(55, 65, 81));
+        again.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         again.setChecked(true);
         new AppDialog.Builder(this).setTitle("빠른 저장")
                 .setMessage("세가 ST-V 기판 게임은 저장한 장면을 불러오면 화면이 멈출 수 있어요. 그럴 땐 위쪽 재시작을 누르면 다시 켜져요.\n되감기도 같은 이유로 이 게임에서는 꺼져 있어요.")
@@ -2154,7 +2155,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             badge.setPadding(dp(14), dp(7), dp(14), dp(7));
             android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-            background.setColor(Color.argb(220, 76, 29, 149));
+            background.setColor(Theme.bg(Color.argb(220, 76, 29, 149)));
             background.setCornerRadius(dp(16));
             badge.setBackground(background);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
@@ -2839,20 +2840,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(16), dp(16), dp(16), dp(14));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(22));
         panel.setBackground(background);
         TextView title = new TextView(this);
         title.setText("게임패드 자동 전환");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
         android.view.InputDevice device = PadMapping.firstController();
         TextView sub = new TextView(this);
         sub.setText(device != null ? device.getName() + " 연결됨" : "연결된 게임패드 없음 · 꽂으면 아래 설정대로 바뀌어요");
         sub.setTextSize(11.5f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         panel.addView(sub);
         panel.addView(shapeSection("꽂으면 자동으로"));
         panel.addView(shapeToggle("터치 버튼 숨기기", "방향키 · 버튼 · 스틱이 사라져요. 위쪽 저장 · 메뉴 아이콘은 남아요", padPref("pad_auto_hide"), on -> {
@@ -2887,7 +2888,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         TextView note = new TextView(this);
         note.setText("버튼 없는 \"게임패드 모드\" 화면 모드와는 별개예요. 평소엔 터치로, 패드를 꽂았을 때만 큰 화면으로 쓰고 싶을 때 켜 두세요.");
         note.setTextSize(10.5f);
-        note.setTextColor(Color.rgb(122, 130, 140));
+        note.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         note.setPadding(dp(2), dp(8), 0, 0);
         panel.addView(note);
         final android.app.Dialog dialog = new android.app.Dialog(this);
@@ -2944,7 +2945,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(14), dp(8), dp(8), dp(8));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.argb(235, 31, 36, 48));
+        background.setColor(Theme.bg(Color.argb(235, 31, 36, 48)));
         background.setCornerRadius(dp(12));
         bar.setBackground(background);
         TextView text = new TextView(this);
@@ -2956,7 +2957,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         undo.setText(action);
         undo.setTextSize(13.0f);
         undo.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        undo.setTextColor(Color.rgb(255, 143, 168));
+        undo.setTextColor(Theme.text(Color.rgb(255, 143, 168)));
         undo.setPadding(dp(12), dp(6), dp(12), dp(6));
         undo.setOnClickListener(view -> {
             hideUndoBar();
@@ -3629,7 +3630,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private static android.graphics.drawable.GradientDrawable roundRect(int color, int radius) {
         android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
-        drawable.setColor(color);
+        drawable.setColor(Theme.bg(color));
         drawable.setCornerRadius(radius);
         return drawable;
     }
@@ -3638,7 +3639,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         TextView view = new TextView(this);
         view.setText(text);
         view.setTextSize(size);
-        view.setTextColor(color);
+        view.setTextColor(Theme.text(color));
         if (bold) {
             view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         }
@@ -3672,8 +3673,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         box.setHint(hint);
         box.setSingleLine(true);
         box.setTextSize(13.5f);
-        box.setTextColor(Color.rgb(31, 41, 51));
-        box.setHintTextColor(Color.rgb(154, 161, 170));
+        box.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        box.setHintTextColor(Theme.text(Color.rgb(154, 161, 170)));
         box.setPadding(dp(12), 0, dp(12), 0);
         box.setBackground(roundRect(Color.rgb(241, 243, 245), dp(12)));
         return box;
@@ -4064,7 +4065,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             Runnable paintSizes = () -> {
                 for (int k = 0; k < 3; k++) {
                     boolean on = sizeValues[k] == size[0];
-                    sizeViews[k].setTextColor(on ? Color.WHITE : Color.rgb(55, 65, 81));
+                    sizeViews[k].setTextColor(Theme.text(on ? Color.WHITE : Color.rgb(55, 65, 81)));
                     sizeViews[k].setBackground(roundRect(on ? CHEAT_RED : Color.rgb(241, 242, 244), dp(10)));
                 }
             };
@@ -4328,8 +4329,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 View dot = new View(this);
                 android.graphics.drawable.GradientDrawable ring = new android.graphics.drawable.GradientDrawable();
                 ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                ring.setStroke(dp(2), on ? CHEAT_GREEN : Color.rgb(201, 206, 214));
-                ring.setColor(Color.WHITE);
+                ring.setStroke(dp(2), Theme.line(on ? CHEAT_GREEN : Color.rgb(201, 206, 214)));
+                ring.setColor(Theme.bg(Color.WHITE));
                 dot.setBackground(on ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{ring, innerDot(CHEAT_GREEN)}) : ring);
                 row.addView(dot, new LinearLayout.LayoutParams(dp(20), dp(20)));
                 LinearLayout texts = new LinearLayout(this);
@@ -4802,7 +4803,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         android.widget.CheckBox again = new android.widget.CheckBox(this);
         again.setText(heatSystemName() + "는 다시 알리지 않기");
         again.setTextSize(12.5f);
-        again.setTextColor(Color.rgb(55, 65, 81));
+        again.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         again.setButtonTintList(android.content.res.ColorStateList.valueOf(HEAT_ORANGE));
         again.setChecked(MainActivity.sharedSettings(this).getBoolean(heatKey(), false));
         panel.addView(again, marginTop(-2, -2, 8));
@@ -5586,7 +5587,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         text.setText(label);
         text.setTextSize(textSp);
         text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        text.setTextColor(shellTextColor());
+        text.setTextColor(Theme.text(shellTextColor()));
         text.setGravity(1);
         text.setSingleLine(true);
         box.addView(text, new LinearLayout.LayoutParams(-2, -2));
@@ -5948,30 +5949,30 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(14), dp(18), dp(14), dp(14));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(24));
         panel.setBackground(background);
         TextView title = new TextView(this);
         title.setText("어디에 저장할까요?");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
         TextView sub = new TextView(this);
         sub.setText("짧게 누르면 전처럼 빠른 칸에 바로 저장돼요");
         sub.setTextSize(12.0f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         panel.addView(sub);
         final android.widget.EditText memo = new android.widget.EditText(this);
         memo.setHint("메모 (선택) · 예: 보스 앞");
         memo.setTextSize(13.5f);
         memo.setSingleLine(true);
-        memo.setTextColor(Color.rgb(31, 41, 51));
+        memo.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         memo.setPadding(dp(12), dp(10), dp(12), dp(10));
         android.graphics.drawable.GradientDrawable memoBackground = new android.graphics.drawable.GradientDrawable();
-        memoBackground.setColor(Color.WHITE);
+        memoBackground.setColor(Theme.bg(Color.WHITE));
         memoBackground.setCornerRadius(dp(12));
-        memoBackground.setStroke(dp(1), Color.rgb(214, 218, 226));
+        memoBackground.setStroke(dp(1), Theme.line(Color.rgb(214, 218, 226)));
         memo.setBackground(memoBackground);
         LinearLayout.LayoutParams memoParams = new LinearLayout.LayoutParams(-1, -2);
         memoParams.setMargins(0, dp(10), 0, dp(4));
@@ -5987,7 +5988,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         section.setText("내 칸 (밀려나지 않음)");
         section.setTextSize(11.5f);
         section.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        section.setTextColor(Color.rgb(85, 95, 110));
+        section.setTextColor(Theme.text(Color.rgb(85, 95, 110)));
         section.setPadding(0, dp(10), 0, dp(2));
         panel.addView(section);
         for (int n = 1; n <= FIXED_SLOTS; n++) {
@@ -6023,14 +6024,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         row.setGravity(16);
         row.setPadding(dp(10), dp(8), dp(10), dp(8));
         android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
-        rowBackground.setColor(highlight ? Color.rgb(255, 247, 248) : Color.rgb(246, 247, 249));
+        rowBackground.setColor(Theme.bg(highlight ? Color.rgb(255, 247, 248) : Color.rgb(246, 247, 249)));
         rowBackground.setCornerRadius(dp(14));
-        if (highlight) rowBackground.setStroke(dp(2), Color.rgb(225, 29, 72));
+        if (highlight) rowBackground.setStroke(dp(2), Theme.line(Color.rgb(225, 29, 72)));
         row.setBackground(rowBackground);
         android.widget.ImageView thumb = new android.widget.ImageView(this);
         thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
         android.graphics.drawable.GradientDrawable thumbBackground = new android.graphics.drawable.GradientDrawable();
-        thumbBackground.setColor(Color.rgb(222, 226, 232));
+        thumbBackground.setColor(Theme.bg(Color.rgb(222, 226, 232)));
         thumbBackground.setCornerRadius(dp(6));
         thumb.setBackground(thumbBackground);
         thumb.setClipToOutline(true);
@@ -6044,7 +6045,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         label.setText(name);
         label.setTextSize(13.5f);
         label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         label.setSingleLine(true);
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
         texts.addView(label);
@@ -6052,7 +6053,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             TextView small = new TextView(this);
             small.setText(detail);
             small.setTextSize(11.0f);
-            small.setTextColor(Color.rgb(122, 130, 140));
+            small.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             texts.addView(small);
         }
         LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
@@ -6337,7 +6338,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(14), dp(18), dp(14), dp(14));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(24));
         panel.setBackground(background);
 
@@ -6371,13 +6372,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setText(deleting ? "지울 세이브 선택" : "불러오기");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView sub = new TextView(this);
         sub.setText(deleting ? ticked.size() + "개 선택됨" : this.gameTitle + " · 자동 " + autos.size() + " · 빠른 " + quick.size() + " · 내 칸 " + fixed.size()
                 + (totalBytes > 0 ? " · 총 " + formatSize(totalBytes) : ""));
         sub.setTextSize(12.0f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         sub.setSingleLine(true);
         sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
         titles.addView(sub);
@@ -6408,7 +6409,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             empty.setTextSize(13.0f);
             empty.setLineSpacing(0, 1.2f);
             empty.setGravity(17);
-            empty.setTextColor(Color.rgb(122, 130, 140));
+            empty.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             empty.setPadding(0, dp(24), 0, dp(24));
             panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
         }
@@ -6428,7 +6429,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 section.setText((String) entry);
                 section.setTextSize(11.5f);
                 section.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                section.setTextColor(Color.rgb(85, 95, 110));
+                section.setTextColor(Theme.text(Color.rgb(85, 95, 110)));
                 section.setPadding(dp(2), dp(12), 0, 0);
                 panel.addView(section, new LinearLayout.LayoutParams(-1, -2));
                 continue;
@@ -6441,14 +6442,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 empty.setGravity(16);
                 empty.setPadding(dp(12), dp(8), dp(12), dp(8));
                 android.graphics.drawable.GradientDrawable emptyBackground = new android.graphics.drawable.GradientDrawable();
-                emptyBackground.setColor(Color.WHITE);
+                emptyBackground.setColor(Theme.bg(Color.WHITE));
                 emptyBackground.setCornerRadius(dp(14));
-                emptyBackground.setStroke(dp(1), Color.rgb(214, 218, 226));
+                emptyBackground.setStroke(dp(1), Theme.line(Color.rgb(214, 218, 226)));
                 empty.setBackground(emptyBackground);
                 TextView emptyText = new TextView(this);
                 emptyText.setText(slot + " · 비어 있음");
                 emptyText.setTextSize(13.0f);
-                emptyText.setTextColor(Color.rgb(122, 130, 140));
+                emptyText.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
                 empty.addView(emptyText, new LinearLayout.LayoutParams(0, -2, 1.0f));
                 TextView here = smallButton("여기에 저장");
                 here.setOnClickListener(view -> {
@@ -6469,7 +6470,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             row.setGravity(16);
             row.setPadding(dp(12), dp(10), dp(12), dp(10));
             android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
-            rowBackground.setColor(on ? Color.rgb(253, 236, 237) : Color.rgb(246, 247, 249));
+            rowBackground.setColor(Theme.bg(on ? Color.rgb(253, 236, 237) : Color.rgb(246, 247, 249)));
             rowBackground.setCornerRadius(dp(14));
             row.setBackground(rowBackground);
             if (deleting) {
@@ -6480,8 +6481,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 box.setGravity(17);
                 android.graphics.drawable.GradientDrawable boxBackground = new android.graphics.drawable.GradientDrawable();
                 boxBackground.setCornerRadius(dp(7));
-                boxBackground.setColor(on ? Color.rgb(229, 72, 77) : Color.WHITE);
-                boxBackground.setStroke(dp(2), on ? Color.rgb(229, 72, 77) : Color.rgb(201, 206, 214));
+                boxBackground.setColor(Theme.bg(on ? Color.rgb(229, 72, 77) : Color.WHITE));
+                boxBackground.setStroke(dp(2), Theme.line(on ? Color.rgb(229, 72, 77) : Color.rgb(201, 206, 214)));
                 box.setBackground(boxBackground);
                 LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(24), dp(24));
                 boxParams.setMargins(0, 0, dp(12), 0);
@@ -6490,7 +6491,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             android.widget.ImageView thumb = new android.widget.ImageView(this);
             thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
             android.graphics.drawable.GradientDrawable thumbBackground = new android.graphics.drawable.GradientDrawable();
-            thumbBackground.setColor(Color.rgb(203, 208, 215));
+            thumbBackground.setColor(Theme.bg(Color.rgb(203, 208, 215)));
             thumbBackground.setCornerRadius(dp(6));
             thumb.setBackground(thumbBackground);
             thumb.setClipToOutline(true);
@@ -6507,7 +6508,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             name.setTextSize(14.0f);
             name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             texts.addView(name);
             TextView when = new TextView(this);
             String played = "";
@@ -6521,7 +6522,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             when.setText(saveTimeText(save.lastModified()) + played + " · " + formatSize(save.length()));
             when.setTextSize(12.0f);
-            when.setTextColor(Color.rgb(122, 130, 140));
+            when.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             texts.addView(when);
             LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
             textsParams.setMargins(dp(12), 0, 0, 0);
@@ -6553,7 +6554,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             hint.setText("누르면 불러오기 · 길게 누르면 메모 · 덮어쓰기 · 내보내기 · 지우기");
             hint.setTextSize(11.5f);
             hint.setGravity(17);
-            hint.setTextColor(Color.rgb(122, 130, 140));
+            hint.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
             hintParams.setMargins(0, dp(10), 0, 0);
             panel.addView(hint, hintParams);
@@ -6636,11 +6637,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         button.setText(text);
         button.setTextSize(13.0f);
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        button.setTextColor(Color.rgb(55, 65, 81));
+        button.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         button.setGravity(17);
         button.setPadding(dp(12), 0, dp(12), 0);
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.rgb(241, 242, 244));
+        background.setColor(Theme.bg(Color.rgb(241, 242, 244)));
         background.setCornerRadius(dp(10));
         button.setBackground(background);
         return button;
@@ -6958,12 +6959,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setText("일시정지");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         header.addView(title, new LinearLayout.LayoutParams(-2, -2));
         TextView game = new TextView(this);
         game.setText(this.gameTitle + (playTimeSeconds() > 0 ? " · " + playTimeText(playTimeSeconds()) : ""));
         game.setTextSize(12.0f);
-        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         game.setGravity(8388613);
         game.setSingleLine(true);
         game.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -6993,7 +6994,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             int tab = tabs.get(current[0]);
             for (int k = 0; k < tabViews.length; k++) {
                 boolean on = k == current[0];
-                tabViews[k].setTextColor(on ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128));
+                tabViews[k].setTextColor(Theme.text(on ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128)));
                 tabViews[k].setBackground(on ? roundRect(Color.WHITE, dp(10)) : null);
                 tabViews[k].setElevation(on ? dp(1) : 0);
             }
@@ -7152,7 +7153,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             TextView status = new TextView(this);
             status.setText(runStatusText());
             status.setTextSize(12.0f);
-            status.setTextColor(Color.rgb(17, 94, 89));
+            status.setTextColor(Theme.text(Color.rgb(17, 94, 89)));
             status.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             status.setPadding(dp(12), dp(10), dp(12), dp(10));
             status.setBackground(roundRect(Color.rgb(240, 253, 250), dp(13)));
@@ -7241,7 +7242,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         TextView hint = new TextView(this);
                         hint.setText("인증서가 없으면 접속 단계에서 막힐 수 있어요.\n게임큐브 · Wii 목록 화면의 \"Wii 시스템 업데이트\"를 먼저 해 주세요.");
                         hint.setTextSize(11.5f);
-                        hint.setTextColor(Color.rgb(154, 52, 18));
+                        hint.setTextColor(Theme.text(Color.rgb(154, 52, 18)));
                         hint.setLineSpacing(0, 1.15f);
                         hint.setPadding(dp(12), dp(10), dp(12), dp(10));
                         hint.setBackground(roundRect(Color.rgb(255, 247, 237), dp(12)));
@@ -7263,7 +7264,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     + "가로 화면의 게임패드 작은 창은 '버튼 배치 편집'에서 옮기고 크기를 바꿀 수 있어요.");
             note.setTextSize(12.0f);
             note.setLineSpacing(0.0f, 1.25f);
-            note.setTextColor(Color.rgb(7, 89, 133));
+            note.setTextColor(Theme.text(Color.rgb(7, 89, 133)));
             note.setPadding(dp(12), dp(10), dp(12), dp(10));
             note.setBackground(roundRect(Color.rgb(224, 242, 254), dp(13)));
             panel.addView(note, tabRowParams(panel));
@@ -7340,14 +7341,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         row.setGravity(16);
         row.setPadding(dp(14), 0, dp(10), 0);
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.rgb(246, 247, 249));
+        background.setColor(Theme.bg(Color.rgb(246, 247, 249)));
         background.setCornerRadius(dp(14));
         row.setBackground(background);
         TextView label = new TextView(this);
         label.setText("배속");
         label.setTextSize(15.0f);
         label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
         SpeedButtonView speed = new SpeedButtonView(this, this::onSpeedChanged);
         speed.setPercent(this.speedPercent);
@@ -7759,7 +7760,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     relaunchGame();
                 }));
         if (mode == 0) {
-            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Theme.text(Color.rgb(154, 161, 170)));
         }
         return row;
     }
@@ -7851,7 +7852,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     relaunchGame();
                 }));
         if (mode == 0) {
-            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Theme.text(Color.rgb(154, 161, 170)));
         }
         return row;
     }
@@ -7882,7 +7883,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     relaunchGame();
                 }));
         if (mode == 0) {
-            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Theme.text(Color.rgb(154, 161, 170)));
         }
         return row;
     }
@@ -7903,7 +7904,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(16), dp(20), dp(16), dp(16));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(24));
         panel.setBackground(background);
         LinearLayout header = new LinearLayout(this);
@@ -7915,12 +7916,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setText("방장 찾기");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         final TextView status = new TextView(this);
         status.setText("같은 와이파이에서 찾는 중…");
         status.setTextSize(12.0f);
-        status.setTextColor(Color.rgb(122, 130, 140));
+        status.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         titles.addView(status);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(10), 0, 0, 0);
@@ -7933,7 +7934,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final TextView[] tabs = new TextView[3];
         LinearLayout tabRow = new LinearLayout(this);
         android.graphics.drawable.GradientDrawable tabBackground = new android.graphics.drawable.GradientDrawable();
-        tabBackground.setColor(Color.rgb(233, 235, 240));
+        tabBackground.setColor(Theme.bg(Color.rgb(233, 235, 240)));
         tabBackground.setCornerRadius(dp(12));
         tabRow.setBackground(tabBackground);
         tabRow.setPadding(dp(3), dp(3), dp(3), dp(3));
@@ -7954,10 +7955,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             for (int k = 0; k < 3; k++) {
                 boolean on = k == tab[0];
                 android.graphics.drawable.GradientDrawable tabFill = new android.graphics.drawable.GradientDrawable();
-                tabFill.setColor(on ? Color.WHITE : Color.TRANSPARENT);
+                tabFill.setColor(Theme.bg(on ? Color.WHITE : Color.TRANSPARENT));
                 tabFill.setCornerRadius(dp(10));
                 tabs[k].setBackground(tabFill);
-                tabs[k].setTextColor(on ? color : Color.rgb(102, 112, 128));
+                tabs[k].setTextColor(Theme.text(on ? color : Color.rgb(102, 112, 128)));
             }
         };
 
@@ -7977,7 +7978,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
         waiting.setTextSize(12.5f);
         waiting.setGravity(17);
-        waiting.setTextColor(Color.rgb(122, 130, 140));
+        waiting.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         waiting.setPadding(0, dp(14), 0, dp(14));
         panel.addView(waiting, new LinearLayout.LayoutParams(-1, -2));
 
@@ -7985,7 +7986,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout manual = new LinearLayout(this);
         manual.setGravity(16);
         android.graphics.drawable.GradientDrawable manualBackground = new android.graphics.drawable.GradientDrawable();
-        manualBackground.setColor(Color.rgb(246, 247, 249));
+        manualBackground.setColor(Theme.bg(Color.rgb(246, 247, 249)));
         manualBackground.setCornerRadius(dp(14));
         manual.setBackground(manualBackground);
         manual.setPadding(dp(14), dp(4), dp(8), dp(4));
@@ -8036,7 +8037,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 LinearLayout row = new LinearLayout(this);
                 row.setGravity(16);
                 android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
-                rowBackground.setColor(Color.rgb(246, 247, 249));
+                rowBackground.setColor(Theme.bg(Color.rgb(246, 247, 249)));
                 rowBackground.setCornerRadius(dp(14));
                 row.setBackground(rowBackground);
                 row.setPadding(dp(14), dp(10), dp(10), dp(10));
@@ -8046,12 +8047,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 name.setText(host.name.isEmpty() ? host.address : host.name);
                 name.setTextSize(14.5f);
                 name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                name.setTextColor(Color.rgb(31, 41, 51));
+                name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
                 words.addView(name);
                 TextView detail = new TextView(this);
                 detail.setText((host.game.isEmpty() ? "" : host.game + " · ") + host.address + (sameGame ? "" : " · 같은 게임이 아니에요"));
                 detail.setTextSize(12.0f);
-                detail.setTextColor(Color.rgb(122, 130, 140));
+                detail.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
                 words.addView(detail);
                 row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
                 if (sameGame) {
@@ -8074,11 +8075,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (finished) {
                 status.setText(hosts.isEmpty() ? "방장을 못 찾았어요" : hosts.size() + "곳 찾음");
                 waiting.setText(hosts.isEmpty() ? "방장이 '방 만들기'를 켰는지, 같은 와이파이인지 확인하고 다시 찾기를 눌러 주세요" : "다시 찾기");
-                waiting.setTextColor(color);
+                waiting.setTextColor(Theme.text(color));
                 waiting.setOnClickListener(view -> {
                     status.setText("같은 와이파이에서 찾는 중…");
                     waiting.setText("찾는 중…");
-                    waiting.setTextColor(Color.rgb(122, 130, 140));
+                    waiting.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
                     waiting.setOnClickListener(null);
                     again[0].run();
                 });
@@ -8094,13 +8095,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (!DirectLink.permitted(this)) {
                 status.setText("근처 기기를 찾을 권한이 필요해요");
                 waiting.setText("권한 허용하기");
-                waiting.setTextColor(color);
+                waiting.setTextColor(Theme.text(color));
                 waiting.setOnClickListener(view -> DirectLink.ask(this));
                 return;
             }
             status.setText("근처 휴대폰을 찾는 중…");
             waiting.setText("방장이 '방 만들기 · Wi-Fi Direct'를 켜 두면 여기에 보여요");
-            waiting.setTextColor(Color.rgb(122, 130, 140));
+            waiting.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             waiting.setOnClickListener(null);
             directLink().discover(rooms -> {
                 if (!dialog.isShowing() || tab[0] != 1) {
@@ -8112,7 +8113,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     LinearLayout row = new LinearLayout(this);
                     row.setGravity(16);
                     android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
-                    rowBackground.setColor(Color.rgb(246, 247, 249));
+                    rowBackground.setColor(Theme.bg(Color.rgb(246, 247, 249)));
                     rowBackground.setCornerRadius(dp(14));
                     row.setBackground(rowBackground);
                     row.setPadding(dp(14), dp(10), dp(10), dp(10));
@@ -8122,12 +8123,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     name.setText(room.name);
                     name.setTextSize(14.5f);
                     name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                    name.setTextColor(Color.rgb(31, 41, 51));
+                    name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
                     words.addView(name);
                     TextView detail = new TextView(this);
                     detail.setText("Mini Emulator" + (room.game.isEmpty() ? "" : " · " + room.game) + (sameGame ? "" : " · 같은 게임이 아니에요"));
                     detail.setTextSize(12.0f);
-                    detail.setTextColor(Color.rgb(122, 130, 140));
+                    detail.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
                     words.addView(detail);
                     row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
                     if (sameGame) {
@@ -8176,7 +8177,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 LinearLayout card = new LinearLayout(this);
                 card.setGravity(16);
                 android.graphics.drawable.GradientDrawable cardBackground = new android.graphics.drawable.GradientDrawable();
-                cardBackground.setColor(Color.rgb(236, 253, 245));
+                cardBackground.setColor(Theme.bg(Color.rgb(236, 253, 245)));
                 cardBackground.setCornerRadius(dp(14));
                 card.setBackground(cardBackground);
                 card.setPadding(dp(14), dp(10), dp(10), dp(10));
@@ -8186,13 +8187,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 on.setText("VPN 켜짐");
                 on.setTextSize(12.0f);
                 on.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                on.setTextColor(Color.rgb(4, 120, 87));
+                on.setTextColor(Theme.text(Color.rgb(4, 120, 87)));
                 words.addView(on);
                 TextView ip = new TextView(this);
                 ip.setText("내 가상 IP " + mine);
                 ip.setTextSize(14.5f);
                 ip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                ip.setTextColor(Color.rgb(31, 41, 51));
+                ip.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
                 words.addView(ip);
                 card.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
                 TextView copy = dialogButton("복사", Color.WHITE, Color.rgb(4, 120, 87));
@@ -8212,14 +8213,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     heading.setText("최근 연결한 친구");
                     heading.setTextSize(12.0f);
                     heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                    heading.setTextColor(Color.rgb(122, 130, 140));
+                    heading.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
                     heading.setPadding(dp(4), dp(12), 0, dp(6));
                     vpnBox.addView(heading);
                     for (String friend : recent) {
                         LinearLayout row = new LinearLayout(this);
                         row.setGravity(16);
                         android.graphics.drawable.GradientDrawable rowBackground = new android.graphics.drawable.GradientDrawable();
-                        rowBackground.setColor(Color.rgb(246, 247, 249));
+                        rowBackground.setColor(Theme.bg(Color.rgb(246, 247, 249)));
                         rowBackground.setCornerRadius(dp(14));
                         row.setBackground(rowBackground);
                         row.setPadding(dp(14), dp(8), dp(10), dp(8));
@@ -8227,7 +8228,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         name.setText(friend);
                         name.setTextSize(14.0f);
                         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                        name.setTextColor(Color.rgb(31, 41, 51));
+                        name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
                         row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
                         TextView go = dialogButton("연결 ›", color, Color.WHITE);
                         go.setPadding(dp(14), 0, dp(14), 0);
@@ -8247,9 +8248,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 TextView warn = new TextView(this);
                 warn.setText("친구도 같은 VPN 네트워크에 있어야 해요. 멀리 떨어질수록 끊기기 쉬워요" + (isNds() ? " (특히 DS)." : "."));
                 warn.setTextSize(12.0f);
-                warn.setTextColor(Color.rgb(146, 64, 14));
+                warn.setTextColor(Theme.text(Color.rgb(146, 64, 14)));
                 android.graphics.drawable.GradientDrawable warnBackground = new android.graphics.drawable.GradientDrawable();
-                warnBackground.setColor(Color.rgb(255, 247, 237));
+                warnBackground.setColor(Theme.bg(Color.rgb(255, 247, 237)));
                 warnBackground.setCornerRadius(dp(12));
                 warn.setBackground(warnBackground);
                 warn.setPadding(dp(12), dp(8), dp(12), dp(8));
@@ -8264,7 +8265,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 TextView step = new TextView(this);
                 step.setText((k + 1) + ".  " + steps[k]);
                 step.setTextSize(13.0f);
-                step.setTextColor(Color.rgb(55, 65, 81));
+                step.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
                 step.setPadding(dp(4), dp(4), dp(4), dp(4));
                 vpnBox.addView(step);
             }
@@ -8301,7 +8302,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             } else {
                 status.setText("같은 와이파이에서 찾는 중…");
                 waiting.setText("찾는 중… 방장이 '방 만들기'를 먼저 켜야 보여요");
-                waiting.setTextColor(Color.rgb(122, 130, 140));
+                waiting.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
                 waiting.setOnClickListener(null);
                 again[0].run();
             }
@@ -8360,7 +8361,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     relaunchGame();
                 }));
         if (!speedFirst()) {
-            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Color.rgb(154, 161, 170));
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Theme.text(Color.rgb(154, 161, 170)));
         }
         return row;
     }
@@ -8384,7 +8385,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         row.setGravity(16);
         row.setPadding(dp(14), 0, dp(14), 0);
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.rgb(246, 247, 249));
+        background.setColor(Theme.bg(Color.rgb(246, 247, 249)));
         background.setCornerRadius(dp(14));
         row.setBackground(background);
         row.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(32), dp(32)));
@@ -8392,7 +8393,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         label.setText(name);
         label.setTextSize(14.0f);
         label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         labelParams.setMargins(dp(12), 0, 0, 0);
         row.addView(label, labelParams);
@@ -8400,7 +8401,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         value.setText(current + "  ›");
         value.setTextSize(13.5f);
         value.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        value.setTextColor(color);
+        value.setTextColor(Theme.text(color));
         row.addView(value, new LinearLayout.LayoutParams(-2, -2));
         // The pause menu stays open underneath; the game stays paused meanwhile.
         row.setOnClickListener(onClick);
@@ -8420,7 +8421,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(16), dp(20), dp(16), dp(16));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(24));
         panel.setBackground(background);
 
@@ -8434,12 +8435,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setText(titleText);
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView game = new TextView(this);
         game.setText(this.gameTitle);
         game.setTextSize(12.0f);
-        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         game.setSingleLine(true);
         game.setEllipsize(android.text.TextUtils.TruncateAt.END);
         titles.addView(game);
@@ -8456,13 +8457,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             for (int k = 0; k < options.length; k++) {
                 boolean on = k == selected[0];
                 android.graphics.drawable.GradientDrawable optionBackground = new android.graphics.drawable.GradientDrawable();
-                optionBackground.setColor(on ? selectedFill : Color.rgb(246, 247, 249));
+                optionBackground.setColor(Theme.bg(on ? selectedFill : Color.rgb(246, 247, 249)));
                 optionBackground.setCornerRadius(dp(14));
                 options[k].setBackground(optionBackground);
                 android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
                 dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-                dot.setStroke(dp(2), on ? color : Color.rgb(201, 206, 214));
-                dot.setColor(Color.WHITE);
+                dot.setStroke(dp(2), Theme.line(on ? color : Color.rgb(201, 206, 214)));
+                dot.setColor(Theme.bg(Color.WHITE));
                 dots[k].setBackground(on ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{dot, innerDot(color)}) : dot);
             }
         };
@@ -8480,12 +8481,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             name.setText(names[k]);
             name.setTextSize(14.5f);
             name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             texts.addView(name);
             TextView note = new TextView(this);
             note.setText(notes[k]);
             note.setTextSize(11.5f);
-            note.setTextColor(Color.rgb(122, 130, 140));
+            note.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             texts.addView(note);
             LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
             textsParams.setMargins(dp(12), 0, 0, 0);
@@ -8506,10 +8507,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         warning.setText(noteText);
         warning.setTextSize(12.0f);
         warning.setLineSpacing(0, 1.15f);
-        warning.setTextColor(noteColor);
+        warning.setTextColor(Theme.text(noteColor));
         warning.setPadding(dp(12), dp(10), dp(12), dp(10));
         android.graphics.drawable.GradientDrawable warningBackground = new android.graphics.drawable.GradientDrawable();
-        warningBackground.setColor(noteBackground);
+        warningBackground.setColor(Theme.bg(noteBackground));
         warningBackground.setCornerRadius(dp(12));
         warning.setBackground(warningBackground);
         LinearLayout.LayoutParams warningParams = new LinearLayout.LayoutParams(-1, -2);
@@ -8550,7 +8551,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private android.graphics.drawable.Drawable innerDot(int color) {
         android.graphics.drawable.GradientDrawable inner = new android.graphics.drawable.GradientDrawable();
         inner.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        inner.setColor(color);
+        inner.setColor(Theme.bg(color));
         android.graphics.drawable.InsetDrawable inset = new android.graphics.drawable.InsetDrawable(inner, dp(5));
         return inset;
     }
@@ -8560,10 +8561,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         button.setText(text);
         button.setTextSize(15.0f);
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        button.setTextColor(textColor);
+        button.setTextColor(Theme.text(textColor));
         button.setGravity(17);
         android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
-        drawable.setColor(background);
+        drawable.setColor(Theme.bg(background));
         drawable.setCornerRadius(dp(14));
         button.setBackground(drawable);
         return button;
@@ -8581,7 +8582,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         tile.setGravity(1);
         tile.setPadding(dp(6), dp(14), dp(6), dp(12));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.rgb(246, 247, 249));
+        background.setColor(Theme.bg(Color.rgb(246, 247, 249)));
         background.setCornerRadius(dp(16));
         tile.setBackground(background);
         RoundIconView iconView = new RoundIconView(this, icon, color);
@@ -8590,7 +8591,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         text.setText(label);
         text.setTextSize(13.0f);
         text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        text.setTextColor(Color.rgb(31, 41, 51));
+        text.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         text.setGravity(1);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
         textParams.setMargins(0, dp(8), 0, 0);
@@ -8599,7 +8600,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             TextView sub = new TextView(this);
             sub.setText(detail);
             sub.setTextSize(10.5f);
-            sub.setTextColor(Color.rgb(122, 130, 140));
+            sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             sub.setGravity(1);
             tile.addView(sub, new LinearLayout.LayoutParams(-2, -2));
         }
@@ -8763,20 +8764,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(14), dp(18), dp(14), dp(14));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(24));
         panel.setBackground(background);
         TextView title = new TextView(this);
         title.setText("게임을 나갈까요?");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setGravity(1);
         panel.addView(title, new LinearLayout.LayoutParams(-1, -2));
         TextView game = new TextView(this);
         game.setText(this.gameTitle);
         game.setTextSize(12.0f);
-        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         game.setGravity(1);
         game.setSingleLine(true);
         game.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -8815,7 +8816,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         tile.setGravity(1);
         tile.setPadding(dp(8), dp(18), dp(8), dp(14));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(fill);
+        background.setColor(Theme.bg(fill));
         background.setCornerRadius(dp(18));
         tile.setBackground(background);
         RoundIconView iconView = new RoundIconView(this, icon, color);
@@ -8824,7 +8825,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         text.setText(label);
         text.setTextSize(15.0f);
         text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        text.setTextColor(Color.rgb(31, 41, 51));
+        text.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         text.setGravity(1);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
         textParams.setMargins(0, dp(10), 0, 0);
@@ -8832,7 +8833,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         TextView sub = new TextView(this);
         sub.setText(detail);
         sub.setTextSize(11.5f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         sub.setGravity(1);
         sub.setLineSpacing(0, 1.1f);
         LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-2, -2);
@@ -8908,7 +8909,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(20), dp(20), dp(20), dp(16));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(22));
         panel.setBackground(background);
         LinearLayout header = new LinearLayout(this);
@@ -8919,7 +8920,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setText("게임을 열지 못했어요");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titleParams.setMargins(dp(12), 0, 0, 0);
         header.addView(title, titleParams);
@@ -8928,7 +8929,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         text.setText(summary);
         text.setTextSize(14.0f);
         text.setLineSpacing(0, 1.25f);
-        text.setTextColor(Color.rgb(55, 65, 81));
+        text.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         text.setPadding(0, dp(14), 0, 0);
         panel.addView(text);
         if (detail.length() > 0) {
@@ -8936,11 +8937,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             raws.setText(detail);
             raws.setTextSize(11.0f);
             raws.setTypeface(android.graphics.Typeface.MONOSPACE);
-            raws.setTextColor(Color.rgb(122, 130, 140));
+            raws.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             raws.setPadding(dp(12), dp(10), dp(12), dp(10));
             raws.setTextIsSelectable(true);
             android.graphics.drawable.GradientDrawable box = new android.graphics.drawable.GradientDrawable();
-            box.setColor(Color.rgb(246, 247, 249));
+            box.setColor(Theme.bg(Color.rgb(246, 247, 249)));
             box.setCornerRadius(dp(12));
             raws.setBackground(box);
             LinearLayout.LayoutParams rawParams = new LinearLayout.LayoutParams(-1, -2);
@@ -9116,7 +9117,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         center.setText("⊙ 가운데로");
         center.setTextSize(11.0f);
         center.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        center.setTextColor(Color.rgb(229, 231, 235));
+        center.setTextColor(Theme.text(Color.rgb(229, 231, 235)));
         center.setPadding(dp(9), dp(3), dp(9), dp(3));
         center.setBackground(roundRect(Color.argb(200, 17, 24, 39), dp(11)));
         center.setOnClickListener(view -> {
@@ -9307,7 +9308,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         button.setText("화면 전환");
         button.setTextSize(11.0f);
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        button.setTextColor(Color.rgb(203, 213, 225));
+        button.setTextColor(Theme.text(Color.rgb(203, 213, 225)));
         button.setGravity(Gravity.CENTER);
         button.setBackground(roundRect(Color.argb(210, 55, 65, 81), dp(15)));
         button.setOnClickListener(view -> {
@@ -10898,20 +10899,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(1);
         panel.setPadding(dp(16), dp(16), dp(16), dp(14));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(22));
         panel.setBackground(background);
         TextView title = new TextView(this);
         title.setText("화면 모양");
         title.setTextSize(17.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
         TextView sub = new TextView(this);
         int[] size = this.nativeHandle != 0 ? NativeGba.frameSize(this.nativeHandle) : null;
         sub.setText(consoleName() + (size != null && size.length == 2 && size[0] > 0 ? " · " + size[0] + "×" + size[1] : "") + " · 바꾸면 바로 적용돼요");
         sub.setTextSize(11.5f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         panel.addView(sub);
         final String scope = shapeScope();
         final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
@@ -10939,7 +10940,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             TextView hint = new TextView(this);
             hint.setText("픽셀 정확: 틀에 들어가는 가장 큰 정수 배로 도트를 고르게 키워요. 남는 가장자리는 어두운 틀 색이고, 스캔라인 · LCD 격자 필터와 정확히 맞물려요.");
             hint.setTextSize(10.5f);
-            hint.setTextColor(Color.rgb(122, 130, 140));
+            hint.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             hint.setPadding(dp(2), dp(4), 0, 0);
             panel.addView(hint);
         }
@@ -10963,7 +10964,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             TextView hint = new TextView(this);
             hint.setText("그림을 늘리지 않고 틀의 비율을 바꿔요. 창을 닫을 때 적용돼요 (4:3은 PS1 · 아케이드, 8:7은 슈퍼패미컴 실기 느낌).");
             hint.setTextSize(10.5f);
-            hint.setTextColor(Color.rgb(122, 130, 140));
+            hint.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             hint.setPadding(dp(2), dp(4), 0, 0);
             panel.addView(hint);
         }
@@ -10973,7 +10974,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final TextView value = new TextView(this);
         value.setText(shapeCornerDp() + "dp");
         value.setTextSize(12.0f);
-        value.setTextColor(Color.rgb(122, 130, 140));
+        value.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         value.setGravity(Gravity.END);
         android.widget.SeekBar bar = new android.widget.SeekBar(this);
         bar.setMax(24);
@@ -11070,7 +11071,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         view.setText(text);
         view.setTextSize(11.5f);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setTextColor(Color.rgb(85, 95, 110));
+        view.setTextColor(Theme.text(Color.rgb(85, 95, 110)));
         view.setPadding(0, dp(12), 0, dp(6));
         return view;
     }
@@ -11088,10 +11089,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void setShapeChip(TextView chip, boolean on) {
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
         background.setCornerRadius(dp(17));
-        background.setColor(on ? Color.rgb(255, 241, 243) : Color.WHITE);
-        background.setStroke(dp(on ? 2 : 1), on ? Color.rgb(225, 29, 72) : Color.rgb(214, 218, 226));
+        background.setColor(Theme.bg(on ? Color.rgb(255, 241, 243) : Color.WHITE));
+        background.setStroke(dp(on ? 2 : 1), Theme.line(on ? Color.rgb(225, 29, 72) : Color.rgb(214, 218, 226)));
         chip.setBackground(background);
-        chip.setTextColor(on ? Color.rgb(159, 18, 57) : Color.rgb(31, 41, 51));
+        chip.setTextColor(Theme.text(on ? Color.rgb(159, 18, 57) : Color.rgb(31, 41, 51)));
         chip.setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
     }
 
@@ -11108,12 +11109,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         TextView label = new TextView(this);
         label.setText(name);
         label.setTextSize(13.0f);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         texts.addView(label);
         TextView small = new TextView(this);
         small.setText(note);
         small.setTextSize(10.5f);
-        small.setTextColor(Color.rgb(122, 130, 140));
+        small.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         texts.addView(small);
         row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
         android.widget.Switch sw = new android.widget.Switch(this);

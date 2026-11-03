@@ -153,9 +153,9 @@ final class PresetDialog {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(8), dp(6), dp(8), dp(6));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(undo ? Color.rgb(255, 251, 235) : Color.WHITE);
+        background.setColor(Theme.bg(undo ? Color.rgb(255, 251, 235) : Color.WHITE));
         background.setCornerRadius(dp(12));
-        background.setStroke(dp(1), undo ? Color.rgb(252, 211, 77) : BORDER);
+        background.setStroke(dp(1), Theme.line(undo ? Color.rgb(252, 211, 77) : BORDER));
         row.setBackground(background);
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
         rowParams.setMargins(0, 0, 0, dp(6));
@@ -169,14 +169,14 @@ final class PresetDialog {
         name.setText((preset.favorite ? "★ " : "") + (undo ? "되돌리기용 · 적용 전 모습" : preset.name));
         name.setTextSize(12.5f);
         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        name.setTextColor(TEXT);
+        name.setTextColor(Theme.text(TEXT));
         name.setMaxLines(1);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         info.addView(name);
         TextView summary = new TextView(this.activity);
         summary.setText(preset.builtin ? preset.modeName : preset.summary());
         summary.setTextSize(10.0f);
-        summary.setTextColor(MUTED);
+        summary.setTextColor(Theme.text(MUTED));
         summary.setMaxLines(2);
         summary.setEllipsize(android.text.TextUtils.TruncateAt.END);
         info.addView(summary);
@@ -317,7 +317,7 @@ final class PresetDialog {
         TextView hint = new TextView(this.activity);
         hint.setText("\"모든 게임기 공통\"은 케이스 · 사진 · 버튼 색처럼 기종과 무관한 것만 담고 배치는 빼요.");
         hint.setTextSize(10.0f);
-        hint.setTextColor(MUTED);
+        hint.setTextColor(Theme.text(MUTED));
         hint.setPadding(dp(2), dp(4), 0, 0);
         panel.addView(hint);
 
@@ -375,7 +375,7 @@ final class PresetDialog {
         holds.setText("담긴 것");
         holds.setTextSize(11.5f);
         holds.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        holds.setTextColor(MUTED);
+        holds.setTextColor(Theme.text(MUTED));
         right.addView(holds);
         org.json.JSONObject any = preset.data.optJSONObject("P");
         if (any == null || any.length() == 0) any = preset.data.optJSONObject("L");
@@ -392,7 +392,7 @@ final class PresetDialog {
             TextView item = new TextView(this.activity);
             item.setText("✓ " + line);
             item.setTextSize(12.0f);
-            item.setTextColor(TEXT);
+            item.setTextColor(Theme.text(TEXT));
             right.addView(item);
         }
         LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
@@ -404,7 +404,7 @@ final class PresetDialog {
                 : preset.hasOrientation(true) ? "가로" : "세로") + "\n지금 모습은 \"되돌리기용\"으로 보관돼요."
                 + (!"all".equals(preset.mode) && !preset.modeName.equals(this.consoleName) ? "\n기종이 달라 버튼 배치는 빼고 적용해요." : ""));
         where.setTextSize(10.5f);
-        where.setTextColor(MUTED);
+        where.setTextColor(Theme.text(MUTED));
         where.setPadding(0, dp(8), 0, 0);
         panel.addView(where);
         LinearLayout actions = new LinearLayout(this.activity);
@@ -434,7 +434,7 @@ final class PresetDialog {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(14), dp(10), dp(14), dp(10));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(18));
         panel.setBackground(background);
         return panel;
@@ -453,12 +453,12 @@ final class PresetDialog {
         title.setText(text);
         title.setTextSize(16.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(TEXT);
+        title.setTextColor(Theme.text(TEXT));
         box.addView(title);
         TextView subtitle = new TextView(this.activity);
         subtitle.setText(sub);
         subtitle.setTextSize(11.0f);
-        subtitle.setTextColor(MUTED);
+        subtitle.setTextColor(Theme.text(MUTED));
         box.addView(subtitle);
         return box;
     }
@@ -468,7 +468,7 @@ final class PresetDialog {
         view.setText(text);
         view.setTextSize(11.5f);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setTextColor(MUTED);
+        view.setTextColor(Theme.text(MUTED));
         view.setPadding(0, dp(9), 0, dp(5));
         return view;
     }
@@ -478,10 +478,10 @@ final class PresetDialog {
         row.setText(text);
         row.setTextSize(13.0f);
         row.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        row.setTextColor(danger ? Color.rgb(185, 28, 28) : TEXT);
+        row.setTextColor(Theme.text(danger ? Color.rgb(185, 28, 28) : TEXT));
         row.setGravity(Gravity.CENTER);
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(241, 243, 247));
+        background.setColor(Theme.bg(Color.rgb(241, 243, 247)));
         background.setCornerRadius(dp(12));
         row.setBackground(background);
         row.setOnClickListener(onClick);
@@ -496,13 +496,13 @@ final class PresetDialog {
         input.setText(text);
         input.setSelection(text.length());
         input.setTextSize(13.5f);
-        input.setTextColor(TEXT);
+        input.setTextColor(Theme.text(TEXT));
         input.setSingleLine(true);
         input.setPadding(dp(10), dp(8), dp(10), dp(8));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(10));
-        background.setStroke(dp(1), Color.rgb(214, 218, 226));
+        background.setStroke(dp(1), Theme.line(Color.rgb(214, 218, 226)));
         input.setBackground(background);
         return input;
     }
@@ -510,7 +510,7 @@ final class PresetDialog {
     private TextView check(String name, String detail, boolean on) {
         TextView view = new TextView(this.activity);
         view.setTextSize(12.0f);
-        view.setTextColor(TEXT);
+        view.setTextColor(Theme.text(TEXT));
         view.setPadding(dp(4), dp(5), dp(4), dp(5));
         view.setTag(new String[]{name, detail});
         setChecked(view, on);
@@ -544,10 +544,10 @@ final class PresetDialog {
     private void setChipSelected(TextView chip, boolean selected) {
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(dp(15));
-        background.setColor(selected ? Color.rgb(255, 241, 243) : Color.WHITE);
-        background.setStroke(dp(selected ? 2 : 1), selected ? ACCENT : Color.rgb(214, 218, 226));
+        background.setColor(Theme.bg(selected ? Color.rgb(255, 241, 243) : Color.WHITE));
+        background.setStroke(dp(selected ? 2 : 1), Theme.line(selected ? ACCENT : Color.rgb(214, 218, 226)));
         chip.setBackground(background);
-        chip.setTextColor(selected ? Color.rgb(159, 18, 57) : TEXT);
+        chip.setTextColor(Theme.text(selected ? Color.rgb(159, 18, 57) : TEXT));
         chip.setTypeface(selected ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
     }
 
@@ -556,10 +556,10 @@ final class PresetDialog {
         button.setText(text);
         button.setTextSize(13.0f);
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        button.setTextColor(textColor);
+        button.setTextColor(Theme.text(textColor));
         button.setGravity(Gravity.CENTER);
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(background);
+        drawable.setColor(Theme.bg(background));
         drawable.setCornerRadius(dp(12));
         button.setBackground(drawable);
         return button;
@@ -595,19 +595,19 @@ final class PresetDialog {
         protected void onDraw(Canvas canvas) {
             float w = getWidth();
             float h = getHeight();
-            paint.setColor(colors[0]);
+            paint.setColor(Theme.bg(colors[0]));
             canvas.drawRoundRect(new RectF(0, 0, w, h), w * 0.18f, w * 0.18f, paint);
-            paint.setColor(Color.rgb(13, 15, 20));
+            paint.setColor(Theme.bg(Color.rgb(13, 15, 20)));
             canvas.drawRect(w * 0.12f, h * 0.1f, w * 0.88f, h * 0.4f, paint);
-            paint.setColor(colors[1]);
+            paint.setColor(Theme.bg(colors[1]));
             float cx = w * 0.3f;
             float cy = h * 0.65f;
             float arm = w * 0.1f;
             canvas.drawRect(cx - arm / 2, cy - arm * 1.5f, cx + arm / 2, cy + arm * 1.5f, paint);
             canvas.drawRect(cx - arm * 1.5f, cy - arm / 2, cx + arm * 1.5f, cy + arm / 2, paint);
-            paint.setColor(colors[2]);
+            paint.setColor(Theme.bg(colors[2]));
             canvas.drawCircle(w * 0.78f, h * 0.58f, w * 0.1f, paint);
-            paint.setColor(colors[3]);
+            paint.setColor(Theme.bg(colors[3]));
             canvas.drawCircle(w * 0.62f, h * 0.72f, w * 0.1f, paint);
         }
     }

@@ -53,7 +53,7 @@ final class WiiHelp {
 
     private static GradientDrawable rounded(int color, float radius) {
         GradientDrawable shape = new GradientDrawable();
-        shape.setColor(color);
+        shape.setColor(Theme.bg(color));
         shape.setCornerRadius(radius);
         return shape;
     }
@@ -84,7 +84,7 @@ final class WiiHelp {
         }
         list.setText(text.toString().trim());
         list.setTextSize(12.0f);
-        list.setTextColor(Color.rgb(75, 85, 99));
+        list.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         list.setLineSpacing(0, 1.25f);
         list.setPadding(0, dp(activity, 12), 0, 0);
         panel.addView(list);
@@ -108,11 +108,11 @@ final class WiiHelp {
                 result.setVisibility(android.view.View.VISIBLE);
                 if (entry == null) {
                     result.setText(typed + " · 앱에 정리해 둔 코드가 아니에요. 게임 이름과 함께 검색해 보세요 (예: \"마리오 카트 Wii " + typed + "\").");
-                    result.setTextColor(Color.rgb(55, 65, 81));
+                    result.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
                     result.setBackground(rounded(Color.rgb(246, 247, 249), dp(activity, 12)));
                 } else {
                     result.setText(entry[1] + "\n" + entry[2] + "\n해결: " + entry[3]);
-                    result.setTextColor(Color.rgb(127, 29, 29));
+                    result.setTextColor(Theme.text(Color.rgb(127, 29, 29)));
                     result.setBackground(rounded(Color.rgb(254, 242, 242), dp(activity, 12)));
                 }
             }

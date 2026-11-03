@@ -92,7 +92,7 @@ final class ButtonStyleDialog {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(14), dp(10), dp(14), dp(10));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(18));
         panel.setBackground(background);
 
@@ -100,12 +100,12 @@ final class ButtonStyleDialog {
         title.setText("버튼 꾸미기");
         title.setTextSize(16.0f);
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        title.setTextColor(TEXT);
+        title.setTextColor(Theme.text(TEXT));
         panel.addView(title);
         TextView sub = new TextView(activity);
         sub.setText(consoleName + " · " + (landscape ? "가로" : "세로") + " · 바꾸면 바로 적용돼요");
         sub.setTextSize(11.5f);
-        sub.setTextColor(MUTED);
+        sub.setTextColor(Theme.text(MUTED));
         panel.addView(sub);
 
         // ---- 색 테마 ----
@@ -150,7 +150,7 @@ final class ButtonStyleDialog {
         perLabel.setText("버튼마다 따로 고르기");
         perLabel.setTextSize(12.5f);
         perLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        perLabel.setTextColor(TEXT);
+        perLabel.setTextColor(Theme.text(TEXT));
         perRow.addView(perLabel, new LinearLayout.LayoutParams(0, -2, 1.0f));
         Switch perSwitch = new Switch(activity);
         this.perButtonSwitch = perSwitch;
@@ -204,7 +204,7 @@ final class ButtonStyleDialog {
         TextView hint = new TextView(activity);
         hint.setText("이 화면에 있는 버튼만 나와요. 칩을 누르면 색 고르기, 길게 누르면 모든 버튼을 그 색으로.");
         hint.setTextSize(10.5f);
-        hint.setTextColor(MUTED);
+        hint.setTextColor(Theme.text(MUTED));
         hint.setPadding(dp(2), dp(2), 0, dp(4));
         chips.addView(hint);
         TextView pickOnScreen = button("🎯 화면의 버튼을 눌러 고르기", Color.rgb(241, 243, 247), TEXT);
@@ -250,7 +250,7 @@ final class ButtonStyleDialog {
         TextView gapHint = new TextView(activity);
         gapHint.setText("A·B·X·Y 묶음과 SELECT·START가 가운데를 두고 벌어지거나 모여요. 방향키 · 스틱 · L · R은 그대로예요.");
         gapHint.setTextSize(10.5f);
-        gapHint.setTextColor(MUTED);
+        gapHint.setTextColor(Theme.text(MUTED));
         gapHint.setPadding(dp(2), 0, 0, dp(2));
         panel.addView(gapHint);
 
@@ -406,20 +406,20 @@ final class ButtonStyleDialog {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(16), dp(14), dp(16), dp(14));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        background.setColor(Theme.bg(Color.WHITE));
         background.setCornerRadius(dp(18));
         box.setBackground(background);
         TextView heading = new TextView(this.activity);
         heading.setText(title);
         heading.setTextSize(15.0f);
         heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        heading.setTextColor(TEXT);
+        heading.setTextColor(Theme.text(TEXT));
         box.addView(heading);
 
         View preview = new View(this.activity);
         GradientDrawable swatch = new GradientDrawable();
         swatch.setCornerRadius(dp(12));
-        swatch.setStroke(dp(1), CHIP_BORDER);
+        swatch.setStroke(dp(1), Theme.line(CHIP_BORDER));
         preview.setBackground(swatch);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(44));
         previewParams.setMargins(0, dp(10), 0, dp(4));
@@ -430,7 +430,7 @@ final class ButtonStyleDialog {
         final SeekBar[] bars = new SeekBar[3];
         Runnable update = () -> {
             int color = Color.HSVToColor(hsv);
-            swatch.setColor(color);
+            swatch.setColor(Theme.bg(color));
             onColor.accept(color);
         };
         // Palette: two rows of six.
@@ -447,8 +447,8 @@ final class ButtonStyleDialog {
             View dot = new View(this.activity);
             GradientDrawable circle = new GradientDrawable();
             circle.setShape(GradientDrawable.OVAL);
-            circle.setColor(color);
-            circle.setStroke(dp(1), Color.argb(40, 0, 0, 0));
+            circle.setColor(Theme.bg(color));
+            circle.setStroke(dp(1), Theme.line(Color.argb(40, 0, 0, 0)));
             dot.setBackground(circle);
             dot.setOnClickListener(view -> {
                 Color.colorToHSV(color, hsv);
@@ -500,7 +500,7 @@ final class ButtonStyleDialog {
         TextView label = new TextView(this.activity);
         label.setText(name);
         label.setTextSize(11.5f);
-        label.setTextColor(MUTED);
+        label.setTextColor(Theme.text(MUTED));
         label.setPadding(dp(2), dp(4), 0, 0);
         box.addView(label);
         SeekBar bar = new SeekBar(this.activity);
@@ -538,7 +538,7 @@ final class ButtonStyleDialog {
         view.setText(text);
         view.setTextSize(11.5f);
         view.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        view.setTextColor(MUTED);
+        view.setTextColor(Theme.text(MUTED));
         view.setPadding(0, dp(9), 0, dp(4));
         return view;
     }
@@ -571,10 +571,10 @@ final class ButtonStyleDialog {
     private void setChipSelected(TextView chip, boolean selected) {
         GradientDrawable background = new GradientDrawable();
         background.setCornerRadius(dp(17));
-        background.setColor(selected ? ACCENT_SOFT : Color.WHITE);
-        background.setStroke(dp(selected ? 2 : 1), selected ? ACCENT : CHIP_BORDER);
+        background.setColor(Theme.bg(selected ? ACCENT_SOFT : Color.WHITE));
+        background.setStroke(dp(selected ? 2 : 1), Theme.line(selected ? ACCENT : CHIP_BORDER));
         chip.setBackground(background);
-        chip.setTextColor(selected ? ACCENT_TEXT : TEXT);
+        chip.setTextColor(Theme.text(selected ? ACCENT_TEXT : TEXT));
         chip.setTypeface(selected ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
     }
 
@@ -656,12 +656,12 @@ final class ButtonStyleDialog {
         TextView label = new TextView(this.activity);
         label.setText(name);
         label.setTextSize(12.5f);
-        label.setTextColor(TEXT);
+        label.setTextColor(Theme.text(TEXT));
         row.addView(label, new LinearLayout.LayoutParams(dp(84), -2));
         TextView shown = new TextView(this.activity);
         shown.setText(value + "%");
         shown.setTextSize(12.0f);
-        shown.setTextColor(MUTED);
+        shown.setTextColor(Theme.text(MUTED));
         shown.setGravity(Gravity.END);
         SeekBar bar = new SeekBar(this.activity);
         bar.setMax(max - min);
@@ -700,7 +700,7 @@ final class ButtonStyleDialog {
         TextView label = new TextView(this.activity);
         label.setText(name);
         label.setTextSize(12.5f);
-        label.setTextColor(TEXT);
+        label.setTextColor(Theme.text(TEXT));
         row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
         Switch sw = new Switch(this.activity);
         sw.setChecked(on);
@@ -714,11 +714,11 @@ final class ButtonStyleDialog {
         button.setText(text);
         button.setTextSize(13.5f);
         button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        button.setTextColor(textColor);
+        button.setTextColor(Theme.text(textColor));
         button.setGravity(Gravity.CENTER);
         button.setMaxLines(1);
         GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(background);
+        drawable.setColor(Theme.bg(background));
         drawable.setCornerRadius(dp(12));
         button.setBackground(drawable);
         return button;

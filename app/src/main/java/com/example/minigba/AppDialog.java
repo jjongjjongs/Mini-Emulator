@@ -189,7 +189,7 @@ final class AppDialog {
             panel.setOrientation(LinearLayout.VERTICAL);
             panel.setPadding(Math.round(20 * density), Math.round(20 * density), Math.round(20 * density), dp16);
             GradientDrawable background = new GradientDrawable();
-            background.setColor(Color.WHITE);
+            background.setColor(Theme.bg(Color.WHITE));
             background.setCornerRadius(22 * density);
             panel.setBackground(background);
 
@@ -206,14 +206,14 @@ final class AppDialog {
                 icon.setGravity(Gravity.CENTER);
                 GradientDrawable circle = new GradientDrawable();
                 circle.setShape(GradientDrawable.OVAL);
-                circle.setColor(colorFor(kind));
+                circle.setColor(Theme.bg(colorFor(kind)));
                 icon.setBackground(circle);
                 header.addView(icon, new LinearLayout.LayoutParams(Math.round(40 * density), Math.round(40 * density)));
                 TextView heading = new TextView(context);
                 heading.setText(title);
                 heading.setTextSize(16.0f);
                 heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-                heading.setTextColor(Color.rgb(27, 31, 39));
+                heading.setTextColor(Theme.text(Color.rgb(27, 31, 39)));
                 LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
                 headingParams.setMargins(Math.round(12 * density), 0, 0, 0);
                 header.addView(heading, headingParams);
@@ -224,7 +224,7 @@ final class AppDialog {
                 body.setText(message);
                 body.setTextSize(13.0f);
                 body.setLineSpacing(0, 1.3f);
-                body.setTextColor(Color.rgb(55, 65, 81));
+                body.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
                 body.setTextIsSelectable(kind == KIND_ERROR);
                 body.setPadding(0, Math.round(12 * density), 0, 0);
                 panel.addView(body);
@@ -249,7 +249,7 @@ final class AppDialog {
                     boolean chosen = singleChoice ? k == checkedItem : multiChecked != null && k < multiChecked.length && multiChecked[k];
                     GradientDrawable rowBackground = new GradientDrawable();
                     rowBackground.setCornerRadius(12 * density);
-                    rowBackground.setColor(chosen ? Color.rgb(236, 254, 255) : Color.rgb(246, 247, 249));
+                    rowBackground.setColor(Theme.bg(chosen ? Color.rgb(236, 254, 255) : Color.rgb(246, 247, 249)));
                     row.setBackground(rowBackground);
                     final View dot = singleChoice || multiChecked != null ? new View(context) : null;
                     if (dot != null) {
@@ -259,8 +259,8 @@ final class AppDialog {
                         } else {
                             dotShape.setCornerRadius(5 * density);
                         }
-                        dotShape.setColor(chosen ? Color.rgb(14, 116, 144) : Color.WHITE);
-                        dotShape.setStroke(Math.round(2 * density), chosen ? Color.rgb(14, 116, 144) : Color.rgb(201, 206, 214));
+                        dotShape.setColor(Theme.bg(chosen ? Color.rgb(14, 116, 144) : Color.WHITE));
+                        dotShape.setStroke(Math.round(2 * density), Theme.line(chosen ? Color.rgb(14, 116, 144) : Color.rgb(201, 206, 214)));
                         dot.setBackground(dotShape);
                         LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(Math.round(16 * density), Math.round(16 * density));
                         dotParams.setMargins(0, 0, Math.round(10 * density), 0);
@@ -269,7 +269,7 @@ final class AppDialog {
                     final TextView label = new TextView(context);
                     label.setText(items[k]);
                     label.setTextSize(13.5f);
-                    label.setTextColor(chosen ? Color.rgb(14, 116, 144) : Color.rgb(31, 41, 51));
+                    label.setTextColor(Theme.text(chosen ? Color.rgb(14, 116, 144) : Color.rgb(31, 41, 51)));
                     label.setTypeface(chosen ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
                     row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
                     row.setClickable(true);
@@ -281,10 +281,10 @@ final class AppDialog {
                                 boolean on = multiChecked[index];
                                 GradientDrawable boxShape = new GradientDrawable();
                                 boxShape.setCornerRadius(5 * density);
-                                boxShape.setColor(on ? Color.rgb(14, 116, 144) : Color.WHITE);
-                                boxShape.setStroke(Math.round(2 * density), on ? Color.rgb(14, 116, 144) : Color.rgb(201, 206, 214));
+                                boxShape.setColor(Theme.bg(on ? Color.rgb(14, 116, 144) : Color.WHITE));
+                                boxShape.setStroke(Math.round(2 * density), Theme.line(on ? Color.rgb(14, 116, 144) : Color.rgb(201, 206, 214)));
                                 if (dot != null) dot.setBackground(boxShape);
-                                label.setTextColor(on ? Color.rgb(14, 116, 144) : Color.rgb(31, 41, 51));
+                                label.setTextColor(Theme.text(on ? Color.rgb(14, 116, 144) : Color.rgb(31, 41, 51)));
                                 label.setTypeface(on ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
                                 if (multiListener != null) {
                                     multiListener.onClick(dialog, index, on);
@@ -370,11 +370,11 @@ final class AppDialog {
             button.setText(text);
             button.setTextSize(14.0f);
             button.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            button.setTextColor(textColor);
+            button.setTextColor(Theme.text(textColor));
             button.setGravity(Gravity.CENTER);
             button.setMaxLines(1);
             GradientDrawable shape = new GradientDrawable();
-            shape.setColor(background);
+            shape.setColor(Theme.bg(background));
             shape.setCornerRadius(12 * density);
             button.setBackground(shape);
             button.setOnClickListener(v -> {

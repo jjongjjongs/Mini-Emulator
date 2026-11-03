@@ -337,6 +337,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle bundle) {
         super.onCreate(bundle);
+        Theme.update(this);
         CrashReports.installJavaHandler(this);
         registerDownloadReceiver();
         new Thread(() -> AppUpdate.cleanOldApks(getApplicationContext(), settingsPrefs()), "apk-cleanup").start();
@@ -453,10 +454,10 @@ public final class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(1);
         root.setPadding(dp(16), dp(24), dp(16), dp(16));
-        root.setBackgroundColor(Color.rgb(236, 243, 248));
+        root.setBackgroundColor(Theme.bg(Color.rgb(236, 243, 248)));
         TextView title = new TextView(this);
         title.setText("어떤 게임을 할까요?");
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setTextSize(22.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         // The title and its line on the left, the update icon on the right.
@@ -467,7 +468,7 @@ public final class MainActivity extends Activity {
         headingTexts.addView(title, new LinearLayout.LayoutParams(-1, -2));
         TextView desc = new TextView(this);
         desc.setText("게임기를 고르면 게임 목록으로 들어가요. 길게 누르면 즐겨찾기.");
-        desc.setTextColor(STATUS_TEXT_COLOR);
+        desc.setTextColor(Theme.text(STATUS_TEXT_COLOR));
         desc.setTextSize(13.0f);
         desc.setPadding(0, dp(2), 0, dp(12));
         headingTexts.addView(desc, new LinearLayout.LayoutParams(-1, -2));
@@ -483,7 +484,7 @@ public final class MainActivity extends Activity {
         }), new LinearLayout.LayoutParams(-1, -2));
         CheckBox remember = new CheckBox(this);
         remember.setText("다음부터 마지막 모드로 바로 시작");
-        remember.setTextColor(Color.rgb(55, 65, 81));
+        remember.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         remember.setTextSize(13.0f);
         remember.setChecked(settingsPrefs().getBoolean(PREF_REMEMBER_MODE, false));
         remember.setOnCheckedChangeListener((button, checked) -> settingsPrefs().edit().putBoolean(PREF_REMEMBER_MODE, checked).apply());
@@ -496,7 +497,7 @@ public final class MainActivity extends Activity {
         root.addView(remember, rememberParams);
         ScrollView scrollView = new ScrollView(this);
         scrollView.setFillViewport(true);
-        scrollView.setBackgroundColor(Color.rgb(236, 243, 248));
+        scrollView.setBackgroundColor(Theme.bg(Color.rgb(236, 243, 248)));
         scrollView.addView(root, new FrameLayout.LayoutParams(-1, -2));
         setContentView(scrollView);
     }
@@ -573,7 +574,7 @@ public final class MainActivity extends Activity {
         tile.setPadding(dp(10), dp(9), dp(9), dp(9));
         GradientDrawable background = rounded(MODE_COLORS[index], dp(18));
         if (current) {
-            background.setStroke(dp(3), Color.rgb(251, 191, 36));
+            background.setStroke(dp(3), Theme.line(Color.rgb(251, 191, 36)));
         }
         tile.setBackground(background);
         tile.setElevation(dp(2));
@@ -594,7 +595,7 @@ public final class MainActivity extends Activity {
         if (favorite) {
             TextView star = new TextView(this);
             star.setText("★");
-            star.setTextColor(Color.rgb(253, 224, 71));
+            star.setTextColor(Theme.text(Color.rgb(253, 224, 71)));
             star.setTextSize(14.0f);
             star.setShadowLayer(dp(1), 0, dp(1), Color.argb(90, 0, 0, 0));
             top.addView(star, new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.TOP | android.view.Gravity.END));
@@ -613,14 +614,14 @@ public final class MainActivity extends Activity {
         tile.addView(name);
         TextView types = new TextView(this);
         types.setText(shortFileTypes(index));
-        types.setTextColor(Color.argb(235, 255, 255, 255));
+        types.setTextColor(Theme.text(Color.argb(235, 255, 255, 255)));
         types.setTextSize(9.0f);
         types.setMaxLines(2);
         types.setEllipsize(android.text.TextUtils.TruncateAt.END);
         tile.addView(types);
         TextView status = new TextView(this);
         status.setText(tileStatus(index, count) + (when == null ? "" : " · " + when));
-        status.setTextColor(Color.argb(200, 255, 255, 255));
+        status.setTextColor(Theme.text(Color.argb(200, 255, 255, 255)));
         status.setTextSize(9.5f);
         status.setTypeface(Typeface.DEFAULT_BOLD);
         status.setSingleLine(true);
@@ -679,7 +680,7 @@ public final class MainActivity extends Activity {
     private TextView browserSectionTitle(String text, String count) {
         TextView view = new TextView(this);
         view.setText(count.isEmpty() ? text : text + "  ·  " + count);
-        view.setTextColor(Color.rgb(31, 41, 51));
+        view.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         view.setTextSize(13.5f);
         view.setTypeface(Typeface.DEFAULT_BOLD);
         view.setPadding(dp(2), dp(14), 0, dp(8));
@@ -809,7 +810,7 @@ public final class MainActivity extends Activity {
             button.setText(labels[k]);
             button.setTextSize(12.5f);
             button.setTypeface(Typeface.DEFAULT_BOLD);
-            button.setTextColor(on ? teal : Color.rgb(100, 116, 139));
+            button.setTextColor(Theme.text(on ? teal : Color.rgb(100, 116, 139)));
             button.setPadding(dp(12), dp(6), dp(12), dp(6));
             if (on) {
                 button.setBackground(rounded(Color.WHITE, dp(10)));
@@ -827,10 +828,10 @@ public final class MainActivity extends Activity {
         sortButton.setText(sortLabel(sort) + "  ▾");
         sortButton.setTextSize(12.5f);
         sortButton.setTypeface(Typeface.DEFAULT_BOLD);
-        sortButton.setTextColor(Color.rgb(31, 41, 51));
+        sortButton.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         sortButton.setPadding(dp(11), dp(7), dp(11), dp(7));
         GradientDrawable sortBox = rounded(Color.WHITE, dp(12));
-        sortBox.setStroke(Math.max(1, dp(1)), Color.rgb(226, 232, 240));
+        sortBox.setStroke(Math.max(1, dp(1)), Theme.line(Color.rgb(226, 232, 240)));
         sortButton.setBackground(sortBox);
         sortButton.setOnClickListener(view -> showSortMenu(sortButton, sort, onChanged));
         bar.addView(sortButton);
@@ -852,7 +853,7 @@ public final class MainActivity extends Activity {
         head.setText("정렬");
         head.setTextSize(11.0f);
         head.setTypeface(Typeface.DEFAULT_BOLD);
-        head.setTextColor(Color.rgb(148, 163, 184));
+        head.setTextColor(Theme.text(Color.rgb(148, 163, 184)));
         head.setPadding(dp(10), dp(6), dp(10), dp(4));
         panel.addView(head);
         final android.widget.PopupWindow popup = new android.widget.PopupWindow(panel, dp(200), -2, true);
@@ -870,12 +871,12 @@ public final class MainActivity extends Activity {
             label.setText(sortLabel(key));
             label.setTextSize(13.5f);
             label.setTypeface(Typeface.DEFAULT_BOLD);
-            label.setTextColor(on ? teal : Color.rgb(55, 65, 81));
+            label.setTextColor(Theme.text(on ? teal : Color.rgb(55, 65, 81)));
             item.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
             if (on) {
                 TextView check = new TextView(this);
                 check.setText("✓");
-                check.setTextColor(teal);
+                check.setTextColor(Theme.text(teal));
                 check.setTypeface(Typeface.DEFAULT_BOLD);
                 item.addView(check);
             }
@@ -898,12 +899,12 @@ public final class MainActivity extends Activity {
         search.setHint("게임기 · 게임 이름 검색");
         search.setSingleLine(true);
         search.setTextSize(14.0f);
-        search.setTextColor(Color.rgb(17, 24, 39));
-        search.setHintTextColor(Color.rgb(156, 163, 175));
+        search.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
+        search.setHintTextColor(Theme.text(Color.rgb(156, 163, 175)));
         search.setPadding(dp(14), 0, dp(14), 0);
         search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         GradientDrawable box = rounded(Color.WHITE, dp(14));
-        box.setStroke(dp(1), Color.rgb(229, 231, 235));
+        box.setStroke(dp(1), Theme.line(Color.rgb(229, 231, 235)));
         search.setBackground(box);
         search.setCompoundDrawablePadding(dp(8));
         browser.addView(search, new LinearLayout.LayoutParams(-1, dp(44)));
@@ -956,7 +957,7 @@ public final class MainActivity extends Activity {
                 if (shown.isEmpty()) {
                     TextView tip = new TextView(this);
                     tip.setText("아직 즐겨찾기한 게임기가 없어요.\n게임기 큐브를 길게 누르면 여기에 모여요.");
-                    tip.setTextColor(STATUS_TEXT_COLOR);
+                    tip.setTextColor(Theme.text(STATUS_TEXT_COLOR));
                     tip.setTextSize(13.0f);
                     tip.setGravity(17);
                     tip.setLineSpacing(0, 1.2f);
@@ -968,7 +969,7 @@ public final class MainActivity extends Activity {
                 if (favorites.isEmpty() && !favTab) {
                     TextView tip = new TextView(this);
                     tip.setText("게임기를 길게 누르면 즐겨찾기에 넣을 수 있어요.");
-                    tip.setTextColor(STATUS_TEXT_COLOR);
+                    tip.setTextColor(Theme.text(STATUS_TEXT_COLOR));
                     tip.setTextSize(11.5f);
                     tip.setPadding(dp(2), dp(10), 0, 0);
                     content.addView(tip);
@@ -1001,7 +1002,7 @@ public final class MainActivity extends Activity {
             if (games.isEmpty() && modes.isEmpty()) {
                 TextView none = new TextView(this);
                 none.setText("\"" + search.getText().toString().trim() + "\"에 맞는 게임기나 게임이 없어요.");
-                none.setTextColor(STATUS_TEXT_COLOR);
+                none.setTextColor(Theme.text(STATUS_TEXT_COLOR));
                 none.setTextSize(12.5f);
                 none.setPadding(dp(2), 0, 0, 0);
                 content.addView(none);
@@ -1025,7 +1026,7 @@ public final class MainActivity extends Activity {
                 texts.setPadding(dp(10), 0, dp(8), 0);
                 TextView title = new TextView(this);
                 title.setText(game[1]);
-                title.setTextColor(Color.rgb(31, 41, 51));
+                title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
                 title.setTextSize(13.5f);
                 title.setTypeface(Typeface.DEFAULT_BOLD);
                 title.setSingleLine(true);
@@ -1033,13 +1034,13 @@ public final class MainActivity extends Activity {
                 texts.addView(title);
                 TextView sub = new TextView(this);
                 sub.setText(MODE_NAMES[index]);
-                sub.setTextColor(STATUS_TEXT_COLOR);
+                sub.setTextColor(Theme.text(STATUS_TEXT_COLOR));
                 sub.setTextSize(11.0f);
                 texts.addView(sub);
                 row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
                 TextView play = new TextView(this);
                 play.setText("▶");
-                play.setTextColor(Color.rgb(22, 185, 207));
+                play.setTextColor(Theme.text(Color.rgb(22, 185, 207)));
                 play.setTextSize(14.0f);
                 row.addView(play);
                 final File file = new File(game[3]);
@@ -1052,7 +1053,7 @@ public final class MainActivity extends Activity {
             if (games.size() > 60) {
                 TextView more = new TextView(this);
                 more.setText("앞의 60개만 보여요. 더 자세히 입력해 주세요.");
-                more.setTextColor(STATUS_TEXT_COLOR);
+                more.setTextColor(Theme.text(STATUS_TEXT_COLOR));
                 more.setTextSize(11.5f);
                 content.addView(more);
             }
@@ -1151,13 +1152,13 @@ public final class MainActivity extends Activity {
         panel.setBackground(rounded(-1, dp(22)));
         TextView title = new TextView(this);
         title.setText("Wii 시스템 업데이트 중");
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         panel.addView(title);
         TextView sub = new TextView(this);
         sub.setText(regionName + " · 닌텐도 서버에 연결하는 중…");
-        sub.setTextColor(STATUS_TEXT_COLOR);
+        sub.setTextColor(Theme.text(STATUS_TEXT_COLOR));
         sub.setTextSize(12.5f);
         sub.setPadding(0, dp(4), 0, dp(14));
         panel.addView(sub);
@@ -1167,7 +1168,7 @@ public final class MainActivity extends Activity {
         panel.addView(bar, new LinearLayout.LayoutParams(-1, dp(14)));
         TextView note = new TextView(this);
         note.setText("끝날 때까지 이 창을 열어 두세요. 끊기면 처음부터 다시 받아요.");
-        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         note.setTextSize(11.5f);
         note.setPadding(dp(12), dp(10), dp(12), dp(10));
         note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
@@ -1177,7 +1178,7 @@ public final class MainActivity extends Activity {
         final boolean[] stop = {false};
         TextView cancel = new TextView(this);
         cancel.setText("그만두기");
-        cancel.setTextColor(Color.rgb(55, 65, 81));
+        cancel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         cancel.setTextSize(14.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
         cancel.setGravity(17);
@@ -1413,21 +1414,21 @@ public final class MainActivity extends Activity {
             float r = Math.min(w, h) / 2f - 2 * density;
             int accent = Color.rgb(22, 185, 207);
             paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(state == NEW ? Color.rgb(236, 254, 255) : Color.WHITE);
+            paint.setColor(Theme.bg(state == NEW ? Color.rgb(236, 254, 255) : Color.WHITE));
             canvas.drawCircle(cx, cy, r, paint);
             paint.setStyle(android.graphics.Paint.Style.STROKE);
             if (state == DOWNLOADING || state == CHECKING) {
                 paint.setStrokeWidth(4 * density);
-                paint.setColor(Color.rgb(226, 232, 240));
+                paint.setColor(Theme.bg(Color.rgb(226, 232, 240)));
                 canvas.drawCircle(cx, cy, r - 2 * density, paint);
-                paint.setColor(accent);
+                paint.setColor(Theme.bg(accent));
                 android.graphics.RectF arc = new android.graphics.RectF(cx - r + 2 * density, cy - r + 2 * density, cx + r - 2 * density, cy + r - 2 * density);
                 float sweep = state == CHECKING ? 90 : Math.max(4, 360 * progress);
                 float start = state == CHECKING ? (System.currentTimeMillis() / 3 % 360) : -90;
                 canvas.drawArc(arc, start, sweep, false, paint);
                 if (state == DOWNLOADING) {
                     paint.setStyle(android.graphics.Paint.Style.FILL);
-                    paint.setColor(Color.rgb(14, 116, 144));
+                    paint.setColor(Theme.bg(Color.rgb(14, 116, 144)));
                     paint.setTextSize(10 * density);
                     paint.setTypeface(Typeface.DEFAULT_BOLD);
                     paint.setTextAlign(android.graphics.Paint.Align.CENTER);
@@ -1438,18 +1439,18 @@ public final class MainActivity extends Activity {
                 return;
             }
             paint.setStrokeWidth(1.5f * density);
-            paint.setColor(state == NEW ? Color.rgb(103, 232, 249) : Color.rgb(229, 231, 235));
+            paint.setColor(Theme.bg(state == NEW ? Color.rgb(103, 232, 249) : Color.rgb(229, 231, 235)));
             canvas.drawCircle(cx, cy, r, paint);
             paint.setStyle(android.graphics.Paint.Style.FILL);
-            paint.setColor(state == NEW ? Color.rgb(14, 116, 144) : accent);
+            paint.setColor(Theme.bg(state == NEW ? Color.rgb(14, 116, 144) : accent));
             paint.setTextSize(19 * density);
             paint.setTypeface(Typeface.DEFAULT_BOLD);
             paint.setTextAlign(android.graphics.Paint.Align.CENTER);
             canvas.drawText(state == NEW ? "↓" : "↻", cx, cy + 6.5f * density, paint);
             if (state == NEW) {
-                paint.setColor(Color.rgb(238, 242, 247));
+                paint.setColor(Theme.bg(Color.rgb(238, 242, 247)));
                 canvas.drawCircle(cx + r * 0.72f, cy - r * 0.72f, 7 * density, paint);
-                paint.setColor(Color.rgb(239, 68, 68));
+                paint.setColor(Theme.bg(Color.rgb(239, 68, 68)));
                 canvas.drawCircle(cx + r * 0.72f, cy - r * 0.72f, 5 * density, paint);
             }
         }
@@ -1503,20 +1504,20 @@ public final class MainActivity extends Activity {
             ring.state = UpdateRing.DOWNLOADING;
             ring.progress = state[2] > 0 ? (float) state[1] / state[2] : 0;
             label.setText("받는 중");
-            label.setTextColor(Color.rgb(14, 116, 144));
+            label.setTextColor(Theme.text(Color.rgb(14, 116, 144)));
             ring.postDelayed(this.updateRingPoll, 700);
         } else if (this.updateChecking) {
             ring.state = UpdateRing.CHECKING;
             label.setText("확인 중");
-            label.setTextColor(Color.rgb(107, 114, 128));
+            label.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         } else if (this.pendingRelease != null && !AppUpdate.skipped(settingsPrefs(), this.pendingRelease.version)) {
             ring.state = UpdateRing.NEW;
             label.setText("새 버전");
-            label.setTextColor(Color.rgb(220, 38, 38));
+            label.setTextColor(Theme.text(Color.rgb(220, 38, 38)));
         } else {
             ring.state = UpdateRing.OK;
             label.setText("v" + AppUpdate.currentVersion(this));
-            label.setTextColor(Color.rgb(156, 163, 175));
+            label.setTextColor(Theme.text(Color.rgb(156, 163, 175)));
         }
         ring.invalidate();
     }
@@ -1529,13 +1530,13 @@ public final class MainActivity extends Activity {
         row.setBackground(rounded(Color.rgb(246, 247, 249), dp(11)));
         TextView label = new TextView(this);
         label.setText(name);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         label.setTextSize(12.5f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
         row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
         TextView shown = new TextView(this);
         shown.setText(value);
-        shown.setTextColor(Color.rgb(75, 85, 99));
+        shown.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         shown.setTextSize(11.5f);
         row.addView(shown);
         row.setOnClickListener(onClick);
@@ -1563,7 +1564,7 @@ public final class MainActivity extends Activity {
         popup.setBackgroundDrawable(new ColorDrawable(0));
         popup.setElevation(dp(10));
         TextView title = new TextView(this);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setTextSize(15.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         panel.addView(title);
@@ -1576,11 +1577,11 @@ public final class MainActivity extends Activity {
         if (release != null && AppUpdate.compare(release.version, current) > 0) {
             title.setText("새 버전 " + release.version);
             sub.setText("지금 " + current + (release.size > 0 ? " · " + AppUpdate.sizeText(release.size) : ""));
-            sub.setTextColor(Color.rgb(107, 114, 128));
+            sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
             if (!release.notes.isEmpty()) {
                 TextView notes = new TextView(this);
                 notes.setText("바뀐 점\n" + (release.notes.length() > 320 ? release.notes.substring(0, 320) + "…" : release.notes));
-                notes.setTextColor(Color.rgb(55, 65, 81));
+                notes.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
                 notes.setTextSize(11.0f);
                 notes.setLineSpacing(0, 1.15f);
                 notes.setPadding(dp(11), dp(9), dp(11), dp(9));
@@ -1592,7 +1593,7 @@ public final class MainActivity extends Activity {
             LinearLayout buttons = new LinearLayout(this);
             TextView later = new TextView(this);
             later.setText("나중에");
-            later.setTextColor(Color.rgb(55, 65, 81));
+            later.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
             later.setTextSize(13.0f);
             later.setTypeface(Typeface.DEFAULT_BOLD);
             later.setGravity(17);
@@ -1618,7 +1619,7 @@ public final class MainActivity extends Activity {
             panel.addView(buttons, buttonsParams);
             TextView skip = new TextView(this);
             skip.setText("이 버전 건너뛰기");
-            skip.setTextColor(Color.rgb(156, 163, 175));
+            skip.setTextColor(Theme.text(Color.rgb(156, 163, 175)));
             skip.setTextSize(11.0f);
             skip.setGravity(17);
             skip.setPadding(0, dp(8), 0, 0);
@@ -1632,7 +1633,7 @@ public final class MainActivity extends Activity {
             title.setText("앱 업데이트");
             long last = AppUpdate.lastCheck(settingsPrefs());
             sub.setText(last > 0 ? "✓ 최신 버전이에요 · " + current : "지금 " + current + " · 아직 확인하지 않았어요");
-            sub.setTextColor(last > 0 ? Color.rgb(22, 163, 74) : Color.rgb(107, 114, 128));
+            sub.setTextColor(Theme.text(last > 0 ? Color.rgb(22, 163, 74) : Color.rgb(107, 114, 128)));
             popupRow(panel, "지금 확인", "↻", view -> {
                 popup.dismiss();
                 checkForUpdate(true);
@@ -1646,7 +1647,7 @@ public final class MainActivity extends Activity {
             if (last > 0) {
                 TextView when = new TextView(this);
                 when.setText("마지막 확인: " + new SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(new Date(last)));
-                when.setTextColor(Color.rgb(156, 163, 175));
+                when.setTextColor(Theme.text(Color.rgb(156, 163, 175)));
                 when.setTextSize(10.5f);
                 when.setPadding(0, dp(8), 0, 0);
                 panel.addView(when);
@@ -1696,13 +1697,13 @@ public final class MainActivity extends Activity {
         panel.setBackground(rounded(-1, dp(22)));
         TextView title = new TextView(this);
         title.setText("받는 중");
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         panel.addView(title);
         TextView sub = new TextView(this);
         sub.setText("Mini-Emulator-" + release.version + ".apk · GitHub");
-        sub.setTextColor(STATUS_TEXT_COLOR);
+        sub.setTextColor(Theme.text(STATUS_TEXT_COLOR));
         sub.setTextSize(12.5f);
         sub.setPadding(0, dp(3), 0, dp(14));
         panel.addView(sub);
@@ -1711,13 +1712,13 @@ public final class MainActivity extends Activity {
         bar.setIndeterminate(true);
         panel.addView(bar, new LinearLayout.LayoutParams(-1, dp(14)));
         TextView amount = new TextView(this);
-        amount.setTextColor(Color.rgb(75, 85, 99));
+        amount.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         amount.setTextSize(12.0f);
         amount.setPadding(0, dp(8), 0, 0);
         panel.addView(amount);
         TextView note = new TextView(this);
         note.setText("숨겨도 계속 받아요 (알림에 진행이 보여요). 다 받으면 설치 화면이 떠요.");
-        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         note.setTextSize(11.5f);
         note.setPadding(dp(12), dp(10), dp(12), dp(10));
         note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
@@ -1727,7 +1728,7 @@ public final class MainActivity extends Activity {
         LinearLayout buttons = new LinearLayout(this);
         TextView stop = new TextView(this);
         stop.setText("그만두기");
-        stop.setTextColor(Color.rgb(55, 65, 81));
+        stop.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         stop.setTextSize(14.0f);
         stop.setTypeface(Typeface.DEFAULT_BOLD);
         stop.setGravity(17);
@@ -1860,7 +1861,7 @@ public final class MainActivity extends Activity {
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(1);
         linearLayout.setPadding(dp(12), dp(10), dp(12), dp(10));
-        linearLayout.setBackgroundColor(Color.rgb(236, 243, 248));
+        linearLayout.setBackgroundColor(Theme.bg(Color.rgb(236, 243, 248)));
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(0);
         header.setGravity(16);
@@ -1877,7 +1878,7 @@ public final class MainActivity extends Activity {
         textView.setGravity(16);
         TextView textView2 = new TextView(this);
         textView2.setText(MODE_NAMES[index] + " · " + MODE_ENGINES[index]);
-        textView2.setTextColor(Color.argb(220, 255, 255, 255));
+        textView2.setTextColor(Theme.text(Color.argb(220, 255, 255, 255)));
         textView2.setTextSize(12.0f);
         textView2.setPadding(0, dp(1), 0, 0);
         linearLayout2.addView(textView, new LinearLayout.LayoutParams(-1, -2));
@@ -2043,7 +2044,7 @@ public final class MainActivity extends Activity {
         if ("neogeo".equals(this.currentMode)) {
             TextView banner = new TextView(this);
             banner.setText("Neo Geo BIOS가 필요합니다. neogeo.zip을 등록해야 게임을 실행할 수 있어요.");
-            banner.setTextColor(Color.rgb(76, 29, 149));
+            banner.setTextColor(Theme.text(Color.rgb(76, 29, 149)));
             banner.setTextSize(12.0f);
             banner.setPadding(dp(12), dp(10), dp(12), dp(10));
             banner.setBackground(rounded(Color.rgb(237, 233, 254), dp(12)));
@@ -2064,7 +2065,7 @@ public final class MainActivity extends Activity {
         textView3.setText("아직 가져온 ROM이 없습니다.");
         this.emptyView.setGravity(17);
         this.emptyView.setTextSize(14.0f);
-        this.emptyView.setTextColor(Color.rgb(99, 110, 122));
+        this.emptyView.setTextColor(Theme.text(Color.rgb(99, 110, 122)));
         LinearLayout linearLayout7 = new LinearLayout(this);
         this.romList = linearLayout7;
         linearLayout7.setOrientation(1);
@@ -2074,7 +2075,7 @@ public final class MainActivity extends Activity {
         this.noteView = textView4;
         textView4.setGravity(17);
         this.noteView.setTextSize(13.0f);
-        this.noteView.setTextColor(Color.rgb(93, 103, 112));
+        this.noteView.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         this.noteView.setPadding(dp(8), dp(8), dp(8), 0);
         linearLayout.addView(linearLayout3, new LinearLayout.LayoutParams(-1, -2));
         this.emptyView.setLineSpacing(0.0f, 1.2f);
@@ -2093,7 +2094,7 @@ public final class MainActivity extends Activity {
         view.setText(MODE_NAMES[index] + " 모드는 준비 중입니다.\n" + MODE_ENGINES[index] + " 엔진이 다음 업데이트에서 추가됩니다.\n\n위의 ‘모드 변경’을 눌러 GBA로 돌아갈 수 있습니다.");
         view.setGravity(17);
         view.setTextSize(14.0f);
-        view.setTextColor(Color.rgb(99, 110, 122));
+        view.setTextColor(Theme.text(Color.rgb(99, 110, 122)));
         view.setLineSpacing(0.0f, 1.25f);
         view.setPadding(dp(16), dp(48), dp(16), dp(16));
         return view;
@@ -2106,13 +2107,13 @@ public final class MainActivity extends Activity {
         sheet.setOrientation(1);
         sheet.setPadding(dp(14), dp(16), dp(14), dp(18));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(-1);
+        background.setColor(Theme.bg(-1));
         float radius = dp(20);
         background.setCornerRadii(new float[]{radius, radius, radius, radius, 0.0f, 0.0f, 0.0f, 0.0f});
         sheet.setBackground(background);
         TextView title = new TextView(this);
         title.setText("모드 변경");
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setTextSize(16.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setPadding(dp(6), 0, 0, dp(10));
@@ -2144,13 +2145,13 @@ public final class MainActivity extends Activity {
             row.setBackground(rounded(auto ? Color.rgb(246, 247, 249) : Color.rgb(236, 254, 255), dp(12)));
             TextView label = new TextView(this);
             label.setText(auto ? "업데이트 자동 확인" : "앱 업데이트");
-            label.setTextColor(Color.rgb(31, 41, 51));
+            label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             label.setTextSize(13.5f);
             label.setTypeface(Typeface.DEFAULT_BOLD);
             row.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
             TextView value = new TextView(this);
             value.setText(auto ? (AppUpdate.autoCheck(settingsPrefs()) ? "켜짐 · 하루 한 번 ›" : "꺼짐 ›") : updateRowShown() + " ›");
-            value.setTextColor(STATUS_TEXT_COLOR);
+            value.setTextColor(Theme.text(STATUS_TEXT_COLOR));
             value.setTextSize(12.0f);
             row.addView(value);
             row.setOnClickListener(view -> {
@@ -2176,7 +2177,7 @@ public final class MainActivity extends Activity {
         if (!reports.isEmpty()) {
             TextView crashRow = new TextView(this);
             crashRow.setText("오류 보고 " + reports.size() + "건 · 보기 · 내보내기 · 지우기");
-            crashRow.setTextColor(Color.rgb(124, 45, 18));
+            crashRow.setTextColor(Theme.text(Color.rgb(124, 45, 18)));
             crashRow.setTextSize(12.5f);
             crashRow.setTypeface(Typeface.DEFAULT_BOLD);
             crashRow.setGravity(17);
@@ -2239,6 +2240,10 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (Theme.update(this)) {
+            recreate();
+            return;
+        }
         resumeAfterAllFilesAccess();
         if (this.cloudAfterGame) {
             this.cloudAfterGame = false;
@@ -2377,11 +2382,11 @@ public final class MainActivity extends Activity {
         card.setOrientation(1);
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
         GradientDrawable background = rounded(Color.rgb(255, 247, 237), dp(14));
-        background.setStroke(dp(1), Color.rgb(253, 186, 116));
+        background.setStroke(dp(1), Theme.line(Color.rgb(253, 186, 116)));
         card.setBackground(background);
         TextView title = new TextView(this);
         title.setText("⚠ 지난번에 게임이 비정상 종료됐어요");
-        title.setTextColor(Color.rgb(124, 45, 18));
+        title.setTextColor(Theme.text(Color.rgb(124, 45, 18)));
         title.setTextSize(14.5f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(title);
@@ -2389,7 +2394,7 @@ public final class MainActivity extends Activity {
         body.setText("언제  " + newest.when + "\n게임  " + (newest.game.isEmpty() ? "(알 수 없음)" : newest.game)
                 + "\n원인  " + newest.title() + " · " + newest.cause + "\n앱  " + CrashReports.appVersion(this) + " · " + android.os.Build.MODEL + " · Android " + android.os.Build.VERSION.RELEASE
                 + (unseen > 1 ? "\n\n보고 " + unseen + "건이 쌓여 있어요 · 내보내기는 모두 한 파일에 담아요" : ""));
-        body.setTextColor(Color.rgb(68, 64, 60));
+        body.setTextColor(Theme.text(Color.rgb(68, 64, 60)));
         body.setTextSize(12.0f);
         body.setLineSpacing(0, 1.2f);
         body.setPadding(0, dp(6), 0, 0);
@@ -2419,7 +2424,7 @@ public final class MainActivity extends Activity {
         button.setText(text);
         button.setTextSize(12.5f);
         button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setTextColor(textColor);
+        button.setTextColor(Theme.text(textColor));
         button.setGravity(17);
         button.setMaxLines(1);
         button.setBackground(rounded(background, dp(11)));
@@ -2566,56 +2571,56 @@ public final class MainActivity extends Activity {
     private void updateHomeStatusCards() {
         if (this.wiiOnlineStatusView != null) {
             this.wiiOnlineStatusView.setText(wiiOnlineTileText());
-            this.wiiOnlineStatusView.setTextColor(wiiCertificatesReady() ? Color.rgb(22, 163, 74) : Color.rgb(234, 88, 12));
+            this.wiiOnlineStatusView.setTextColor(Theme.text(wiiCertificatesReady() ? Color.rgb(22, 163, 74) : Color.rgb(234, 88, 12)));
         }
         if (this.saturnBiosStatusView != null) {
             this.saturnBiosStatusView.setText(saturnBiosStatusText());
-            this.saturnBiosStatusView.setTextColor(saturnBiosFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+            this.saturnBiosStatusView.setTextColor(Theme.text(saturnBiosFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         }
         if (this.mcdBiosStatusView != null) {
             this.mcdBiosStatusView.setText(mcdBiosStatusText());
-            this.mcdBiosStatusView.setTextColor(mcdBiosRegions().isEmpty() ? Color.rgb(239, 84, 103) : Color.rgb(22, 163, 74));
+            this.mcdBiosStatusView.setTextColor(Theme.text(mcdBiosRegions().isEmpty() ? Color.rgb(239, 84, 103) : Color.rgb(22, 163, 74)));
         }
         TextView textView = this.biosStatusView;
         if (textView != null) {
             textView.setText(biosStatusText());
             // Missing BIOS is highlighted so it stands out in the icon row.
-            textView.setTextColor(biosFile().exists() ? STATUS_TEXT_COLOR : Color.rgb(239, 84, 103));
+            textView.setTextColor(Theme.text(biosFile().exists() ? STATUS_TEXT_COLOR : Color.rgb(239, 84, 103)));
         }
         TextView textView2 = this.neoGeoBiosStatusView;
         if (textView2 != null) {
             textView2.setText(neoGeoBiosStatusText());
-            textView2.setTextColor(neoGeoBiosFile().exists() ? STATUS_TEXT_COLOR : Color.rgb(239, 84, 103));
+            textView2.setTextColor(Theme.text(neoGeoBiosFile().exists() ? STATUS_TEXT_COLOR : Color.rgb(239, 84, 103)));
         }
         if (this.neoGeoBiosBanner != null) {
             this.neoGeoBiosBanner.setVisibility(neoGeoBiosFile().exists() ? 8 : 0);
         }
         if (this.pceBiosStatusView != null) {
             this.pceBiosStatusView.setText(pceBiosStatusText());
-            this.pceBiosStatusView.setTextColor(pceBiosFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+            this.pceBiosStatusView.setTextColor(Theme.text(pceBiosFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         }
         if (this.pceBiosBanner != null) {
             if (!pceBiosFile().isFile()) {
                 this.pceBiosBanner.setText(android.text.Html.fromHtml("<b>CD-ROM² 게임은 System Card BIOS가 필요해요.</b><br>HuCard(.pce) 게임은 BIOS 없이 그대로 실행됩니다.", 0));
-                this.pceBiosBanner.setTextColor(Color.rgb(154, 52, 18));
+                this.pceBiosBanner.setTextColor(Theme.text(Color.rgb(154, 52, 18)));
                 this.pceBiosBanner.setBackground(rounded(Color.rgb(255, 241, 232), dp(12)));
             } else {
                 this.pceBiosBanner.setText(android.text.Html.fromHtml("<b>✓ CD-ROM² 게임을 실행할 수 있어요.</b> BIOS: " + android.text.TextUtils.htmlEncode(pceBiosStatusText()), 0));
-                this.pceBiosBanner.setTextColor(Color.rgb(22, 101, 52));
+                this.pceBiosBanner.setTextColor(Theme.text(Color.rgb(22, 101, 52)));
                 this.pceBiosBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
             }
         }
         if (this.ps1BiosStatusView != null) {
             this.ps1BiosStatusView.setText(ps1BiosStatusText());
-            this.ps1BiosStatusView.setTextColor(ps1BiosFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+            this.ps1BiosStatusView.setTextColor(Theme.text(ps1BiosFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR));
         }
         if (this.n3dsKeysStatusView != null) {
             this.n3dsKeysStatusView.setText(n3dsKeysStatusText());
-            this.n3dsKeysStatusView.setTextColor(n3dsKeysFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+            this.n3dsKeysStatusView.setTextColor(Theme.text(n3dsKeysFile().isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         }
         if (this.naomiBiosStatusView != null) {
             this.naomiBiosStatusView.setText(naomiBiosStatusText());
-            this.naomiBiosStatusView.setTextColor(naomiBiosFile("naomi.zip").isFile() || naomiBiosFile("awbios.zip").isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+            this.naomiBiosStatusView.setTextColor(Theme.text(naomiBiosFile("naomi.zip").isFile() || naomiBiosFile("awbios.zip").isFile() ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         }
         if (this.naomiBanner != null) {
             boolean naomi = naomiBiosFile("naomi.zip").isFile();
@@ -2627,56 +2632,56 @@ public final class MainActivity extends Activity {
                 this.naomiBanner.setText(android.text.Html.fromHtml("<b>" + (!naomi && !aw ? "Naomi 게임은 naomi.zip, Atomiswave 게임은 awbios.zip BIOS가 필요해요."
                         : !naomi ? "Naomi 게임은 naomi.zip BIOS가 필요해요." : "Atomiswave 게임은 awbios.zip BIOS가 필요해요.")
                         + "</b><br>GD-ROM 게임은 .zip과 같은 폴더에 디스크 이미지(.chd)를 함께 넣어 주세요. ROM 검사에서 짝을 확인해요.", 0));
-                this.naomiBanner.setTextColor(Color.rgb(154, 52, 18));
+                this.naomiBanner.setTextColor(Theme.text(Color.rgb(154, 52, 18)));
                 this.naomiBanner.setBackground(rounded(Color.rgb(255, 247, 237), dp(12)));
             }
         }
         if (this.wiiuKeysStatusView != null) {
             this.wiiuKeysStatusView.setText(wiiuKeysStatusText());
-            this.wiiuKeysStatusView.setTextColor(wiiuKeysFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+            this.wiiuKeysStatusView.setTextColor(Theme.text(wiiuKeysFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR));
         }
         if (this.wiiuBanner != null) {
             if (!cemuShipped()) {
                 this.wiiuBanner.setText(android.text.Html.fromHtml("<b>이 버전에는 Wii U 엔진이 아직 들어 있지 않아요.</b> 다음 업데이트를 기다려 주세요.", 0));
-                this.wiiuBanner.setTextColor(Color.rgb(154, 52, 18));
+                this.wiiuBanner.setTextColor(Theme.text(Color.rgb(154, 52, 18)));
                 this.wiiuBanner.setBackground(rounded(Color.rgb(255, 241, 232), dp(12)));
             } else {
                 this.wiiuBanner.setText(android.text.Html.fromHtml("<b>실험적 · 무거운 모드예요.</b> 스냅드래곤 8 Elite급 이상에서 쓸 만하고, 처음엔 셰이더를 만드느라 끊길 수 있어요.<br>"
                         + "이어하기 · 되감기 · 세이브 슬롯이 없어요. 게임 안에서 저장해 주세요."
                         + (wiiuKeysFile().isFile() ? "" : "<br>.wud · .wux는 키 파일(keys.txt)이 필요해요. .wua는 키 없이 돼요."), 0));
-                this.wiiuBanner.setTextColor(Color.rgb(7, 89, 133));
+                this.wiiuBanner.setTextColor(Theme.text(Color.rgb(7, 89, 133)));
                 this.wiiuBanner.setBackground(rounded(Color.rgb(224, 242, 254), dp(12)));
             }
         }
         if (this.n3dsKeysBanner != null) {
             if (n3dsKeysFile().isFile()) {
                 this.n3dsKeysBanner.setText(android.text.Html.fromHtml("<b>✓ 키 파일이 등록돼 암호화된 게임도 실행할 수 있어요.</b> 시험판: 무거운 게임은 느릴 수 있어요.", 0));
-                this.n3dsKeysBanner.setTextColor(Color.rgb(22, 101, 52));
+                this.n3dsKeysBanner.setTextColor(Theme.text(Color.rgb(22, 101, 52)));
                 this.n3dsKeysBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
             } else {
                 this.n3dsKeysBanner.setText(android.text.Html.fromHtml("<b>암호화된 3DS 게임은 키 파일(aes_keys.txt)이 필요해요.</b><br>복호화된(decrypted) 게임은 키 없이 실행됩니다. 시험판: 무거운 게임은 느릴 수 있어요.", 0));
-                this.n3dsKeysBanner.setTextColor(Color.rgb(154, 52, 18));
+                this.n3dsKeysBanner.setTextColor(Theme.text(Color.rgb(154, 52, 18)));
                 this.n3dsKeysBanner.setBackground(rounded(Color.rgb(255, 241, 232), dp(12)));
             }
         }
         if (this.dcBiosStatusView != null) {
             this.dcBiosStatusView.setText(dcBiosStatusText());
-            this.dcBiosStatusView.setTextColor(dcBiosFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+            this.dcBiosStatusView.setTextColor(Theme.text(dcBiosFile().isFile() ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR));
         }
         if (this.ps2BiosStatusView != null) {
             this.ps2BiosStatusView.setText(ps2BiosStatusText());
-            this.ps2BiosStatusView.setTextColor(ps2BiosFile() != null ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+            this.ps2BiosStatusView.setTextColor(Theme.text(ps2BiosFile() != null ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         }
         if (this.ps2BiosBanner != null) {
             File bios = ps2BiosFile();
             if (bios == null) {
                 this.ps2BiosBanner.setText(android.text.Html.fromHtml("<b>PS2 BIOS를 넣으면 PCSX2 엔진으로 실행돼요.</b><br>더 빠르고 그래픽이 정확해요. 지금은 BIOS가 필요 없는 Play! 엔진으로 실행됩니다.", 0));
-                this.ps2BiosBanner.setTextColor(Color.rgb(30, 58, 138));
+                this.ps2BiosBanner.setTextColor(Theme.text(Color.rgb(30, 58, 138)));
                 this.ps2BiosBanner.setBackground(rounded(Color.rgb(232, 239, 255), dp(12)));
             } else {
                 String info = ps2BiosDescription(bios);
                 this.ps2BiosBanner.setText(android.text.Html.fromHtml("<b>✓ PCSX2 엔진으로 실행됩니다.</b> BIOS: " + android.text.TextUtils.htmlEncode(info), 0));
-                this.ps2BiosBanner.setTextColor(Color.rgb(22, 101, 52));
+                this.ps2BiosBanner.setTextColor(Theme.text(Color.rgb(22, 101, 52)));
                 this.ps2BiosBanner.setBackground(rounded(Color.rgb(231, 247, 238), dp(12)));
             }
         }
@@ -2713,7 +2718,7 @@ public final class MainActivity extends Activity {
         TextView titleView = new TextView(this);
         titleView.setText(title);
         titleView.setGravity(17);
-        titleView.setTextColor(Color.rgb(55, 65, 76));
+        titleView.setTextColor(Theme.text(Color.rgb(55, 65, 76)));
         titleView.setTextSize(12.0f);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
         titleView.setSingleLine(true);
@@ -2721,7 +2726,7 @@ public final class MainActivity extends Activity {
         TextView statusView = new TextView(this);
         statusView.setText(status);
         statusView.setGravity(17);
-        statusView.setTextColor(STATUS_TEXT_COLOR);
+        statusView.setTextColor(Theme.text(STATUS_TEXT_COLOR));
         statusView.setTextSize(10.0f);
         statusView.setSingleLine(true);
         tile.addView(statusView, new LinearLayout.LayoutParams(-1, -2));
@@ -2784,13 +2789,13 @@ public final class MainActivity extends Activity {
         linearLayout2.setPadding(dp(14), 0, 0, 0);
         TextView textView2 = new TextView(this);
         textView2.setText(str);
-        textView2.setTextColor(Color.rgb(55, 65, 76));
+        textView2.setTextColor(Theme.text(Color.rgb(55, 65, 76)));
         textView2.setTextSize(14.0f);
         textView2.setTypeface(Typeface.DEFAULT_BOLD);
         linearLayout2.addView(textView2);
         TextView textView3 = new TextView(this);
         textView3.setText(str2);
-        textView3.setTextColor(Color.rgb(101, 112, 124));
+        textView3.setTextColor(Theme.text(Color.rgb(101, 112, 124)));
         textView3.setTextSize(12.0f);
         linearLayout2.addView(textView3);
         linearLayout.addView(linearLayout2, new LinearLayout.LayoutParams(0, -2, 1.0f));
@@ -2853,7 +2858,7 @@ public final class MainActivity extends Activity {
         linearLayout.setPadding(dp(20), dp(4), dp(20), dp(8));
         TextView textView = new TextView(this);
         textView.setText("등록 상태: " + mameBiosStatus());
-        textView.setTextColor(Color.rgb(205, 211, 218));
+        textView.setTextColor(Theme.text(Color.rgb(205, 211, 218)));
         textView.setTextSize(13.0f);
         int i = 10;
         textView.setPadding(0, dp(8), 0, dp(10));
@@ -2862,7 +2867,7 @@ public final class MainActivity extends Activity {
         if (listFiles == null || listFiles.length == 0) {
             TextView textView2 = new TextView(this);
             textView2.setText("아직 등록된 MAME BIOS가 없습니다.");
-            textView2.setTextColor(Color.rgb(190, 197, 204));
+            textView2.setTextColor(Theme.text(Color.rgb(190, 197, 204)));
             textView2.setTextSize(14.0f);
             textView2.setGravity(17);
             textView2.setPadding(0, dp(24), 0, dp(24));
@@ -2878,20 +2883,20 @@ public final class MainActivity extends Activity {
                 linearLayout2.setPadding(0, dp(i), 0, dp(i));
                 TextView textView3 = new TextView(this);
                 textView3.setText(file.getName());
-                textView3.setTextColor(Color.rgb(242, 244, 247));
+                textView3.setTextColor(Theme.text(Color.rgb(242, 244, 247)));
                 textView3.setTextSize(15.0f);
                 textView3.setTypeface(Typeface.DEFAULT_BOLD);
                 linearLayout2.addView(textView3);
                 TextView textView4 = new TextView(this);
                 textView4.setText(mameBiosDetail(file));
-                textView4.setTextColor(Color.rgb(195, 202, 210));
+                textView4.setTextColor(Theme.text(Color.rgb(195, 202, 210)));
                 textView4.setTextSize(12.0f);
                 textView4.setPadding(0, dp(2), 0, 0);
                 linearLayout2.addView(textView4);
                 linearLayout2.setOnLongClickListener(view -> onMameBiosLongClick(file, alertDialogArr, view));
                 linearLayout.addView(linearLayout2);
                 View view = new View(this);
-                view.setBackgroundColor(Color.rgb(105, 110, 116));
+                view.setBackgroundColor(Theme.bg(Color.rgb(105, 110, 116)));
                 linearLayout.addView(view, new LinearLayout.LayoutParams(-1, dp(1)));
                 i2++;
                 i = 10;
@@ -2899,7 +2904,7 @@ public final class MainActivity extends Activity {
         }
         TextView textView5 = new TextView(this);
         textView5.setText("기판별 BIOS ZIP을 원본 파일명 그대로 등록하세요.");
-        textView5.setTextColor(Color.rgb(185, 192, 200));
+        textView5.setTextColor(Theme.text(Color.rgb(185, 192, 200)));
         textView5.setTextSize(12.0f);
         textView5.setPadding(0, dp(12), 0, dp(4));
         linearLayout.addView(textView5);
@@ -3444,7 +3449,7 @@ public final class MainActivity extends Activity {
         title.setText(mame ? "MAME BIOS" : neoGeo ? "Neo Geo BIOS" : "GBA BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setPadding(dp(4), 0, dp(4), 0);
         panel.addView(title);
 
@@ -3501,13 +3506,13 @@ public final class MainActivity extends Activity {
         head.setText(headline);
         head.setTextSize(13.5f);
         head.setTypeface(Typeface.DEFAULT_BOLD);
-        head.setTextColor(heads[state]);
+        head.setTextColor(Theme.text(heads[state]));
         statusTexts.addView(head);
         if (note != null) {
             TextView noteView = new TextView(this);
             noteView.setText(note);
             noteView.setTextSize(11.5f);
-            noteView.setTextColor(state == 0 ? Color.rgb(77, 124, 96) : Color.rgb(180, 83, 9));
+            noteView.setTextColor(Theme.text(state == 0 ? Color.rgb(77, 124, 96) : Color.rgb(180, 83, 9)));
             statusTexts.addView(noteView);
         }
         LinearLayout.LayoutParams statusTextsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
@@ -3544,7 +3549,7 @@ public final class MainActivity extends Activity {
         cancel.setText(label);
         cancel.setTextSize(14.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(13)));
         cancel.setOnClickListener(view -> dialog.dismiss());
@@ -3571,7 +3576,7 @@ public final class MainActivity extends Activity {
         label.setText(text);
         label.setTextSize(11.5f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(color);
+        label.setTextColor(Theme.text(color));
         label.setPadding(dp(4), dp(12), 0, 0);
         return label;
     }
@@ -3589,7 +3594,7 @@ public final class MainActivity extends Activity {
         title.setText("ROM 추가");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setPadding(dp(4), 0, dp(4), dp(2));
         panel.addView(title);
         String files = isConsoleMode(mode) ? consoleFor(mode)[3] : MODE_GBA.equals(mode) ? ".gba / .gbc / .gb / .zip" : "ZIP";
@@ -3625,7 +3630,7 @@ public final class MainActivity extends Activity {
         cancel.setText("취소");
         cancel.setTextSize(14.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(13)));
         cancel.setOnClickListener(view -> dialog.dismiss());
@@ -3669,12 +3674,12 @@ public final class MainActivity extends Activity {
         name.setText(label);
         name.setTextSize(15.0f);
         name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setTextColor(Color.rgb(31, 41, 51));
+        name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         texts.addView(name);
         TextView detail = new TextView(this);
         detail.setText(sub);
         detail.setTextSize(12.0f);
-        detail.setTextColor(Color.rgb(122, 130, 140));
+        detail.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         texts.addView(detail);
         LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         textsParams.setMargins(dp(14), 0, 0, 0);
@@ -3808,12 +3813,12 @@ public final class MainActivity extends Activity {
         found.setText("게임 " + items.size() + "개를 찾았어요");
         found.setTextSize(16.0f);
         found.setTypeface(Typeface.DEFAULT_BOLD);
-        found.setTextColor(Color.rgb(31, 41, 51));
+        found.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         texts.addView(found);
         TextView where = new TextView(this);
         where.setText(folderLabel(treeUri) + " · 하위 폴더 포함");
         where.setTextSize(12.0f);
-        where.setTextColor(Color.rgb(122, 130, 140));
+        where.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         texts.addView(where);
         LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         textsParams.setMargins(dp(12), 0, 0, 0);
@@ -3827,11 +3832,11 @@ public final class MainActivity extends Activity {
         final TextView selectAll = new TextView(this);
         selectAll.setTextSize(12.5f);
         selectAll.setTypeface(Typeface.DEFAULT_BOLD);
-        selectAll.setTextColor(RoundIconView.COLOR_SAVE);
+        selectAll.setTextColor(Theme.text(RoundIconView.COLOR_SAVE));
         bar.addView(selectAll, new LinearLayout.LayoutParams(0, -2, 1.0f));
         final TextView count = new TextView(this);
         count.setTextSize(12.0f);
-        count.setTextColor(Color.rgb(122, 130, 140));
+        count.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         bar.addView(count);
         panel.addView(bar);
 
@@ -3847,7 +3852,7 @@ public final class MainActivity extends Activity {
         cancel.setText("취소");
         cancel.setTextSize(14.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(14)));
         cancel.setOnClickListener(view -> dialog.dismiss());
@@ -3932,12 +3937,12 @@ public final class MainActivity extends Activity {
         name.setText(item.title);
         name.setTextSize(14.0f);
         name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setTextColor(Color.rgb(31, 41, 51));
+        name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         texts.addView(name);
         TextView detail = new TextView(this);
         detail.setText(item.detail);
         detail.setTextSize(11.0f);
-        detail.setTextColor(Color.rgb(138, 146, 156));
+        detail.setTextColor(Theme.text(Color.rgb(138, 146, 156)));
         texts.addView(detail);
         LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         textsParams.setMargins(dp(12), 0, 0, 0);
@@ -3952,8 +3957,8 @@ public final class MainActivity extends Activity {
             } else {
                 box.setText("");
                 GradientDrawable empty = new GradientDrawable();
-                empty.setColor(-1);
-                empty.setStroke(Math.round(2 * getResources().getDisplayMetrics().density), Color.rgb(195, 200, 207));
+                empty.setColor(Theme.bg(-1));
+                empty.setStroke(Math.round(2 * getResources().getDisplayMetrics().density), Theme.line(Color.rgb(195, 200, 207)));
                 empty.setCornerRadius(dp(6));
                 box.setBackground(empty);
             }
@@ -3971,7 +3976,7 @@ public final class MainActivity extends Activity {
         }
         list.addView(row, new LinearLayout.LayoutParams(-1, -2));
         View divider = new View(this);
-        divider.setBackgroundColor(Color.rgb(240, 241, 243));
+        divider.setBackgroundColor(Theme.bg(Color.rgb(240, 241, 243)));
         list.addView(divider, new LinearLayout.LayoutParams(-1, Math.max(1, dp(1) / 2)));
         return redraw;
     }
@@ -4561,7 +4566,7 @@ public final class MainActivity extends Activity {
             }
         }
         textView.setText(title);
-        textView.setTextColor(Color.rgb(45, 53, 64));
+        textView.setTextColor(Theme.text(Color.rgb(45, 53, 64)));
         textView.setTextSize(16.0f);
         textView.setTypeface(Typeface.DEFAULT_BOLD);
         textView.setSingleLine(false);
@@ -4622,7 +4627,7 @@ public final class MainActivity extends Activity {
             sb.append("  |  마지막 실행: ").append(formatTimestamp(lastPlayedAt));
         }
         textView3.setText(sb.toString());
-        textView3.setTextColor(Color.rgb(92, 103, 115));
+        textView3.setTextColor(Theme.text(Color.rgb(92, 103, 115)));
         textView3.setPadding(0, dp(7), 0, 0);
         textView3.setTextSize(12.0f);
         linearLayout.addView(linearLayout2, new LinearLayout.LayoutParams(-1, -2));
@@ -4658,8 +4663,8 @@ public final class MainActivity extends Activity {
         search.setHint("🔍  게임 이름 검색");
         search.setSingleLine(true);
         search.setTextSize(14.0f);
-        search.setTextColor(Color.rgb(31, 41, 51));
-        search.setHintTextColor(Color.rgb(154, 161, 170));
+        search.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        search.setHintTextColor(Theme.text(Color.rgb(154, 161, 170)));
         search.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         search.setPadding(dp(14), 0, dp(14), 0);
         search.setBackground(rounded(-1, dp(14)));
@@ -4725,7 +4730,7 @@ public final class MainActivity extends Activity {
                 continue;
             }
             boolean on = k == sort;
-            chip.setTextColor(on ? -1 : Color.rgb(55, 65, 81));
+            chip.setTextColor(Theme.text(on ? -1 : Color.rgb(55, 65, 81)));
             chip.setBackground(rounded(on ? color : -1, dp(14)));
         }
     }
@@ -4750,7 +4755,7 @@ public final class MainActivity extends Activity {
         none.setText("표지\n없음");
         none.setTextSize(10.0f);
         none.setTypeface(Typeface.DEFAULT_BOLD);
-        none.setTextColor(Color.rgb(107, 114, 128));
+        none.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         none.setGravity(17);
         box.addView(none, new FrameLayout.LayoutParams(-1, -1));
         android.widget.ImageView image = new android.widget.ImageView(this);
@@ -4820,7 +4825,7 @@ public final class MainActivity extends Activity {
         final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_Light_NoActionBar);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(1);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(Theme.bg(Color.WHITE));
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(1);
         top.setPadding(dp(10), dp(10), dp(10), dp(8));
@@ -4829,7 +4834,7 @@ public final class MainActivity extends Activity {
         TextView close = new TextView(this);
         close.setText("✕");
         close.setTextSize(18.0f);
-        close.setTextColor(Color.rgb(55, 65, 81));
+        close.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         close.setPadding(dp(8), dp(4), dp(10), dp(4));
         close.setOnClickListener(view -> dialog.dismiss());
         searchRow.addView(close);
@@ -4845,7 +4850,7 @@ public final class MainActivity extends Activity {
         go.setText("검색");
         go.setTextSize(13.5f);
         go.setTypeface(Typeface.DEFAULT_BOLD);
-        go.setTextColor(Color.rgb(26, 115, 232));
+        go.setTextColor(Theme.text(Color.rgb(26, 115, 232)));
         go.setPadding(dp(12), dp(6), dp(6), dp(6));
         searchRow.addView(go);
         top.addView(searchRow);
@@ -4865,11 +4870,11 @@ public final class MainActivity extends Activity {
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(1);
         bottom.setPadding(dp(12), dp(8), dp(12), dp(12));
-        bottom.setBackgroundColor(Color.rgb(17, 24, 39));
+        bottom.setBackgroundColor(Theme.bg(Color.rgb(17, 24, 39)));
         TextView hint = new TextView(this);
         hint.setText("사진을 길게 누르거나, 눌러서 크게 연 다음 아래 버튼을 눌러요");
         hint.setTextSize(11.5f);
-        hint.setTextColor(Color.rgb(209, 213, 219));
+        hint.setTextColor(Theme.text(Color.rgb(209, 213, 219)));
         bottom.addView(hint);
         TextView use = multiDeleteButton("이 사진을 표지로 (화면에서 가장 큰 사진)", Color.rgb(251, 146, 60), -1);
         use.setTextSize(13.5f);
@@ -4998,13 +5003,13 @@ public final class MainActivity extends Activity {
         title.setText("이 사진을 표지로 쓸까요?");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(17, 24, 39));
+        title.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
         panel.addView(title);
         TextView sub = new TextView(this);
         boolean small = Math.max(picture.getWidth(), picture.getHeight()) < 300;
         sub.setText(picture.getWidth() + " × " + picture.getHeight() + " · " + from + (small ? " · 작은 미리보기예요. 크게 연 다음 고르면 더 선명해요" : ""));
         sub.setTextSize(11.5f);
-        sub.setTextColor(small ? Color.rgb(180, 83, 9) : Color.rgb(107, 114, 128));
+        sub.setTextColor(Theme.text(small ? Color.rgb(180, 83, 9) : Color.rgb(107, 114, 128)));
         panel.addView(sub);
         final CropView crop = new CropView(this, picture);
         crop.setBackground(rounded(Color.rgb(17, 24, 39), dp(12)));
@@ -5014,7 +5019,7 @@ public final class MainActivity extends Activity {
         TextView tip = new TextView(this);
         tip.setText("끌어서 옮기기 · 두 손가락으로 크기 · 모서리를 끌어도 돼요");
         tip.setTextSize(11.0f);
-        tip.setTextColor(Color.rgb(107, 114, 128));
+        tip.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         tip.setGravity(17);
         tip.setPadding(0, dp(4), 0, 0);
         panel.addView(tip);
@@ -5051,7 +5056,7 @@ public final class MainActivity extends Activity {
         sizeLabel.setText("크기");
         sizeLabel.setTextSize(12.0f);
         sizeLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        sizeLabel.setTextColor(Color.rgb(100, 116, 139));
+        sizeLabel.setTextColor(Theme.text(Color.rgb(100, 116, 139)));
         sizeRow.addView(sizeLabel);
         final android.widget.SeekBar slider = new android.widget.SeekBar(this);
         slider.setMax(85);
@@ -5063,7 +5068,7 @@ public final class MainActivity extends Activity {
         percent.setText("100%");
         percent.setTextSize(12.0f);
         percent.setTypeface(Typeface.DEFAULT_BOLD);
-        percent.setTextColor(Color.rgb(100, 116, 139));
+        percent.setTextColor(Theme.text(Color.rgb(100, 116, 139)));
         percent.setMinWidth(dp(40));
         sizeRow.addView(percent);
         TextView fit = multiDeleteChip("맞춤");
@@ -5074,7 +5079,7 @@ public final class MainActivity extends Activity {
         panel.addView(sizeRow, sizeParams);
         final TextView info = new TextView(this);
         info.setTextSize(11.0f);
-        info.setTextColor(Color.rgb(107, 114, 128));
+        info.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         panel.addView(info);
         final boolean[] fromSlider = {false};
         slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
@@ -5105,7 +5110,7 @@ public final class MainActivity extends Activity {
             String shape = w > 0 && h > 0 && w / g <= 30 && h / g <= 30 ? (w / g) + " : " + (h / g) : String.format(Locale.ROOT, "%.2f : 1", w / (float) Math.max(1, h));
             boolean tiny = Math.max(w, h) < 300;
             info.setText("지금 칸: " + shape + " · " + w + " × " + h + " 픽셀" + (tiny ? " · 작아서 흐릴 수 있어요" : ""));
-            info.setTextColor(tiny ? Color.rgb(180, 83, 9) : Color.rgb(107, 114, 128));
+            info.setTextColor(Theme.text(tiny ? Color.rgb(180, 83, 9) : Color.rgb(107, 114, 128)));
         });
         LinearLayout buttons = new LinearLayout(this);
         TextView other = multiDeleteButton("다른 사진", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
@@ -5151,13 +5156,13 @@ public final class MainActivity extends Activity {
         title.setText("게임 표지");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setPadding(dp(4), 0, dp(4), 0);
         panel.addView(title);
         TextView game = new TextView(this);
         game.setText(displayGameNameFor(file));
         game.setTextSize(12.0f);
-        game.setTextColor(Color.rgb(122, 130, 140));
+        game.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         game.setPadding(dp(4), 0, dp(4), dp(2));
         panel.addView(game);
         panel.addView(createChoiceRow(RoundIconView.IMPORT, RoundIconView.COLOR_LOAD, "사진 고르기", "갤러리나 파일에서 표지로 쓸 사진 고르기", () -> {
@@ -5198,7 +5203,7 @@ public final class MainActivity extends Activity {
         cancel.setText("취소");
         cancel.setTextSize(14.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(238, 240, 243), dp(13)));
         cancel.setOnClickListener(view -> dialog.dismiss());
@@ -5240,7 +5245,7 @@ public final class MainActivity extends Activity {
         texts.setOrientation(1);
         TextView name = new TextView(this);
         name.setText((isFavorite(file) ? "★ " : "") + displayGameNameFor(file));
-        name.setTextColor(Color.rgb(31, 41, 51));
+        name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         name.setTextSize(17.0f);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         texts.addView(name);
@@ -5252,7 +5257,7 @@ public final class MainActivity extends Activity {
             sb.append(" · ").append(formatTimestamp(lastPlayed));
         }
         detail.setText(sb.toString());
-        detail.setTextColor(Color.rgb(122, 130, 140));
+        detail.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         detail.setTextSize(11.5f);
         texts.addView(detail);
         LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
@@ -5416,7 +5421,7 @@ public final class MainActivity extends Activity {
         row.setPadding(dp(14), 0, dp(14), 0);
         GradientDrawable background = rounded(fresh ? Color.rgb(255, 247, 230) : Color.rgb(246, 247, 249), dp(14));
         if (fresh) {
-            background.setStroke(dp(2), Color.rgb(245, 158, 11));
+            background.setStroke(dp(2), Theme.line(Color.rgb(245, 158, 11)));
         }
         row.setBackground(background);
         row.addView(new RoundIconView(this, RoundIconView.PATCH, RoundIconView.COLOR_PATCH), new LinearLayout.LayoutParams(dp(32), dp(32)));
@@ -5424,7 +5429,7 @@ public final class MainActivity extends Activity {
         label.setText("한글 패치 적용");
         label.setTextSize(14.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
         labelParams.setMargins(dp(12), 0, 0, 0);
         row.addView(label, labelParams);
@@ -5447,7 +5452,7 @@ public final class MainActivity extends Activity {
         value.setText(MODE_DC.equals(mode) ? "xdelta·.dcp  ›" : disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
-        value.setTextColor(Color.rgb(122, 130, 140));
+        value.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         row.addView(value);
         row.setClickable(true);
         row.setOnClickListener(view -> {
@@ -5480,7 +5485,7 @@ public final class MainActivity extends Activity {
         label.setText("DLC 가져오기");
         label.setTextSize(14.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
         labelParams.setMargins(dp(12), 0, 0, 0);
         row.addView(label, labelParams);
@@ -5490,7 +5495,7 @@ public final class MainActivity extends Activity {
         value.setText((installed > 0 ? "설치됨 " + installed + "개" : "zip · 폴더") + "  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
-        value.setTextColor(installed > 0 ? RoundIconView.COLOR_DLC : Color.rgb(122, 130, 140));
+        value.setTextColor(Theme.text(installed > 0 ? RoundIconView.COLOR_DLC : Color.rgb(122, 130, 140)));
         row.addView(value);
         row.setClickable(true);
         row.setOnClickListener(view -> {
@@ -5530,13 +5535,13 @@ public final class MainActivity extends Activity {
         titleView.setText(title);
         titleView.setTextSize(17.0f);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
-        titleView.setTextColor(Color.rgb(31, 41, 51));
+        titleView.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(titleView);
         if (subtitle != null) {
             TextView sub = new TextView(this);
             sub.setText(subtitle);
             sub.setTextSize(12.0f);
-            sub.setTextColor(Color.rgb(122, 130, 140));
+            sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             titles.addView(sub);
         }
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
@@ -5549,7 +5554,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText(text);
         note.setTextSize(12.0f);
-        note.setTextColor(color);
+        note.setTextColor(Theme.text(color));
         note.setLineSpacing(0, 1.15f);
         note.setPadding(dp(12), dp(10), dp(12), dp(10));
         note.setBackground(rounded(background, dp(12)));
@@ -5561,7 +5566,7 @@ public final class MainActivity extends Activity {
         label.setText(text);
         label.setTextSize(11.5f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(154, 163, 178));
+        label.setTextColor(Theme.text(Color.rgb(154, 163, 178)));
         label.setPadding(dp(2), dp(12), 0, dp(4));
         return label;
     }
@@ -5625,7 +5630,7 @@ public final class MainActivity extends Activity {
             TextView empty = new TextView(this);
             empty.setText("아직 없어요 · 위에서 골라 넣어 보세요");
             empty.setTextSize(12.0f);
-            empty.setTextColor(Color.rgb(154, 163, 178));
+            empty.setTextColor(Theme.text(Color.rgb(154, 163, 178)));
             empty.setGravity(17);
             empty.setPadding(0, dp(8), 0, dp(4));
             panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
@@ -5644,12 +5649,12 @@ public final class MainActivity extends Activity {
             name.setText(folder.getName());
             name.setTextSize(13.5f);
             name.setTypeface(Typeface.DEFAULT_BOLD);
-            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             words.addView(name);
             TextView detail = new TextView(this);
             detail.setText("PSP/" + folder.getParentFile().getName() + " · " + countFiles(folder) + "개 파일 · " + formatSize(PspDlc.sizeOf(folder)));
             detail.setTextSize(11.5f);
-            detail.setTextColor(Color.rgb(122, 130, 140));
+            detail.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             words.addView(detail);
             LinearLayout.LayoutParams wordsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
             wordsParams.setMargins(dp(10), 0, dp(8), 0);
@@ -5658,10 +5663,10 @@ public final class MainActivity extends Activity {
             remove.setText("지우기");
             remove.setTextSize(12.0f);
             remove.setTypeface(Typeface.DEFAULT_BOLD);
-            remove.setTextColor(Color.rgb(229, 72, 77));
+            remove.setTextColor(Theme.text(Color.rgb(229, 72, 77)));
             remove.setPadding(dp(10), dp(5), dp(10), dp(5));
             GradientDrawable outline = rounded(Color.WHITE, dp(999));
-            outline.setStroke(dp(1), Color.rgb(243, 194, 197));
+            outline.setStroke(dp(1), Theme.line(Color.rgb(243, 194, 197)));
             remove.setBackground(outline);
             remove.setOnClickListener(view -> {
                 dialog.dismiss();
@@ -5803,12 +5808,12 @@ public final class MainActivity extends Activity {
         titleView.setText(title);
         titleView.setTextSize(13.5f);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
-        titleView.setTextColor(Color.rgb(31, 41, 51));
+        titleView.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         words.addView(titleView);
         TextView detailView = new TextView(this);
         detailView.setText(detail);
         detailView.setTextSize(12.0f);
-        detailView.setTextColor(Color.rgb(85, 95, 110));
+        detailView.setTextColor(Theme.text(Color.rgb(85, 95, 110)));
         words.addView(detailView);
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
         return row;
@@ -5860,13 +5865,13 @@ public final class MainActivity extends Activity {
         TextView left = new TextView(this);
         left.setText(name);
         left.setTextSize(12.5f);
-        left.setTextColor(Color.rgb(55, 65, 81));
+        left.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         line.addView(left, new LinearLayout.LayoutParams(0, -2, 1.0f));
         TextView right = new TextView(this);
         right.setText(value);
         right.setTextSize(12.5f);
         right.setTypeface(Typeface.DEFAULT_BOLD);
-        right.setTextColor(RoundIconView.COLOR_DLC);
+        right.setTextColor(Theme.text(RoundIconView.COLOR_DLC));
         line.addView(right, new LinearLayout.LayoutParams(-2, -2));
         list.addView(line, new LinearLayout.LayoutParams(-1, -2));
     }
@@ -6105,13 +6110,13 @@ public final class MainActivity extends Activity {
         head.setText(title);
         head.setTextSize(13.5f);
         head.setTypeface(Typeface.DEFAULT_BOLD);
-        head.setTextColor(Color.rgb(31, 41, 51));
+        head.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         texts.addView(head);
         if (body != null) {
             TextView text = new TextView(this);
             text.setText(body);
             text.setTextSize(11.5f);
-            text.setTextColor(bad ? Color.rgb(217, 61, 66) : Color.rgb(122, 130, 140));
+            text.setTextColor(Theme.text(bad ? Color.rgb(217, 61, 66) : Color.rgb(122, 130, 140)));
             text.setLineSpacing(0, 1.15f);
             texts.addView(text);
         }
@@ -6135,7 +6140,7 @@ public final class MainActivity extends Activity {
         title.setText("패치 적용");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setPadding(dp(10), 0, 0, 0);
         header.addView(title);
         panel.addView(header);
@@ -6144,7 +6149,7 @@ public final class MainActivity extends Activity {
         TextView intro = new TextView(this);
         intro.setText(gameName + " · 원본 롬에 한글 패치 같은 패치 파일을 입혀요.");
         intro.setTextSize(12.0f);
-        intro.setTextColor(Color.rgb(122, 130, 140));
+        intro.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         intro.setPadding(0, dp(6), 0, 0);
         panel.addView(intro);
 
@@ -6189,7 +6194,7 @@ public final class MainActivity extends Activity {
         nameField.setTextSize(14.0f);
         nameField.setTypeface(Typeface.DEFAULT_BOLD);
         GradientDrawable fieldBackground = rounded(-1, dp(10));
-        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Color.rgb(212, 215, 220));
+        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Theme.line(Color.rgb(212, 215, 220)));
         nameField.setBackground(fieldBackground);
         nameField.setPadding(dp(10), dp(8), dp(10), dp(8));
         LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(-1, -2);
@@ -6199,7 +6204,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText("원본 롬은 그대로 두고, 패치한 롬을 목록에 새로 추가해요. 세이브는 원본과 따로 저장돼요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(14, 95, 107));
+        note.setTextColor(Theme.text(Color.rgb(14, 95, 107)));
         note.setLineSpacing(0, 1.15f);
         note.setPadding(dp(12), dp(9), dp(12), dp(9));
         note.setBackground(rounded(Color.rgb(236, 254, 255), dp(12)));
@@ -6214,7 +6219,7 @@ public final class MainActivity extends Activity {
         cancel.setText("← 이전");
         cancel.setTextSize(15.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
         cancel.setOnClickListener(view -> {
@@ -6685,13 +6690,13 @@ public final class MainActivity extends Activity {
         title.setText("패치 적용");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         final String gameName = displayGameNameFor(file);
         TextView sub = new TextView(this);
         sub.setText(gameName + " · " + (source.gdi ? "GDI" : "CUE") + " 트랙 " + source.tracks.size() + "개");
         sub.setTextSize(12.0f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         titles.addView(sub);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(10), 0, 0, 0);
@@ -6702,7 +6707,7 @@ public final class MainActivity extends Activity {
         count.setText("패치 파일 " + items.size() + "개 · 줄을 누르면 트랙을 바꿔요");
         count.setTextSize(12.0f);
         count.setTypeface(Typeface.DEFAULT_BOLD);
-        count.setTextColor(Color.rgb(55, 65, 81));
+        count.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         count.setPadding(0, dp(12), 0, 0);
         panel.addView(count);
         final LinearLayout rows = new LinearLayout(this);
@@ -6718,22 +6723,22 @@ public final class MainActivity extends Activity {
                 row.setPadding(dp(11), dp(9), dp(11), dp(9));
                 GradientDrawable background = rounded(open ? Color.rgb(255, 251, 235) : Color.rgb(246, 247, 249), dp(12));
                 if (open) {
-                    background.setStroke(dp(2), Color.rgb(245, 158, 11));
+                    background.setStroke(dp(2), Theme.line(Color.rgb(245, 158, 11)));
                 }
                 row.setBackground(background);
                 TextView name = new TextView(this);
                 name.setText(item.name + " · " + RomPatcher.formatName(item.format));
                 name.setTextSize(12.5f);
                 name.setTypeface(Typeface.DEFAULT_BOLD);
-                name.setTextColor(Color.rgb(31, 41, 51));
+                name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
                 row.addView(name);
                 TextView target = new TextView(this);
                 if (open) {
                     target.setText("→ 트랙 고르기 ▾ · " + (item.noMatch ? item.reason : "정해지지 않았어요"));
-                    target.setTextColor(Color.rgb(180, 83, 9));
+                    target.setTextColor(Theme.text(Color.rgb(180, 83, 9)));
                 } else {
                     target.setText("→ " + trackLabel(source, item.track) + " · ✓ " + item.reason);
-                    target.setTextColor(Color.rgb(22, 101, 52));
+                    target.setTextColor(Theme.text(Color.rgb(22, 101, 52)));
                 }
                 target.setTextSize(11.0f);
                 row.addView(target);
@@ -6748,7 +6753,7 @@ public final class MainActivity extends Activity {
         nameLabel.setText("새 게임 이름");
         nameLabel.setTextSize(12.0f);
         nameLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        nameLabel.setTextColor(Color.rgb(55, 65, 81));
+        nameLabel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         nameLabel.setPadding(0, dp(12), 0, 0);
         panel.addView(nameLabel);
         final EditText nameField = new EditText(this);
@@ -6757,7 +6762,7 @@ public final class MainActivity extends Activity {
         nameField.setTextSize(14.0f);
         nameField.setTypeface(Typeface.DEFAULT_BOLD);
         GradientDrawable fieldBackground = rounded(-1, dp(10));
-        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Color.rgb(212, 215, 220));
+        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Theme.line(Color.rgb(212, 215, 220)));
         nameField.setBackground(fieldBackground);
         nameField.setPadding(dp(10), dp(8), dp(10), dp(8));
         LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(-1, -2);
@@ -6771,7 +6776,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText("원본은 그대로 두고 새 게임으로 추가해요. 패치하지 않는 트랙은 그대로 복사돼요 (약 " + formatSize(total) + " 필요 · 남은 공간 " + formatSize(free) + "). 같은 트랙에 패치가 둘이면 고른 순서대로 이어서 적용해요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(14, 95, 107));
+        note.setTextColor(Theme.text(Color.rgb(14, 95, 107)));
         note.setLineSpacing(0, 1.15f);
         note.setPadding(dp(12), dp(9), dp(12), dp(9));
         note.setBackground(rounded(Color.rgb(236, 254, 255), dp(12)));
@@ -6785,7 +6790,7 @@ public final class MainActivity extends Activity {
         cancel.setText("← 이전");
         cancel.setTextSize(15.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
         cancel.setOnClickListener(view -> {
@@ -7023,7 +7028,7 @@ public final class MainActivity extends Activity {
         label.setText(unpackFormat(mode) + "로 풀기");
         label.setTextSize(14.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
         labelParams.setMargins(dp(12), 0, 0, 0);
         row.addView(label, labelParams);
@@ -7032,7 +7037,7 @@ public final class MainActivity extends Activity {
         value.setText(unpackFiles(mode) + "  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
-        value.setTextColor(Color.rgb(122, 130, 140));
+        value.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         row.addView(value);
         row.setClickable(true);
         row.setOnClickListener(view -> {
@@ -7070,12 +7075,12 @@ public final class MainActivity extends Activity {
             name.setText(title);
             name.setTextSize(17.0f);
             name.setTypeface(Typeface.DEFAULT_BOLD);
-            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             texts.addView(name);
             this.sub = new TextView(MainActivity.this);
             this.sub.setText(subtitle);
             this.sub.setTextSize(12.0f);
-            this.sub.setTextColor(Color.rgb(122, 130, 140));
+            this.sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             texts.addView(this.sub);
             LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
             textsParams.setMargins(dp(10), 0, 0, 0);
@@ -7109,7 +7114,7 @@ public final class MainActivity extends Activity {
                 this.details[k] = new TextView(MainActivity.this);
                 this.details[k].setText(stepDetails[k]);
                 this.details[k].setTextSize(11.0f);
-                this.details[k].setTextColor(Color.rgb(107, 114, 128));
+                this.details[k].setTextColor(Theme.text(Color.rgb(107, 114, 128)));
                 this.details[k].setSingleLine(true);
                 this.details[k].setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
                 lines.addView(this.details[k]);
@@ -7123,7 +7128,7 @@ public final class MainActivity extends Activity {
             TextView note = new TextView(MainActivity.this);
             note.setText("다른 앱으로 넘어가도 계속돼요. 취소하면 만들던 파일은 지워요.");
             note.setTextSize(11.5f);
-            note.setTextColor(Color.rgb(75, 85, 99));
+            note.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
             note.setPadding(dp(12), dp(9), dp(12), dp(9));
             note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
             LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -7133,7 +7138,7 @@ public final class MainActivity extends Activity {
             cancel.setText("취소");
             cancel.setTextSize(15.0f);
             cancel.setTypeface(Typeface.DEFAULT_BOLD);
-            cancel.setTextColor(Color.rgb(75, 85, 99));
+            cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
             cancel.setGravity(17);
             cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
             cancel.setOnClickListener(view -> {
@@ -7161,7 +7166,7 @@ public final class MainActivity extends Activity {
                 boolean now = k == current;
                 this.marks[k].setText(done ? "✓" : now ? "…" : String.valueOf(k + 1));
                 this.marks[k].setBackground(rounded(done ? Color.rgb(22, 163, 74) : now ? this.color : Color.rgb(203, 213, 225), dp(11)));
-                this.titles[k].setTextColor(done || now ? Color.rgb(31, 41, 51) : Color.rgb(156, 163, 175));
+                this.titles[k].setTextColor(Theme.text(done || now ? Color.rgb(31, 41, 51) : Color.rgb(156, 163, 175)));
             }
             if (detail != null && current < this.details.length) {
                 this.details[current].setText(detail);
@@ -7235,7 +7240,7 @@ public final class MainActivity extends Activity {
         text.setText(thenPatch ? "CHD는 압축돼 있어서 바로 패치할 수 없어요. 먼저 " + format + "로 풀고, 이어서 패치 창(" + patches + ")으로 넘어가요."
                 : "CHD를 " + files + "로 풀어서 목록에 새 게임으로 추가해요. 풀어 두면 패치(" + patches + ")를 쓸 수 있어요. 게임 엔진이 그대로 읽는 형식이라 바로 실행돼요.");
         text.setTextSize(13.0f);
-        text.setTextColor(Color.rgb(55, 65, 81));
+        text.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         text.setLineSpacing(0, 1.15f);
         text.setPadding(0, dp(10), 0, 0);
         panel.addView(text);
@@ -7245,7 +7250,7 @@ public final class MainActivity extends Activity {
         sizes.setText("풀면 크기: 약 " + formatSize(bytes) + " (CHD " + formatSize(chd.length()) + ")\n남은 공간: " + formatSize(free) + (fits ? " ✓" : " · 부족해요")
                 + "\n걸리는 시간: " + (bytes > 600L * 1024 * 1024 ? "1~3분" : "1분 안쪽"));
         sizes.setTextSize(12.0f);
-        sizes.setTextColor(fits ? Color.rgb(55, 65, 81) : Color.rgb(185, 28, 28));
+        sizes.setTextColor(Theme.text(fits ? Color.rgb(55, 65, 81) : Color.rgb(185, 28, 28)));
         sizes.setLineSpacing(0, 1.2f);
         sizes.setPadding(dp(12), dp(9), dp(12), dp(9));
         sizes.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
@@ -7255,7 +7260,7 @@ public final class MainActivity extends Activity {
         final android.widget.CheckBox remove = new android.widget.CheckBox(this);
         remove.setText("풀고 나서 원본 CHD 지우기");
         remove.setTextSize(13.0f);
-        remove.setTextColor(Color.rgb(55, 65, 81));
+        remove.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         remove.setChecked(false);
         LinearLayout.LayoutParams removeParams = new LinearLayout.LayoutParams(-1, -2);
         removeParams.setMargins(0, dp(6), 0, 0);
@@ -7263,7 +7268,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText("푼 게임은 목록에 따로 추가되고 세이브도 따로예요. CHD 원본은 지우지 않으면 그대로 남아요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(146, 64, 14));
+        note.setTextColor(Theme.text(Color.rgb(146, 64, 14)));
         note.setPadding(dp(12), dp(9), dp(12), dp(9));
         note.setBackground(rounded(Color.rgb(255, 251, 235), dp(12)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -7276,7 +7281,7 @@ public final class MainActivity extends Activity {
         cancel.setText("취소");
         cancel.setTextSize(15.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
         cancel.setOnClickListener(view -> dialog.dismiss());
@@ -7418,7 +7423,7 @@ public final class MainActivity extends Activity {
         TextView box = new TextView(this);
         box.setText(what.toString());
         box.setTextSize(12.0f);
-        box.setTextColor(Color.rgb(76, 29, 149));
+        box.setTextColor(Theme.text(Color.rgb(76, 29, 149)));
         box.setLineSpacing(0, 1.2f);
         box.setPadding(dp(12), dp(10), dp(12), dp(10));
         box.setBackground(rounded(Color.rgb(245, 243, 255), dp(12)));
@@ -7431,7 +7436,7 @@ public final class MainActivity extends Activity {
         checks.setText("✓ 원본 GDI의 파일 목록을 읽었어요\n✓ 패치가 고치는 파일이 원본 디스크에 모두 있어요\n" + (fits ? "✓" : "✕") + " 남은 공간 (약 "
                 + formatSize(plan.needed) + " 필요 · " + formatSize(free) + " 남음)\n⏱ 디스크를 다시 만드는 데 1~3분 걸려요");
         checks.setTextSize(12.0f);
-        checks.setTextColor(fits ? Color.rgb(55, 65, 81) : Color.rgb(185, 28, 28));
+        checks.setTextColor(Theme.text(fits ? Color.rgb(55, 65, 81) : Color.rgb(185, 28, 28)));
         checks.setLineSpacing(0, 1.2f);
         checks.setPadding(dp(12), dp(9), dp(12), dp(9));
         checks.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
@@ -7442,7 +7447,7 @@ public final class MainActivity extends Activity {
         nameLabel.setText("새 게임 이름");
         nameLabel.setTextSize(12.0f);
         nameLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        nameLabel.setTextColor(Color.rgb(55, 65, 81));
+        nameLabel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         nameLabel.setPadding(0, dp(12), 0, 0);
         panel.addView(nameLabel);
         final EditText nameField = new EditText(this);
@@ -7451,7 +7456,7 @@ public final class MainActivity extends Activity {
         nameField.setTextSize(14.0f);
         nameField.setTypeface(Typeface.DEFAULT_BOLD);
         GradientDrawable fieldBackground = rounded(-1, dp(10));
-        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Color.rgb(212, 215, 220));
+        fieldBackground.setStroke(Math.max(1, Math.round(1.5f * getResources().getDisplayMetrics().density)), Theme.line(Color.rgb(212, 215, 220)));
         nameField.setBackground(fieldBackground);
         nameField.setPadding(dp(10), dp(8), dp(10), dp(8));
         LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(-1, -2);
@@ -7460,7 +7465,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText(".dcp는 트랙에 덮어쓰는 패치가 아니라, 디스크 안의 파일을 바꿔 끼우고 데이터 트랙을 새로 만드는 방식이에요. 원본은 그대로예요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(91, 33, 182));
+        note.setTextColor(Theme.text(Color.rgb(91, 33, 182)));
         note.setLineSpacing(0, 1.15f);
         note.setPadding(dp(12), dp(9), dp(12), dp(9));
         note.setBackground(rounded(Color.rgb(245, 243, 255), dp(12)));
@@ -7474,7 +7479,7 @@ public final class MainActivity extends Activity {
         cancel.setText("← 이전");
         cancel.setTextSize(15.0f);
         cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setTextColor(Color.rgb(75, 85, 99));
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         cancel.setGravity(17);
         cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
         cancel.setOnClickListener(view -> {
@@ -7742,7 +7747,7 @@ public final class MainActivity extends Activity {
         CheckBox box = new CheckBox(this);
         box.setText(text + "\n" + saveKinds(set) + " · 마지막 저장 " + formatTimestamp(set.modified));
         box.setTextSize(12.5f);
-        box.setTextColor(Color.rgb(30, 64, 175));
+        box.setTextColor(Theme.text(Color.rgb(30, 64, 175)));
         box.setChecked(on);
         box.setPadding(dp(4), dp(6), dp(8), dp(6));
         box.setBackground(rounded(Color.rgb(239, 246, 255), dp(12)));
@@ -7776,7 +7781,7 @@ public final class MainActivity extends Activity {
         label.setText("다른 게임에서 세이브 가져오기");
         label.setTextSize(14.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         labelParams.setMargins(dp(12), 0, 0, 0);
         row.addView(label, labelParams);
@@ -7784,7 +7789,7 @@ public final class MainActivity extends Activity {
         value.setText("›");
         value.setTextSize(14.0f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
-        value.setTextColor(Color.rgb(122, 130, 140));
+        value.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         row.addView(value);
         row.setClickable(true);
         row.setOnClickListener(view -> {
@@ -7854,21 +7859,21 @@ public final class MainActivity extends Activity {
             row.setPadding(dp(12), dp(10), dp(12), dp(10));
             GradientDrawable background = rounded(set.original ? Color.rgb(239, 246, 255) : Color.rgb(246, 247, 249), dp(12));
             if (set.original) {
-                background.setStroke(dp(2), blue);
+                background.setStroke(dp(2), Theme.line(blue));
             }
             row.setBackground(background);
             TextView name = new TextView(this);
             name.setText(set.label + (set.original ? "  · 원본" : ""));
             name.setTextSize(13.0f);
             name.setTypeface(Typeface.DEFAULT_BOLD);
-            name.setTextColor(set.original ? blue : Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(set.original ? blue : Color.rgb(31, 41, 51)));
             name.setSingleLine(true);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
             row.addView(name);
             TextView detail = new TextView(this);
             detail.setText(set.detail);
             detail.setTextSize(11.0f);
-            detail.setTextColor(Color.rgb(107, 114, 128));
+            detail.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
             row.addView(detail);
             row.setOnClickListener(view -> {
                 dialog.dismiss();
@@ -7881,7 +7886,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText("같은 게임기에서 세이브가 있는 게임만 나와요" + (empty > 0 ? " (세이브 없는 게임 " + empty + "개는 뺐어요)" : "") + ". 원본(풀기 전 · 패치하기 전 게임)은 맨 위에 표시돼요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         note.setPadding(dp(12), dp(9), dp(12), dp(9));
         note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -7922,7 +7927,7 @@ public final class MainActivity extends Activity {
         CheckBox[] boxes = {game, quick, slots};
         for (int k = 0; k < 3; k++) {
             boxes[k].setTextSize(13.0f);
-            boxes[k].setTextColor(Color.rgb(31, 41, 51));
+            boxes[k].setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             boxes[k].setChecked(has[k]);
             boxes[k].setEnabled(has[k]);
             if (has[k]) {
@@ -7934,7 +7939,7 @@ public final class MainActivity extends Activity {
             TextView warn = new TextView(this);
             warn.setText("이 게임에도 세이브가 있어요 (" + saveKinds(mine) + ").\n가져오면 지금 세이브는 \"세이브 백업\"으로 따로 남겨두고 바꿔요. 백업은 다시 여기서 가져올 수 있어요.");
             warn.setTextSize(12.0f);
-            warn.setTextColor(Color.rgb(154, 52, 18));
+            warn.setTextColor(Theme.text(Color.rgb(154, 52, 18)));
             warn.setLineSpacing(0, 1.15f);
             warn.setPadding(dp(12), dp(9), dp(12), dp(9));
             warn.setBackground(rounded(Color.rgb(255, 247, 237), dp(12)));
@@ -7945,7 +7950,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText("한글 패치본은 보통 원본 세이브를 그대로 쓸 수 있어요. 패치가 데이터 위치를 바꾼 게임은 세이브가 안 맞을 수 있어요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
         note.setPadding(dp(12), dp(9), dp(12), dp(9));
         note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -8004,13 +8009,13 @@ public final class MainActivity extends Activity {
         name.setText(title);
         name.setTextSize(14.0f);
         name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setTextColor(Color.rgb(31, 41, 51));
+        name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         texts.addView(name);
         if (detail != null) {
             TextView sub = new TextView(this);
             sub.setText(detail);
             sub.setTextSize(11.5f);
-            sub.setTextColor(Color.rgb(107, 114, 128));
+            sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
             texts.addView(sub);
         }
         row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
@@ -8018,7 +8023,7 @@ public final class MainActivity extends Activity {
             TextView more = new TextView(this);
             more.setText("›");
             more.setTextSize(16.0f);
-            more.setTextColor(Color.rgb(148, 163, 184));
+            more.setTextColor(Theme.text(Color.rgb(148, 163, 184)));
             row.addView(more);
             row.setOnClickListener(view -> action.run());
         }
@@ -8036,7 +8041,7 @@ public final class MainActivity extends Activity {
         header.setOrientation(1);
         header.setPadding(dp(18), dp(18), dp(18), dp(16));
         GradientDrawable top = new GradientDrawable();
-        top.setColor(color);
+        top.setColor(Theme.bg(color));
         top.setCornerRadii(new float[]{dp(24), dp(24), dp(24), dp(24), 0, 0, 0, 0});
         header.setBackground(top);
         TextView name = new TextView(this);
@@ -8049,7 +8054,7 @@ public final class MainActivity extends Activity {
             TextView sub = new TextView(this);
             sub.setText(subtitle);
             sub.setTextSize(12.0f);
-            sub.setTextColor(Color.argb(220, 255, 255, 255));
+            sub.setTextColor(Theme.text(Color.argb(220, 255, 255, 255)));
             header.addView(sub);
         }
         frame.addView(header);
@@ -8063,7 +8068,7 @@ public final class MainActivity extends Activity {
         close.setText("닫기");
         close.setTextSize(15.0f);
         close.setTypeface(Typeface.DEFAULT_BOLD);
-        close.setTextColor(Color.rgb(55, 65, 81));
+        close.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         close.setGravity(17);
         close.setBackground(rounded(Color.WHITE, dp(14)));
         close.setOnClickListener(view -> dialog.dismiss());
@@ -8084,6 +8089,29 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.setMargins(0, dp(8), 0, 0);
         body.addView(row, params);
+    }
+
+    private static String themeLabel(String choice) {
+        return "light".equals(choice) ? "라이트" : "dark".equals(choice) ? "다크" : "시스템 설정 따르기";
+    }
+
+    // 화면 테마: follow the phone, or always light / always dark. The screens are rebuilt at once.
+    private void showThemeChoice() {
+        final Dialog dialog = new Dialog(this);
+        LinearLayout body = pageDialog(dialog, "화면 테마", "홈 · 게임 목록 · 설정 · 게임 중 메뉴의 색이 바뀌어요. 게임 화면과 표지 색은 그대로예요.", Color.rgb(22, 163, 74));
+        String current = Theme.choice(this);
+        String[][] options = {{"system", "시스템 설정 따르기", "폰이 다크 모드면 다크로"}, {"light", "라이트", "밝은 바탕"}, {"dark", "다크", "어두운 바탕 · 밤에 눈이 편해요"}};
+        for (String[] option : options) {
+            boolean on = option[0].equals(current);
+            addPageRow(body, settingsRow((on ? "✓ " : "") + option[1], option[2], () -> {
+                dialog.dismiss();
+                settingsPrefs().edit().putString(Theme.PREF, option[0]).apply();
+                if (Theme.update(this)) {
+                    recreate();
+                }
+            }));
+        }
+        dialog.show();
     }
 
     private void showSettings() {
@@ -8112,6 +8140,10 @@ public final class MainActivity extends Activity {
         addPageRow(body, settingsRow("📤 모든 게임 파일 내보내기", "앱 안에 복사해 둔 게임 전부를 폰 폴더로 (백업)", () -> {
             dialog.dismiss();
             showBulkExport();
+        }));
+        addPageRow(body, settingsRow("🎨 화면 테마", themeLabel(Theme.choice(this)), () -> {
+            dialog.dismiss();
+            showThemeChoice();
         }));
         addPageRow(body, settingsRow("📖 도움말", "기능 설명서 · 이 버전(" + AppUpdate.currentVersion(this) + ") 기준", () -> {
             dialog.dismiss();
@@ -8202,7 +8234,7 @@ public final class MainActivity extends Activity {
         full.setText(text);
         full.setTextSize(10.5f);
         full.setTypeface(Typeface.MONOSPACE);
-        full.setTextColor(Color.rgb(55, 65, 81));
+        full.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         full.setTextIsSelectable(true);
         full.setPadding(dp(12), dp(12), dp(12), dp(12));
         full.setBackground(rounded(Color.WHITE, dp(14)));
@@ -8511,7 +8543,7 @@ public final class MainActivity extends Activity {
             restore.setText("되돌리기");
             restore.setTextSize(11.5f);
             restore.setTypeface(Typeface.DEFAULT_BOLD);
-            restore.setTextColor(rom != null ? Color.WHITE : Color.rgb(148, 163, 184));
+            restore.setTextColor(Theme.text(rom != null ? Color.WHITE : Color.rgb(148, 163, 184)));
             restore.setPadding(dp(9), dp(5), dp(9), dp(5));
             restore.setBackground(rounded(rom != null ? blue : Color.rgb(226, 232, 240), dp(9)));
             restore.setOnClickListener(view -> {
@@ -8526,7 +8558,7 @@ public final class MainActivity extends Activity {
             delete.setText("삭제");
             delete.setTextSize(11.5f);
             delete.setTypeface(Typeface.DEFAULT_BOLD);
-            delete.setTextColor(Color.rgb(185, 28, 28));
+            delete.setTextColor(Theme.text(Color.rgb(185, 28, 28)));
             delete.setPadding(dp(9), dp(5), dp(9), dp(5));
             delete.setBackground(rounded(Color.rgb(254, 226, 226), dp(9)));
             delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("백업을 지울까요?")
@@ -8545,7 +8577,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText("되돌리면 지금 세이브도 먼저 새 백업으로 남겨요. 백업을 지우면 되돌릴 수 없어요.");
         note.setTextSize(11.5f);
-        note.setTextColor(Color.rgb(30, 64, 175));
+        note.setTextColor(Theme.text(Color.rgb(30, 64, 175)));
         note.setPadding(dp(12), dp(9), dp(12), dp(9));
         note.setBackground(rounded(Color.rgb(239, 246, 255), dp(12)));
         addPageRow(body, note);
@@ -8563,7 +8595,7 @@ public final class MainActivity extends Activity {
         label.setText(text);
         label.setTextSize(14.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         labelParams.setMargins(dp(12), 0, 0, 0);
         row.addView(label, labelParams);
@@ -8571,7 +8603,7 @@ public final class MainActivity extends Activity {
         more.setText("›");
         more.setTextSize(14.0f);
         more.setTypeface(Typeface.DEFAULT_BOLD);
-        more.setTextColor(Color.rgb(122, 130, 140));
+        more.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         row.addView(more);
         row.setClickable(true);
         row.setOnClickListener(view -> {
@@ -8677,7 +8709,7 @@ public final class MainActivity extends Activity {
         lock.setText("🔒 원본");
         lock.setTextSize(10.5f);
         lock.setTypeface(Typeface.DEFAULT_BOLD);
-        lock.setTextColor(Color.rgb(148, 163, 184));
+        lock.setTextColor(Theme.text(Color.rgb(148, 163, 184)));
         source.addView(lock);
         panel.addView(source, prepCardParams());
         // 패치 파일
@@ -8691,7 +8723,7 @@ public final class MainActivity extends Activity {
             TextView remove = new TextView(this);
             remove.setText("✕");
             remove.setTextSize(15.0f);
-            remove.setTextColor(Color.rgb(148, 163, 184));
+            remove.setTextColor(Theme.text(Color.rgb(148, 163, 184)));
             remove.setPadding(dp(8), dp(4), dp(4), dp(4));
             remove.setOnClickListener(view -> {
                 this.prepUris.remove(uri);
@@ -8704,11 +8736,11 @@ public final class MainActivity extends Activity {
             TextView error = new TextView(this);
             error.setText(this.prepError);
             error.setTextSize(12.0f);
-            error.setTextColor(Color.rgb(185, 28, 28));
+            error.setTextColor(Theme.text(Color.rgb(185, 28, 28)));
             error.setLineSpacing(0, 1.15f);
             error.setPadding(dp(12), dp(10), dp(12), dp(10));
             GradientDrawable box = rounded(Color.rgb(254, 242, 242), dp(12));
-            box.setStroke(dp(2), Color.rgb(252, 165, 165));
+            box.setStroke(dp(2), Theme.line(Color.rgb(252, 165, 165)));
             error.setBackground(box);
             panel.addView(error, prepCardParams());
         }
@@ -8720,9 +8752,9 @@ public final class MainActivity extends Activity {
             pick.setTypeface(Typeface.DEFAULT_BOLD);
             pick.setGravity(17);
             boolean hl = this.prepError != null;
-            pick.setTextColor(hl ? teal : Color.rgb(100, 116, 139));
+            pick.setTextColor(Theme.text(hl ? teal : Color.rgb(100, 116, 139)));
             GradientDrawable dashed = rounded(hl ? Color.rgb(236, 254, 255) : Color.WHITE, dp(12));
-            dashed.setStroke(dp(2), hl ? teal : Color.rgb(203, 213, 225), dp(6), dp(4));
+            dashed.setStroke(dp(2), Theme.line(hl ? teal : Color.rgb(203, 213, 225)), dp(6), dp(4));
             pick.setBackground(dashed);
             pick.setOnClickListener(view -> pickPrepPatch(sheet));
             LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -8733,7 +8765,7 @@ public final class MainActivity extends Activity {
             change.setText("다른 파일로 바꾸기");
             change.setTextSize(12.0f);
             change.setTypeface(Typeface.DEFAULT_BOLD);
-            change.setTextColor(teal);
+            change.setTextColor(Theme.text(teal));
             change.setPadding(dp(2), dp(8), 0, 0);
             change.setOnClickListener(view -> pickPrepPatch(false));
             panel.addView(change);
@@ -8742,7 +8774,7 @@ public final class MainActivity extends Activity {
         kinds.setText(MODE_DC.equals(modeForFile(file)) && file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi")
                 ? "IPS · UPS · BPS · PPF · xdelta · .dcp" : "IPS · UPS · BPS · PPF · xdelta");
         kinds.setTextSize(11.0f);
-        kinds.setTextColor(Color.rgb(107, 114, 128));
+        kinds.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         kinds.setPadding(dp(2), dp(6), 0, 0);
         panel.addView(kinds);
         LinearLayout buttons = new LinearLayout(this);
@@ -8807,7 +8839,7 @@ public final class MainActivity extends Activity {
             label.setText(names[k - 1]);
             label.setTextSize(10.5f);
             label.setTypeface(Typeface.DEFAULT_BOLD);
-            label.setTextColor(k <= step ? teal : Color.rgb(148, 163, 184));
+            label.setTextColor(Theme.text(k <= step ? teal : Color.rgb(148, 163, 184)));
             label.setGravity(k == 1 ? android.view.Gravity.START : android.view.Gravity.END);
             labels.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
         }
@@ -8822,7 +8854,7 @@ public final class MainActivity extends Activity {
         label.setText(value);
         label.setTextSize(13.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(55, 65, 81));
+        label.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         label.setPadding(0, dp(14), 0, 0);
         return label;
     }
@@ -8833,7 +8865,7 @@ public final class MainActivity extends Activity {
         card.setPadding(dp(10), dp(9), dp(10), dp(9));
         GradientDrawable shape = rounded(background, dp(12));
         if (stroke != 0) {
-            shape.setStroke(dp(2), stroke);
+            shape.setStroke(dp(2), Theme.line(stroke));
         }
         card.setBackground(shape);
         card.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(32), dp(32)));
@@ -8843,14 +8875,14 @@ public final class MainActivity extends Activity {
         title.setText(name);
         title.setTextSize(13.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         texts.addView(title);
         TextView sub = new TextView(this);
         sub.setText(detail);
         sub.setTextSize(11.0f);
-        sub.setTextColor(stroke != 0 ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128));
+        sub.setTextColor(Theme.text(stroke != 0 ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128)));
         texts.addView(sub);
         LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         textsParams.setMargins(dp(10), 0, 0, 0);
@@ -9035,7 +9067,7 @@ public final class MainActivity extends Activity {
         autoLabel.setText("자동 백업");
         autoLabel.setTextSize(12.0f);
         autoLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        autoLabel.setTextColor(Color.rgb(100, 116, 139));
+        autoLabel.setTextColor(Theme.text(Color.rgb(100, 116, 139)));
         autoLabel.setPadding(dp(4), dp(14), 0, 0);
         body.addView(autoLabel);
         android.widget.RadioGroup group = new android.widget.RadioGroup(this);
@@ -9047,7 +9079,7 @@ public final class MainActivity extends Activity {
             android.widget.RadioButton radio = new android.widget.RadioButton(this);
             radio.setText(option[1]);
             radio.setTextSize(13.5f);
-            radio.setTextColor(Color.rgb(31, 41, 51));
+            radio.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             radio.setId(View.generateViewId());
             group.addView(radio);
             if (option[0].equals(auto)) {
@@ -9064,7 +9096,7 @@ public final class MainActivity extends Activity {
         whatLabel.setText("넣을 것");
         whatLabel.setTextSize(12.0f);
         whatLabel.setTypeface(Typeface.DEFAULT_BOLD);
-        whatLabel.setTextColor(Color.rgb(100, 116, 139));
+        whatLabel.setTextColor(Theme.text(Color.rgb(100, 116, 139)));
         whatLabel.setPadding(dp(4), dp(14), 0, 0);
         body.addView(whatLabel);
         LinearLayout what = new LinearLayout(this);
@@ -9085,7 +9117,7 @@ public final class MainActivity extends Activity {
         states.setOnCheckedChangeListener((b, on) -> settingsPrefs().edit().putBoolean(PREF_CLOUD_STATES, on).apply());
         for (CheckBox box : new CheckBox[]{games, ps2, states}) {
             box.setTextSize(13.0f);
-            box.setTextColor(Color.rgb(31, 41, 51));
+            box.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             what.addView(box);
         }
         addPageRow(body, what);
@@ -9102,7 +9134,7 @@ public final class MainActivity extends Activity {
         TextView off = new TextView(this);
         off.setText("클라우드 백업 끄기");
         off.setTextSize(12.0f);
-        off.setTextColor(Color.rgb(185, 28, 28));
+        off.setTextColor(Theme.text(Color.rgb(185, 28, 28)));
         off.setGravity(17);
         off.setPadding(0, dp(12), 0, 0);
         off.setOnClickListener(view -> {
@@ -9470,13 +9502,13 @@ public final class MainActivity extends Activity {
             String mode = Arrays.asList(MODE_IDS).contains(item.mode) ? MODE_NAMES[modeIndex(item.mode)] : item.mode;
             name.setText(item.title + "\n" + mode + (item.modified > 0 ? " · 백업 " + formatTimestamp(item.modified) : ""));
             name.setTextSize(12.0f);
-            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
             TextView state = new TextView(this);
             state.setText(labels[item.state]);
             state.setTextSize(10.5f);
             state.setTypeface(Typeface.DEFAULT_BOLD);
-            state.setTextColor(colors[item.state]);
+            state.setTextColor(Theme.text(colors[item.state]));
             row.addView(state);
             list.addView(row);
         }
@@ -9484,7 +9516,7 @@ public final class MainActivity extends Activity {
         final CheckBox keepNewer = new CheckBox(this);
         keepNewer.setText("폰 세이브가 더 최신이면 그대로 두기\n끄면 백업으로 덮어써요 (덮기 전에 세이브 백업을 남겨요)");
         keepNewer.setTextSize(12.5f);
-        keepNewer.setTextColor(Color.rgb(31, 41, 51));
+        keepNewer.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         keepNewer.setChecked(true);
         addPageRow(body, keepNewer);
         addPageRow(body, settingsRow("알아두기", "게임 파일(롬)은 백업에 없어요. 이 폰에 없는 게임의 세이브는 보관해 두었다가, 같은 이름의 롬을 가져오면 이어서 쓸 수 있어요.", null));
@@ -9738,7 +9770,7 @@ public final class MainActivity extends Activity {
         final CheckBox backup = new CheckBox(this);
         backup.setText("지금 앱 안의 Wii 저장 데이터 백업해 두기\n(미니 Wii 세이브 · 시스템 설정 · 받은 채널, 되돌리기용)");
         backup.setTextSize(12.5f);
-        backup.setTextColor(Color.rgb(31, 41, 51));
+        backup.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         backup.setChecked(true);
         panel.addView(backup);
         new AppDialog.Builder(this).setTitle("내 Wii NAND 가져오기")
@@ -10067,7 +10099,7 @@ public final class MainActivity extends Activity {
         final int teal = Color.rgb(14, 116, 144);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(1);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(Theme.bg(Color.WHITE));
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(1);
         top.setPadding(dp(14), dp(14), dp(14), dp(8));
@@ -10076,14 +10108,14 @@ public final class MainActivity extends Activity {
         TextView back = new TextView(this);
         back.setText("←");
         back.setTextSize(18.0f);
-        back.setTextColor(Color.rgb(55, 65, 81));
+        back.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         back.setPadding(0, 0, dp(12), 0);
         titleRow.addView(back);
         TextView title = new TextView(this);
         title.setText(folderMode ? "폴더째로 연결하기" : "파일 골라 연결하기");
         title.setTextSize(16.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(17, 24, 39));
+        title.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
         titleRow.addView(title);
         top.addView(titleRow);
         String rootPath = phoneRoot().getAbsolutePath();
@@ -10091,7 +10123,7 @@ public final class MainActivity extends Activity {
         TextView path = new TextView(this);
         path.setText(shown);
         path.setTextSize(11.5f);
-        path.setTextColor(teal);
+        path.setTextColor(Theme.text(teal));
         path.setPadding(0, dp(6), 0, 0);
         top.addView(path);
         android.widget.HorizontalScrollView shortcutScroll = new android.widget.HorizontalScrollView(this);
@@ -10192,18 +10224,18 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText(MODE_NAMES[modeIndex(mode)] + " 게임 파일만 보여요" + (hidden > 0 ? " · 다른 파일 " + hidden + "개 숨김" : ""));
         note.setTextSize(11.0f);
-        note.setTextColor(Color.rgb(148, 163, 184));
+        note.setTextColor(Theme.text(Color.rgb(148, 163, 184)));
         note.setPadding(dp(6), dp(10), 0, 0);
         rows.addView(note);
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(1);
         bottom.setPadding(dp(14), dp(10), dp(14), dp(14));
-        bottom.setBackgroundColor(Color.WHITE);
+        bottom.setBackgroundColor(Theme.bg(Color.WHITE));
         bottom.setElevation(dp(6));
         TextView summary = new TextView(this);
         summary.setTextSize(12.5f);
         summary.setTypeface(Typeface.DEFAULT_BOLD);
-        summary.setTextColor(Color.rgb(17, 24, 39));
+        summary.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
         bottom.addView(summary);
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = multiDeleteButton("취소", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
@@ -10262,7 +10294,7 @@ public final class MainActivity extends Activity {
             View box = new View(this);
             GradientDrawable shape = rounded(checked[0] ? Color.rgb(14, 116, 144) : Color.WHITE, dp(6));
             if (!checked[0]) {
-                shape.setStroke(dp(2), Color.rgb(203, 213, 225));
+                shape.setStroke(dp(2), Theme.line(Color.rgb(203, 213, 225)));
             }
             box.setBackground(shape);
             LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(20), dp(20));
@@ -10274,7 +10306,7 @@ public final class MainActivity extends Activity {
         badge.setTextSize(folder ? 15.0f : 11.0f);
         badge.setTypeface(Typeface.DEFAULT_BOLD);
         badge.setGravity(17);
-        badge.setTextColor(folder ? Color.rgb(3, 105, 161) : Color.rgb(14, 116, 144));
+        badge.setTextColor(Theme.text(folder ? Color.rgb(3, 105, 161) : Color.rgb(14, 116, 144)));
         badge.setBackground(rounded(folder ? Color.rgb(224, 242, 254) : Color.rgb(236, 254, 255), dp(9)));
         row.addView(badge, new LinearLayout.LayoutParams(dp(38), dp(38)));
         LinearLayout texts = new LinearLayout(this);
@@ -10283,14 +10315,14 @@ public final class MainActivity extends Activity {
         title.setText(name);
         title.setTextSize(13.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         texts.addView(title);
         TextView sub = new TextView(this);
         sub.setText(detail);
         sub.setTextSize(11.0f);
-        sub.setTextColor(Color.rgb(107, 114, 128));
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         texts.addView(sub);
         LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         textsParams.setMargins(dp(10), 0, 0, 0);
@@ -10299,7 +10331,7 @@ public final class MainActivity extends Activity {
             TextView more = new TextView(this);
             more.setText("›");
             more.setTextSize(15.0f);
-            more.setTextColor(Color.rgb(148, 163, 184));
+            more.setTextColor(Theme.text(Color.rgb(148, 163, 184)));
             row.addView(more);
         }
         return row;
@@ -10338,7 +10370,7 @@ public final class MainActivity extends Activity {
                     View box = holder[0].getChildAt(0);
                     GradientDrawable shape = rounded(checked[index] ? teal : Color.WHITE, dp(6));
                     if (!checked[index]) {
-                        shape.setStroke(dp(2), Color.rgb(203, 213, 225));
+                        shape.setStroke(dp(2), Theme.line(Color.rgb(203, 213, 225)));
                     }
                     box.setBackground(shape);
                 });
@@ -10349,7 +10381,7 @@ public final class MainActivity extends Activity {
         final CheckBox auto = new CheckBox(this);
         auto.setText("이 폴더에 새 게임이 생기면 다음에 켤 때 자동으로 연결");
         auto.setTextSize(12.5f);
-        auto.setTextColor(Color.rgb(31, 41, 51));
+        auto.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         auto.setChecked(true);
         addPageRow(body, auto);
         TextView go = multiDeleteButton("연결하기", teal, -1);
@@ -10571,7 +10603,7 @@ public final class MainActivity extends Activity {
         label.setText("저장할 곳");
         label.setTextSize(12.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(55, 65, 81));
+        label.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         label.setPadding(0, dp(12), 0, 0);
         panel.addView(label);
         final android.widget.RadioGroup group = new android.widget.RadioGroup(this);
@@ -10631,7 +10663,7 @@ public final class MainActivity extends Activity {
         text.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(107, 114, 128)), title.length() + 1, text.length(), 0);
         button.setText(text);
         button.setTextSize(13.0f);
-        button.setTextColor(Color.rgb(31, 41, 51));
+        button.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         button.setPadding(dp(4), dp(4), 0, dp(4));
         group.addView(button);
         kinds.add(new int[]{where, variant});
@@ -10850,7 +10882,7 @@ public final class MainActivity extends Activity {
             final CheckBox toLinks = new CheckBox(this);
             toLinks.setText("끝나면 전부 연결로 바꾸기 (앱 안 복사본을 지워 " + formatSize(bytes) + "를 비워요)");
             toLinks.setTextSize(12.5f);
-        toLinks.setTextColor(Color.rgb(31, 41, 51));
+        toLinks.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             addPageRow(body, toLinks);
             TextView go = multiDeleteButton(games + "개 내보내기 · " + formatSize(bytes), teal, -1);
             go.setOnClickListener(view -> {
@@ -10936,14 +10968,14 @@ public final class MainActivity extends Activity {
 
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
     private void showHelp() {
-        final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_Light_NoActionBar);
+        final Dialog dialog = new Dialog(this, Theme.isDark() ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(1);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(Theme.bg(Color.WHITE));
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(16);
         bar.setPadding(dp(14), dp(12), dp(14), dp(12));
-        bar.setBackgroundColor(Color.rgb(22, 163, 74));
+        bar.setBackgroundColor(Theme.bg(Color.rgb(22, 163, 74)));
         TextView close = new TextView(this);
         close.setText("✕");
         close.setTextSize(18.0f);
@@ -10988,7 +11020,8 @@ public final class MainActivity extends Activity {
             return false;
         });
         dialog.setOnDismissListener(d -> web.destroy());
-        web.loadUrl("file:///android_asset/help/overview.html");
+        web.setBackgroundColor(Theme.isDark() ? Color.rgb(18, 20, 24) : Color.rgb(244, 245, 248));
+        web.loadUrl("file:///android_asset/help/overview-" + (Theme.isDark() ? "dark" : "light") + ".html");
         dialog.show();
     }
 
@@ -11015,7 +11048,7 @@ public final class MainActivity extends Activity {
         text.setText(label);
         text.setTextSize(12.5f);
         text.setTypeface(Typeface.DEFAULT_BOLD);
-        text.setTextColor(danger ? Color.rgb(217, 61, 66) : Color.rgb(31, 41, 51));
+        text.setTextColor(Theme.text(danger ? Color.rgb(217, 61, 66) : Color.rgb(31, 41, 51)));
         text.setGravity(1);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
         textParams.setMargins(0, dp(7), 0, 0);
@@ -11024,7 +11057,7 @@ public final class MainActivity extends Activity {
             TextView subText = new TextView(this);
             subText.setText(sub);
             subText.setTextSize(10.5f);
-            subText.setTextColor(Color.rgb(138, 146, 156));
+            subText.setTextColor(Theme.text(Color.rgb(138, 146, 156)));
             subText.setGravity(1);
             tile.addView(subText, new LinearLayout.LayoutParams(-2, -2));
         }
@@ -11041,8 +11074,8 @@ public final class MainActivity extends Activity {
         button.setOrientation(0);
         button.setGravity(17);
         GradientDrawable outline = new GradientDrawable();
-        outline.setColor(-1);
-        outline.setStroke(Math.round(1.5f * getResources().getDisplayMetrics().density), Color.rgb(243, 199, 200));
+        outline.setColor(Theme.bg(-1));
+        outline.setStroke(Math.round(1.5f * getResources().getDisplayMetrics().density), Theme.line(Color.rgb(243, 199, 200)));
         outline.setCornerRadius(dp(13));
         button.setBackground(outline);
         RoundIconView iconView = new RoundIconView(this, icon, Color.rgb(229, 72, 77));
@@ -11051,7 +11084,7 @@ public final class MainActivity extends Activity {
         text.setText(label);
         text.setTextSize(13.5f);
         text.setTypeface(Typeface.DEFAULT_BOLD);
-        text.setTextColor(Color.rgb(229, 72, 77));
+        text.setTextColor(Theme.text(Color.rgb(229, 72, 77)));
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
         textParams.setMargins(dp(6), 0, 0, 0);
         button.addView(text, textParams);
@@ -11103,13 +11136,13 @@ public final class MainActivity extends Activity {
         title.setText("기본 엔진");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setPadding(dp(4), 0, dp(4), 0);
         panel.addView(title);
         TextView sub = new TextView(this);
         sub.setText(MODE_NAMES[modeIndex(this.currentMode)] + " · 게임을 길게 누르면 게임별로 바꿀 수 있어요");
         sub.setTextSize(12.0f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         sub.setPadding(dp(4), dp(2), dp(4), dp(4));
         panel.addView(sub);
         String current = defaultCoreFor(this.currentMode);
@@ -11160,7 +11193,7 @@ public final class MainActivity extends Activity {
         name.setText(ENGINE_NAMES[index]);
         name.setTextSize(14.5f);
         name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setTextColor(text);
+        name.setTextColor(Theme.text(text));
         top.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
         if (selected) {
             TextView badge = new TextView(this);
@@ -11176,7 +11209,7 @@ public final class MainActivity extends Activity {
         TextView note = new TextView(this);
         note.setText(ENGINE_NOTES[index]);
         note.setTextSize(11.5f);
-        note.setTextColor(selected ? Color.argb(200, 255, 255, 255) : Color.rgb(122, 130, 140));
+        note.setTextColor(Theme.text(selected ? Color.argb(200, 255, 255, 255) : Color.rgb(122, 130, 140)));
         card.addView(note);
         LinearLayout bars = new LinearLayout(this);
         bars.setOrientation(0);
@@ -11197,7 +11230,7 @@ public final class MainActivity extends Activity {
         name.setText(label);
         name.setTextSize(11.0f);
         name.setTypeface(Typeface.DEFAULT_BOLD);
-        name.setTextColor(text);
+        name.setTextColor(Theme.text(text));
         row.addView(name);
         for (int i = 0; i < 5; i++) {
             View step = new View(this);
@@ -11865,11 +11898,11 @@ public final class MainActivity extends Activity {
         title.setText("삭제할 게임 선택");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(17, 24, 39));
+        title.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
         titles.addView(title);
         final TextView sub = new TextView(this);
         sub.setTextSize(12.0f);
-        sub.setTextColor(Color.rgb(107, 114, 128));
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         titles.addView(sub);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(10), 0, 0, 0);
@@ -11902,7 +11935,7 @@ public final class MainActivity extends Activity {
         bottom.setOrientation(1);
         bottom.setPadding(dp(16), dp(10), dp(16), dp(14));
         GradientDrawable bottomLine = new GradientDrawable();
-        bottomLine.setColor(-1);
+        bottomLine.setColor(Theme.bg(-1));
         bottomLine.setCornerRadii(new float[]{0, 0, 0, 0, dp(24), dp(24), dp(24), dp(24)});
         bottom.setBackground(bottomLine);
         bottom.setElevation(dp(6));
@@ -11911,12 +11944,12 @@ public final class MainActivity extends Activity {
         final TextView picked = new TextView(this);
         picked.setTextSize(13.0f);
         picked.setTypeface(Typeface.DEFAULT_BOLD);
-        picked.setTextColor(Color.rgb(17, 24, 39));
+        picked.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
         summary.addView(picked, new LinearLayout.LayoutParams(0, -2, 1.0f));
         final TextView onlyPicked = new TextView(this);
         onlyPicked.setTextSize(12.0f);
         onlyPicked.setTypeface(Typeface.DEFAULT_BOLD);
-        onlyPicked.setTextColor(teal);
+        onlyPicked.setTextColor(Theme.text(teal));
         onlyPicked.setPadding(dp(6), dp(4), 0, dp(4));
         summary.addView(onlyPicked);
         bottom.addView(summary);
@@ -11991,7 +12024,7 @@ public final class MainActivity extends Activity {
                 View box = new View(this);
                 GradientDrawable boxShape = rounded(checked[i] ? teal : -1, dp(6));
                 if (!checked[i]) {
-                    boxShape.setStroke(dp(2), Color.rgb(203, 213, 225));
+                    boxShape.setStroke(dp(2), Theme.line(Color.rgb(203, 213, 225)));
                 }
                 box.setBackground(boxShape);
                 row.addView(box, new LinearLayout.LayoutParams(dp(20), dp(20)));
@@ -12001,7 +12034,7 @@ public final class MainActivity extends Activity {
                 name.setSingleLine(true);
                 name.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 name.setTypeface(checked[i] ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-                name.setTextColor(checked[i] ? teal : Color.rgb(31, 41, 51));
+                name.setTextColor(Theme.text(checked[i] ? teal : Color.rgb(31, 41, 51)));
                 LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
                 nameParams.setMargins(dp(10), 0, 0, 0);
                 row.addView(name, nameParams);
@@ -12010,7 +12043,7 @@ public final class MainActivity extends Activity {
                     tag.setText("💾 세이브");
                     tag.setTextSize(10.5f);
                     tag.setTypeface(Typeface.DEFAULT_BOLD);
-                    tag.setTextColor(blue);
+                    tag.setTextColor(Theme.text(blue));
                     tag.setPadding(dp(6), dp(1), dp(6), dp(1));
                     tag.setBackground(rounded(Color.rgb(219, 234, 254), dp(7)));
                     LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(-2, -2);
@@ -12043,7 +12076,7 @@ public final class MainActivity extends Activity {
                 TextView note = new TextView(this);
                 note.setText(state);
                 note.setTextSize(11.5f);
-                note.setTextColor(color);
+                note.setTextColor(Theme.text(color));
                 note.setGravity(17);
                 note.setPadding(0, dp(12), 0, dp(4));
                 rows.addView(note, new LinearLayout.LayoutParams(-1, -2));
@@ -12058,7 +12091,7 @@ public final class MainActivity extends Activity {
                     anySave = true;
                 }
             }
-            deleteSaves.setTextColor(anySave ? Color.rgb(55, 65, 81) : Color.rgb(203, 213, 225));
+            deleteSaves.setTextColor(Theme.text(anySave ? Color.rgb(55, 65, 81) : Color.rgb(203, 213, 225)));
             summarize.run();
         };
         selectAll.setOnClickListener(view -> {
@@ -12136,7 +12169,7 @@ public final class MainActivity extends Activity {
         button.setText(text);
         button.setTextSize(14.5f);
         button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setTextColor(color);
+        button.setTextColor(Theme.text(color));
         button.setGravity(17);
         button.setBackground(rounded(background, dp(13)));
         return button;
@@ -12155,9 +12188,9 @@ public final class MainActivity extends Activity {
     // color 0: off (grey); otherwise filled with it.
     private void styleMultiDeleteChip(TextView chip, int color) {
         GradientDrawable shape = rounded(color == 0 ? Color.rgb(241, 245, 249) : color, dp(15));
-        shape.setStroke(Math.max(1, dp(1)), color == 0 ? Color.rgb(226, 232, 240) : color);
+        shape.setStroke(Math.max(1, dp(1)), Theme.line(color == 0 ? Color.rgb(226, 232, 240) : color));
         chip.setBackground(shape);
-        chip.setTextColor(color == 0 ? Color.rgb(71, 85, 105) : -1);
+        chip.setTextColor(Theme.text(color == 0 ? Color.rgb(71, 85, 105) : -1));
     }
 
     // A game's size on disk, with a sheet's tracks.
@@ -12239,7 +12272,7 @@ public final class MainActivity extends Activity {
         final CheckBox withSaves = new CheckBox(this);
         withSaves.setText("세이브와 저장 칸도 함께 지우기");
         withSaves.setTextSize(13.0f);
-        withSaves.setTextColor(Color.rgb(55, 65, 81));
+        withSaves.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
         new AppDialog.Builder(this).setTitle("ROM을 삭제할까요?")
                 .setMessage(displayGameNameFor(file) + " · " + formatSize(file.length()) + (isLink(file) ? "\n\n🔗 연결만 지워요. 폰에 있는 원본 파일은 그대로예요." : "\n\nMini Emulator 안에 가져온 복사본만 지워요. 원본 파일은 그대로 둡니다.")
                         + (hasSaves ? "\n이 게임의 세이브 · 빠른 저장 · 내 칸은 남아요. 같이 지우려면 아래를 켜 주세요." : ""))
@@ -12637,13 +12670,13 @@ public final class MainActivity extends Activity {
         title.setText("ROM 검사");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setPadding(dp(4), 0, dp(4), 0);
         panel.addView(title);
         TextView sub = new TextView(this);
         sub.setText(MODE_NAMES[modeIndex(this.currentMode)] + " · " + total + "개 검사");
         sub.setTextSize(12.0f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         sub.setPadding(dp(4), dp(2), dp(4), 0);
         panel.addView(sub);
 
@@ -12683,7 +12716,7 @@ public final class MainActivity extends Activity {
             boolean arcade = "arcade".equals(this.currentMode) || "neogeo".equals(this.currentMode);
             hint.setText(arcade ? "파일이 부족한 롬셋은 실행되지 않을 수 있어요" : "한글 패치 롬은 헤더가 달라도 대부분 실행돼요");
             hint.setTextSize(11.0f);
-            hint.setTextColor(Color.rgb(138, 146, 156));
+            hint.setTextColor(Theme.text(Color.rgb(138, 146, 156)));
             hint.setGravity(1);
             hint.setPadding(0, dp(8), 0, 0);
             panel.addView(hint, new LinearLayout.LayoutParams(-1, -2));
@@ -12720,7 +12753,7 @@ public final class MainActivity extends Activity {
         title.setText(name);
         title.setTextSize(13.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         row.addView(title, new LinearLayout.LayoutParams(0, -2, 1.0f));
@@ -12729,7 +12762,7 @@ public final class MainActivity extends Activity {
         tag.setText(badge);
         tag.setTextSize(10.5f);
         tag.setTypeface(Typeface.DEFAULT_BOLD);
-        tag.setTextColor(color);
+        tag.setTextColor(Theme.text(color));
         tag.setPadding(dp(7), dp(3), dp(7), dp(3));
         tag.setBackground(rounded(Color.argb(31, Color.red(color), Color.green(color), Color.blue(color)), dp(7)));
         LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(-2, -2);
@@ -14122,7 +14155,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -14150,12 +14183,12 @@ public final class MainActivity extends Activity {
         title.setText("PC엔진 CD BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView state = new TextView(this);
         state.setText(present ? pceBiosStatusText() + " · syscard3.pce" : "등록된 BIOS 없음");
         state.setTextSize(12.0f);
-        state.setTextColor(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        state.setTextColor(Theme.text(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         titles.addView(state);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -14176,7 +14209,7 @@ public final class MainActivity extends Activity {
         note.setText(android.text.Html.fromHtml("직접 가진 System Card에서 추출한 BIOS를 골라 주세요.<br>보통 <b>syscard3.pce</b> (256KB) 파일이에요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -14278,7 +14311,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -14305,12 +14338,12 @@ public final class MainActivity extends Activity {
         title.setText("세가 새턴 BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView state = new TextView(this);
         state.setText(present ? "등록됨 · saturn_bios.bin" : "등록된 BIOS 없음");
         state.setTextSize(12.0f);
-        state.setTextColor(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        state.setTextColor(Theme.text(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         titles.addView(state);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -14322,7 +14355,7 @@ public final class MainActivity extends Activity {
                 + "무거운 기종이라 휴대폰에 따라 느릴 수 있어요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -14429,7 +14462,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -14457,7 +14490,7 @@ public final class MainActivity extends Activity {
         title.setText("메가CD BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         StringBuilder state = new StringBuilder();
         for (int k = 0; k < MCD_REGIONS.length; k++) {
@@ -14469,7 +14502,7 @@ public final class MainActivity extends Activity {
         TextView stateView = new TextView(this);
         stateView.setText(state.toString());
         stateView.setTextSize(12.0f);
-        stateView.setTextColor(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103));
+        stateView.setTextColor(Theme.text(present ? Color.rgb(22, 163, 74) : Color.rgb(239, 84, 103)));
         titles.addView(stateView);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -14491,7 +14524,7 @@ public final class MainActivity extends Activity {
                 + "미국판 게임은 <b>미국</b>, 일본판은 <b>일본</b> BIOS로 켜져요. 지역은 파일 안을 보고 알아서 정해요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -14732,7 +14765,7 @@ public final class MainActivity extends Activity {
                 line.setText("• " + (extra.isUpdate() ? "업데이트 " + (extra.version >= 0 ? N3dsCia.versionName(extra.version) : "") : "DLC") + "  ·  " + N3dsCia.hex(extra.titleId)
                         + "  ·  " + formatSize(extra.size) + "\n   " + (game != null ? "→ " + displayGameNameFor(game) : "→ 맞는 게임이 목록에 없음 (지역판이 다를 수 있어요)"));
                 line.setTextSize(12.0f);
-                line.setTextColor(game != null ? Color.rgb(75, 85, 99) : Color.rgb(154, 91, 0));
+                line.setTextColor(Theme.text(game != null ? Color.rgb(75, 85, 99) : Color.rgb(154, 91, 0)));
                 line.setPadding(dp(4), dp(2), 0, dp(2));
                 panel.addView(line, new LinearLayout.LayoutParams(-1, -2));
             }
@@ -14743,7 +14776,7 @@ public final class MainActivity extends Activity {
                 TextView line = new TextView(this);
                 line.setText("• " + game.getName() + "  ·  " + formatSize(N3dsCia.sizeOf(game)));
                 line.setTextSize(12.0f);
-                line.setTextColor(Color.rgb(75, 85, 99));
+                line.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
                 line.setPadding(dp(4), dp(2), 0, dp(2));
                 panel.addView(line, new LinearLayout.LayoutParams(-1, -2));
             }
@@ -14932,12 +14965,12 @@ public final class MainActivity extends Activity {
         title.setText(name);
         title.setTextSize(13.5f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         words.addView(title);
         TextView sub = new TextView(this);
         sub.setText(detail);
         sub.setTextSize(11.5f);
-        sub.setTextColor(Color.rgb(122, 130, 140));
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
         words.addView(sub);
         LinearLayout.LayoutParams wordsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         wordsParams.setMargins(dp(10), 0, 0, 0);
@@ -14977,12 +15010,12 @@ public final class MainActivity extends Activity {
             name.setText(info.name);
             name.setTextSize(13.5f);
             name.setTypeface(Typeface.DEFAULT_BOLD);
-            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             row.addView(name);
             TextView status = new TextView(this);
             status.setText("대기 중 · " + formatSize(info.size));
             status.setTextSize(11.5f);
-            status.setTextColor(Color.rgb(122, 130, 140));
+            status.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
             row.addView(status);
             android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
             bar.setMax(1000);
@@ -15047,7 +15080,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     bars.get(index).setVisibility(View.GONE);
                     statusViews.get(index).setText((ok ? "✓ " : "✕ ") + shown);
-                    statusViews.get(index).setTextColor(ok ? Color.rgb(22, 163, 74) : Color.rgb(229, 72, 77));
+                    statusViews.get(index).setTextColor(Theme.text(ok ? Color.rgb(22, 163, 74) : Color.rgb(229, 72, 77)));
                 });
             }
             runOnUiThread(() -> {
@@ -15163,7 +15196,7 @@ public final class MainActivity extends Activity {
         label.setText("업데이트 · DLC 관리");
         label.setTextSize(14.0f);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        label.setTextColor(Color.rgb(31, 41, 51));
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
         labelParams.setMargins(dp(12), 0, 0, 0);
         row.addView(label, labelParams);
@@ -15172,7 +15205,7 @@ public final class MainActivity extends Activity {
         value.setText((extras.isEmpty() ? (installedGame ? "CIA 게임" : "없음") : extras.size() + "개 설치됨") + "  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
-        value.setTextColor(extras.isEmpty() ? Color.rgb(122, 130, 140) : COLOR_N3DS);
+        value.setTextColor(Theme.text(extras.isEmpty() ? Color.rgb(122, 130, 140) : COLOR_N3DS));
         row.addView(value);
         row.setClickable(true);
         row.setOnClickListener(view -> {
@@ -15192,7 +15225,7 @@ public final class MainActivity extends Activity {
             TextView empty = new TextView(this);
             empty.setText("설치된 업데이트 · DLC가 없어요");
             empty.setTextSize(12.0f);
-            empty.setTextColor(Color.rgb(154, 163, 178));
+            empty.setTextColor(Theme.text(Color.rgb(154, 163, 178)));
             empty.setGravity(17);
             empty.setPadding(0, dp(14), 0, dp(6));
             panel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
@@ -15205,10 +15238,10 @@ public final class MainActivity extends Activity {
             remove.setText("지우기");
             remove.setTextSize(12.0f);
             remove.setTypeface(Typeface.DEFAULT_BOLD);
-            remove.setTextColor(Color.rgb(229, 72, 77));
+            remove.setTextColor(Theme.text(Color.rgb(229, 72, 77)));
             remove.setPadding(dp(10), dp(5), dp(10), dp(5));
             GradientDrawable outline = rounded(Color.WHITE, dp(999));
-            outline.setStroke(dp(1), Color.rgb(243, 194, 197));
+            outline.setStroke(dp(1), Theme.line(Color.rgb(243, 194, 197)));
             remove.setBackground(outline);
             remove.setOnClickListener(view -> {
                 dialog.dismiss();
@@ -15288,7 +15321,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -15316,12 +15349,12 @@ public final class MainActivity extends Activity {
         title.setText("Wii U 키 파일");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView state = new TextView(this);
         state.setText(present ? "keys.txt 등록됨" : "등록된 키 없음 · .wua만 실행");
         state.setTextSize(12.0f);
-        state.setTextColor(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        state.setTextColor(Theme.text(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR));
         titles.addView(state);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -15343,7 +15376,7 @@ public final class MainActivity extends Activity {
                 + "앱에는 키가 들어 있지 않아요. 디스크 이미지 옆에 같은 이름의 .key 파일이 있어도 돼요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -15432,7 +15465,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -15460,12 +15493,12 @@ public final class MainActivity extends Activity {
         title.setText("3DS 키 파일");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView state = new TextView(this);
         state.setText(present ? "aes_keys.txt 등록됨" : "등록된 키 없음 · 복호화된 게임만 실행");
         state.setTextSize(12.0f);
-        state.setTextColor(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        state.setTextColor(Theme.text(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR));
         titles.addView(state);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -15486,7 +15519,7 @@ public final class MainActivity extends Activity {
         note.setText(android.text.Html.fromHtml("직접 가진 3DS에서 추출한 <b>aes_keys.txt</b>를 골라 주세요.<br>글자 파일이에요 (slot0x…KeyX=… 같은 줄들). 시스템 폰트·NAND 없이도 카트리지 게임은 이 키만 있으면 돼요.<br>CIA 설치·업데이트·DLC는 다음 버전에서 추가할 예정이에요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -15624,7 +15657,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -15652,12 +15685,12 @@ public final class MainActivity extends Activity {
         title.setText("PS1 BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView state = new TextView(this);
         state.setText(present ? "실제 BIOS 등록됨 · " + formatSize(ps1BiosFile().length()) : "등록된 BIOS 없음 · 내장 BIOS로 실행 중");
         state.setTextSize(12.0f);
-        state.setTextColor(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        state.setTextColor(Theme.text(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR));
         titles.addView(state);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -15678,7 +15711,7 @@ public final class MainActivity extends Activity {
         note.setText(android.text.Html.fromHtml("직접 가진 PS1에서 추출한 BIOS(512KB)를 골라 주세요. <b>scph1001.bin · scph5501.bin · scph7001.bin · psxonpsp660.bin</b> 같은 파일이고, .zip에 든 것도 돼요.<br>BIOS 없이도 내장 BIOS로 대부분 게임이 돌아가요. 메모리 카드 화면이 깨지거나 부팅이 안 되는 게임이 있을 때만 넣으면 됩니다. 지역(미국·일본·유럽)은 아무것이나 돼요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -15813,7 +15846,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -15827,13 +15860,13 @@ public final class MainActivity extends Activity {
         title.setText("Naomi · Atomiswave BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
         TextView note = new TextView(this);
         note.setText(android.text.Html.fromHtml("Flycast는 드림캐스트 BIOS 폴더(system/dc)에서 기판 BIOS도 찾아요. MAME 이름 그대로 넣어 주세요.<br><b>naomi.zip</b> Naomi 게임 · <b>naomi2.zip</b> Naomi 2 게임(VF4 등) · <b>awbios.zip</b> Atomiswave 게임", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         note.setPadding(0, dp(8), 0, dp(10));
         panel.addView(note);
         String[] labels = {"naomi.zip", "naomi2.zip", "awbios.zip", "dc_boot.bin"};
@@ -15849,13 +15882,13 @@ public final class MainActivity extends Activity {
             name.setText(labels[k]);
             name.setTextSize(13.0f);
             name.setTypeface(Typeface.MONOSPACE);
-            name.setTextColor(Color.rgb(31, 41, 51));
+            name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
             row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
             TextView state = new TextView(this);
             state.setText(file.isFile() ? "등록됨 · " + formatSize(file.length()) : "없음 · " + notes[k]);
             state.setTextSize(11.5f);
             state.setTypeface(Typeface.DEFAULT_BOLD);
-            state.setTextColor(file.isFile() ? Color.rgb(22, 163, 74) : Color.rgb(185, 28, 28));
+            state.setTextColor(Theme.text(file.isFile() ? Color.rgb(22, 163, 74) : Color.rgb(185, 28, 28)));
             row.addView(state);
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
             rowParams.setMargins(0, dp(6), 0, 0);
@@ -16044,7 +16077,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -16072,12 +16105,12 @@ public final class MainActivity extends Activity {
         title.setText("드림캐스트 BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView state = new TextView(this);
         state.setText(present ? (dcFlashFile().isFile() ? "dc_boot.bin · dc_flash.bin" : "dc_boot.bin") : "등록된 BIOS 없음 · 내장 BIOS로 실행 중");
         state.setTextSize(12.0f);
-        state.setTextColor(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR);
+        state.setTextColor(Theme.text(present ? Color.rgb(22, 163, 74) : STATUS_TEXT_COLOR));
         titles.addView(state);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -16098,7 +16131,7 @@ public final class MainActivity extends Activity {
         note.setText(android.text.Html.fromHtml("직접 가진 드림캐스트에서 추출한 BIOS를 골라 주세요.<br><b>dc_boot.bin</b> (2MB)이 BIOS, <b>dc_flash.bin</b> (128KB)은 본체 설정이에요.<br>하나씩 고르거나 둘을 담은 .zip을 고르면 돼요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -16303,7 +16336,7 @@ public final class MainActivity extends Activity {
         panel.setOrientation(1);
         panel.setPadding(dp(18), dp(10), dp(18), dp(22));
         android.graphics.drawable.GradientDrawable sheet = new android.graphics.drawable.GradientDrawable();
-        sheet.setColor(Color.WHITE);
+        sheet.setColor(Theme.bg(Color.WHITE));
         float r = dp(22);
         sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         panel.setBackground(sheet);
@@ -16331,12 +16364,12 @@ public final class MainActivity extends Activity {
         title.setText("PS2 BIOS");
         title.setTextSize(17.0f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         titles.addView(title);
         TextView state = new TextView(this);
         state.setText(bios == null ? "등록된 BIOS 없음" : ps2BiosDescription(bios));
         state.setTextSize(12.0f);
-        state.setTextColor(bios == null ? Color.rgb(239, 84, 103) : Color.rgb(22, 163, 74));
+        state.setTextColor(Theme.text(bios == null ? Color.rgb(239, 84, 103) : Color.rgb(22, 163, 74)));
         titles.addView(state);
         LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         titlesParams.setMargins(dp(12), 0, 0, 0);
@@ -16357,7 +16390,7 @@ public final class MainActivity extends Activity {
         note.setText(android.text.Html.fromHtml("직접 가진 PS2에서 추출한 BIOS 파일을 골라 주세요.<br>보통 <b>scph</b>로 시작하는 <b>4MB .bin</b> 파일이에요.", 0));
         note.setTextSize(12.0f);
         note.setLineSpacing(0.0f, 1.25f);
-        note.setTextColor(Color.rgb(93, 103, 112));
+        note.setTextColor(Theme.text(Color.rgb(93, 103, 112)));
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
@@ -16412,28 +16445,28 @@ public final class MainActivity extends Activity {
         card.setOrientation(1);
         card.setPadding(dp(12), dp(10), dp(12), dp(10));
         android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
-        background.setColor(current ? Color.rgb(232, 239, 255) : Color.rgb(246, 247, 249));
+        background.setColor(Theme.bg(current ? Color.rgb(232, 239, 255) : Color.rgb(246, 247, 249)));
         background.setCornerRadius(dp(12));
         if (current) {
-            background.setStroke(dp(1), Color.rgb(157, 180, 245));
+            background.setStroke(dp(1), Theme.line(Color.rgb(157, 180, 245)));
         }
         card.setBackground(background);
         TextView labelView = new TextView(this);
         labelView.setText(label);
         labelView.setTextSize(12.0f);
         labelView.setTypeface(Typeface.DEFAULT_BOLD);
-        labelView.setTextColor(current ? Color.rgb(36, 84, 168) : Color.rgb(122, 130, 140));
+        labelView.setTextColor(Theme.text(current ? Color.rgb(36, 84, 168) : Color.rgb(122, 130, 140)));
         card.addView(labelView);
         TextView engineView = new TextView(this);
         engineView.setText(engine);
         engineView.setTextSize(14.0f);
         engineView.setTypeface(Typeface.DEFAULT_BOLD);
-        engineView.setTextColor(Color.rgb(31, 41, 51));
+        engineView.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         card.addView(engineView);
         TextView noteView = new TextView(this);
         noteView.setText(note);
         noteView.setTextSize(11.0f);
-        noteView.setTextColor(current ? Color.rgb(75, 95, 138) : Color.rgb(122, 130, 140));
+        noteView.setTextColor(Theme.text(current ? Color.rgb(75, 95, 138) : Color.rgb(122, 130, 140)));
         card.addView(noteView);
         return card;
     }
@@ -16443,7 +16476,7 @@ public final class MainActivity extends Activity {
         button.setText(text);
         button.setTextSize(15.0f);
         button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setTextColor(textColor);
+        button.setTextColor(Theme.text(textColor));
         button.setGravity(17);
         button.setBackground(rounded(background, dp(14)));
         return button;
@@ -16705,7 +16738,7 @@ public final class MainActivity extends Activity {
 
     private GradientDrawable rounded(int i, int i2) {
         GradientDrawable gradientDrawable = new GradientDrawable();
-        gradientDrawable.setColor(i);
+        gradientDrawable.setColor(Theme.bg(i));
         gradientDrawable.setCornerRadius(i2);
         return gradientDrawable;
     }
