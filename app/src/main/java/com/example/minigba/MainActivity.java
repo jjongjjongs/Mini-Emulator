@@ -4890,6 +4890,11 @@ public final class MainActivity extends Activity {
             unpackParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createUnpackRow(dialog, file), unpackParams);
         }
+        if (savesMovable(mode)) {
+            LinearLayout.LayoutParams importParams = new LinearLayout.LayoutParams(-1, dp(52));
+            importParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createSaveImportRow(dialog, file), importParams);
+        }
         if (MODE_PSP.equals(mode)) {
             LinearLayout.LayoutParams dlcParams = new LinearLayout.LayoutParams(-1, dp(52));
             dlcParams.setMargins(0, dp(9), 0, 0);
@@ -5757,6 +5762,7 @@ public final class MainActivity extends Activity {
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
 
+        final CheckBox carry = addSaveCarryBox(panel, file, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
         cancel.setText("취소");
@@ -5784,6 +5790,7 @@ public final class MainActivity extends Activity {
                 showError("이름을 비워둘 수 없습니다.");
                 return;
             }
+            this.carrySaveFrom = carry != null && carry.isChecked() ? file : null;
             this.patchRunning = true;
             dialog.dismiss();
             runPatch(file, gameName, newName, patch, source, check);
@@ -5917,6 +5924,8 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 romPrefs().edit().putString("title:" + out.getName(), newName).putString("patched:" + out.getName(), originalName).apply();
+                finishNewGame(file, out, this.carrySaveFrom != null);
+                this.carrySaveFrom = null;
                 Toast.makeText(this, "패치를 적용했어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 refreshLibrary();
             });
@@ -6316,6 +6325,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
+        final CheckBox carry = addSaveCarryBox(panel, file, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
         cancel.setText("취소");
@@ -6345,6 +6355,7 @@ public final class MainActivity extends Activity {
                 showError("이름을 비워둘 수 없습니다.");
                 return;
             }
+            this.carrySaveFrom = carry != null && carry.isChecked() ? file : null;
             this.patchRunning = true;
             dialog.dismiss();
             runDiscPatch(file, gameName, newName, items, source);
@@ -6513,6 +6524,8 @@ public final class MainActivity extends Activity {
                 }
                 romPrefs().edit().putString("title:" + out.getName(), newName).putString("patched:" + out.getName(), originalName)
                         .putString("patched_tracks:" + out.getName(), tracksText).apply();
+                finishNewGame(file, out, this.carrySaveFrom != null);
+                this.carrySaveFrom = null;
                 Toast.makeText(this, "패치 " + items.size() + "개를 적용했어요 (Track " + tracksText + ") · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 refreshLibrary();
             });
@@ -6790,6 +6803,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(6), 0, 0);
         panel.addView(note, noteParams);
+        final CheckBox carry = addSaveCarryBox(panel, chd, true, "세이브도 같이 옮기기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
         cancel.setText("취소");
@@ -6813,7 +6827,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             dialog.dismiss();
-            runChdUnpack(chd, thenPatch, remove.isChecked(), bytes, tracks);
+            runChdUnpack(chd, thenPatch, remove.isChecked(), bytes, tracks, carry != null && carry.isChecked());
         });
         LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
         goParams.setMargins(dp(10), 0, 0, 0);
@@ -6852,7 +6866,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void runChdUnpack(final File chd, final boolean thenPatch, final boolean removeChd, final long bytes, final int tracks) {
+    private void runChdUnpack(final File chd, final boolean thenPatch, final boolean removeChd, final long bytes, final int tracks, final boolean carrySaves) {
         final File dir = chd.getParentFile();
         final String title = displayGameNameFor(chd);
         final String name = freeGdiName(dir, sanitizeSaveBaseName(title));
@@ -6890,6 +6904,7 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 romPrefs().edit().putString("title:" + gdi.getName(), title).putBoolean("unpacked:" + gdi.getName(), true).apply();
+                finishNewGame(chd, gdi, carrySaves);
                 if (removeChd) {
                     deleteRomFiles(chd);
                 }
@@ -6981,6 +6996,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
+        final CheckBox carry = addSaveCarryBox(panel, gdi, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
         TextView cancel = new TextView(this);
         cancel.setText("취소");
@@ -7008,6 +7024,7 @@ public final class MainActivity extends Activity {
                 showError("저장 공간이 부족해요. 패치한 디스크를 만들려면 " + formatSize(plan.needed) + " 정도가 필요해요.");
                 return;
             }
+            this.carrySaveFrom = carry != null && carry.isChecked() ? gdi : null;
             this.patchRunning = true;
             dialog.dismiss();
             runDcp(gdi, gameName, newName, item, plan);
@@ -7082,10 +7099,413 @@ public final class MainActivity extends Activity {
                 }
                 romPrefs().edit().putString("title:" + sheet.getName(), newName).putString("patched:" + sheet.getName(), originalName)
                         .putString("patched_note:" + sheet.getName(), ".dcp 패치").apply();
+                finishNewGame(gdi, sheet, this.carrySaveFrom != null);
+                this.carrySaveFrom = null;
                 Toast.makeText(this, ".dcp 패치를 적용했어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
                 refreshLibrary();
             });
         }, "dcp-patch").start();
+    }
+
+    // ---- 세이브 옮기기: a game's saves copied to another (a CHD unpacked, a patched copy, any
+    // game of the same console). Always a copy; saves already there are kept as a 세이브 백업
+    // first, which shows up as a source to bring them back. ----
+
+    private File carrySaveFrom;
+
+    // A game's saves, or a backup's: the game's own save (.sav), the quick save (.state) and
+    // the save slots.
+    private static final class SaveSet {
+        String label;
+        String detail;
+        boolean original;
+        File sav;
+        File state;
+        File slots;
+        long modified;
+
+        File[] slotFiles() {
+            File[] files = this.slots == null ? null : this.slots.listFiles((dir, name) -> isQuickSaveFileName(name));
+            return files == null ? new File[0] : files;
+        }
+
+        int slotCount() {
+            int n = 0;
+            for (File file : slotFiles()) {
+                if (file.getName().endsWith(".state")) {
+                    n++;
+                }
+            }
+            return n;
+        }
+
+        boolean any() {
+            return this.sav.isFile() || this.state.isFile() || slotCount() > 0;
+        }
+    }
+
+    // Consoles whose saves are the game's own files here (not a shared memory card or system).
+    private static boolean savesMovable(String mode) {
+        return !(MODE_PS2.equals(mode) || MODE_PSP.equals(mode) || MODE_GC.equals(mode) || MODE_WIIU.equals(mode) || MODE_N3DS.equals(mode)
+                || isArcadeMode(mode) || MODE_NAOMI.equals(mode));
+    }
+
+    private SaveSet saveSetFor(File rom) {
+        migrateSaveFileIfNeeded(rom);
+        SaveSet set = new SaveSet();
+        set.label = displayGameNameFor(rom);
+        set.sav = saveFileFor(rom);
+        set.state = stateFileFor(rom);
+        set.slots = quickSaveDirFor(rom);
+        set.modified = Math.max(set.sav.lastModified(), set.state.lastModified());
+        for (File file : set.slotFiles()) {
+            set.modified = Math.max(set.modified, file.lastModified());
+        }
+        return set;
+    }
+
+    private File saveBackupsDir(File rom) {
+        return new File(new File(new File(saveDir(), "backups"), coreFor(rom)), saveBaseNameFor(rom));
+    }
+
+    private static SaveSet backupSet(File dir) {
+        SaveSet set = new SaveSet();
+        set.sav = new File(dir, "game.sav");
+        set.state = new File(dir, "game.state");
+        set.slots = new File(dir, "slots");
+        set.modified = dir.lastModified();
+        return set;
+    }
+
+    private String saveKinds(SaveSet set) {
+        List<String> kinds = new ArrayList<>();
+        if (set.sav.isFile()) {
+            kinds.add("게임 세이브");
+        }
+        if (set.state.isFile()) {
+            kinds.add("빠른 저장");
+        }
+        int slots = set.slotCount();
+        if (slots > 0) {
+            kinds.add("저장 칸 " + slots + "개");
+        }
+        return kinds.isEmpty() ? "세이브 없음" : android.text.TextUtils.join(" · ", kinds);
+    }
+
+    private static boolean copyInto(File from, File to) {
+        File parent = to.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+            return false;
+        }
+        try (InputStream in = new FileInputStream(from); OutputStream out = new FileOutputStream(to)) {
+            byte[] buffer = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                out.write(buffer, 0, n);
+            }
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    // The saves of rom put aside as a 세이브 백업 (nothing when it has none).
+    private void backupSaves(File rom) {
+        SaveSet set = saveSetFor(rom);
+        if (!set.any()) {
+            return;
+        }
+        File dir = new File(saveBackupsDir(rom), new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new java.util.Date()));
+        SaveSet backup = backupSet(dir);
+        if (set.sav.isFile()) {
+            copyInto(set.sav, backup.sav);
+        }
+        if (set.state.isFile()) {
+            copyInto(set.state, backup.state);
+        }
+        for (File file : set.slotFiles()) {
+            copyInto(file, new File(backup.slots, file.getName()));
+        }
+    }
+
+    // Copies the chosen kinds of from's saves onto rom (its own saves of those kinds go first).
+    private boolean copySaves(SaveSet from, File rom, boolean game, boolean quick, boolean slots) {
+        SaveSet to = saveSetFor(rom);
+        boolean ok = true;
+        if (game && from.sav.isFile()) {
+            to.sav.delete();
+            ok &= copyInto(from.sav, to.sav);
+        }
+        if (quick && from.state.isFile()) {
+            to.state.delete();
+            ok &= copyInto(from.state, to.state);
+        }
+        if (slots && from.slotCount() > 0) {
+            for (File file : to.slotFiles()) {
+                file.delete();
+            }
+            for (File file : from.slotFiles()) {
+                ok &= copyInto(file, new File(to.slots, file.getName()));
+            }
+        }
+        return ok;
+    }
+
+    // "세이브도 같이 옮기기" / "원본 세이브 같이 쓰기" under a dialog, when the game has saves.
+    private CheckBox addSaveCarryBox(LinearLayout panel, File source, boolean on, String text) {
+        if (!savesMovable(modeForFile(source))) {
+            return null;
+        }
+        SaveSet set = saveSetFor(source);
+        if (!set.any()) {
+            return null;
+        }
+        CheckBox box = new CheckBox(this);
+        box.setText(text + "\n" + saveKinds(set) + " · 마지막 저장 " + formatTimestamp(set.modified));
+        box.setTextSize(12.5f);
+        box.setTextColor(Color.rgb(30, 64, 175));
+        box.setChecked(on);
+        box.setPadding(dp(4), dp(6), dp(8), dp(6));
+        box.setBackground(rounded(Color.rgb(239, 246, 255), dp(12)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(10), 0, 0);
+        panel.addView(box, params);
+        return box;
+    }
+
+    // A new game made from source (unpacked or patched): remember where it came from, and
+    // bring the saves along when that was asked.
+    private void finishNewGame(File source, File made, boolean carry) {
+        romPrefs().edit().putString("source:" + made.getName(), source.getName()).apply();
+        if (carry) {
+            copySaves(saveSetFor(source), made, true, true, true);
+        }
+    }
+
+    private LinearLayout createSaveImportRow(Dialog dialog, File file) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+        row.addView(new RoundIconView(this, RoundIconView.IMPORT, Color.rgb(37, 99, 235)), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText("다른 게임에서 세이브 가져오기");
+        label.setTextSize(14.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Color.rgb(31, 41, 51));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        TextView value = new TextView(this);
+        value.setText("›");
+        value.setTextSize(14.0f);
+        value.setTypeface(Typeface.DEFAULT_BOLD);
+        value.setTextColor(Color.rgb(122, 130, 140));
+        row.addView(value);
+        row.setClickable(true);
+        row.setOnClickListener(view -> {
+            dialog.dismiss();
+            showSaveSources(file);
+        });
+        return row;
+    }
+
+    // "어느 게임의 세이브를 가져올까요?": the original first, other games of the console with
+    // saves, then this game's backups.
+    private void showSaveSources(final File dest) {
+        List<SaveSet> sources = new ArrayList<>();
+        String sourceName = romPrefs().getString("source:" + dest.getName(), null);
+        File dir = dest.getParentFile();
+        File[] games = dir == null ? null : dir.listFiles(this::isRomFile);
+        List<SaveSet> others = new ArrayList<>();
+        int empty = 0;
+        if (games != null) {
+            for (File game : games) {
+                if (game.equals(dest)) {
+                    continue;
+                }
+                SaveSet set = saveSetFor(game);
+                if (!set.any()) {
+                    empty++;
+                    continue;
+                }
+                set.detail = saveKinds(set) + " · " + formatTimestamp(set.modified);
+                if (game.getName().equals(sourceName)) {
+                    set.original = true;
+                    sources.add(0, set);
+                } else {
+                    others.add(set);
+                }
+            }
+        }
+        java.util.Collections.sort(others, (a, b) -> Long.compare(b.modified, a.modified));
+        sources.addAll(others);
+        File[] backups = saveBackupsDir(dest).listFiles(File::isDirectory);
+        if (backups != null) {
+            Arrays.sort(backups, (a, b) -> b.getName().compareTo(a.getName()));
+            for (File backup : backups) {
+                SaveSet set = backupSet(backup);
+                if (set.any()) {
+                    set.label = "이 게임의 세이브 백업";
+                    set.detail = saveKinds(set) + " · " + formatTimestamp(set.modified);
+                    sources.add(set);
+                }
+            }
+        }
+        if (sources.isEmpty()) {
+            showMessage("세이브를 가져올 게임이 없어요. 같은 게임기에 세이브가 있는 게임이 있어야 해요.");
+            return;
+        }
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        final int blue = Color.rgb(37, 99, 235);
+        cardHeader(panel, RoundIconView.IMPORT, blue, "어느 게임의 세이브를 가져올까요?", "→ " + displayGameNameFor(dest));
+        for (final SaveSet set : sources) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(1);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            GradientDrawable background = rounded(set.original ? Color.rgb(239, 246, 255) : Color.rgb(246, 247, 249), dp(12));
+            if (set.original) {
+                background.setStroke(dp(2), blue);
+            }
+            row.setBackground(background);
+            TextView name = new TextView(this);
+            name.setText(set.label + (set.original ? "  · 원본" : ""));
+            name.setTextSize(13.0f);
+            name.setTypeface(Typeface.DEFAULT_BOLD);
+            name.setTextColor(set.original ? blue : Color.rgb(31, 41, 51));
+            name.setSingleLine(true);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(name);
+            TextView detail = new TextView(this);
+            detail.setText(set.detail);
+            detail.setTextSize(11.0f);
+            detail.setTextColor(Color.rgb(107, 114, 128));
+            row.addView(detail);
+            row.setOnClickListener(view -> {
+                dialog.dismiss();
+                confirmSaveImport(set, dest);
+            });
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(row, rowParams);
+        }
+        TextView note = new TextView(this);
+        note.setText("같은 게임기에서 세이브가 있는 게임만 나와요" + (empty > 0 ? " (세이브 없는 게임 " + empty + "개는 뺐어요)" : "") + ". 원본(풀기 전 · 패치하기 전 게임)은 맨 위에 표시돼요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+        TextView cancel = multiDeleteButton("취소", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(46));
+        cancelParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(cancel, cancelParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    private void confirmSaveImport(final SaveSet from, final File dest) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        final int blue = Color.rgb(37, 99, 235);
+        cardHeader(panel, RoundIconView.IMPORT, blue, "세이브 가져오기", from.label + " → " + displayGameNameFor(dest));
+        final CheckBox game = new CheckBox(this);
+        game.setText("게임 세이브 (메모리 · 백업 램)");
+        final CheckBox quick = new CheckBox(this);
+        quick.setText("빠른 저장");
+        final CheckBox slots = new CheckBox(this);
+        slots.setText("저장 칸 " + from.slotCount() + "개 (사진 포함)");
+        boolean[] has = {from.sav.isFile(), from.state.isFile(), from.slotCount() > 0};
+        CheckBox[] boxes = {game, quick, slots};
+        for (int k = 0; k < 3; k++) {
+            boxes[k].setTextSize(13.0f);
+            boxes[k].setTextColor(Color.rgb(31, 41, 51));
+            boxes[k].setChecked(has[k]);
+            boxes[k].setEnabled(has[k]);
+            if (has[k]) {
+                panel.addView(boxes[k]);
+            }
+        }
+        SaveSet mine = saveSetFor(dest);
+        if (mine.any()) {
+            TextView warn = new TextView(this);
+            warn.setText("이 게임에도 세이브가 있어요 (" + saveKinds(mine) + ").\n가져오면 지금 세이브는 \"세이브 백업\"으로 따로 남겨두고 바꿔요. 백업은 다시 여기서 가져올 수 있어요.");
+            warn.setTextSize(12.0f);
+            warn.setTextColor(Color.rgb(154, 52, 18));
+            warn.setLineSpacing(0, 1.15f);
+            warn.setPadding(dp(12), dp(9), dp(12), dp(9));
+            warn.setBackground(rounded(Color.rgb(255, 247, 237), dp(12)));
+            LinearLayout.LayoutParams warnParams = new LinearLayout.LayoutParams(-1, -2);
+            warnParams.setMargins(0, dp(10), 0, 0);
+            panel.addView(warn, warnParams);
+        }
+        TextView note = new TextView(this);
+        note.setText("한글 패치본은 보통 원본 세이브를 그대로 쓸 수 있어요. 패치가 데이터 위치를 바꾼 게임은 세이브가 안 맞을 수 있어요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Color.rgb(75, 85, 99));
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(note, noteParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = multiDeleteButton("취소", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView go = multiDeleteButton("가져오기", blue, -1);
+        go.setOnClickListener(view -> {
+            boolean g = game.isChecked() && has[0];
+            boolean q = quick.isChecked() && has[1];
+            boolean s = slots.isChecked() && has[2];
+            if (!g && !q && !s) {
+                showError("가져올 것을 하나 이상 골라 주세요.");
+                return;
+            }
+            dialog.dismiss();
+            backupSaves(dest);
+            boolean ok = copySaves(from, dest, g, q, s);
+            refreshLibrary();
+            if (ok) {
+                Toast.makeText(this, "세이브를 가져왔어요", Toast.LENGTH_LONG).show();
+            } else {
+                showError("세이브 일부를 복사하지 못했어요. 저장 공간을 확인해 주세요.");
+            }
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(46), 1.4f);
+        goParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(go, goParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
     }
 
     private String patchedFrom(File file) {
