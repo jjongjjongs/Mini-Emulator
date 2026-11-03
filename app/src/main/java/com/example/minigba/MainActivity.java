@@ -339,6 +339,7 @@ public final class MainActivity extends Activity {
         CrashReports.installJavaHandler(this);
         registerDownloadReceiver();
         new Thread(() -> AppUpdate.cleanOldApks(getApplicationContext(), settingsPrefs()), "apk-cleanup").start();
+        cloudAutoBackup(false);
         relaunchGameIfAsked(getIntent());
         importPresetIfOpened(getIntent());
         ensureDownloadFolder();
@@ -2236,6 +2237,10 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (this.cloudAfterGame) {
+            this.cloudAfterGame = false;
+            cloudAutoBackup(true);
+        }
         updateHomeStatusCards();
         updateNote();
         refreshLibrary();
@@ -2947,6 +2952,10 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri data = intent.getData();
+        if (i == REQUEST_CLOUD_FOLDER) {
+            onCloudFolderPicked(intent);
+            return;
+        }
         if (i == REQUEST_PICK_PATCH_PREP) {
             onPrepPatchesPicked(intent);
             return;
@@ -7670,6 +7679,13 @@ public final class MainActivity extends Activity {
             dialog.dismiss();
             checkForUpdate(true);
         }));
+        Uri cloud = cloudTree();
+        long cloudLast = settingsPrefs().getLong(PREF_CLOUD_LAST, 0);
+        addPageRow(body, settingsRow("☁ 세이브 클라우드 백업", cloud == null ? "꺼져 있어요 · 폴더를 고르면 시작"
+                : "켜짐 · " + (cloudLast == 0 ? "아직 백업 전" : "마지막 " + playedAgo(cloudLast)), () -> {
+            dialog.dismiss();
+            showCloudBackup();
+        }));
         addPageRow(body, settingsRow("세이브 백업 관리", backups[0] == 0 ? "백업 없음" : "백업 " + backups[0] + "개 · " + formatSize(backups[1]), () -> {
             dialog.dismiss();
             showBackupManager();
@@ -8488,6 +8504,666 @@ public final class MainActivity extends Activity {
         renderPatchPrep();
     }
 
+    // ---- 세이브 클라우드 백업: zips of the saves written into a folder the user picks in a
+    // cloud app (Google Drive, OneDrive, Dropbox … through Android's folder picker); the cloud
+    // app uploads them. A zip holds manifest.tsv (one line per game: mode, engine, save name,
+    // game file, size, title) and the saves under games/<n>/; PS2 memory cards under ps2/. ----
+
+    private static final int REQUEST_CLOUD_FOLDER = 1061;
+    private static final String PREF_CLOUD_TREE = "cloud_tree";
+    private static final String PREF_CLOUD_AUTO = "cloud_auto";          // exit / daily / manual
+    private static final String PREF_CLOUD_PS2 = "cloud_ps2";
+    private static final String PREF_CLOUD_STATES = "cloud_states";
+    private static final String PREF_CLOUD_LAST = "cloud_last";
+    private static final String PREF_CLOUD_LAST_INFO = "cloud_last_info";
+    private static final int CLOUD_KEEP = 10;
+    private boolean cloudAfterGame;
+    private volatile boolean cloudRunning;
+    private Dialog cloudDialog;
+
+    private Uri cloudTree() {
+        String value = settingsPrefs().getString(PREF_CLOUD_TREE, null);
+        return value == null ? null : Uri.parse(value);
+    }
+
+    private String cloudFolderName(Uri tree) {
+        if (tree == null) {
+            return null;
+        }
+        try {
+            Uri doc = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, android.provider.DocumentsContract.getTreeDocumentId(tree));
+            try (Cursor cursor = getContentResolver().query(doc, new String[]{android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    String app = tree.getAuthority() == null ? "" : tree.getAuthority().contains("google") ? "Google Drive › "
+                            : tree.getAuthority().contains("microsoft") || tree.getAuthority().contains("skydrive") ? "OneDrive › "
+                            : tree.getAuthority().contains("dropbox") ? "Dropbox › " : tree.getAuthority().contains("externalstorage") ? "내 폰 › " : "";
+                    return app + cursor.getString(0);
+                }
+            }
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return null;
+    }
+
+    private void pickCloudFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, REQUEST_CLOUD_FOLDER);
+        } catch (Exception e) {
+            showError("폴더를 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    private void onCloudFolderPicked(Intent intent) {
+        Uri tree = intent.getData();
+        if (tree == null) {
+            return;
+        }
+        try {
+            getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (SecurityException e) {
+            showError("이 폴더에는 계속 쓸 수 있는 권한을 받지 못했어요. 다른 폴더를 골라 주세요.");
+            return;
+        }
+        Uri old = cloudTree();
+        if (old != null && !old.equals(tree)) {
+            try {
+                getContentResolver().releasePersistableUriPermission(old, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (SecurityException ignored) {
+                // Already gone.
+            }
+        }
+        SharedPreferences.Editor editor = settingsPrefs().edit().putString(PREF_CLOUD_TREE, tree.toString());
+        if (!settingsPrefs().contains(PREF_CLOUD_AUTO)) {
+            editor.putString(PREF_CLOUD_AUTO, "exit");
+        }
+        editor.apply();
+        showCloudBackup();
+        runCloudBackup(true);
+    }
+
+    private void showCloudBackup() {
+        if (this.cloudDialog != null && this.cloudDialog.isShowing()) {
+            this.cloudDialog.dismiss();
+        }
+        final Dialog dialog = new Dialog(this);
+        this.cloudDialog = dialog;
+        final int blue = Color.rgb(2, 132, 199);
+        final Uri tree = cloudTree();
+        String folder = cloudFolderName(tree);
+        LinearLayout body = pageDialog(dialog, "세이브 클라우드 백업", tree == null ? "내 클라우드 폴더에 세이브를 zip으로" : "켜짐 · " + (folder == null ? "고른 폴더" : folder), blue);
+        if (tree == null) {
+            addPageRow(body, settingsRow("백업 폴더", "구글 드라이브 · 원드라이브 · 드롭박스처럼 폰에 깔린 클라우드 앱의 폴더를 골라요. 앱은 고른 폴더만 볼 수 있어요.", null));
+            TextView pick = multiDeleteButton("📁 백업 폴더 고르기", Color.rgb(240, 249, 255), blue);
+            pick.setOnClickListener(view -> pickCloudFolder());
+            addPageRow(body, pick);
+            addPageRow(body, settingsRow("안전하게", "세이브는 우리 쪽 서버로 가지 않아요. 고른 클라우드 앱이 내 계정으로 올려요.", null));
+            dialog.show();
+            return;
+        }
+        long last = settingsPrefs().getLong(PREF_CLOUD_LAST, 0);
+        addPageRow(body, settingsRow(last == 0 ? "아직 백업 전이에요" : "✓ 마지막 백업 · " + formatTimestamp(last), settingsPrefs().getString(PREF_CLOUD_LAST_INFO, ""), null));
+        addPageRow(body, settingsRow("백업 폴더", (folder == null ? "고른 폴더" : folder) + " · 바꾸려면 누르기", this::pickCloudFolder));
+        TextView autoLabel = new TextView(this);
+        autoLabel.setText("자동 백업");
+        autoLabel.setTextSize(12.0f);
+        autoLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        autoLabel.setTextColor(Color.rgb(100, 116, 139));
+        autoLabel.setPadding(dp(4), dp(14), 0, 0);
+        body.addView(autoLabel);
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        group.setPadding(dp(12), dp(4), dp(12), dp(4));
+        group.setBackground(rounded(Color.WHITE, dp(14)));
+        String auto = settingsPrefs().getString(PREF_CLOUD_AUTO, "exit");
+        String[][] autos = {{"exit", "게임을 끝낼 때마다"}, {"daily", "하루 한 번 (앱을 켤 때)"}, {"manual", "직접 할 때만"}};
+        for (String[] option : autos) {
+            android.widget.RadioButton radio = new android.widget.RadioButton(this);
+            radio.setText(option[1]);
+            radio.setTextSize(13.5f);
+            radio.setTextColor(Color.rgb(31, 41, 51));
+            radio.setId(View.generateViewId());
+            group.addView(radio);
+            if (option[0].equals(auto)) {
+                radio.setChecked(true);
+            }
+            radio.setOnCheckedChangeListener((button, checked) -> {
+                if (checked) {
+                    settingsPrefs().edit().putString(PREF_CLOUD_AUTO, option[0]).apply();
+                }
+            });
+        }
+        addPageRow(body, group);
+        TextView whatLabel = new TextView(this);
+        whatLabel.setText("넣을 것");
+        whatLabel.setTextSize(12.0f);
+        whatLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        whatLabel.setTextColor(Color.rgb(100, 116, 139));
+        whatLabel.setPadding(dp(4), dp(14), 0, 0);
+        body.addView(whatLabel);
+        LinearLayout what = new LinearLayout(this);
+        what.setOrientation(1);
+        what.setPadding(dp(12), dp(4), dp(12), dp(4));
+        what.setBackground(rounded(Color.WHITE, dp(14)));
+        CheckBox games = new CheckBox(this);
+        games.setText("게임 세이브 (.sav · 메모리카드 · 백업 램) · 항상");
+        games.setChecked(true);
+        games.setEnabled(false);
+        CheckBox ps2 = new CheckBox(this);
+        ps2.setText("PS2 메모리카드 (16MB 정도)");
+        ps2.setChecked(settingsPrefs().getBoolean(PREF_CLOUD_PS2, true));
+        ps2.setOnCheckedChangeListener((b, on) -> settingsPrefs().edit().putBoolean(PREF_CLOUD_PS2, on).apply());
+        CheckBox states = new CheckBox(this);
+        states.setText("저장 칸 · 빠른 저장 (게임마다 수 MB~수십 MB)");
+        states.setChecked(settingsPrefs().getBoolean(PREF_CLOUD_STATES, false));
+        states.setOnCheckedChangeListener((b, on) -> settingsPrefs().edit().putBoolean(PREF_CLOUD_STATES, on).apply());
+        for (CheckBox box : new CheckBox[]{games, ps2, states}) {
+            box.setTextSize(13.0f);
+            box.setTextColor(Color.rgb(31, 41, 51));
+            what.addView(box);
+        }
+        addPageRow(body, what);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView restore = multiDeleteButton("⟲ 복원", Color.WHITE, Color.rgb(3, 105, 161));
+        restore.setOnClickListener(view -> showCloudRestoreList());
+        buttons.addView(restore, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView now = multiDeleteButton("☁ 지금 백업", blue, -1);
+        now.setOnClickListener(view -> runCloudBackup(true));
+        LinearLayout.LayoutParams nowParams = new LinearLayout.LayoutParams(0, dp(46), 1.4f);
+        nowParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(now, nowParams);
+        addPageRow(body, buttons);
+        TextView off = new TextView(this);
+        off.setText("클라우드 백업 끄기");
+        off.setTextSize(12.0f);
+        off.setTextColor(Color.rgb(185, 28, 28));
+        off.setGravity(17);
+        off.setPadding(0, dp(12), 0, 0);
+        off.setOnClickListener(view -> {
+            try {
+                getContentResolver().releasePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (SecurityException ignored) {
+                // Already gone.
+            }
+            settingsPrefs().edit().remove(PREF_CLOUD_TREE).apply();
+            dialog.dismiss();
+            Toast.makeText(this, "클라우드 백업을 껐어요 · 이미 올린 백업은 폴더에 남아 있어요", Toast.LENGTH_LONG).show();
+        });
+        body.addView(off, new LinearLayout.LayoutParams(-1, -2));
+        dialog.show();
+    }
+
+    // Games with saves, for a backup: every console whose saves are the game's own files.
+    private List<File> gamesWithSaves() {
+        List<File> list = new ArrayList<>();
+        for (String mode : MODE_IDS) {
+            if (!savesMovable(mode)) {
+                continue;
+            }
+            File[] files = romDirFor(mode).listFiles(this::isRomFile);
+            for (File file : files == null ? new File[0] : files) {
+                if (saveSetFor(file).any()) {
+                    list.add(file);
+                }
+            }
+        }
+        return list;
+    }
+
+    private static String tsvField(String value) {
+        return value == null ? "" : value.replace('\t', ' ').replace('\n', ' ');
+    }
+
+    // Writes the zip; {games, bytes}.
+    private long[] writeSaveZip(File zipFile, boolean ps2, boolean states) throws IOException {
+        List<File> games = gamesWithSaves();
+        StringBuilder manifest = new StringBuilder();
+        manifest.append("#mini-emulator-saves\t1\t").append(tsvField(android.os.Build.MODEL)).append('\t').append(System.currentTimeMillis()).append('\n');
+        int n = 0;
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(new FileOutputStream(zipFile))) {
+            for (File game : games) {
+                SaveSet set = saveSetFor(game);
+                String prefix = "games/" + n + "/";
+                boolean any = false;
+                if (set.sav.isFile()) {
+                    writeZipEntry(zip, set.sav, prefix + "game.sav");
+                    any = true;
+                }
+                if (states && set.state.isFile()) {
+                    writeZipEntry(zip, set.state, prefix + "game.state");
+                    any = true;
+                }
+                if (states) {
+                    for (File slot : set.slotFiles()) {
+                        writeZipEntry(zip, slot, prefix + "slots/" + slot.getName());
+                        any = true;
+                    }
+                }
+                if (!any) {
+                    continue;
+                }
+                manifest.append(n).append('\t').append(modeForFile(game)).append('\t').append(coreFor(game)).append('\t').append(tsvField(saveBaseNameFor(game)))
+                        .append('\t').append(tsvField(game.getName())).append('\t').append(romBytes(game)).append('\t').append(tsvField(displayGameNameFor(game)))
+                        .append('\t').append(set.modified).append('\n');
+                n++;
+            }
+            if (ps2) {
+                File[] cards = pcsx2MemcardDir().listFiles(f -> f.isFile() && f.getName().toLowerCase(Locale.US).endsWith(".ps2"));
+                for (File card : cards == null ? new File[0] : cards) {
+                    writeZipEntry(zip, card, "ps2/" + card.getName());
+                }
+            }
+            zip.putNextEntry(new java.util.zip.ZipEntry("manifest.tsv"));
+            zip.write(manifest.toString().getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return new long[]{n, zipFile.length()};
+    }
+
+    // Runs a backup off the main thread; shown tells the user how it went.
+    private void runCloudBackup(final boolean shown) {
+        final Uri tree = cloudTree();
+        if (tree == null || this.cloudRunning) {
+            return;
+        }
+        this.cloudRunning = true;
+        final boolean ps2 = settingsPrefs().getBoolean(PREF_CLOUD_PS2, true);
+        final boolean states = settingsPrefs().getBoolean(PREF_CLOUD_STATES, false);
+        if (shown) {
+            Toast.makeText(this, "세이브를 백업하는 중…", Toast.LENGTH_SHORT).show();
+        }
+        new Thread(() -> {
+            String error = null;
+            String info = null;
+            File temp = new File(getCacheDir(), "cloud_backup.zip");
+            try {
+                long[] result = writeSaveZip(temp, ps2, states);
+                String name = "Mini-Emulator-세이브-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new java.util.Date()) + ".zip";
+                android.content.ContentResolver resolver = getContentResolver();
+                String parentId = android.provider.DocumentsContract.getTreeDocumentId(tree);
+                Uri parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, parentId);
+                Uri doc = android.provider.DocumentsContract.createDocument(resolver, parent, "application/zip", name);
+                if (doc == null) {
+                    throw new IOException("백업 폴더에 파일을 만들지 못했어요.");
+                }
+                try (OutputStream out = resolver.openOutputStream(doc, "w"); InputStream in = new FileInputStream(temp)) {
+                    if (out == null) {
+                        throw new IOException("백업 폴더에 쓸 수 없어요.");
+                    }
+                    copy(in, out);
+                }
+                info = "게임 " + result[0] + "개 · " + formatSize(result[1]) + " · " + name;
+                // Keep the newest CLOUD_KEEP backups.
+                List<String[]> backups = listCloudBackups(tree);
+                for (int k = CLOUD_KEEP; k < backups.size(); k++) {
+                    try {
+                        android.provider.DocumentsContract.deleteDocument(resolver, Uri.parse(backups.get(k)[0]));
+                    } catch (Exception ignored) {
+                        // Left for the user.
+                    }
+                }
+                settingsPrefs().edit().putLong(PREF_CLOUD_LAST, System.currentTimeMillis()).putString(PREF_CLOUD_LAST_INFO, info).apply();
+            } catch (IOException | RuntimeException e) {
+                error = e instanceof SecurityException ? "백업 폴더에 쓸 권한이 없어졌어요. 설정 → 세이브 클라우드 백업에서 폴더를 다시 골라 주세요."
+                        : e.getMessage() == null ? "백업하지 못했어요." : e.getMessage();
+            } finally {
+                temp.delete();
+            }
+            final String why = error;
+            final String done = info;
+            runOnUiThread(() -> {
+                this.cloudRunning = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (why != null) {
+                    if (shown) {
+                        showError(why);
+                    }
+                    return;
+                }
+                if (shown) {
+                    Toast.makeText(this, "☁ 백업했어요 · " + done, Toast.LENGTH_LONG).show();
+                    if (this.cloudDialog != null && this.cloudDialog.isShowing()) {
+                        showCloudBackup();
+                    }
+                }
+            });
+        }, "cloud-backup").start();
+    }
+
+    // The folder's backups, newest first: {document uri, name, size, modified}.
+    private List<String[]> listCloudBackups(Uri tree) {
+        List<String[]> list = new ArrayList<>();
+        String parentId = android.provider.DocumentsContract.getTreeDocumentId(tree);
+        Uri children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
+        try (Cursor cursor = getContentResolver().query(children, new String[]{android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME, android.provider.DocumentsContract.Document.COLUMN_SIZE,
+                android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED}, null, null, null)) {
+            while (cursor != null && cursor.moveToNext()) {
+                String name = cursor.getString(1);
+                if (name == null || !name.startsWith("Mini-Emulator-세이브-") || !name.endsWith(".zip")) {
+                    continue;
+                }
+                Uri doc = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0));
+                list.add(new String[]{doc.toString(), name, String.valueOf(cursor.getLong(2)), String.valueOf(cursor.getLong(3))});
+            }
+        }
+        java.util.Collections.sort(list, (a, b) -> b[1].compareTo(a[1]));
+        return list;
+    }
+
+    // Called when the app comes back from a game, and on start for the daily backup.
+    private void cloudAutoBackup(boolean afterGame) {
+        if (cloudTree() == null) {
+            return;
+        }
+        String auto = settingsPrefs().getString(PREF_CLOUD_AUTO, "exit");
+        long last = settingsPrefs().getLong(PREF_CLOUD_LAST, 0);
+        if (("exit".equals(auto) && afterGame) || ("daily".equals(auto) && !afterGame && System.currentTimeMillis() - last > 24L * 60 * 60 * 1000)) {
+            runCloudBackup(false);
+        }
+    }
+
+    private void showCloudRestoreList() {
+        final Uri tree = cloudTree();
+        if (tree == null) {
+            return;
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("백업 목록을 읽는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            List<String[]> list;
+            String error = null;
+            try {
+                list = listCloudBackups(tree);
+            } catch (RuntimeException e) {
+                list = new ArrayList<>();
+                error = "백업 폴더를 읽지 못했어요. 폴더를 다시 골라 주세요.";
+            }
+            final List<String[]> backups = list;
+            final String why = error;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                if (backups.isEmpty()) {
+                    showMessage("이 폴더에 Mini Emulator 세이브 백업이 없어요.");
+                    return;
+                }
+                final Dialog dialog = new Dialog(this);
+                LinearLayout body = pageDialog(dialog, "어느 백업으로 복원할까요?", cloudFolderName(tree), Color.rgb(2, 132, 199));
+                for (final String[] backup : backups) {
+                    long modified = Long.parseLong(backup[3]);
+                    addPageRow(body, settingsRow(modified > 0 ? formatTimestamp(modified) : backup[1], backup[1] + " · " + formatSize(Long.parseLong(backup[2])), () -> {
+                        dialog.dismiss();
+                        prepareCloudRestore(Uri.parse(backup[0]));
+                    }));
+                }
+                addPageRow(body, settingsRow("알아두기", "폴더에는 최근 " + CLOUD_KEEP + "개만 남기고 오래된 백업은 지워요.", null));
+                dialog.show();
+            });
+        }, "cloud-list").start();
+    }
+
+    // One game in a backup and what restoring does with it.
+    private static final class RestoreItem {
+        String mode;
+        String core;
+        String base;
+        String fileName;
+        String title;
+        long modified;
+        String prefix;
+        File game;      // the game here, or null
+        int state;      // 0 import, 1 same, 2 phone newer, 3 no game here (kept for later)
+    }
+
+    private void prepareCloudRestore(final Uri doc) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("백업을 받는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            File temp = new File(getCacheDir(), "cloud_restore.zip");
+            String error = null;
+            List<RestoreItem> items = new ArrayList<>();
+            String[] header = null;
+            try {
+                try (InputStream in = getContentResolver().openInputStream(doc); OutputStream out = new FileOutputStream(temp)) {
+                    if (in == null) {
+                        throw new IOException("백업 파일을 열 수 없어요.");
+                    }
+                    copy(in, out);
+                }
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(temp)) {
+                    java.util.zip.ZipEntry entry = zip.getEntry("manifest.tsv");
+                    if (entry == null) {
+                        throw new IOException("Mini Emulator 세이브 백업이 아니에요.");
+                    }
+                    String text;
+                    try (InputStream in = zip.getInputStream(entry)) {
+                        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                        copy(in, out);
+                        text = new String(out.toByteArray(), StandardCharsets.UTF_8);
+                    }
+                    for (String line : text.split("\n")) {
+                        String[] parts = line.split("\t", -1);
+                        if (line.startsWith("#")) {
+                            header = parts;
+                            continue;
+                        }
+                        if (parts.length < 8) {
+                            continue;
+                        }
+                        RestoreItem item = new RestoreItem();
+                        item.prefix = "games/" + parts[0] + "/";
+                        item.mode = parts[1];
+                        item.core = parts[2];
+                        item.base = parts[3];
+                        item.fileName = parts[4];
+                        item.title = parts[6];
+                        try {
+                            item.modified = Long.parseLong(parts[7]);
+                        } catch (NumberFormatException e) {
+                            item.modified = 0;
+                        }
+                        File game = new File(romDirFor(item.mode), item.fileName);
+                        item.game = game.exists() ? game : null;
+                        if (item.game == null) {
+                            item.state = 3;
+                        } else {
+                            SaveSet mine = saveSetFor(item.game);
+                            java.util.zip.ZipEntry sav = zip.getEntry(item.prefix + "game.sav");
+                            if (sav != null && mine.sav.isFile() && mine.sav.length() == sav.getSize() && sameBytes(zip, sav, mine.sav)) {
+                                item.state = 1;
+                            } else if (mine.any() && mine.modified > item.modified) {
+                                item.state = 2;
+                            } else {
+                                item.state = 0;
+                            }
+                        }
+                        items.add(item);
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() == null ? "백업을 읽지 못했어요." : e.getMessage();
+                temp.delete();
+            }
+            final String why = error;
+            final String[] from = header;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    temp.delete();
+                    return;
+                }
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                showCloudRestoreConfirm(temp, items, from);
+            });
+        }, "cloud-restore").start();
+    }
+
+    private static boolean sameBytes(java.util.zip.ZipFile zip, java.util.zip.ZipEntry entry, File file) {
+        try (InputStream a = new java.io.BufferedInputStream(zip.getInputStream(entry)); InputStream b = new java.io.BufferedInputStream(new FileInputStream(file))) {
+            int x;
+            while ((x = a.read()) >= 0) {
+                if (x != b.read()) {
+                    return false;
+                }
+            }
+            return b.read() < 0;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private void showCloudRestoreConfirm(final File zipFile, final List<RestoreItem> items, String[] header) {
+        final Dialog dialog = new Dialog(this);
+        final int blue = Color.rgb(2, 132, 199);
+        String device = header != null && header.length > 2 && !header[2].isEmpty() ? " · " + header[2] : "";
+        LinearLayout body = pageDialog(dialog, "복원", "게임 " + items.size() + "개" + device, blue);
+        String[] labels = {"가져옴", "같음 · 건너뜀", "폰이 더 최신", "게임 없음 · 세이브만 보관"};
+        int[] colors = {Color.rgb(22, 163, 74), Color.rgb(148, 163, 184), Color.rgb(217, 119, 6), Color.rgb(100, 116, 139)};
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        list.setPadding(dp(12), dp(6), dp(12), dp(6));
+        list.setBackground(rounded(Color.WHITE, dp(14)));
+        for (RestoreItem item : items) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(16);
+            row.setPadding(0, dp(6), 0, dp(6));
+            TextView name = new TextView(this);
+            String mode = Arrays.asList(MODE_IDS).contains(item.mode) ? MODE_NAMES[modeIndex(item.mode)] : item.mode;
+            name.setText(item.title + "\n" + mode + (item.modified > 0 ? " · 백업 " + formatTimestamp(item.modified) : ""));
+            name.setTextSize(12.0f);
+            name.setTextColor(Color.rgb(31, 41, 51));
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            TextView state = new TextView(this);
+            state.setText(labels[item.state]);
+            state.setTextSize(10.5f);
+            state.setTypeface(Typeface.DEFAULT_BOLD);
+            state.setTextColor(colors[item.state]);
+            row.addView(state);
+            list.addView(row);
+        }
+        addPageRow(body, list);
+        final CheckBox keepNewer = new CheckBox(this);
+        keepNewer.setText("폰 세이브가 더 최신이면 그대로 두기\n끄면 백업으로 덮어써요 (덮기 전에 세이브 백업을 남겨요)");
+        keepNewer.setTextSize(12.5f);
+        keepNewer.setChecked(true);
+        addPageRow(body, keepNewer);
+        addPageRow(body, settingsRow("알아두기", "게임 파일(롬)은 백업에 없어요. 이 폰에 없는 게임의 세이브는 보관해 두었다가, 같은 이름의 롬을 가져오면 이어서 쓸 수 있어요.", null));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = multiDeleteButton("취소", Color.WHITE, Color.rgb(55, 65, 81));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView go = multiDeleteButton("복원하기", blue, -1);
+        go.setOnClickListener(view -> {
+            dialog.setOnDismissListener(null);
+            dialog.dismiss();
+            int done = restoreFromZip(zipFile, items, keepNewer.isChecked());
+            zipFile.delete();
+            refreshLibrary();
+            Toast.makeText(this, "세이브 " + done + "개를 복원했어요", Toast.LENGTH_LONG).show();
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(46), 1.4f);
+        goParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(go, goParams);
+        addPageRow(body, buttons);
+        dialog.setOnDismissListener(d -> zipFile.delete());
+        dialog.show();
+    }
+
+    private static boolean extractTo(java.util.zip.ZipFile zip, java.util.zip.ZipEntry entry, File to) {
+        File parent = to.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+            return false;
+        }
+        try (InputStream in = zip.getInputStream(entry); OutputStream out = new FileOutputStream(to)) {
+            byte[] buffer = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                out.write(buffer, 0, n);
+            }
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private int restoreFromZip(File zipFile, List<RestoreItem> items, boolean keepNewer) {
+        int done = 0;
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(zipFile)) {
+            for (RestoreItem item : items) {
+                if (item.state == 1 || (item.state == 2 && keepNewer)) {
+                    continue;
+                }
+                File sav;
+                File state;
+                File slots;
+                if (item.game != null) {
+                    backupSaves(item.game);
+                    SaveSet mine = saveSetFor(item.game);
+                    sav = mine.sav;
+                    state = mine.state;
+                    slots = mine.slots;
+                } else {
+                    // No game here yet: where its saves go once a game file of that name comes.
+                    File coreDir = new File(saveDir(), item.core);
+                    sav = new File(coreDir, item.base + ".sav");
+                    state = new File(coreDir, item.base + ".state");
+                    slots = new File(new File(coreDir, "quicksaves"), item.base);
+                }
+                boolean any = false;
+                java.util.zip.ZipEntry entry = zip.getEntry(item.prefix + "game.sav");
+                if (entry != null) {
+                    any |= extractTo(zip, entry, sav);
+                }
+                entry = zip.getEntry(item.prefix + "game.state");
+                if (entry != null) {
+                    any |= extractTo(zip, entry, state);
+                }
+                java.util.Enumeration<? extends java.util.zip.ZipEntry> all = zip.entries();
+                while (all.hasMoreElements()) {
+                    java.util.zip.ZipEntry slot = all.nextElement();
+                    String name = slot.getName();
+                    if (name.startsWith(item.prefix + "slots/") && isQuickSaveFileName(name.substring(name.lastIndexOf('/') + 1))) {
+                        any |= extractTo(zip, slot, new File(slots, name.substring(name.lastIndexOf('/') + 1)));
+                    }
+                }
+                if (any) {
+                    done++;
+                }
+            }
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> all = zip.entries();
+            while (all.hasMoreElements()) {
+                java.util.zip.ZipEntry card = all.nextElement();
+                if (card.getName().startsWith("ps2/") && card.getName().toLowerCase(Locale.US).endsWith(".ps2")) {
+                    File target = new File(pcsx2MemcardDir(), card.getName().substring(4));
+                    if (keepNewer && target.isFile() && target.lastModified() > card.getTime()) {
+                        continue;
+                    }
+                    if (target.isFile()) {
+                        copyInto(target, new File(target.getPath() + ".bak"));
+                    }
+                    extractTo(zip, card, target);
+                }
+            }
+        } catch (IOException e) {
+            showError("백업 파일을 읽지 못했어요.");
+        }
+        return done;
+    }
+
     private String patchedFrom(File file) {
         return romPrefs().getString("patched:" + file.getName(), null);
     }
@@ -8714,6 +9390,7 @@ public final class MainActivity extends Activity {
     }
 
     private void launchGame(File file) {
+        this.cloudAfterGame = true;
         if (!file.exists()) {
             showError("ROM 실행 실패: 가져온 ROM 파일이 없습니다");
             refreshLibrary();
