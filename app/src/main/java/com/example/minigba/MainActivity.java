@@ -341,6 +341,7 @@ public final class MainActivity extends Activity {
         registerDownloadReceiver();
         new Thread(() -> AppUpdate.cleanOldApks(getApplicationContext(), settingsPrefs()), "apk-cleanup").start();
         cloudAutoBackup(false);
+        autoLinkFolders();
         relaunchGameIfAsked(getIntent());
         importPresetIfOpened(getIntent());
         ensureDownloadFolder();
@@ -2238,6 +2239,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        resumeAfterAllFilesAccess();
         if (this.cloudAfterGame) {
             this.cloudAfterGame = false;
             cloudAutoBackup(true);
@@ -3564,7 +3566,17 @@ public final class MainActivity extends Activity {
 
     // ---- ROM folder import ----
 
-    // "ROM 추가": pick files as before, or a whole folder to preview and pick from.
+    private TextView addSectionLabel(String text, int color) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextSize(11.5f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(color);
+        label.setPadding(dp(4), dp(12), 0, 0);
+        return label;
+    }
+
+    // "ROM 추가": link games where they are, or copy files / a whole folder in.
     private void showRomAddChooser() {
         final String mode = this.currentMode;
         final Dialog dialog = new Dialog(this);
@@ -3581,6 +3593,25 @@ public final class MainActivity extends Activity {
         title.setPadding(dp(4), 0, dp(4), dp(2));
         panel.addView(title);
         String files = isConsoleMode(mode) ? consoleFor(mode)[3] : MODE_GBA.equals(mode) ? ".gba / .gbc / .gb / .zip" : "ZIP";
+        if (!isArcadeMode(mode) && !MODE_NAOMI.equals(mode)) {
+            panel.addView(addSectionLabel("🔗 복사 없이 연결 · 용량이 늘지 않아요", Color.rgb(14, 116, 144)));
+            panel.addView(createChoiceRow(RoundIconView.CARD, Color.rgb(14, 116, 144), "파일 골라 연결하기", "게임 파일을 하나 또는 여러 개 골라서 · 원본 그대로 실행", () -> {
+                dialog.dismiss();
+                withAllFilesAccess(() -> showLinkBrowser(mode, false, null, new java.util.LinkedHashSet<>()));
+            }));
+            panel.addView(createChoiceRow(RoundIconView.FOLDER, Color.rgb(14, 116, 144), "폴더째로 연결하기", "폴더 안 게임을 보여 주고 골라서 · 하위 폴더 포함", () -> {
+                dialog.dismiss();
+                withAllFilesAccess(() -> showLinkBrowser(mode, true, null, new java.util.LinkedHashSet<>()));
+            }));
+            List<File> broken = brokenLinks(mode);
+            if (!broken.isEmpty()) {
+                panel.addView(createChoiceRow(RoundIconView.WARN, Color.rgb(217, 119, 6), "원본을 찾을 수 없는 연결 " + broken.size() + "개", "옮기거나 지운 게임 · 다시 찾기 또는 빼기", () -> {
+                    dialog.dismiss();
+                    showBrokenLinks(mode);
+                }));
+            }
+            panel.addView(addSectionLabel("📥 앱 안에 복사해서 가져오기", Color.rgb(100, 116, 139)));
+        }
         panel.addView(createChoiceRow(RoundIconView.CARD, MODE_COLORS[modeIndex(mode)], "파일 고르기", files + " 파일을 하나 또는 여러 개 골라서 가져오기", () -> {
             dialog.dismiss();
             openRomFilePicker(mode);
@@ -4556,6 +4587,15 @@ public final class MainActivity extends Activity {
         }
         sb.append(str);
         sb.append("  |  게임: ").append(displayGameNameFor);
+        if (isLink(file)) {
+            File target = linkTarget(file);
+            String rootPath = phoneRoot().getAbsolutePath();
+            String where = target == null ? "" : target.getParent();
+            if (where != null && where.startsWith(rootPath)) {
+                where = where.substring(rootPath.length());
+            }
+            sb.append("  |  🔗 연결 · ").append(where == null || where.isEmpty() ? "내 폰" : where);
+        }
         if (romPrefs().getBoolean("unpacked:" + file.getName(), false)) {
             sb.append("  |  CHD에서 풂");
         }
@@ -9808,6 +9848,668 @@ public final class MainActivity extends Activity {
         }, "nand-import").start();
     }
 
+    // ---- 복사 없이 연결하기: a game stays where it is on the phone and the app's ROM folder
+    // gets a link (a symbolic link) to it, so everything that opens a game by its path works
+    // the same and nothing is copied. Needs "모든 파일 접근". A .cue / .gdi is linked with its
+    // tracks. Deleting the game deletes the link only; a patched or unpacked game is still made
+    // inside the app. Folders can be linked for good: new games there are linked on start. ----
+
+    private static final String PREF_LINK_DIRS = "link_dirs:";
+    private static final String PREF_LINK_RECENT = "link_recent";
+
+    private boolean hasAllFilesAccess() {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            return Environment.isExternalStorageManager();
+        }
+        return checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    private Runnable afterAllFilesAccess;
+
+    private void withAllFilesAccess(Runnable then) {
+        if (hasAllFilesAccess()) {
+            then.run();
+            return;
+        }
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        new AppDialog.Builder(this).setTitle("\"모든 파일 접근\" 허락이 필요해요")
+                .setMessage("게임 엔진은 파일 경로로 롬을 열어서, 폰의 다른 폴더에 있는 롬을 그대로 읽으려면 이 허락이 필요해요.\n\n"
+                        + "· 앱은 고른 롬 폴더에서 게임 파일만 읽어요\n· 사진 · 문서 같은 다른 파일은 보지 않아요\n· 설정 화면에서 언제든 끌 수 있어요\n\n"
+                        + "다음 화면에서 \"Mini Emulator\"를 찾아 켜고, 뒤로 돌아오면 돼요.")
+                .setNegativeButton("취소", null)
+                .setPositiveButton("허락하러 가기", (d, which) -> {
+                    this.afterAllFilesAccess = then;
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        try {
+                            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName())));
+                        } catch (Exception e) {
+                            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                        }
+                    } else {
+                        requestPermissions(new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE}, 1064);
+                    }
+                }).show();
+    }
+
+    // Back from the settings screen (onResume): carry on when it was allowed.
+    private void resumeAfterAllFilesAccess() {
+        Runnable then = this.afterAllFilesAccess;
+        if (then != null && hasAllFilesAccess()) {
+            this.afterAllFilesAccess = null;
+            then.run();
+        }
+    }
+
+    private static boolean isLink(File file) {
+        return java.nio.file.Files.isSymbolicLink(file.toPath());
+    }
+
+    private static File linkTarget(File file) {
+        try {
+            return java.nio.file.Files.readSymbolicLink(file.toPath()).toFile();
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    // Links whose game is gone (moved or deleted), in a console's folder.
+    private List<File> brokenLinks(String mode) {
+        List<File> list = new ArrayList<>();
+        File[] files = romDirFor(mode).listFiles();
+        for (File file : files == null ? new File[0] : files) {
+            if (isLink(file) && !file.exists()) {
+                list.add(file);
+            }
+        }
+        return list;
+    }
+
+    // The files a game is: a sheet with its tracks, or the file itself.
+    private static List<File> gameFiles(File game) {
+        List<File> files = new ArrayList<>();
+        files.add(game);
+        if (isDiscSheet(game)) {
+            for (String track : cueTracks(game)) {
+                files.add(new File(game.getParentFile(), track));
+            }
+        }
+        return files;
+    }
+
+    // Links a game into the console's folder; a copy already there with the same name and
+    // size is swapped for the link (freeing its space). Returns bytes freed, or -1 when a
+    // different file has the name.
+    private long linkGame(File game, String mode) throws IOException {
+        File dir = romDirFor(mode);
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            throw new IOException("ROM 폴더를 만들 수 없어요.");
+        }
+        long freed = 0;
+        for (File part : gameFiles(game)) {
+            File link = new File(dir, part.getName());
+            if (isLink(link)) {
+                File target = linkTarget(link);
+                if (target != null && target.getCanonicalPath().equals(part.getCanonicalPath())) {
+                    continue;
+                }
+                link.delete();
+            } else if (link.exists()) {
+                if (link.length() != part.length()) {
+                    return -1;
+                }
+                freed += link.length();
+                if (!link.delete()) {
+                    throw new IOException(link.getName() + "의 앱 안 복사본을 지우지 못했어요.");
+                }
+            }
+            try {
+                android.system.Os.symlink(part.getAbsolutePath(), link.getAbsolutePath());
+            } catch (android.system.ErrnoException e) {
+                throw new IOException(part.getName() + "을(를) 연결하지 못했어요.");
+            }
+        }
+        return freed;
+    }
+
+    private boolean isTrackOfSheet(File file) {
+        File dir = file.getParentFile();
+        File[] sheets = dir == null ? null : dir.listFiles((d, name) -> name.toLowerCase(Locale.US).endsWith(".cue") || name.toLowerCase(Locale.US).endsWith(".gdi"));
+        for (File sheet : sheets == null ? new File[0] : sheets) {
+            for (String track : cueTracks(sheet)) {
+                if (track.equalsIgnoreCase(file.getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isLinkableGame(File file, String mode) {
+        String lower = file.getName().toLowerCase(Locale.US);
+        return file.isFile() && isRomNameFor(mode, lower) && !isTrackOfSheet(file);
+    }
+
+    // Games under a folder (sub folders too, a few levels down).
+    private List<File> findLinkableGames(File dir, String mode, int depth, List<File> out) {
+        File[] files = dir.listFiles();
+        if (files == null || out.size() > 2000) {
+            return out;
+        }
+        Arrays.sort(files, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+        for (File file : files) {
+            if (file.getName().startsWith(".")) {
+                continue;
+            }
+            if (file.isDirectory()) {
+                if (depth > 0 && !file.getName().equals("Android")) {
+                    findLinkableGames(file, mode, depth - 1, out);
+                }
+            } else if (isLinkableGame(file, mode)) {
+                out.add(file);
+            }
+        }
+        return out;
+    }
+
+    private File phoneRoot() {
+        return Environment.getExternalStorageDirectory();
+    }
+
+    // SD cards: the volumes other than the phone's own.
+    private List<File> sdRoots() {
+        List<File> roots = new ArrayList<>();
+        File[] dirs = getExternalFilesDirs(null);
+        for (int k = 1; dirs != null && k < dirs.length; k++) {
+            if (dirs[k] == null) {
+                continue;
+            }
+            String path = dirs[k].getAbsolutePath();
+            int cut = path.indexOf("/Android/");
+            if (cut > 0) {
+                roots.add(new File(path.substring(0, cut)));
+            }
+        }
+        return roots;
+    }
+
+    // The app's own file browser: folders, and the console's game files (checked to link),
+    // or folder mode (link everything under the folder shown).
+    private void showLinkBrowser(final String mode, final boolean folderMode, File start, final java.util.Set<String> picked) {
+        final File dir = start == null ? phoneRoot() : start;
+        final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_Light_NoActionBar);
+        final int teal = Color.rgb(14, 116, 144);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(1);
+        root.setBackgroundColor(Color.WHITE);
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(1);
+        top.setPadding(dp(14), dp(14), dp(14), dp(8));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(16);
+        TextView back = new TextView(this);
+        back.setText("←");
+        back.setTextSize(18.0f);
+        back.setTextColor(Color.rgb(55, 65, 81));
+        back.setPadding(0, 0, dp(12), 0);
+        titleRow.addView(back);
+        TextView title = new TextView(this);
+        title.setText(folderMode ? "폴더째로 연결하기" : "파일 골라 연결하기");
+        title.setTextSize(16.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(17, 24, 39));
+        titleRow.addView(title);
+        top.addView(titleRow);
+        String rootPath = phoneRoot().getAbsolutePath();
+        String shown = dir.getAbsolutePath().startsWith(rootPath) ? "📱 내 폰" + dir.getAbsolutePath().substring(rootPath.length()).replace("/", " › ") : dir.getAbsolutePath();
+        TextView path = new TextView(this);
+        path.setText(shown);
+        path.setTextSize(11.5f);
+        path.setTextColor(teal);
+        path.setPadding(0, dp(6), 0, 0);
+        top.addView(path);
+        android.widget.HorizontalScrollView shortcutScroll = new android.widget.HorizontalScrollView(this);
+        shortcutScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout shortcuts = new LinearLayout(this);
+        shortcutScroll.addView(shortcuts);
+        List<String[]> places = new ArrayList<>();
+        places.add(new String[]{"📱 내 폰", rootPath});
+        places.add(new String[]{"⬇ Download", new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS).getAbsolutePath()});
+        for (File sd : sdRoots()) {
+            places.add(new String[]{"💾 SD 카드", sd.getAbsolutePath()});
+        }
+        String recent = settingsPrefs().getString(PREF_LINK_RECENT, "");
+        if (!recent.isEmpty() && new File(recent).isDirectory()) {
+            places.add(new String[]{"🕒 최근 연결", recent});
+        }
+        for (final String[] place : places) {
+            TextView chip = multiDeleteChip(place[0]);
+            chip.setOnClickListener(view -> {
+                dialog.dismiss();
+                showLinkBrowser(mode, folderMode, new File(place[1]), picked);
+            });
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(0, 0, dp(6), 0);
+            shortcuts.addView(chip, chipParams);
+        }
+        LinearLayout.LayoutParams shortcutParams = new LinearLayout.LayoutParams(-1, -2);
+        shortcutParams.setMargins(0, dp(8), 0, 0);
+        top.addView(shortcutScroll, shortcutParams);
+        root.addView(top);
+        LinearLayout rows = new LinearLayout(this);
+        rows.setOrientation(1);
+        rows.setPadding(dp(10), 0, dp(10), dp(10));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(rows);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        File[] children = dir.listFiles();
+        List<File> folders = new ArrayList<>();
+        List<File> games = new ArrayList<>();
+        int hidden = 0;
+        for (File child : children == null ? new File[0] : children) {
+            if (child.getName().startsWith(".")) {
+                continue;
+            }
+            if (child.isDirectory()) {
+                folders.add(child);
+            } else if (isLinkableGame(child, mode)) {
+                games.add(child);
+            } else {
+                hidden++;
+            }
+        }
+        java.util.Comparator<File> byName = (a, b) -> a.getName().compareToIgnoreCase(b.getName());
+        java.util.Collections.sort(folders, byName);
+        java.util.Collections.sort(games, byName);
+        final Runnable[] refreshBar = new Runnable[1];
+        for (final File folder : folders) {
+            int count = 0;
+            File[] inside = folder.listFiles();
+            for (File f : inside == null ? new File[0] : inside) {
+                if (f.isFile() && isLinkableGame(f, mode)) {
+                    count++;
+                }
+            }
+            LinearLayout row = browserRow("📁", folder.getName(), count > 0 ? "게임 " + count + "개" : "폴더", true, null);
+            row.setOnClickListener(view -> {
+                dialog.dismiss();
+                showLinkBrowser(mode, folderMode, folder, picked);
+            });
+            rows.addView(row);
+        }
+        File appDir = romDirFor(mode);
+        for (final File game : games) {
+            File inApp = new File(appDir, game.getName());
+            boolean already = inApp.exists() && !isLink(inApp) && inApp.length() == game.length();
+            boolean linked = isLink(inApp) && game.getAbsolutePath().equals(String.valueOf(linkTarget(inApp)));
+            String ext = game.getName().contains(".") ? game.getName().substring(game.getName().lastIndexOf('.') + 1).toUpperCase(Locale.ROOT) : "?";
+            String detail = formatSize(romBytes(game)) + " · " + formatTimestamp(game.lastModified())
+                    + (linked ? " · 이미 연결됨" : already ? " · 앱 안에 복사본 있음 (연결하면 그만큼 비어요)" : "");
+            final boolean[] on = {picked.contains(game.getAbsolutePath())};
+            LinearLayout row = browserRow(ext, game.getName(), detail, false, folderMode || linked ? null : on);
+            if (linked) {
+                row.setAlpha(0.5f);
+            } else if (!folderMode) {
+                row.setOnClickListener(view -> {
+                    on[0] = !on[0];
+                    if (on[0]) {
+                        picked.add(game.getAbsolutePath());
+                    } else {
+                        picked.remove(game.getAbsolutePath());
+                    }
+                    dialog.dismiss();
+                    showLinkBrowser(mode, false, dir, picked);
+                });
+            }
+            rows.addView(row);
+        }
+        TextView note = new TextView(this);
+        note.setText(MODE_NAMES[modeIndex(mode)] + " 게임 파일만 보여요" + (hidden > 0 ? " · 다른 파일 " + hidden + "개 숨김" : ""));
+        note.setTextSize(11.0f);
+        note.setTextColor(Color.rgb(148, 163, 184));
+        note.setPadding(dp(6), dp(10), 0, 0);
+        rows.addView(note);
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setOrientation(1);
+        bottom.setPadding(dp(14), dp(10), dp(14), dp(14));
+        bottom.setBackgroundColor(Color.WHITE);
+        bottom.setElevation(dp(6));
+        TextView summary = new TextView(this);
+        summary.setTextSize(12.5f);
+        summary.setTypeface(Typeface.DEFAULT_BOLD);
+        summary.setTextColor(Color.rgb(17, 24, 39));
+        bottom.addView(summary);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = multiDeleteButton("취소", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        TextView go = multiDeleteButton(folderMode ? "이 폴더 연결하기" : "연결하기", teal, -1);
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(46), 1.6f);
+        goParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(go, goParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(8), 0, 0);
+        bottom.addView(buttons, buttonsParams);
+        root.addView(bottom);
+        if (folderMode) {
+            summary.setText("지금 폴더: " + dir.getName() + " · 하위 폴더까지 찾아서 골라요");
+            go.setOnClickListener(view -> {
+                dialog.dismiss();
+                showLinkFolderPick(mode, dir);
+            });
+        } else {
+            long bytes = 0;
+            for (String p : picked) {
+                bytes += romBytes(new File(p));
+            }
+            summary.setText(picked.size() + "개 고름" + (picked.isEmpty() ? "" : " · " + formatSize(bytes)) + " · 늘어나는 용량 0MB");
+            go.setText(picked.isEmpty() ? "연결하기" : picked.size() + "개 연결하기");
+            go.setOnClickListener(view -> {
+                if (picked.isEmpty()) {
+                    showMessage("연결할 게임을 눌러서 골라 주세요.");
+                    return;
+                }
+                dialog.dismiss();
+                List<File> chosen = new ArrayList<>();
+                for (String p : picked) {
+                    chosen.add(new File(p));
+                }
+                runLinkGames(mode, chosen, null, false);
+            });
+        }
+        back.setOnClickListener(view -> {
+            dialog.dismiss();
+            File parent = dir.getParentFile();
+            if (parent != null && parent.canRead() && !dir.equals(phoneRoot())) {
+                showLinkBrowser(mode, folderMode, parent, picked);
+            }
+        });
+        dialog.setContentView(root);
+        dialog.show();
+    }
+
+    private LinearLayout browserRow(String icon, String name, String detail, boolean folder, boolean[] checked) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(16);
+        row.setPadding(dp(6), dp(9), dp(6), dp(9));
+        if (checked != null) {
+            View box = new View(this);
+            GradientDrawable shape = rounded(checked[0] ? Color.rgb(14, 116, 144) : Color.WHITE, dp(6));
+            if (!checked[0]) {
+                shape.setStroke(dp(2), Color.rgb(203, 213, 225));
+            }
+            box.setBackground(shape);
+            LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(20), dp(20));
+            boxParams.setMargins(0, 0, dp(10), 0);
+            row.addView(box, boxParams);
+        }
+        TextView badge = new TextView(this);
+        badge.setText(icon);
+        badge.setTextSize(folder ? 15.0f : 11.0f);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setGravity(17);
+        badge.setTextColor(folder ? Color.rgb(3, 105, 161) : Color.rgb(14, 116, 144));
+        badge.setBackground(rounded(folder ? Color.rgb(224, 242, 254) : Color.rgb(236, 254, 255), dp(9)));
+        row.addView(badge, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(13.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        texts.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(detail);
+        sub.setTextSize(11.0f);
+        sub.setTextColor(Color.rgb(107, 114, 128));
+        texts.addView(sub);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(10), 0, 0, 0);
+        row.addView(texts, textsParams);
+        if (folder) {
+            TextView more = new TextView(this);
+            more.setText("›");
+            more.setTextSize(15.0f);
+            more.setTextColor(Color.rgb(148, 163, 184));
+            row.addView(more);
+        }
+        return row;
+    }
+
+    // 폴더째로 연결: everything under the folder, picked like the folder import.
+    private void showLinkFolderPick(final String mode, final File dir) {
+        final List<File> games = findLinkableGames(dir, mode, 6, new ArrayList<>());
+        if (games.isEmpty()) {
+            showMessage(dir.getName() + " 안에 " + MODE_NAMES[modeIndex(mode)] + " 게임이 없어요.");
+            return;
+        }
+        final Dialog dialog = new Dialog(this);
+        final int teal = Color.rgb(14, 116, 144);
+        LinearLayout body = pageDialog(dialog, "연결할 게임 고르기", dir.getName() + " · 하위 폴더 포함 · " + games.size() + "개", teal);
+        final boolean[] checked = new boolean[games.size()];
+        File appDir = romDirFor(mode);
+        String base = dir.getAbsolutePath();
+        for (int k = 0; k < games.size(); k++) {
+            final int index = k;
+            File game = games.get(k);
+            File inApp = new File(appDir, game.getName());
+            boolean linked = isLink(inApp) && game.getAbsolutePath().equals(String.valueOf(linkTarget(inApp)));
+            boolean copy = inApp.exists() && !isLink(inApp) && inApp.length() == game.length();
+            checked[k] = !linked && !copy;
+            String rel = game.getAbsolutePath().substring(Math.min(game.getAbsolutePath().length(), base.length() + 1)).replace("/", " / ");
+            String detail = formatSize(romBytes(game)) + (linked ? " · 이미 연결됨" : copy ? " · 이미 앱 안에 복사본 · 연결로 바꾸면 " + formatSize(inApp.length()) + " 확보" : "");
+            final boolean[] on = {checked[k]};
+            final LinearLayout[] holder = new LinearLayout[1];
+            holder[0] = browserRow(game.getName().substring(game.getName().lastIndexOf('.') + 1).toUpperCase(Locale.ROOT), rel, detail, false, on);
+            if (linked) {
+                holder[0].setAlpha(0.5f);
+            } else {
+                holder[0].setOnClickListener(view -> {
+                    checked[index] = !checked[index];
+                    View box = holder[0].getChildAt(0);
+                    GradientDrawable shape = rounded(checked[index] ? teal : Color.WHITE, dp(6));
+                    if (!checked[index]) {
+                        shape.setStroke(dp(2), Color.rgb(203, 213, 225));
+                    }
+                    box.setBackground(shape);
+                });
+            }
+            holder[0].setBackground(rounded(Color.WHITE, dp(12)));
+            addPageRow(body, holder[0]);
+        }
+        final CheckBox auto = new CheckBox(this);
+        auto.setText("이 폴더에 새 게임이 생기면 다음에 켤 때 자동으로 연결");
+        auto.setTextSize(12.5f);
+        auto.setChecked(true);
+        addPageRow(body, auto);
+        TextView go = multiDeleteButton("연결하기", teal, -1);
+        go.setOnClickListener(view -> {
+            List<File> chosen = new ArrayList<>();
+            for (int k = 0; k < games.size(); k++) {
+                if (checked[k]) {
+                    chosen.add(games.get(k));
+                }
+            }
+            if (chosen.isEmpty() && !auto.isChecked()) {
+                showMessage("연결할 게임을 골라 주세요.");
+                return;
+            }
+            dialog.dismiss();
+            runLinkGames(mode, chosen, dir, auto.isChecked());
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(-1, dp(46));
+        goParams.setMargins(0, dp(10), 0, 0);
+        body.addView(go, goParams);
+        dialog.show();
+    }
+
+    private void runLinkGames(final String mode, final List<File> games, final File folder, final boolean auto) {
+        settingsPrefs().edit().putString(PREF_LINK_RECENT, folder != null ? folder.getAbsolutePath()
+                : games.isEmpty() ? "" : games.get(0).getParent()).apply();
+        if (folder != null && auto) {
+            java.util.LinkedHashSet<String> dirs = new java.util.LinkedHashSet<>(Arrays.asList(settingsPrefs().getString(PREF_LINK_DIRS + mode, "").split("\n")));
+            dirs.remove("");
+            dirs.add(folder.getAbsolutePath());
+            settingsPrefs().edit().putString(PREF_LINK_DIRS + mode, android.text.TextUtils.join("\n", dirs)).apply();
+        }
+        int linked = 0;
+        int clash = 0;
+        long freed = 0;
+        String error = null;
+        for (File game : games) {
+            try {
+                long result = linkGame(game, mode);
+                if (result < 0) {
+                    clash++;
+                } else {
+                    linked++;
+                    freed += result;
+                }
+            } catch (IOException e) {
+                error = e.getMessage();
+            }
+        }
+        refreshLibrary();
+        StringBuilder message = new StringBuilder("🔗 " + linked + "개를 연결했어요 · 늘어난 용량 0MB");
+        if (freed > 0) {
+            message.append("\n앱 안 복사본을 지워서 ").append(formatSize(freed)).append("가 비었어요.");
+        }
+        if (clash > 0) {
+            message.append("\n이름이 같은 다른 게임이 이미 있어서 ").append(clash).append("개는 건너뛰었어요.");
+        }
+        if (folder != null && auto) {
+            message.append("\n이 폴더에 넣는 새 게임은 다음에 앱을 켤 때 자동으로 연결돼요.");
+        }
+        if (error != null) {
+            message.append("\n").append(error);
+        }
+        new AppDialog.Builder(this).setTitle("연결했어요").setMessage(message.toString()).setPositiveButton("확인", null).show();
+    }
+
+    // On start: new games in the folders linked for good.
+    private void autoLinkFolders() {
+        if (!hasAllFilesAccess()) {
+            return;
+        }
+        new Thread(() -> {
+            int added = 0;
+            for (String mode : MODE_IDS) {
+                String dirs = settingsPrefs().getString(PREF_LINK_DIRS + mode, "");
+                if (dirs.isEmpty()) {
+                    continue;
+                }
+                for (String path : dirs.split("\n")) {
+                    File dir = new File(path);
+                    if (!dir.isDirectory()) {
+                        continue;
+                    }
+                    for (File game : findLinkableGames(dir, mode, 6, new ArrayList<>())) {
+                        File inApp = new File(romDirFor(mode), game.getName());
+                        if (inApp.exists() || isLink(inApp)) {
+                            continue;
+                        }
+                        try {
+                            if (linkGame(game, mode) >= 0) {
+                                added++;
+                            }
+                        } catch (IOException ignored) {
+                            // Next time.
+                        }
+                    }
+                }
+            }
+            final int count = added;
+            if (count > 0) {
+                runOnUiThread(() -> {
+                    refreshLibrary();
+                    Toast.makeText(this, "🔗 연결한 폴더의 새 게임 " + count + "개를 목록에 넣었어요", Toast.LENGTH_LONG).show();
+                });
+            }
+        }, "auto-link").start();
+    }
+
+    // Links whose game was moved or deleted: find it again (same name keeps the saves) or drop.
+    private void showBrokenLinks(final String mode) {
+        final List<File> broken = brokenLinks(mode);
+        if (broken.isEmpty()) {
+            showMessage("원본을 찾을 수 없는 연결이 없어요.");
+            return;
+        }
+        final Dialog dialog = new Dialog(this);
+        LinearLayout body = pageDialog(dialog, "원본을 찾을 수 없는 연결", broken.size() + "개 · 옮기거나 지운 게임", Color.rgb(217, 119, 6));
+        for (final File link : broken) {
+            File target = linkTarget(link);
+            LinearLayout row = settingsRow(link.getName(), "원래 위치: " + (target == null ? "?" : target.getParent()), null);
+            TextView find = multiDeleteChip("다시 찾기");
+            find.setOnClickListener(view -> {
+                dialog.dismiss();
+                showRelinkBrowser(mode, link, phoneRoot());
+            });
+            TextView drop = multiDeleteChip("빼기");
+            drop.setOnClickListener(view -> {
+                link.delete();
+                dialog.dismiss();
+                refreshLibrary();
+                if (!brokenLinks(mode).isEmpty()) {
+                    showBrokenLinks(mode);
+                }
+            });
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(dp(6), 0, 0, 0);
+            row.addView(find, chipParams);
+            row.addView(drop, chipParams);
+            addPageRow(body, row);
+        }
+        addPageRow(body, settingsRow("알아두기", "세이브는 앱 안에 그대로 있어요. 같은 이름의 파일로 다시 찾으면 세이브가 이어져요.", null));
+        dialog.show();
+    }
+
+    // A small browser to point a broken link at the game's new place.
+    private void showRelinkBrowser(final String mode, final File link, final File dir) {
+        File[] children = dir.listFiles();
+        List<File> entries = new ArrayList<>();
+        for (File child : children == null ? new File[0] : children) {
+            if (!child.getName().startsWith(".") && (child.isDirectory() || isLinkableGame(child, mode))) {
+                entries.add(child);
+            }
+        }
+        java.util.Collections.sort(entries, (a, b) -> a.isDirectory() != b.isDirectory() ? (a.isDirectory() ? -1 : 1) : a.getName().compareToIgnoreCase(b.getName()));
+        String[] names = new String[entries.size() + (dir.equals(phoneRoot()) ? 0 : 1)];
+        int at = 0;
+        if (!dir.equals(phoneRoot())) {
+            names[at++] = "📁 ..  (위 폴더)";
+        }
+        for (File entry : entries) {
+            names[at++] = (entry.isDirectory() ? "📁 " : (entry.getName().equalsIgnoreCase(link.getName()) ? "✓ " : "   ")) + entry.getName();
+        }
+        final int offset = dir.equals(phoneRoot()) ? 0 : 1;
+        new AppDialog.Builder(this).setTitle(link.getName() + " 다시 찾기").setItems(names, (d, which) -> {
+            if (which < offset) {
+                showRelinkBrowser(mode, link, dir.getParentFile());
+                return;
+            }
+            File chosen = entries.get(which - offset);
+            if (chosen.isDirectory()) {
+                showRelinkBrowser(mode, link, chosen);
+                return;
+            }
+            link.delete();
+            try {
+                android.system.Os.symlink(chosen.getAbsolutePath(), link.getAbsolutePath());
+                if (isDiscSheet(chosen)) {
+                    linkGame(chosen, mode);
+                }
+                Toast.makeText(this, "다시 연결했어요", Toast.LENGTH_SHORT).show();
+            } catch (android.system.ErrnoException | IOException e) {
+                showError("다시 연결하지 못했어요.");
+            }
+            refreshLibrary();
+        }).setNegativeButton("취소", null).show();
+    }
+
     private String patchedFrom(File file) {
         return romPrefs().getString("patched:" + file.getName(), null);
     }
@@ -11057,7 +11759,7 @@ public final class MainActivity extends Activity {
         withSaves.setTextSize(13.0f);
         withSaves.setTextColor(Color.rgb(55, 65, 81));
         new AppDialog.Builder(this).setTitle("ROM을 삭제할까요?")
-                .setMessage(displayGameNameFor(file) + " · " + formatSize(file.length()) + "\n\nMini Emulator 안에 가져온 복사본만 지워요. 원본 파일은 그대로 둡니다."
+                .setMessage(displayGameNameFor(file) + " · " + formatSize(file.length()) + (isLink(file) ? "\n\n🔗 연결만 지워요. 폰에 있는 원본 파일은 그대로예요." : "\n\nMini Emulator 안에 가져온 복사본만 지워요. 원본 파일은 그대로 둡니다.")
                         + (hasSaves ? "\n이 게임의 세이브 · 빠른 저장 · 내 칸은 남아요. 같이 지우려면 아래를 켜 주세요." : ""))
                 .setView(hasSaves ? withSaves : null)
                 .setNegativeButton(17039360, (DialogInterface.OnClickListener) null)
