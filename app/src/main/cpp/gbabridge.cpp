@@ -519,6 +519,7 @@ struct Core {
     // runs.
     std::vector<uint32_t> audioClockSamples;
     size_t audioClockIndex = 0;
+    size_t audioClockFilled = 0;
     uint64_t audioClockSum = 0;
 
     // Audio goes to Java through one reused array instead of a new one every frame.
@@ -834,6 +835,11 @@ bool loadStateFrom(Core* core, const std::string& path) {
     }
     bool ok = core->retroUnserialize(buffer.data() + header, read - header);
     noteState(core, "load", path, ok);
+    if (ok) {
+        // The audio clock measured the boot (or the old scene); start it over from here, or
+        // the restored game runs fast or slow until the old measurements age out.
+        core->audioClockSamples.clear();
+    }
     return ok;
 }
 
@@ -2914,20 +2920,28 @@ double audioClockFps(Core* core, size_t samples) {
         core->audioClockSamples.assign(kAudioClockFrames, 0);
         core->audioClockIndex = 0;
         core->audioClockSum = 0;
+        core->audioClockFilled = 0;
     }
     uint32_t& slot = core->audioClockSamples[core->audioClockIndex];
     core->audioClockSum -= slot;
     slot = static_cast<uint32_t>(samples);
     core->audioClockSum += slot;
     core->audioClockIndex = (core->audioClockIndex + 1) % kAudioClockFrames;
-    if (core->framesRun < kAudioClockFrames || core->audioClockSum == 0 || core->sampleRate <= 0) {
-        return core->fps;
+    if (core->audioClockFilled < kAudioClockFrames) {
+        core->audioClockFilled++;
     }
-    double measured = static_cast<double>(core->sampleRate) * kAudioClockFrames / static_cast<double>(core->audioClockSum);
+    // Until a few frames are in (at the start, or just after a quick save was restored) the
+    // last measured rate holds, else the reported one; then the average of what is there.
+    double held = core->pacedFps.load() > 0 ? core->pacedFps.load() : core->fps;
+    if (core->audioClockFilled < 8 || core->audioClockSum == 0 || core->sampleRate <= 0) {
+        return held;
+    }
+    double measured = static_cast<double>(core->sampleRate) * static_cast<double>(core->audioClockFilled) /
+                      static_cast<double>(core->audioClockSum);
     // Anything above 65 is gaps in the audio, not the game's rate; as low as 25 can be a
     // core running more than one video frame per call.
     if (measured < 25.0 || measured > 65.0) {
-        return core->fps;
+        return held;
     }
     return measured;
 }
