@@ -18,6 +18,7 @@ flycast	Flycast	GPL-2.0	드림캐스트 · Naomi · Atomiswave 엔진	https://gi
 wswan	Beetle Cygne	GPL-2.0	원더스완 엔진	https://github.com/libretro/beetle-wswan-libretro
 ngp	Beetle NeoPop	GPL-2.0	네오지오 포켓 엔진	https://github.com/libretro/beetle-ngp-libretro
 dosbox-pure	DOSBox Pure	GPL-2.0	DOS 엔진	https://github.com/libretro/dosbox-pure
+timgm6mb	TimGM6mb	GPL-2.0	DOS 게임 MIDI 음악 (General MIDI 사운드폰트)	https://github.com/craffel/pretty-midi
 fbneo	FinalBurn Neo	비상업 라이선스	아케이드 · 네오지오 엔진	https://github.com/libretro/FBNeo
 mame2003-plus	MAME 2003-Plus	MAME 비상업 라이선스	아케이드 엔진	https://github.com/libretro/mame2003-plus-libretro
 mame2010	MAME 2010	MAME 비상업 라이선스	아케이드 엔진	https://github.com/libretro/mame2010-libretro

@@ -5408,7 +5408,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         // The save overlay linked to the game's .sav, the start file put in it.
                         android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
                         String start = DosSetup.prepare(prefs, new File(savePath), new File(this.romPath), this.saveBaseName);
-                        String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName);
+                        // The General MIDI SoundFont out of the APK, for MIDI music.
+                        DosSetup.ensureSoundfont(this, new File(systemPath));
+                        String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName, new File(systemPath));
                         NativeGba.setDosOptions(options[0], options[1], start);
                     }
                     NativeGba.setN64Scale(isN64() ? n64Scale() : 2);

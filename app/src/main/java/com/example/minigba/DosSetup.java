@@ -36,6 +36,7 @@ final class DosSetup {
     static final String[] MEMORY_NAMES = {"16MB", "32MB", "64MB"};
     static final String[] CONTROL_NAMES = {"방향키 + 버튼", "마우스 패드", "키보드만"};
     static final String[] MOUSE_NAMES = {"밀어서 움직이기", "누른 곳으로 (일부 게임)"};
+    static final String[] MIDI_NAMES = {"끔", "General MIDI", "MT-32", "SC-55"};
     static final String DEFAULT_KEYS = "Esc,Enter,Space,Y,N,F1,F2,F3,F10,Tab";
     static final String DEFAULT_BUTTONS = "Ctrl,Alt,Shift,Enter";
 
@@ -420,7 +421,7 @@ final class DosSetup {
     }
 
     // The core options for the game, as keys and values.
-    static String[][] coreOptions(SharedPreferences prefs, String saveBaseName) {
+    static String[][] coreOptions(SharedPreferences prefs, String saveBaseName, File systemDir) {
         int cpu = clamp(choice(prefs, "cpu", saveBaseName), CPU_VALUES.length);
         int sound = clamp(choice(prefs, "sound", saveBaseName), SOUND_NAMES.length);
         int memory = clamp(choice(prefs, "memory", saveBaseName), MEMORY_VALUES.length);
@@ -432,6 +433,7 @@ final class DosSetup {
         options.add(new String[]{"dosbox_pure_gus", prefs.getBoolean(key("gus", saveBaseName), false) ? "true" : "false"});
         options.add(new String[]{"dosbox_pure_sblaster_adlib_mode", sound == 0 ? "auto" : sound == 1 ? "opl2" : "none"});
         options.add(new String[]{"dosbox_pure_mouse_input", mouse == 1 ? "direct" : "virtual"});
+        options.add(new String[]{"dosbox_pure_midi", midiOption(systemDir, midiChoice(prefs, saveBaseName))});
         // The app's own quick saves and rewind go through the core's save states.
         options.add(new String[]{"dosbox_pure_savestate", "on"});
         String[][] out = new String[2][options.size()];
@@ -619,11 +621,12 @@ final class DosSetup {
         int memory = -1;
         boolean gus;
         String midi;
+        int midiChoice = -1;
         final List<String> autoexec = new ArrayList<>();
         final List<String[]> rows = new ArrayList<>();   // {conf line, what it became, applied?}
     }
 
-    static Conf parseConf(String text, File zip) {
+    static Conf parseConf(String text, File zip, File systemDir) {
         Conf conf = new Conf();
         java.util.Map<String, String> folders = new java.util.HashMap<>();
         if (zip != null) {
@@ -715,9 +718,23 @@ final class DosSetup {
             } else if (section.equals("gus") && k.equals("gus")) {
                 conf.gus = v.equals("true");
                 if (conf.gus) conf.rows.add(new String[]{"gus=true", "Gravis Ultrasound 켜기", "적용"});
-            } else if (section.equals("midi") && (k.equals("mididevice") || k.equals("mpu401")) && !v.equals("none") && !v.equals("default") && conf.midi == null) {
+            } else if (section.equals("midi") && k.equals("mpu401") && v.equals("none") && conf.midiChoice < 0) {
+                conf.midiChoice = 0;
+                conf.rows.add(new String[]{"mpu401=none", "MIDI: 끔", "적용"});
+            } else if (section.equals("midi") && k.equals("mididevice") && !v.equals("default") && !v.equals("none")) {
                 conf.midi = v;
-                conf.rows.add(new String[]{k + "=" + v, "MIDI 음악", "아직 없음"});
+                if (v.equals("mt32")) {
+                    conf.midiChoice = 2;
+                    boolean ok = systemDir != null && hasMt32(systemDir);
+                    conf.rows.add(new String[]{k + "=" + v, ok ? "MIDI: MT-32" : "MIDI: MT-32 ROM 없음 → General MIDI로", ok ? "적용" : "대신 적용"});
+                } else if (v.contains("sc55") || v.contains("canvas")) {
+                    conf.midiChoice = 3;
+                    boolean ok = systemDir != null && hasSc55(systemDir);
+                    conf.rows.add(new String[]{k + "=" + v, ok ? "MIDI: SC-55" : "MIDI: SC-55 ROM 없음 → General MIDI로", ok ? "적용" : "대신 적용"});
+                } else {
+                    conf.midiChoice = 1;
+                    conf.rows.add(new String[]{k + "=" + v, "MIDI: General MIDI (사운드폰트)", "적용"});
+                }
             }
         }
         if (conf.sound == 2 && oplmode != null && !oplmode.equals("none")) {
@@ -739,6 +756,7 @@ final class DosSetup {
         if (conf.sound >= 0) edit.putInt(key("sound", saveBaseName), conf.sound);
         if (conf.sbtype != null) edit.putString(key("sbtype", saveBaseName), conf.sbtype);
         edit.putBoolean(key("gus", saveBaseName), conf.gus);
+        if (conf.midiChoice >= 0) edit.putInt(key("midi", saveBaseName), conf.midiChoice);
         if (!conf.autoexec.isEmpty()) {
             edit.putString(key("autoexec", saveBaseName), android.text.TextUtils.join("\n", conf.autoexec))
                     .putString(key("exe", saveBaseName), CONF);
@@ -755,5 +773,142 @@ final class DosSetup {
             edit.remove(key("exe", saveBaseName));
         }
         edit.apply();
+    }
+
+    // ---- MIDI music ----
+    // DOSBox Pure plays MIDI through a SoundFont (its TinySoundFont player), Roland MT-32 ROMs
+    // (Munt) or Roland SC-55 ROMs, each a file under the system folder that its
+    // dosbox_pure_midi option names. The app ships a General MIDI SoundFont (TimGM6mb); the
+    // Roland ROMs are the owner's own, put in from the MIDI sheet.
+
+    static final String MIDI_DIR = "dosmidi";
+    static final String DEFAULT_SF2 = "TimGM6mb.sf2";
+    static final String USER_SF2 = "user.sf2";
+
+    static File midiDir(File systemDir) {
+        return new File(systemDir, MIDI_DIR);
+    }
+
+    static File defaultSoundfont(File systemDir) {
+        return new File(midiDir(systemDir), DEFAULT_SF2);
+    }
+
+    static File userSoundfont(File systemDir) {
+        return new File(midiDir(systemDir), USER_SF2);
+    }
+
+    static File mt32Control(File systemDir) {
+        return new File(new File(midiDir(systemDir), "mt32"), "MT32_CONTROL.ROM");
+    }
+
+    static File mt32Pcm(File systemDir) {
+        return new File(new File(midiDir(systemDir), "mt32"), "MT32_PCM.ROM");
+    }
+
+    static File sc55Dir(File systemDir) {
+        return new File(midiDir(systemDir), "sc55");
+    }
+
+    static boolean hasMt32(File systemDir) {
+        return mt32Control(systemDir).isFile() && mt32Pcm(systemDir).isFile();
+    }
+
+    static boolean hasSc55(File systemDir) {
+        return new File(sc55Dir(systemDir), "ROM1.BIN").isFile() && new File(sc55Dir(systemDir), "ROM2.BIN").isFile();
+    }
+
+    // 0 off, 1 General MIDI (the default), 2 MT-32, 3 SC-55.
+    static int midiChoice(SharedPreferences prefs, String saveBaseName) {
+        return clamp(prefs.getInt(key("midi", saveBaseName), 1), MIDI_NAMES.length);
+    }
+
+    // The option value: a path under the system folder; MT-32 / SC-55 without their ROMs
+    // fall back to the SoundFont.
+    static String midiOption(File systemDir, int choice) {
+        if (systemDir == null || choice == 0) {
+            return "disabled";
+        }
+        if (choice == 2 && hasMt32(systemDir)) {
+            return MIDI_DIR + "/mt32/MT32_CONTROL.ROM";
+        }
+        if (choice == 3 && hasSc55(systemDir)) {
+            return MIDI_DIR + "/sc55/ROM1.BIN";
+        }
+        if (userSoundfont(systemDir).isFile()) {
+            return MIDI_DIR + "/" + USER_SF2;
+        }
+        if (defaultSoundfont(systemDir).isFile()) {
+            return MIDI_DIR + "/" + DEFAULT_SF2;
+        }
+        return "disabled";
+    }
+
+    // Copies the shipped SoundFont out of the APK once (the engine reads files, not assets).
+    static void ensureSoundfont(android.content.Context context, File systemDir) {
+        File target = defaultSoundfont(systemDir);
+        if (target.isFile() && target.length() > 0) {
+            return;
+        }
+        target.getParentFile().mkdirs();
+        File temp = new File(target.getPath() + ".tmp");
+        try (InputStream in = context.getAssets().open("dos/" + DEFAULT_SF2);
+             FileOutputStream out = new FileOutputStream(temp)) {
+            byte[] buffer = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                out.write(buffer, 0, n);
+            }
+        } catch (IOException e) {
+            temp.delete();
+            return;
+        }
+        if (!temp.renameTo(target)) {
+            temp.delete();
+        }
+    }
+
+    // ---- text from DOS-era files ----
+    // conf files and DOS names are kept as their bytes (ISO-8859-1 chars here); for the screen
+    // they're read as UTF-8 or the old Korean code page (CP949), whichever fits; a name the
+    // engine cut in the middle of a character shows the cut as '·'.
+    static String shown(String bytesAsChars) {
+        if (bytesAsChars == null) {
+            return "";
+        }
+        byte[] bytes = bytesAsChars.getBytes(StandardCharsets.ISO_8859_1);
+        boolean high = false;
+        for (byte b : bytes) {
+            if (b < 0) {
+                high = true;
+                break;
+            }
+        }
+        if (!high) {
+            return bytesAsChars;
+        }
+        String utf8 = strict(bytes, StandardCharsets.UTF_8);
+        if (utf8 != null) {
+            return utf8;
+        }
+        try {
+            String korean = strict(bytes, java.nio.charset.Charset.forName("MS949"));
+            if (korean != null) {
+                return korean;
+            }
+        } catch (RuntimeException e) {
+            // No such code page here.
+        }
+        String loose = new String(bytes, StandardCharsets.UTF_8);
+        return loose.replaceAll("�+", "·");
+    }
+
+    private static String strict(byte[] bytes, java.nio.charset.Charset charset) {
+        try {
+            return charset.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            return null;
+        }
     }
 }

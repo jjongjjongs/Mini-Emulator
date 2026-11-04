@@ -3111,6 +3111,8 @@ public final class MainActivity extends Activity {
             if (data != null) {
                 importNaomiBiosFromTree(data);
             }
+        } else if (i == REQUEST_DOS_SF2 || i == REQUEST_DOS_MT32 || i == REQUEST_DOS_SC55) {
+            onDosMidiPicked(i, intent);
         } else if (i == REQUEST_DOS_CONF) {
             onDosConfPicked(intent);
         } else if (i == REQUEST_IMPORT_WIIU_KEYS) {
@@ -14226,7 +14228,7 @@ public final class MainActivity extends Activity {
                 TextView detail = new TextView(this);
                 boolean renamed = exe.dos != null && !exe.dos.replace('\\', '/').equalsIgnoreCase(exe.path);
                 detail.setText((exe.note.isEmpty() ? "" : exe.note + " · ") + formatSize(exe.size)
-                        + (renamed ? "\nDOS 이름: C:\\" + dosShown(exe.dos) : ""));
+                        + (renamed ? "\nDOS 이름: C:\\" + DosSetup.shown(exe.dos) : ""));
                 detail.setTextSize(10.5f);
                 detail.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
                 texts.addView(detail);
@@ -14294,21 +14296,6 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
-    // A DOS name's bytes for the screen: plain ones as they are, Korean bytes decoded.
-    private static String dosShown(String dos) {
-        byte[] bytes = dos.getBytes(StandardCharsets.ISO_8859_1);
-        for (byte b : bytes) {
-            if (b < 0) {
-                try {
-                    return new String(bytes, StandardCharsets.UTF_8).replace('\uFFFD', '?');
-                } catch (RuntimeException e) {
-                    return dos;
-                }
-            }
-        }
-        return dos;
-    }
-
     // Per game: CPU speed, sound card, memory, controls, mouse, the key row.
     private void showDosSettings(final File file) {
         final String save = saveBaseNameFor(file);
@@ -14319,6 +14306,7 @@ public final class MainActivity extends Activity {
         final int[] memory = {DosSetup.clamp(DosSetup.choice(prefs, "memory", save), DosSetup.MEMORY_NAMES.length)};
         final int[] control = {DosSetup.clamp(DosSetup.choice(prefs, "control", save), DosSetup.CONTROL_NAMES.length)};
         final int[] mouse = {DosSetup.clamp(DosSetup.choice(prefs, "mouse", save), DosSetup.MOUSE_NAMES.length)};
+        final int[] midi = {DosSetup.midiChoice(prefs, save)};
         String exe = DosSetup.start(prefs, save);
         final String confName = prefs.getString(DosSetup.key("conf", save), null);
         final boolean hasAutoexec = prefs.getString(DosSetup.key("autoexec", save), null) != null;
@@ -14346,6 +14334,24 @@ public final class MainActivity extends Activity {
         }
         addDosChoice(panel, "CPU 속도", DosSetup.CPU_NAMES, cpu);
         addDosChoice(panel, "사운드", DosSetup.SOUND_NAMES, sound);
+        addDosChoice(panel, "MIDI 음악", DosSetup.MIDI_NAMES, midi);
+        LinearLayout midiState = new LinearLayout(this);
+        File sys = systemDir();
+        midiState.addView(dosStateChip("General MIDI · " + (DosSetup.userSoundfont(sys).isFile() ? "내 사운드폰트" : "앱에 들어 있음 (TimGM6mb)"), true));
+        midiState.addView(dosStateChip(DosSetup.hasMt32(sys) ? "MT-32 · 있음" : "MT-32 · ROM 없음", DosSetup.hasMt32(sys)));
+        midiState.addView(dosStateChip(DosSetup.hasSc55(sys) ? "SC-55 · 있음" : "SC-55 · ROM 없음", DosSetup.hasSc55(sys)));
+        android.widget.HorizontalScrollView midiScroll = new android.widget.HorizontalScrollView(this);
+        midiScroll.setHorizontalScrollBarEnabled(false);
+        midiScroll.addView(midiState);
+        panel.addView(midiScroll, spaced(6));
+        TextView midiSheet = dosButton("🎵 MIDI 음원 관리", Color.rgb(241, 245, 249), Theme.text(slate));
+        midiSheet.setTextSize(12.5f);
+        midiSheet.setOnClickListener(view -> {
+            dialog.dismiss();
+            showDosMidiSheet(() -> showDosSettings(file));
+        });
+        panel.addView(midiSheet, spaced(8));
+        midiSheet.getLayoutParams().height = dp(40);
         addDosChoice(panel, "메모리", DosSetup.MEMORY_NAMES, memory);
         addDosChoice(panel, "조작 (처음 보이는 화면)", DosSetup.CONTROL_NAMES, control);
         addDosChoice(panel, "마우스", DosSetup.MOUSE_NAMES, mouse);
@@ -14354,7 +14360,7 @@ public final class MainActivity extends Activity {
         LinearLayout confRow = new LinearLayout(this);
         if (hasAutoexec) {
             confRow.addView(dosChip("실행 순서 보기", Color.rgb(241, 245, 249), slate, () -> new AppDialog.Builder(this).setTitle("실행 순서 ([autoexec])")
-                    .setMessage(prefs.getString(DosSetup.key("autoexec", save), "")).setPositiveButton("확인", null).show()));
+                    .setMessage(DosSetup.shown(prefs.getString(DosSetup.key("autoexec", save), ""))).setPositiveButton("확인", null).show()));
         }
         confRow.addView(dosChip(confName == null ? "설정 파일 넣기" : "다른 conf 넣기", Color.rgb(241, 245, 249), slate, () -> {
             dialog.dismiss();
@@ -14390,7 +14396,8 @@ public final class MainActivity extends Activity {
         change.getLayoutParams().height = dp(44);
         panel.addView(noteBox("세이브: 게임이 저장한 파일은 원본 zip을 건드리지 않고 따로 보관해요 (빠른 저장 · 세이브 내보내기 · 클라우드 백업도 돼요).\n"
                 + "한글: 한글판 게임은 대부분 안에 한글 출력기가 들어 있어요. 따로 필요하면 실행 파일 고르기에서 \"함께 실행\"으로 넣어요.\n"
-                + "게임패드를 연결하면 방향키 · 버튼이 DOSBox의 자동 연결로 키에 이어져요.", Color.rgb(248, 250, 252), slate), spaced(10));
+                + "게임패드를 연결하면 방향키 · 버튼이 DOSBox의 자동 연결로 키에 이어져요.\n"
+                + "MIDI: 게임의 SETUP에서 음악 장치를 General MIDI(또는 MT-32 · \"Roland\")로 골라야 MIDI 소리가 나요. 효과음은 Sound Blaster 그대로.", Color.rgb(248, 250, 252), slate), spaced(10));
         LinearLayout buttons = new LinearLayout(this);
         TextView close = dosButton("닫기", Color.rgb(241, 243, 245), Theme.text(Color.rgb(55, 65, 81)));
         close.setOnClickListener(view -> dialog.dismiss());
@@ -14403,6 +14410,7 @@ public final class MainActivity extends Activity {
                     .putInt(DosSetup.key("memory", save), memory[0])
                     .putInt(DosSetup.key("control", save), control[0])
                     .putInt(DosSetup.key("mouse", save), mouse[0])
+                    .putInt(DosSetup.key("midi", save), midi[0])
                     .putString(DosSetup.key("keys", save), keys.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_KEYS : keys.getText().toString().trim())
                     .putString(DosSetup.key("buttons", save), big.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_BUTTONS : big.getText().toString().trim());
             if (cpu[0] != cpuBefore) {
@@ -14443,6 +14451,210 @@ public final class MainActivity extends Activity {
         chip.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
         ((LinearLayout.LayoutParams) chip.getLayoutParams()).setMargins(0, 0, dp(6), 0);
         return chip;
+    }
+
+    private TextView dosStateChip(String text, boolean ready) {
+        TextView chip = new TextView(this);
+        chip.setText(text);
+        chip.setTextSize(10.5f);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setTextColor(ready ? Color.rgb(22, 101, 52) : Theme.text(Color.rgb(148, 163, 184)));
+        chip.setPadding(dp(8), dp(4), dp(8), dp(4));
+        chip.setBackground(rounded(ready ? Color.rgb(220, 252, 231) : Color.rgb(241, 245, 249), dp(8)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, -2);
+        params.setMargins(0, 0, dp(6), 0);
+        chip.setLayoutParams(params);
+        return chip;
+    }
+
+    // ---- DOS MIDI sound sources (all games) ----
+    private static final int REQUEST_DOS_SF2 = 1071;
+    private static final int REQUEST_DOS_MT32 = 1072;
+    private static final int REQUEST_DOS_SC55 = 1073;
+    private Runnable dosMidiReturn;
+
+    private void showDosMidiSheet(final Runnable back) {
+        this.dosMidiReturn = back;
+        final File sys = systemDir();
+        final int violet = Color.rgb(124, 58, 237);
+        final boolean[] quiet = {false};   // closed for a picker or to show itself again
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.GEAR, violet, "MIDI 음원", "DOS 게임 음악 (모든 게임 공통)");
+        boolean user = DosSetup.userSoundfont(sys).isFile();
+        panel.addView(dosMidiRow("General MIDI 사운드폰트",
+                user ? "내 사운드폰트를 쓰는 중이에요. 기본(TimGM6mb, GPL-2)으로 되돌릴 수 있어요."
+                        : "기본: TimGM6mb (6MB, GPL-2) · 앱에 들어 있어요. 더 좋은 .sf2가 있으면 넣어서 바꿀 수 있어요.",
+                "사용 중", true,
+                user ? "기본으로 되돌리기" : "+ 내 사운드폰트(.sf2) 넣기", () -> {
+                    quiet[0] = true;
+                    if (user) {
+                        DosSetup.userSoundfont(sys).delete();
+                        dialog.dismiss();
+                        showDosMidiSheet(back);
+                    } else {
+                        dialog.dismiss();
+                        pickDosMidiFiles(REQUEST_DOS_SF2, false);
+                    }
+                }), spaced(10));
+        boolean mt32 = DosSetup.hasMt32(sys);
+        panel.addView(dosMidiRow("Roland MT-32 / CM-32L", "시에라 · 루카스아츠 옛 게임 음악. MT32_CONTROL.ROM + MT32_PCM.ROM 두 파일이 필요해요 (CM32L_ 이름도 돼요).",
+                mt32 ? "있음" : "없음", mt32, mt32 ? "지우기" : "+ ROM 파일 두 개 등록", () -> {
+                    quiet[0] = true;
+                    dialog.dismiss();
+                    if (mt32) {
+                        deleteRecursively(DosSetup.mt32Control(sys).getParentFile());
+                        showDosMidiSheet(back);
+                    } else {
+                        pickDosMidiFiles(REQUEST_DOS_MT32, true);
+                    }
+                }), spaced(8));
+        boolean sc55 = DosSetup.hasSc55(sys);
+        panel.addView(dosMidiRow("Roland SC-55", "Sound Canvas 음색. ROM1.BIN · ROM2.BIN · WAVEROM1~3.BIN (· ROM_SM.BIN) 기기 ROM이 필요해요.",
+                sc55 ? "있음" : "없음", sc55, sc55 ? "지우기" : "+ ROM 파일 등록", () -> {
+                    quiet[0] = true;
+                    dialog.dismiss();
+                    if (sc55) {
+                        deleteRecursively(DosSetup.sc55Dir(sys));
+                        showDosMidiSheet(back);
+                    } else {
+                        pickDosMidiFiles(REQUEST_DOS_SC55, true);
+                    }
+                }), spaced(8));
+        panel.addView(noteBox("Roland ROM은 저작권이 있어서 앱에 넣을 수 없어요. 본인 기기에서 뽑은 파일만 등록해 주세요. 게임 zip 안에 DOSBOX.SF2가 있으면 그 게임은 그걸로 자동 재생돼요.",
+                Color.rgb(245, 243, 255), Color.rgb(91, 33, 182)), spaced(10));
+        TextView close = dosButton("닫기", Color.rgb(241, 243, 245), Theme.text(Color.rgb(55, 65, 81)));
+        close.setOnClickListener(view -> dialog.dismiss());
+        panel.addView(close, spaced(12));
+        close.getLayoutParams().height = dp(48);
+        dialog.setOnDismissListener(d -> {
+            if (quiet[0]) {
+                return;
+            }
+            Runnable r = this.dosMidiReturn;
+            this.dosMidiReturn = null;
+            if (r != null && !isFinishing()) r.run();
+        });
+        dialog.show();
+    }
+
+    private View dosMidiRow(String title, String detail, String state, boolean ready, String action, Runnable run) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setPadding(dp(12), dp(10), dp(12), dp(10));
+        GradientDrawable bg = rounded(Color.rgb(248, 250, 252), dp(12));
+        bg.setStroke(dp(1), Theme.line(Color.rgb(229, 231, 235)));
+        box.setBackground(bg);
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(16);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(13.0f);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        texts.addView(t);
+        TextView d = new TextView(this);
+        d.setText(detail);
+        d.setTextSize(11.0f);
+        d.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        texts.addView(d);
+        top.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        TextView badge = new TextView(this);
+        badge.setText(state);
+        badge.setTextSize(10.5f);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(8), dp(3), dp(8), dp(3));
+        badge.setBackground(rounded(ready ? Color.rgb(22, 163, 74) : Color.rgb(148, 163, 184), dp(8)));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, -2);
+        badgeParams.setMargins(dp(8), 0, 0, 0);
+        top.addView(badge, badgeParams);
+        box.addView(top);
+        TextView act = new TextView(this);
+        act.setText(action);
+        act.setTextSize(12.0f);
+        act.setTypeface(Typeface.DEFAULT_BOLD);
+        act.setTextColor(Color.rgb(15, 118, 110));
+        act.setPadding(0, dp(6), 0, 0);
+        act.setOnClickListener(view -> run.run());
+        box.addView(act);
+        return box;
+    }
+
+    private void pickDosMidiFiles(int request, boolean many) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, many);
+        try {
+            startActivityForResult(intent, request);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    // Puts the picked SoundFont / Roland ROMs under <system>/dosmidi, by their expected names.
+    private void onDosMidiPicked(int request, Intent intent) {
+        final Runnable back = this.dosMidiReturn;
+        List<Uri> uris = new ArrayList<>();
+        if (intent.getClipData() != null) {
+            for (int k = 0; k < intent.getClipData().getItemCount(); k++) {
+                Uri u = intent.getClipData().getItemAt(k).getUri();
+                if (u != null) uris.add(u);
+            }
+        } else if (intent.getData() != null) {
+            uris.add(intent.getData());
+        }
+        File sys = systemDir();
+        StringBuilder problems = new StringBuilder();
+        int saved = 0;
+        for (Uri uri : uris) {
+            String name = displayNameFor(uri);
+            String upper = name.toUpperCase(Locale.ROOT);
+            File target = null;
+            if (request == REQUEST_DOS_SF2) {
+                if (upper.endsWith(".SF2") || upper.endsWith(".SF3")) target = DosSetup.userSoundfont(sys);
+            } else if (request == REQUEST_DOS_MT32) {
+                if (upper.endsWith("_CONTROL.ROM")) target = DosSetup.mt32Control(sys);
+                else if (upper.endsWith("_PCM.ROM")) target = DosSetup.mt32Pcm(sys);
+            } else {
+                for (String n : new String[]{"ROM1.BIN", "ROM2.BIN", "ROM2_ST.BIN", "ROM_SM.BIN", "WAVEROM1.BIN", "WAVEROM2.BIN", "WAVEROM3.BIN"}) {
+                    if (upper.endsWith(n) && (n.length() == upper.length() || !n.startsWith("ROM") || !upper.substring(0, upper.length() - n.length()).endsWith("WAVE"))) {
+                        target = new File(DosSetup.sc55Dir(sys), n);
+                    }
+                }
+            }
+            if (target == null) {
+                problems.append(name).append(": 알맞은 파일이 아니에요\n");
+                continue;
+            }
+            target.getParentFile().mkdirs();
+            File temp = new File(target.getPath() + ".tmp");
+            try (java.io.InputStream in = getContentResolver().openInputStream(uri); FileOutputStream out = new FileOutputStream(temp)) {
+                if (in == null) throw new IOException();
+                copy(in, out);
+            } catch (IOException e) {
+                temp.delete();
+                problems.append(name).append(": 복사하지 못했어요\n");
+                continue;
+            }
+            target.delete();
+            if (temp.renameTo(target)) saved++;
+        }
+        if (request == REQUEST_DOS_MT32 && saved > 0 && !DosSetup.hasMt32(sys)) {
+            problems.append("MT-32는 _CONTROL.ROM과 _PCM.ROM 두 파일이 다 있어야 해요\n");
+        }
+        if (request == REQUEST_DOS_SC55 && saved > 0 && !DosSetup.hasSc55(sys)) {
+            problems.append("SC-55는 적어도 ROM1.BIN · ROM2.BIN과 WAVEROM 파일이 있어야 해요\n");
+        }
+        if (problems.length() > 0) {
+            showError(problems.toString().trim());
+        } else if (saved > 0) {
+            Toast.makeText(this, "MIDI 음원을 등록했어요", Toast.LENGTH_SHORT).show();
+        }
+        showDosMidiSheet(back);
     }
 
     // ---- dosbox.conf ----
@@ -14488,7 +14700,7 @@ public final class MainActivity extends Activity {
 
     // What the conf sets, to apply or leave.
     private void showDosConfApply(final File game, String text, final String confName, final Runnable after) {
-        final DosSetup.Conf conf = DosSetup.parseConf(text, game);
+        final DosSetup.Conf conf = DosSetup.parseConf(text, game, systemDir());
         if (conf.rows.isEmpty()) {
             showError(confName + ": DOSBox 설정 파일에서 쓸 값을 찾지 못했어요 (cycles · sbtype · memsize · [autoexec]).");
             if (after != null) after.run();
@@ -14531,7 +14743,7 @@ public final class MainActivity extends Activity {
         if (!conf.autoexec.isEmpty()) {
             panel.addView(sectionLabel("[autoexec] 실행 순서"));
             TextView code = new TextView(this);
-            code.setText(android.text.TextUtils.join("\n", conf.autoexec));
+            code.setText(DosSetup.shown(android.text.TextUtils.join("\n", conf.autoexec)));
             code.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
             code.setTextSize(11.0f);
             code.setTextColor(Color.rgb(167, 243, 208));
