@@ -19,8 +19,8 @@ android {
         applicationId 'com.example.minigba.gbaonly'
         minSdk 24
         targetSdk 34
-        versionCode 257
-        versionName '0.0.257'
+        versionCode 258
+        versionName '0.0.258'
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -76,4 +76,6 @@ android {
 dependencies {
     // xdelta patches compressed with LZMA (RomPatcher).
     implementation 'org.tukaani:xz:1.9'
+    // 7z archives of patches (압축 파일 안의 패치); 1.21 needs nothing besides xz.
+    implementation 'org.apache.commons:commons-compress:1.21'
 }

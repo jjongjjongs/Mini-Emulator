@@ -35,6 +35,9 @@ final class RomPatcher {
         int sourceMatches;
         // Bytes to skip at the start of the ROM (a SNES copier header the patch doesn't have).
         long skip;
+        // An IPS patch on a SNES ROM with a copier header, and no telling whether the patch
+        // was made with it: the player picks (skip 512 by default).
+        boolean headerChoice;
     }
 
     private RomPatcher() {
@@ -106,7 +109,9 @@ final class RomPatcher {
                 result.skip = 512;
             }
         } else if (result.format == IPS) {
-            result.skip = snesIpsSkip(p, rom);
+            long skip = snesIpsSkip(p, rom);
+            result.headerChoice = skip < 0;
+            result.skip = skip < 0 ? 512 : skip;
         }
         return result;
     }
@@ -1080,8 +1085,8 @@ final class RomPatcher {
     // ---- SNES copier headers and IPS ----
 
     // For an IPS patch on a SNES ROM with a 512-byte copier header: 512 when the patch was made
-    // for the ROM without it (the result then has a valid internal checksum only that way),
-    // else 0 (applied as is, as before).
+    // for the ROM without it (the result has a valid internal checksum only that way), 0 when
+    // made with it (only as is), -1 when it can't be told; 0 for other ROMs.
     private static long snesIpsSkip(Big p, File rom) {
         long length = rom.length();
         if (length % 1024 != 512 || length > 16L * 1024 * 1024 + 512) return 0;
@@ -1092,13 +1097,44 @@ final class RomPatcher {
             }
             byte[] asIs = image.clone();
             byte[] body = java.util.Arrays.copyOfRange(image, 512, image.length);
-            if (!ipsInMemory(p, asIs) || !ipsInMemory(p, body)) return 0;
-            boolean bodyOk = snesChecksumOk(body, 0);
-            boolean asIsOk = snesChecksumOk(asIs, 512);
-            return bodyOk && !asIsOk ? 512 : 0;
+            boolean bodyFits = ipsInMemory(p, body);
+            boolean asIsFits = ipsInMemory(p, asIs);
+            if (!looksSnes(image)) return 0;
+            // A patch made with the header never writes into it.
+            if (ipsMinOffset(p) < 512) return 512;
+            if (bodyFits && !asIsFits) return 512;
+            if (asIsFits && !bodyFits) return 0;
+            boolean bodyOk = bodyFits && snesChecksumOk(body, 0);
+            boolean asIsOk = asIsFits && snesChecksumOk(asIs, 512);
+            if (bodyOk != asIsOk) return bodyOk ? 512 : 0;
+            return -1;
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
             return 0;
         }
+    }
+
+    private static long ipsMinOffset(Big p) {
+        long min = Long.MAX_VALUE;
+        long pos = 5;
+        while (pos + 3 <= p.size && !ipsEnd(p, pos)) {
+            long offset = p.u24be(pos);
+            int size = (p.u8(pos + 3) << 8) | p.u8(pos + 4);
+            min = Math.min(min, offset);
+            pos += 5 + (size == 0 ? 3 : size);
+        }
+        return min;
+    }
+
+    // A SNES ROM after a copier header: a LoROM or HiROM internal header with a plausible
+    // map mode byte.
+    private static boolean looksSnes(byte[] image) {
+        int[] headers = {512 + 0x7FC0, 512 + 0xFFC0};
+        for (int h : headers) {
+            if (h + 0x20 > image.length) continue;
+            int map = image[h + 0x15] & 0xFF;
+            if ((map & 0xE0) == 0x20) return true;
+        }
+        return false;
     }
 
     // Applies an IPS patch to a ROM in memory, staying in its size; false if it reaches past.

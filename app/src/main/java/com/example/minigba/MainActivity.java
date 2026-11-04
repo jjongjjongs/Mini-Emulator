@@ -6254,6 +6254,70 @@ public final class MainActivity extends Activity {
         return step;
     }
 
+    // 2단계, an IPS patch on a SNES ROM with a copier header that can't be told: with or without it.
+    private LinearLayout snesHeaderChoice(final RomPatcher.Check check) {
+        final LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setPadding(dp(12), dp(10), dp(12), dp(12));
+        GradientDrawable bg = rounded(Color.rgb(255, 251, 235), dp(14));
+        bg.setStroke(dp(2), Theme.line(Color.rgb(252, 211, 77)));
+        box.setBackground(bg);
+        TextView title = new TextView(this);
+        title.setText("롬 헤더(512바이트)를 어떻게 할까요?");
+        title.setTextSize(13.5f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(146, 64, 14)));
+        box.addView(title);
+        TextView why = new TextView(this);
+        why.setText("이 롬에는 옛 복사기 헤더가 있어요. IPS 패치는 검사값이 없어서 앱이 어느 쪽인지 확실히 알 수 없어요.");
+        why.setTextSize(11.0f);
+        why.setTextColor(Theme.text(Color.rgb(120, 53, 15)));
+        box.addView(why);
+        final LinearLayout options = new LinearLayout(this);
+        options.setOrientation(1);
+        box.addView(options);
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            options.removeAllViews();
+            String[][] items = {{"512", "헤더 없는 롬 기준 · 추천", "헤더를 떼고 적용해요. 요즘 패치(romhacking.net 등)는 대부분 이쪽이에요."},
+                    {"0", "헤더 있는 롬 기준", "지금 롬 그대로 적용해요. 오래된 패치나 설명서에 \"headered\"라고 적힌 경우."}};
+            for (String[] item : items) {
+                final long skip = Long.parseLong(item[0]);
+                boolean on = check.skip == skip;
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(1);
+                row.setPadding(dp(12), dp(9), dp(12), dp(9));
+                GradientDrawable rowBg = rounded(on ? Color.rgb(236, 254, 255) : Color.WHITE, dp(12));
+                rowBg.setStroke(dp(2), Theme.line(on ? RoundIconView.COLOR_PATCH : Color.rgb(229, 231, 235)));
+                row.setBackground(rowBg);
+                TextView name = new TextView(this);
+                name.setText((on ? "◉ " : "○ ") + item[1]);
+                name.setTextSize(12.5f);
+                name.setTypeface(Typeface.DEFAULT_BOLD);
+                name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+                row.addView(name);
+                TextView detail = new TextView(this);
+                detail.setText(item[2]);
+                detail.setTextSize(10.5f);
+                detail.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+                row.addView(detail);
+                row.setOnClickListener(view -> {
+                    check.skip = skip;
+                    render[0].run();
+                });
+                options.addView(row, spaced(8));
+            }
+        };
+        render[0].run();
+        TextView tip = new TextView(this);
+        tip.setText("💡 설명서(readme)에 unheadered / headered나 원본 CRC가 적혀 있으면 그쪽을 고르세요.");
+        tip.setTextSize(10.5f);
+        tip.setTextColor(Theme.text(Color.rgb(146, 64, 14)));
+        tip.setPadding(0, dp(8), 0, 0);
+        box.addView(tip);
+        return box;
+    }
+
     private void showPatchDialog(final File file, String patchName, final RomPatcher.Big patch, final PatchSource source, final RomPatcher.Check check) {
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(1);
@@ -6340,6 +6404,9 @@ public final class MainActivity extends Activity {
         noteParams.setMargins(0, dp(12), 0, 0);
         panel.addView(note, noteParams);
 
+        if (check.headerChoice) {
+            panel.addView(snesHeaderChoice(check), spaced(10));
+        }
         addSaveWhereSection(panel, file);
         final CheckBox carry = addSaveCarryBox(panel, file, false, "원본 세이브 같이 쓰기");
         LinearLayout buttons = new LinearLayout(this);
@@ -8854,6 +8921,9 @@ public final class MainActivity extends Activity {
     private Dialog prepDialog;
 
     private long sizeForUri(Uri uri) {
+        if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
+            return new File(uri.getPath()).length();
+        }
         try (Cursor cursor = getContentResolver().query(uri, new String[]{android.provider.OpenableColumns.SIZE}, null, null, null)) {
             if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
                 return cursor.getLong(0);
@@ -8959,7 +9029,8 @@ public final class MainActivity extends Activity {
             long size = sizeForUri(uri);
             String kind = patchKindOf(uri);
             LinearLayout card = prepCard(RoundIconView.PATCH, teal, name == null ? "패치 파일" : name,
-                    (kind == null ? "?" : kind) + (size >= 0 ? " · " + formatSize(size) : "") + " · 패치 파일 맞음 ✓", Color.rgb(236, 254, 255), teal);
+                    (kind == null ? "?" : kind) + (size >= 0 ? " · " + formatSize(size) : "")
+                            + (this.prepArchiveOf.containsKey(uri) ? " · 🗜 " + this.prepArchiveOf.get(uri) + " 안" : "") + " · 패치 파일 맞음 ✓", Color.rgb(236, 254, 255), teal);
             TextView remove = new TextView(this);
             remove.setText("✕");
             remove.setTextSize(15.0f);
@@ -9167,12 +9238,27 @@ public final class MainActivity extends Activity {
         }
         boolean sheet = isDiscSheet(file);
         boolean gdi = file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi");
-        // A 3DS LayeredFS zip or a PS2 .pnach is a 덧씌우는 패치: over to that screen.
+        // A zip / 7z: the patches inside it (or, for a game with 덧씌우는 패치, that screen
+        // when it holds none).
+        for (Uri uri : picked) {
+            String name = displayNameFor(uri);
+            String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
+            if (lower.endsWith(".rar")) {
+                this.prepError = name + "는 RAR 압축이에요. RAR는 앱에서 풀 수 없어서, 먼저 풀어서 안의 패치 파일을 골라 주세요 (zip · 7z는 바로 돼요).";
+                renderPatchPrep();
+                return;
+            }
+            if (lower.endsWith(".zip") || lower.endsWith(".7z")) {
+                openPatchArchive(file, uri, name);
+                return;
+            }
+        }
+        // A PS2 .pnach is a 덧씌우는 패치: over to that screen.
         if (overlayKind(file) != null) {
             for (Uri uri : picked) {
                 String name = displayNameFor(uri);
                 String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
-                if (lower.endsWith(".zip") || lower.endsWith(".pnach")) {
+                if (lower.endsWith(".pnach")) {
                     if (this.prepDialog != null && this.prepDialog.isShowing()) {
                         this.prepDialog.dismiss();
                     }
@@ -9207,11 +9293,375 @@ public final class MainActivity extends Activity {
             String names = android.text.TextUtils.join(", ", bad);
             boolean dcp = names.toLowerCase(Locale.ROOT).endsWith(".dcp");
             this.prepError = dcp ? names + "는 드림캐스트 GDI 게임에만 쓸 수 있어요. 이 게임에는 IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 패치를 골라 주세요."
-                    : names + "는 패치 파일이 아니에요.\nIPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 파일을 골라 주세요. 압축 파일(.zip)이면 먼저 풀어서 안의 패치 파일을 골라요.";
+                    : names + "는 패치 파일이 아니에요.\nIPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 파일이나, 그것이 든 zip · 7z를 골라 주세요.";
         } else {
             this.prepError = null;
         }
         renderPatchPrep();
+    }
+
+
+    // ---- 압축 파일 안의 패치: a zip / 7z picked in 1단계 ----
+
+    private final java.util.Map<Uri, String> prepArchiveOf = new java.util.HashMap<>();
+
+    private void openPatchArchive(final File game, final Uri uri, final String archiveName) {
+        if (this.prepDialog != null && this.prepDialog.isShowing()) {
+            this.prepDialog.dismiss();
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("압축 파일을 살펴보는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String error = null;
+            List<PatchArchive.Item> items = null;
+            File dir = new File(getCacheDir(), "patch_archive_" + System.currentTimeMillis());
+            File copy = new File(getCacheDir(), "patch_archive_in");
+            try {
+                deleteRecursively(dir);
+                try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(copy)) {
+                    if (in == null) {
+                        throw new IOException("압축 파일을 열 수 없어요.");
+                    }
+                    byte[] buffer = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        out.write(buffer, 0, n);
+                    }
+                }
+                if (PatchArchive.isRar(copy)) {
+                    throw new IOException(archiveName + "는 이름은 zip · 7z지만 RAR 압축이에요. 먼저 풀어서 안의 패치 파일을 골라 주세요.");
+                }
+                items = PatchArchive.open(copy, dir);
+                recommendArchivePatches(game, items);
+            } catch (IOException e) {
+                error = e.getMessage();
+            } catch (OutOfMemoryError e) {
+                error = "압축 파일이 너무 커서 열 수 없어요.";
+            } finally {
+                copy.delete();
+            }
+            final String why = error;
+            final List<PatchArchive.Item> list = items;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (why != null) {
+                    this.prepError = why;
+                    renderPatchPrep();
+                    return;
+                }
+                boolean anyPatch = false;
+                for (PatchArchive.Item item : list) {
+                    anyPatch |= item.type == PatchArchive.PATCH;
+                }
+                if (!anyPatch && overlayKind(game) != null && archiveName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                    Toast.makeText(this, "덧씌우는 한글 패치로 넣어요 (원본은 그대로)", Toast.LENGTH_SHORT).show();
+                    onOverlayPicked(game, uri, false);
+                    return;
+                }
+                if (!anyPatch) {
+                    this.prepError = archiveName + " 안에 패치 파일(IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF)이 없어요.";
+                    renderPatchPrep();
+                    return;
+                }
+                showArchivePatches(game, archiveName, list);
+            });
+        }, "patch-archive").start();
+    }
+
+    // "추천" for the patch made for this ROM (its checksum, or an xdelta reading exactly its size).
+    private void recommendArchivePatches(File game, List<PatchArchive.Item> items) {
+        PatchSource source;
+        try {
+            source = isDiscSheet(game) ? (game.getName().toLowerCase(Locale.ROOT).endsWith(".gdi") ? gdiSourceFor(game) : patchSourceFor(game)) : null;
+        } catch (IOException e) {
+            source = null;
+        }
+        boolean picked = false;
+        for (PatchArchive.Item item : items) {
+            if (item.type != PatchArchive.PATCH || item.file == null || ".dcp".equals(item.format)) {
+                continue;
+            }
+            try (RomPatcher.Big patch = RomPatcher.Big.map(item.file, 0, item.file.length(), false)) {
+                List<File> targets = new ArrayList<>();
+                if (source != null) {
+                    targets.addAll(source.tracks);
+                } else if (!isDiscSheet(game)) {
+                    targets.add(game);
+                }
+                long end = RomPatcher.detect(patch) == RomPatcher.XDELTA ? RomPatcher.xdeltaSourceEnd(patch) : -1;
+                for (File target : targets) {
+                    RomPatcher.Check check = RomPatcher.check(patch, target);
+                    if (check.sourceMatches > 0 || (end > 0 && (end == target.length() || end == target.length() - check.skip))) {
+                        item.recommended = true;
+                        item.note = check.sourceMatches > 0 ? "원본 검사값 맞음" : "이 롬 크기와 맞음";
+                        break;
+                    }
+                    if (check.sourceMatches < 0 && item.note.isEmpty()) {
+                        item.note = "원본 검사값 다름";
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                item.note = "읽지 못함";
+            }
+            picked |= item.recommended;
+        }
+        if (!picked) {
+            for (PatchArchive.Item item : items) {
+                if (item.type == PatchArchive.PATCH) {
+                    item.recommended = true;  // nothing to go by: the first one
+                    break;
+                }
+            }
+        }
+    }
+
+    private LinearLayout archiveRow(PatchArchive.Item item, boolean checked, String right) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(16);
+        row.setPadding(dp(11), dp(9), dp(11), dp(9));
+        boolean off = item.type == PatchArchive.WINDOWS || item.type == PatchArchive.OTHER;
+        GradientDrawable bg = rounded(checked ? Color.rgb(236, 254, 255) : off ? Color.rgb(249, 250, 251) : Color.rgb(246, 247, 249), dp(12));
+        bg.setStroke(dp(checked ? 2 : 1), Theme.line(checked ? RoundIconView.COLOR_PATCH : Color.rgb(229, 231, 235)));
+        row.setBackground(bg);
+        if (off) {
+            row.setAlpha(0.65f);
+        }
+        TextView icon = new TextView(this);
+        icon.setText(item.type == PatchArchive.PATCH ? "🧩" : item.type == PatchArchive.DOC ? "📄" : item.type == PatchArchive.WINDOWS ? "🪟" : "📦");
+        icon.setTextSize(15.0f);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(26), -2));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView name = new TextView(this);
+        name.setText(item.path);
+        name.setTextSize(12.5f);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        texts.addView(name);
+        TextView detail = new TextView(this);
+        String kind = item.type == PatchArchive.PATCH ? item.format : item.type == PatchArchive.DOC ? "설명서" : item.type == PatchArchive.WINDOWS ? "윈도우 프로그램 · 앱이 대신 해요" : "패치가 아닌 파일";
+        detail.setText(kind + " · " + formatSize(Math.max(0, item.size)) + (item.recommended ? " · 추천" : "") + (item.note.isEmpty() ? "" : " (" + item.note + ")"));
+        detail.setTextSize(10.5f);
+        detail.setTextColor(Theme.text(item.recommended ? RoundIconView.COLOR_PATCH : Color.rgb(107, 114, 128)));
+        texts.addView(detail);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(4), 0, dp(6), 0);
+        row.addView(texts, textsParams);
+        if (right != null) {
+            TextView mark = new TextView(this);
+            mark.setText(right);
+            mark.setTextSize(11.0f);
+            mark.setTypeface(Typeface.DEFAULT_BOLD);
+            mark.setTextColor(Theme.text(right.equals("✓") ? Color.WHITE : Color.rgb(71, 85, 105)));
+            mark.setGravity(17);
+            if (right.equals("✓") || right.isEmpty()) {
+                mark.setBackground(rounded(right.equals("✓") ? RoundIconView.COLOR_PATCH : Color.WHITE, dp(6)));
+                if (right.isEmpty()) {
+                    GradientDrawable box = rounded(Color.WHITE, dp(6));
+                    box.setStroke(dp(2), Theme.line(Color.rgb(203, 213, 225)));
+                    mark.setBackground(box);
+                }
+                row.addView(mark, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            } else {
+                mark.setPadding(dp(8), dp(3), dp(8), dp(3));
+                GradientDrawable box = rounded(Color.WHITE, dp(8));
+                box.setStroke(dp(1), Theme.line(Color.rgb(229, 231, 235)));
+                mark.setBackground(box);
+                row.addView(mark);
+            }
+        }
+        return row;
+    }
+
+    private void showArchivePatches(final File game, final String archiveName, final List<PatchArchive.Item> items) {
+        final boolean sheet = isDiscSheet(game);
+        final java.util.Set<PatchArchive.Item> chosen = new java.util.LinkedHashSet<>();
+        for (PatchArchive.Item item : items) {
+            if (item.recommended && item.type == PatchArchive.PATCH) {
+                chosen.add(item);
+                if (!sheet) {
+                    break;
+                }
+            }
+        }
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.PATCH, RoundIconView.COLOR_PATCH, "압축 파일 안의 패치", archiveName + " · 파일 " + items.size() + "개");
+        TextView intro = new TextView(this);
+        intro.setText("패치로 쓸 수 있는 파일을 위로 모았어요. 고른 것만 꺼내 쓰고, 압축 파일은 그대로 둬요." + (sheet ? " 디스크 게임은 여러 개를 함께 고를 수 있어요." : ""));
+        intro.setTextSize(11.5f);
+        intro.setTextColor(Theme.text(Color.rgb(17, 94, 89)));
+        intro.setPadding(dp(12), dp(9), dp(12), dp(9));
+        intro.setBackground(rounded(Color.rgb(240, 253, 250), dp(12)));
+        panel.addView(intro, spaced(10));
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            list.removeAllViews();
+            String[] titles = {"패치 파일", "설명서", "그 밖의 파일"};
+            for (int group = 0; group < 3; group++) {
+                boolean header = false;
+                for (final PatchArchive.Item item : items) {
+                    int g = item.type == PatchArchive.PATCH ? 0 : item.type == PatchArchive.DOC ? 1 : 2;
+                    if (g != group) {
+                        continue;
+                    }
+                    if (!header) {
+                        list.addView(sectionLabel(titles[group]));
+                        header = true;
+                    }
+                    LinearLayout row = archiveRow(item, chosen.contains(item),
+                            g == 0 ? (chosen.contains(item) ? "✓" : "") : g == 1 && item.file != null ? "보기" : null);
+                    if (g == 0) {
+                        row.setOnClickListener(view -> {
+                            if (chosen.contains(item)) {
+                                chosen.remove(item);
+                            } else {
+                                if (!sheet) {
+                                    chosen.clear();
+                                }
+                                chosen.add(item);
+                            }
+                            render[0].run();
+                        });
+                    } else if (g == 1 && item.file != null) {
+                        row.setOnClickListener(view -> showArchiveReadme(game, archiveName, item));
+                    }
+                    list.addView(row, spaced(6));
+                }
+            }
+        };
+        render[0].run();
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        int max = (int) (getResources().getDisplayMetrics().heightPixels * 0.55f);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, Math.min(max, dp(80) + items.size() * dp(62))));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView back = new TextView(this);
+        back.setText("← 이전");
+        back.setTextSize(15.0f);
+        back.setTypeface(Typeface.DEFAULT_BOLD);
+        back.setGravity(17);
+        back.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        back.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        back.setOnClickListener(view -> {
+            dialog.dismiss();
+            renderPatchPrep();
+        });
+        buttons.addView(back, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView ok = new TextView(this);
+        ok.setText("이 패치 고르기");
+        ok.setTextSize(15.0f);
+        ok.setTypeface(Typeface.DEFAULT_BOLD);
+        ok.setGravity(17);
+        ok.setTextColor(Color.WHITE);
+        ok.setBackground(rounded(RoundIconView.COLOR_PATCH, dp(14)));
+        ok.setOnClickListener(view -> {
+            if (chosen.isEmpty()) {
+                showError("패치 파일을 하나 골라 주세요.");
+                return;
+            }
+            dialog.dismiss();
+            if (!sheet) {
+                this.prepUris.clear();
+            }
+            boolean dcp = false;
+            for (PatchArchive.Item item : chosen) {
+                dcp |= ".dcp".equals(item.format);
+            }
+            if (dcp) {
+                this.prepUris.clear();
+            }
+            for (PatchArchive.Item item : chosen) {
+                if (dcp && !".dcp".equals(item.format)) {
+                    continue;
+                }
+                Uri u = Uri.fromFile(item.file);
+                this.prepArchiveOf.put(u, archiveName);
+                if (!this.prepUris.contains(u)) {
+                    this.prepUris.add(u);
+                }
+            }
+            this.prepError = null;
+            renderPatchPrep();
+        });
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        okParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(ok, okParams);
+        panel.addView(buttons, spaced(12));
+        dialog.show();
+    }
+
+    // A read-me inside the archive, with the lines about the original marked, and ✓ when this
+    // ROM's CRC32 is in it.
+    private void showArchiveReadme(File game, String archiveName, PatchArchive.Item item) {
+        String text;
+        try {
+            text = PatchArchive.readText(item.file);
+        } catch (IOException e) {
+            showError("설명서를 읽지 못했어요.");
+            return;
+        }
+        String crc = null;
+        if (!isDiscSheet(game) && game.length() <= 64L * 1024 * 1024) {
+            try (RomPatcher.Big rom = RomPatcher.Big.map(game, 0, game.length(), false)) {
+                crc = String.format(Locale.US, "%08X", rom.crc(0, game.length()));
+            } catch (IOException | RuntimeException ignored) {
+                // No mark.
+            }
+        }
+        android.text.SpannableStringBuilder shown = new android.text.SpannableStringBuilder();
+        java.util.regex.Pattern info = java.util.regex.Pattern.compile("(?i)crc|md5|sha|header|헤더|원본|original|redump|no-?intro|tosec|\\(japan\\)|\\(usa\\)|\\(europe\\)|버전|version");
+        boolean crcFound = false;
+        for (String line : text.split("\r?\n")) {
+            int start = shown.length();
+            shown.append(line).append('\n');
+            if (info.matcher(line).find()) {
+                shown.setSpan(new android.text.style.BackgroundColorSpan(Theme.isDark() ? Color.rgb(113, 63, 18) : Color.rgb(254, 243, 199)), start, shown.length() - 1, 0);
+            }
+            if (crc != null && line.toUpperCase(Locale.ROOT).contains(crc)) {
+                crcFound = true;
+                shown.insert(shown.length() - 1, "  ✓ 이 롬과 같음");
+            }
+        }
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.PATCH, RoundIconView.COLOR_PATCH, new File(item.path).getName(), archiveName + " 안" + (crc != null ? " · 이 롬 CRC " + crc + (crcFound ? " ✓" : "") : ""));
+        TextView body = new TextView(this);
+        body.setText(shown);
+        body.setTextSize(11.5f);
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setTextColor(Theme.text(Color.rgb(51, 65, 85)));
+        body.setTextIsSelectable(true);
+        body.setPadding(dp(12), dp(10), dp(12), dp(10));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackground(rounded(Color.rgb(248, 250, 252), dp(12)));
+        scroll.addView(body);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, (int) (getResources().getDisplayMetrics().heightPixels * 0.55f)));
+        TextView note = new TextView(this);
+        note.setText("원본 정보(CRC · 헤더 · 판)가 적힌 줄을 노란색으로 표시했어요.");
+        note.setTextSize(11.0f);
+        note.setTextColor(Theme.text(Color.rgb(146, 64, 14)));
+        note.setPadding(0, dp(8), 0, 0);
+        panel.addView(note);
+        TextView back = new TextView(this);
+        back.setText("← 목록으로");
+        back.setTextSize(15.0f);
+        back.setTypeface(Typeface.DEFAULT_BOLD);
+        back.setGravity(17);
+        back.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        back.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        back.setOnClickListener(view -> dialog.dismiss());
+        panel.addView(back, new LinearLayout.LayoutParams(-1, dp(46)));
+        dialog.show();
     }
 
     // ---- 덧씌우는 한글 패치 (3DS LayeredFS · PS2 .pnach): laid over the game when it starts ----
