@@ -39,6 +39,7 @@ final class PerfOverlayView extends View {
     private String drain = "";
     private double lastFrames = -1;
     private double lastPictures;
+    private double lastAudio;
     private long lastTime;
 
     PerfOverlayView(Context context, View target, boolean flat) {
@@ -59,19 +60,28 @@ final class PerfOverlayView extends View {
         target.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> invalidate());
     }
 
-    // stats: {frames run, pictures shown, the game's own frame rate} from NativeGba.frameStats.
+    // stats: {frames run, pictures shown, the game's own frame rate, audio made, its sample
+    // rate} from NativeGba.frameStats. Cores paced by their audio (Dreamcast, N64, PSP,
+    // GameCube · Wii) run a varying stretch of the game per frame, so their speed is the
+    // audio made per second against the sample rate (frames while the game is silent).
     void update(double[] stats) {
         long now = System.nanoTime();
-        if (stats != null && stats.length == 3) {
+        if (stats != null && stats.length >= 3) {
+            double audio = stats.length >= 5 ? stats[3] : 0;
+            double rate = stats.length >= 5 ? stats[4] : 0;
             if (this.lastFrames >= 0 && now > this.lastTime && stats[0] >= this.lastFrames) {
                 double seconds = (now - this.lastTime) / 1e9;
                 double fps = (stats[1] - this.lastPictures) / seconds;
                 double speed = (stats[0] - this.lastFrames) / seconds / Math.max(1, stats[2]) * 100;
+                if (rate > 0 && audio > this.lastAudio) {
+                    speed = (audio - this.lastAudio) / seconds / rate * 100;
+                }
                 this.line1 = Math.round(fps) + " FPS · 속도 " + Math.round(speed) + "%";
                 this.fpsColor = speed >= 95 ? Color.rgb(74, 222, 128) : speed >= 80 ? Color.rgb(251, 191, 36) : Color.rgb(248, 113, 113);
             }
             this.lastFrames = stats[0];
             this.lastPictures = stats[1];
+            this.lastAudio = audio;
             this.lastTime = now;
         }
         if (this.line1.isEmpty()) {

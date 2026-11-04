@@ -4829,7 +4829,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
         row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, RoundIconView.COLOR_PERF, "성능 표시",
                 new String[]{"꺼짐", "켜짐"}, new String[]{"표시 없음 (기본)", "게임 화면 왼쪽 위에 FPS·속도, 온도, 배터리"},
-                perfOverlayOn() ? 1 : 0, "모든 게임에 같이 적용돼요. 온도는 CPU 센서를 못 읽는 폰에선 배터리 온도로 보여요.",
+                perfOverlayOn() ? 1 : 0, "모든 게임에 같이 적용돼요. 온도는 CPU 센서를 못 읽는 폰에선 배터리 온도로 보여요.\n드림캐스트의 FPS는 게임이 실제로 새로 그린 장수예요. 30장만 그리는 게임이 많아 30 근처로 보여도 게임 속도는 정상이에요(속도 %로 확인).",
                 Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
             MainActivity.sharedSettings(this).edit().putBoolean("perf_overlay", choice == 1).commit();
             value.setText((choice == 1 ? "켜짐" : "꺼짐") + "  ›");

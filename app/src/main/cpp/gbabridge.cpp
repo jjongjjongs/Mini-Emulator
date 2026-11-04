@@ -436,6 +436,8 @@ struct Core {
     std::atomic<uint64_t> picturesPresented{0};
     // The rate frames are being paced at (the audio clock's where it is used), for the readout.
     std::atomic<double> pacedFps{0};
+    // Audio made by the cores paced by their audio (sample frames), for the 성능 표시 speed.
+    std::atomic<uint64_t> audioMade{0};
     // PCEE2 (patched): whether its GS has presented a game picture yet.
     bool (*pcee2HasPicture)() = nullptr;
     // The memory regions the core announced (RETRO_ENVIRONMENT_SET_MEMORY_MAPS): Dolphin's
@@ -3263,6 +3265,7 @@ void runLoop(Core* core) {
                 if (core->coreId == "mupen64plus_next" || core->coreId == "flycast" || core->coreId == "ppsspp" || core->coreId == "dolphin") {
                     fps = audioClockFps(core, core->audioPending.size() / 2);
                     core->pacedFps.store(fps);
+                    core->audioMade.fetch_add(core->audioPending.size() / 2);
                 }
                 if (core->hidePicture.load()) {
                     // The boot behind a hidden picture is not heard either.
@@ -4279,19 +4282,22 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setNoAutoState(JNIEnv*
     gNoAutoState.store(off == JNI_TRUE);
 }
 
-// {frames run, pictures shown, the frame rate the game is paced at}.
+// {frames run, pictures shown, the frame rate the game is paced at, audio made so far and
+// its sample rate (0 for cores not paced by their audio)}.
 JNIEXPORT jdoubleArray JNICALL Java_com_example_minigba_NativeGba_frameStats(JNIEnv* env, jclass /*cls*/, jlong handle) {
     Core* core = fromHandle(handle);
-    jdouble values[3] = {0, 0, 60};
+    jdouble values[5] = {0, 0, 60, 0, 0};
     if (core != nullptr) {
         values[0] = static_cast<jdouble>(core->framesCounted.load());
         values[1] = static_cast<jdouble>(core->picturesPresented.load());
         double paced = core->pacedFps.load();
         values[2] = paced > 0 ? paced : core->fps;
+        values[3] = static_cast<jdouble>(core->audioMade.load());
+        values[4] = paced > 0 ? static_cast<jdouble>(core->sampleRate) : 0;
     }
-    jdoubleArray out = env->NewDoubleArray(3);
+    jdoubleArray out = env->NewDoubleArray(5);
     if (out != nullptr) {
-        env->SetDoubleArrayRegion(out, 0, 3, values);
+        env->SetDoubleArrayRegion(out, 0, 5, values);
     }
     return out;
 }
