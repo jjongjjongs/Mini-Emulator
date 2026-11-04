@@ -1,0 +1,2 @@
+Cemu graphic packs (cheat packs under */Cheats/*) — https://github.com/cemu-project/cemu_graphic_packs
+Released under CC0 1.0 Universal (public domain dedication). Fetched by the app only when a pack is turned on.

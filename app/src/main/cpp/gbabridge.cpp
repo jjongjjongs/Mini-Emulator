@@ -1415,6 +1415,8 @@ uint16_t modifiers() {
 void key(unsigned code, bool down, uint32_t character) {
     if (code == 0 || code >= RETROK_LAST) return;
     keys[code].store(down ? 1 : 0);
+    // Cores that only read the key state (MAME's menu key) take no events.
+    if (keyboardCallback == nullptr) return;
     std::lock_guard<std::mutex> lock(mutex);
     pending.push_back({down, code, character, modifiers()});
 }
@@ -1969,12 +1971,15 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (strncmp(var->key, "cemu_zgp_", 9) == 0) {
                 if (!core->packOptionsRead) {
                     core->packOptionsRead = true;
-                    std::ifstream in(core->systemDir + "/Cemu/customGraphicPacks/MiniEmulator/options.txt");
-                    std::string line;
-                    while (std::getline(in, line)) {
-                        size_t eq = line.find('=');
-                        if (eq != std::string::npos) {
-                            core->packOptions[line.substr(0, eq)] = line.substr(eq + 1);
+                    // The player's packs (MiniEmulator) and the cheat packs turned on (MiniCheats).
+                    for (const char* folder : {"MiniEmulator", "MiniCheats"}) {
+                        std::ifstream in(core->systemDir + "/Cemu/customGraphicPacks/" + folder + "/options.txt");
+                        std::string line;
+                        while (std::getline(in, line)) {
+                            size_t eq = line.find('=');
+                            if (eq != std::string::npos) {
+                                core->packOptions[line.substr(0, eq)] = line.substr(eq + 1);
+                            }
                         }
                     }
                 }

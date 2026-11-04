@@ -174,7 +174,7 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <tr><td>가로 화면</td><td>TV 크게 + 게임패드 작은 창(터치) / TV만 / 게임패드만. 작은 창은 버튼 배치 편집에서 위치 · 크기 변경</td></tr>
 <tr><td>버튼</td><td>ZL · L · R · ZR, 왼쪽 · 오른쪽 스틱(L3 · R3), 방향키, A · B · X · Y, − · +. 엔진에 HOME 버튼이 없어 HOME은 빠짐</td></tr>
 <tr><td>게임기 탭</td><td>게임패드 화면, 해상도(0.5배 · 0.75배 · 1배 기본 · 1.5배, 게임별 · 바꾸면 다시 켜짐)</td></tr>
-<tr><td>없는 기능</td><td>이어하기 · 되감기 · 빠른 저장 · 세이브 슬롯 (Cemu가 상태 저장을 못 함 → 게임 안 저장만), 치트, 와이파이 멀티, 폴더(풀어 둔 게임) 가져오기</td></tr>
+<tr><td>없는 기능</td><td>이어하기 · 되감기 · 빠른 저장 · 세이브 슬롯 (Cemu가 상태 저장을 못 함 → 게임 안 저장만), 와이파이 멀티 (치트는 0.0.266부터 치트 팩으로), 폴더(풀어 둔 게임) 가져오기</td></tr>
 <tr><td>권장</td><td>스냅드래곤 8 Elite급 이상. 첫 실행은 셰이더를 만드느라 끊길 수 있음. 전원 모드는 "성능"으로 시작</td></tr></table>
 <figure><img src="img/wiiu.jpg" alt="Wii U 모드 시안"><figcaption>Wii U 모드 시안. 실제 버튼 배치는 시안과 조금 다르고(HOME 없음 · L3 · R3 추가), 게임 넣기는 파일만 지원합니다.</figcaption></figure>
 <h3>엔진 업데이트 (0.0.249)</h3>
@@ -386,10 +386,14 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <tr><td>DOS (0.0.264)</td><td>주소 치트 (엔진이 알려 주는 메모리 구역을 이어 붙인 주소, RetroArch와 같은 규칙)</td><td>19게임 (DOOM · 페르시아의 왕자 · 알라딘 · 라이온 킹 · 퀘이크 · 레이맨 등)</td><td>주소 · 값 · 크기</td></tr>
 <tr><td>아케이드 · Neo Geo (0.0.264, FBNeo 엔진만)</td><td>주소 치트 (FBNeo 메모리 구역 기준)</td><td>72세트 (세트 이름이 정확히 같을 때만: sf2ce · kof95 · mslug · 1941 · outrun 등)</td><td>주소 · 값 · 크기. MAME 엔진 게임은 "엔진 변경 → FBNeo"로 바꾸라고 안내</td></tr>
 <tr><td>PS2 (0.0.264, PCSX2 엔진만)</td><td>값 쓰기 코드는 앱이 EE 메모리(32MB)에 매 프레임 씀 → 바로 켜고 끄기. 조건 · 포인터 등이 섞인 치트는 PCSX2 patches 폴더의 &lt;CRC&gt;_mini-cheats.pnach로 → 다시 시작하면 적용 (.iso만, CHD · CSO는 CRC를 못 읽어 값 쓰기만)</td><td>없음</td><td>pnach 줄 (patch=1,EE,2031D8E4,extended,000F423F) 또는 풀린 RAW 코드 (2031D8E4 000F423F). 입력하면서 형식을 알아봐 줌. 암호화된 코드는 안 됨. <b>0.0.265</b>: PCSX2 <b>.pnach 파일 가져오기</b> — 파일 안의 [이름] 묶음마다 따로 켜고 끄는 치트로 나눠 넣음(묶음이 없는 옛 파일은 파일 이름으로 하나). 시작 때 한 번(patch=0) · IOP 줄도 PCSX2 쪽 파일로 적용. 와이드스크린 · 화면 비율 묶음은 패치 칸에 넣는 게 더 맞다고 안내</td></tr>
-<tr><td>게임큐브 · Wii (0.0.264)</td><td>Dolphin 게임 설정 파일(GameSettings/&lt;ID&gt;.ini)의 [Gecko] · [ActionReplay]에 써서 켬 → 다시 시작하면 적용. 인터넷 서버(Wiimmfi · WiiLink · 친구끼리)를 켠 동안은 쓰지 않음</td><td>없음</td><td>Gecko · 액션리플레이 (자동 판별 · 직접 고르기, 암호화된 AR 코드도 됨)</td></tr></table>
+<tr><td>게임큐브 · Wii (0.0.264)</td><td>Dolphin 게임 설정 파일(GameSettings/&lt;ID&gt;.ini)의 [Gecko] · [ActionReplay]에 써서 켬 → 다시 시작하면 적용. 인터넷 서버(Wiimmfi · WiiLink · 친구끼리)를 켠 동안은 쓰지 않음</td><td>없음</td><td>Gecko · 액션리플레이 (자동 판별 · 직접 고르기, 암호화된 AR 코드도 됨)</td></tr>
+<tr><td>Wii U (0.0.266, .wua만)</td><td>Cemu 공식 그래픽 팩 저장소(CC0)의 치트 팩. 켜면 팩 파일(몇 KB)을 받아 Cemu 그래픽 팩 폴더(MiniCheats)에 넣고 켬 → 게임을 나갔다가 다시 켜면 적용. 게임 ID로 찾아서 .wua만 됨</td><td>37개 팩 · 11게임 (젤다 BotW 15 · 마리오카트 8 6 · 소닉 붐 5 · 동키콩 트로피컬 프리즈 3 · 3D 월드 2 · 황혼의 공주 HD · 바람의 지휘봉 HD · 몬헌 3G · 스카이랜더스 3종)</td><td>직접 넣기 없음 (팩만)</td></tr>
+<tr><td>3DS (0.0.266)</td><td>엔진(Citra)에 원래 있는 Gateway 치트 기능. 앱이 Citra의 cheats/&lt;게임 ID&gt;.txt를 써 줌 → 게임을 나갔다가 다시 켜면 적용. 일부 코드는 Citra가 모르는 형식이라 안 될 수 있음</td><td>약 630게임 (커뮤니티 모음 CTRPF-AR-CHEAT-CODES, 게임 ID로 찾아 그 게임 파일만 받음)</td><td>Gateway · 액션리플레이 "XXXXXXXX YYYYYYYY" (입력하면서 형식 확인)</td></tr>
+<tr><td>아케이드 · MAME 2003-Plus (0.0.266)</td><td>MAME 자체 치트 메뉴. 치트 코드 줄을 누르면 안내 → 처음엔 치트 모음(cheat.dat, 약 7.8MB)을 받고 게임을 다시 켬 → "MAME 치트 메뉴 열기"로 메뉴(Tab)가 열리고 화면 아래에 메뉴용 버튼(▲▼◀▶ · 확인 · 메뉴 닫기). 메뉴 → Cheat → Enable/Disable a Cheat → ◀ ▶. 메뉴는 영어. (실수로 게임이 꺼질 수 있어 Esc는 넣지 않음)</td><td>약 2만 8천 항목 (MAME 2003-Plus 저장소의 cheat.dat)</td><td>MAME 메뉴에서 켜고 끄기. MAME 2010 · 2015는 아직 없음</td></tr></table>
 <p>주소 치트는 켜 두면 앱이 매 프레임 게임 메모리에 값을 다시 써서 고정하는 방식입니다(RetroArch와 같은 규칙). 목록에는 "주소 1EC4B4 · 값 2432"처럼 보이고, "먼저 켜기" 표시가 붙은 치트는 다른 치트보다 먼저 켜야 합니다. 값 자리가 "??"로 비어 있는 모음의 치트는 동작하지 않아 목록에서 뺐습니다.</p>
 <figure><img src="img/cheat3.jpg" alt="치트 범위 확대 시안"><figcaption>치트 범위 확대 시안 (원더스완은 시안과 달리 자동 채움 없음).</figcaption></figure>
 <figure><img src="img/cheatmore.jpg" alt="치트 추가 시안"><figcaption>0.0.264 치트 추가 시안: DOS · 아케이드(FBNeo) 모음, PS2 · 게임큐브 · Wii 코드 붙여 넣기. 실제 창은 다른 기종과 같은 치트 창을 씁니다.</figcaption></figure>
+<figure><img src="img/cheat3more.jpg" alt="Wii U · 3DS · MAME 치트 시안"><figcaption>0.0.266 치트 시안: Wii U 치트 팩 · 3DS · MAME 2003-Plus 메뉴. MAME 메뉴 버튼은 시안과 달리 "뒤로(Esc)"가 없습니다.</figcaption></figure>
 <h3>나가기</h3>
 <figure><img src="img/backdlg.jpg" alt="나가기 확인창"><figcaption>뒤로 가기 확인창 시안. 저장하지 않은 진행이 있으면 "저장하고 나가기"를 권합니다 (C안 채택).</figcaption></figure>
 

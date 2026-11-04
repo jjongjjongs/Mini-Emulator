@@ -3584,6 +3584,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isPs2()) {
             return "pcee2".equals(this.coreId);
         }
+        // Cemu and Citra find the codes by the game's title ID.
+        if (isWiiU() || isN3ds()) {
+            return Cheats.titleIdOf(romFile(), this.gameMode) != null;
+        }
         return true;
     }
 
@@ -3593,6 +3597,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isPs2()) {
             return "PS2 치트는 PCSX2 엔진에서만 돼요 (Play! 엔진은 치트 기능이 없어요).";
+        }
+        if (isWiiU()) {
+            return "Wii U 치트 팩은 .wua 게임에서만 돼요 (게임 ID를 읽어야 해서요).";
+        }
+        if (isN3ds()) {
+            return "이 3DS 파일에서 게임 ID를 읽지 못해서 치트를 쓸 수 없어요.";
         }
         return "이 기종은 엔진이 치트를 지원하지 않아요.";
     }
@@ -3632,6 +3642,244 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private String dolphinCodesWritten;
+
+    // ---- MAME 2003-Plus: its own cheat menu over the game (cheat.dat, read when the game starts) ----
+    private static final String MAME_CHEAT_URL = "https://raw.githubusercontent.com/libretro/mame2003-plus-libretro/ab52620ee4cef6b3ca2671a00b8629ea47d66521/metadata/cheat.dat";
+    private Boolean mameCheatsAtStart;
+    private View mameMenuOverlay;
+
+    private boolean isMame2003Plus() {
+        return "mame2003plus".equals(this.coreId);
+    }
+
+    private File mameCheatFile() {
+        return new File(new File(new File(getFilesDir(), "system"), "mame2003-plus"), "cheat.dat");
+    }
+
+    private void showMameCheatDialog() {
+        if (this.mameCheatsAtStart == null) {
+            this.mameCheatsAtStart = false;
+        }
+        boolean have = mameCheatFile().isFile();
+        AppDialog.Builder builder = new AppDialog.Builder(this).setTitle("치트 · MAME 2003-Plus");
+        if (have && this.mameCheatsAtStart) {
+            builder.setMessage("MAME 2003-Plus는 치트를 게임 화면 위의 MAME 메뉴에서 켜고 꺼요 (영어).\n\n"
+                    + "메뉴 → Cheat → Enable/Disable a Cheat → 원하는 치트에서 ◀ ▶ 로 On.\n"
+                    + "메뉴가 열리면 화면 아래에 메뉴용 버튼(방향 · 확인 · 메뉴 닫기)이 나와요. 메뉴가 떠 있는 동안 게임은 멈춰 있어요.\n\n"
+                    + "FBNeo 엔진으로 바꾸면 앱 치트 창에서 켜고 끄는 방식도 쓸 수 있어요.")
+                    .setNegativeButton("닫기", null)
+                    .setPositiveButton("MAME 치트 메뉴 열기", (d, w) -> openMameMenu());
+        } else if (have) {
+            builder.setMessage("치트 모음(cheat.dat)은 받아 두었어요. MAME는 게임을 켤 때 이 파일을 읽어서, 게임을 나갔다가 다시 켜면 MAME 메뉴에 Cheat가 생겨요.")
+                    .setPositiveButton("확인", null);
+        } else {
+            builder.setMessage("MAME 2003-Plus는 치트를 MAME 자체 메뉴에서 켜고 꺼요. 먼저 MAME 치트 모음(cheat.dat, 약 7.8MB)을 한 번 받아야 해요.\n\n받은 뒤 게임을 나갔다가 다시 켜면 쓸 수 있어요.")
+                    .setNegativeButton("닫기", null)
+                    .setPositiveButton("치트 모음 받기", (d, w) -> downloadMameCheats());
+        }
+        builder.show();
+    }
+
+    private void downloadMameCheats() {
+        Toast.makeText(this, "MAME 치트 모음을 받는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String error = null;
+            try {
+                byte[] data = Cheats.fetchBytes(MAME_CHEAT_URL);
+                if (data.length < 1_000_000) {
+                    throw new IOException("short");
+                }
+                File file = mameCheatFile();
+                File dir = file.getParentFile();
+                if (dir != null && !dir.isDirectory()) {
+                    dir.mkdirs();
+                }
+                File tmp = new File(file.getPath() + ".tmp");
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                    out.write(data);
+                }
+                if (!tmp.renameTo(file)) {
+                    throw new IOException("rename");
+                }
+            } catch (IOException | RuntimeException e) {
+                error = "치트 모음을 받지 못했어요. 인터넷 연결을 확인해 주세요.";
+            }
+            final String why = error;
+            runOnUiThread(() -> new AppDialog.Builder(this).setTitle(why == null ? "치트 모음을 받았어요" : "받지 못했어요")
+                    .setMessage(why == null ? "게임을 나갔다가 다시 켜면 MAME 메뉴에서 치트를 쓸 수 있어요." : why)
+                    .setPositiveButton("확인", null).show());
+        }, "mame-cheats").start();
+    }
+
+    // MAME's menu key (Tab) through the keyboard the bridge answers for, and buttons to move in it.
+    private void tapKey(int code) {
+        long handle = this.nativeHandle;
+        if (handle == 0) {
+            return;
+        }
+        NativeGba.dosKey(handle, code, true, 0);
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (this.nativeHandle != 0) {
+                NativeGba.dosKey(this.nativeHandle, code, false, 0);
+            }
+        }, 120);
+    }
+
+    private void openMameMenu() {
+        if (this.mameMenuOverlay != null) {
+            return;
+        }
+        tapKey(9);  // Tab
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(12), dp(10), dp(12), dp(12));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(Color.argb(235, 17, 24, 39));
+        bg.setCornerRadius(dp(18));
+        panel.setBackground(bg);
+        TextView label = new TextView(this);
+        label.setText("🕹 MAME 메뉴 · Cheat → Enable/Disable a Cheat → ◀ ▶");
+        label.setTextColor(Color.rgb(254, 202, 202));
+        label.setTextSize(11.5f);
+        panel.addView(label);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        android.widget.GridLayout cross = new android.widget.GridLayout(this);
+        cross.setColumnCount(3);
+        cross.setRowCount(3);
+        int[][] arrows = {{0, 1, 273}, {1, 0, 276}, {1, 2, 275}, {2, 1, 274}};
+        String[] marks = {"▲", "◀", "▶", "▼"};
+        for (int k = 0; k < arrows.length; k++) {
+            TextView b = mameKey(marks[k], arrows[k][2], Color.rgb(55, 65, 81));
+            android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams(
+                    android.widget.GridLayout.spec(arrows[k][0]), android.widget.GridLayout.spec(arrows[k][1]));
+            lp.width = dp(52);
+            lp.height = dp(46);
+            lp.setMargins(dp(2), dp(2), dp(2), dp(2));
+            cross.addView(b, lp);
+        }
+        row.addView(cross);
+        LinearLayout right = new LinearLayout(this);
+        right.setOrientation(1);
+        TextView enter = mameKey("확인 (Enter)", 13, Color.rgb(15, 118, 110));
+        right.addView(enter, new LinearLayout.LayoutParams(-1, dp(50)));
+        TextView close = mameKey("메뉴 닫기", 0, Color.rgb(185, 28, 28));
+        close.setOnTouchListener(null);
+        close.setOnClickListener(v -> closeMameMenu(true));
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.setMargins(0, dp(10), 0, 0);
+        right.addView(close, closeParams);
+        LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        rightParams.setMargins(dp(14), 0, 0, 0);
+        row.addView(right, rightParams);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+        rowParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(row, rowParams);
+        FrameLayout holder = new FrameLayout(this);
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(Math.min(getResources().getDisplayMetrics().widthPixels - dp(24), dp(420)), -2,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        panelParams.setMargins(0, 0, 0, dp(16));
+        holder.addView(panel, panelParams);
+        addContentView(holder, new android.view.ViewGroup.LayoutParams(-1, -1));
+        this.mameMenuOverlay = holder;
+    }
+
+    private TextView mameKey(String text, final int code, int color) {
+        TextView b = new TextView(this);
+        b.setText(text);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(13.0f);
+        b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        b.setGravity(Gravity.CENTER);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(12));
+        b.setBackground(bg);
+        b.setOnTouchListener((v, e) -> {
+            long handle = this.nativeHandle;
+            int action = e.getActionMasked();
+            if (handle != 0 && action == android.view.MotionEvent.ACTION_DOWN) {
+                v.setAlpha(0.6f);
+                Haptics.tap();
+                NativeGba.dosKey(handle, code, true, 0);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                v.setAlpha(1f);
+                if (handle != 0) NativeGba.dosKey(handle, code, false, 0);
+            }
+            return true;
+        });
+        return b;
+    }
+
+    private void closeMameMenu(boolean sendKey) {
+        View overlay = this.mameMenuOverlay;
+        this.mameMenuOverlay = null;
+        if (overlay != null && overlay.getParent() instanceof android.view.ViewGroup) {
+            ((android.view.ViewGroup) overlay.getParent()).removeView(overlay);
+        }
+        if (sendKey) {
+            tapKey(9);
+        }
+    }
+
+    // 3DS: Citra reads cheats/<title ID>.txt (Gateway codes) when the game starts. True when it changed.
+    private String citraCheatsWritten;
+
+    private boolean writeCitraCheats() {
+        String tid = Cheats.titleIdOf(romFile(), "3ds");
+        if (tid == null) {
+            return false;
+        }
+        String text = Cheats.citraCheatFile(cheats());
+        boolean changed = this.citraCheatsWritten != null && !this.citraCheatsWritten.equals(text);
+        this.citraCheatsWritten = text;
+        File file = new File(getFilesDir(), "saves/citra/Citra/cheats/" + tid + ".txt");
+        if (text.isEmpty()) {
+            file.delete();
+            return changed;
+        }
+        File dir = file.getParentFile();
+        if (dir != null && !dir.isDirectory()) {
+            dir.mkdirs();
+        }
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return false;
+        }
+        return changed;
+    }
+
+    // Wii U: the cheat packs that are on, fetched and put where Cemu looks (read at start).
+    private String wiiuPacksWritten;
+
+    private void syncWiiuCheatPacks(boolean tell) {
+        StringBuilder on = new StringBuilder();
+        for (Cheats.Cheat cheat : cheats()) {
+            if (cheat.on) on.append(cheat.code).append('\n');
+        }
+        String state = on.toString();
+        boolean changed = this.wiiuPacksWritten != null && !this.wiiuPacksWritten.equals(state);
+        this.wiiuPacksWritten = state;
+        final java.util.List<Cheats.Cheat> list = new java.util.ArrayList<>(cheats());
+        Runnable work = () -> {
+            String error = null;
+            try {
+                Cheats.syncWiiuPacks(this, new File(new File(getFilesDir(), "system"), "Cemu"), list);
+            } catch (IOException | RuntimeException e) {
+                error = "치트 팩을 받지 못했어요. 인터넷 연결을 확인해 주세요.";
+            }
+            final String why = error;
+            if (tell && (changed || why != null)) {
+                runOnUiThread(() -> Toast.makeText(this, why != null ? why : "Wii U 치트 팩은 게임을 나갔다가 다시 켜면 적용돼요.", Toast.LENGTH_LONG).show());
+            }
+        };
+        if (tell) {
+            new Thread(work, "wiiu-cheat-packs").start();
+        } else {
+            work.run();
+        }
+    }
 
     private File romFile() {
         return new File(this.romPath);
@@ -3682,6 +3930,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             return;
         }
+        if (isN3ds()) {
+            if (writeCitraCheats()) {
+                Toast.makeText(this, "3DS 치트는 게임을 나갔다가 다시 켜면 적용돼요.", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        if (isWiiU()) {
+            syncWiiuCheatPacks(true);
+            return;
+        }
         if (isPs2() && writePs2CheatPnach()) {
             Toast.makeText(this, "조건 · 포인터가 있는 PS2 치트는 게임을 다시 시작하면 적용돼요.", Toast.LENGTH_LONG).show();
         }
@@ -3708,6 +3966,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "n64": return "N64: 게임샤크 (예: 8033B21E 0008)";
             case "ps1": return "PS1: 게임샤크 (예: 800B1234 FFFF)";
             case "psp": return "PSP: CWCheat (예: _L 0x20123456 0x0000270F)";
+            case "3ds": return "3DS: Gateway · 액션리플레이 (예: 0044E534 E3A04000)";
             case "ps2": return "PS2: pnach 줄 (예: patch=1,EE,2031D8E4,extended,000F423F) 또는 풀린 RAW 코드 (예: 2031D8E4 000F423F)";
             case "gc": return isWiiGame() ? "Wii: Gecko · 액션리플레이 (예: C2000000 00000002)" : "게임큐브: 액션리플레이 · Gecko (예: 04123456 00000063, 암호화된 AR도 돼요)";
             case "ws": return "원더스완: RAM 주소:값 (예: 1E24:09)";
@@ -4094,6 +4353,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 직접 입력 / 고치기: a name and one code per line.
     private void showCheatEditor(final Cheats.Cheat editing) {
+        if (isWiiU()) {
+            Toast.makeText(this, "Wii U는 Cemu 공식 치트 팩만 켜고 끌 수 있어요 (코드 직접 넣기는 없어요).", Toast.LENGTH_LONG).show();
+            return;
+        }
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(1);
         panel.setPadding(dp(16), dp(18), dp(16), dp(14));
@@ -4197,11 +4460,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         verdict.setBackground(roundRect(Color.rgb(240, 253, 250), dp(12)));
         final Runnable judge = () -> {
             String typed = Cheats.codeFromInput(code.getText().toString());
-            String text = typed.isEmpty() ? "" : isPs2() ? Cheats.ps2Describe(typed) : Cheats.dolphinDescribe(typed, dolphinKind[0], isWiiGame());
+            String text = typed.isEmpty() ? "" : isPs2() ? Cheats.ps2Describe(typed) : isN3ds() ? Cheats.n3dsDescribe(typed) : Cheats.dolphinDescribe(typed, dolphinKind[0], isWiiGame());
             verdict.setText(text);
             verdict.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
         };
-        if (!byAddress && (isPs2() || isDolphin())) {
+        if (!byAddress && (isPs2() || isDolphin() || isN3ds())) {
             if (isDolphin()) {
                 LinearLayout kinds = new LinearLayout(this);
                 final String[] kindNames = {"자동 판별", "Gecko", "액션리플레이"};
@@ -4297,6 +4560,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
             } else {
                 codeText = Cheats.codeFromInput(code.getText().toString());
+                if (!codeText.isEmpty() && isN3ds() && Cheats.n3dsDescribe(codeText).startsWith("✗")) {
+                    Toast.makeText(this, "Gateway 코드 형식이 아니에요. \"XXXXXXXX YYYYYYYY\" 줄로 넣어 주세요.", Toast.LENGTH_LONG).show();
+                    return;
+                }
                 if (!codeText.isEmpty() && isPs2() && Cheats.ps2Lines(codeText) == null) {
                     Toast.makeText(this, "PS2 코드로 읽지 못했어요. pnach 줄이나 풀린 RAW 코드로 넣어 주세요.", Toast.LENGTH_LONG).show();
                     return;
@@ -5565,6 +5832,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                     if (isPs2()) {
                         writePs2CheatPnach();
+                    }
+                    if (isMame2003Plus()) {
+                        this.mameCheatsAtStart = mameCheatFile().isFile();
+                    }
+                    if (isN3ds() && cheatsSupported()) {
+                        writeCitraCheats();
+                    }
+                    if (isWiiU() && cheatsSupported()) {
+                        syncWiiuCheatPacks(false);
                     }
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
@@ -7338,7 +7614,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         for (int k = tiles.size() % 4; k != 0 && k < 4; k++) {
             row.addView(new View(this), tile4Params(k));
         }
-        LinearLayout cheatRow = createSettingRow(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, "치트 코드", cheatSummary(), view -> {
+        LinearLayout cheatRow = createSettingRow(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, "치트 코드", isMame2003Plus() ? "MAME 메뉴" : cheatSummary(), view -> {
+            if (isMame2003Plus()) {
+                dialog.dismiss();
+                showMameCheatDialog();
+                return;
+            }
             if (!cheatsSupported()) {
                 Toast.makeText(this, cheatsUnsupportedText(), Toast.LENGTH_LONG).show();
                 return;

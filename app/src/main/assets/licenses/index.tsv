@@ -2,6 +2,7 @@ mgba	mGBA	MPL-2.0	GBA · GBC 엔진	https://github.com/libretro/mgba
 melonds	melonDS DS	GPL-3.0	닌텐도 DS 엔진	https://github.com/JesseTG/melonds-ds
 citra	Citra	GPL-2.0	닌텐도 3DS 엔진	https://github.com/libretro/citra
 cemu	Cemu	MPL-2.0	Wii U 엔진	https://github.com/WizzardSK/cemu-libretro
+cemu-graphic-packs	Cemu 그래픽 팩 (치트 팩)	CC0-1.0	Wii U 치트 팩 (켤 때 받음)	https://github.com/cemu-project/cemu_graphic_packs
 snes9x	Snes9x	비상업 라이선스	슈퍼패미컴 엔진	https://github.com/libretro/snes9x
 fceumm	FCEUmm	GPL-2.0	패미컴 엔진	https://github.com/libretro/libretro-fceumm
 gpgx	Genesis Plus GX	비상업 라이선스	메가드라이브 · 마스터시스템 · 게임기어 엔진	https://github.com/libretro/Genesis-Plus-GX

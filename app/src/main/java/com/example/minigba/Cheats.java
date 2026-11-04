@@ -67,7 +67,7 @@ final class Cheats {
             case "gba": case "snes": case "nes": case "md": case "sms": case "pce":
             case "nds": case "n64": case "psp": case "ps1": case "mcd": case "ss":
             case "ws": case "ngp": case "dc": case "naomi":
-            case "dos": case "arcade": case "neogeo": case "ps2": case "gc":
+            case "dos": case "arcade": case "neogeo": case "ps2": case "gc": case "wiiu": case "3ds":
                 return true;
             default:
                 return false;
@@ -96,6 +96,9 @@ final class Cheats {
 
     // "주소 1EC4B4 · 값 2432" for address cheats; other codes as typed.
     static String displayCode(String code) {
+        if (code.startsWith(PACK)) {
+            return "Cemu 그래픽 팩 · " + code.substring(PACK.length()).replaceAll(".*/Cheats/", "");
+        }
         StringBuilder sb = new StringBuilder();
         for (String part : code.split("\\+")) {
             if (sb.length() > 0) {
@@ -304,8 +307,8 @@ final class Cheats {
             if (!cheat.on || cheat.code.isEmpty()) {
                 continue;
             }
-            if ("gc".equals(mode)) {
-                continue;  // Dolphin reads its codes from the game's settings file at start
+            if ("gc".equals(mode) || "wiiu".equals(mode) || "3ds".equals(mode)) {
+                continue;  // Dolphin, Cemu and Citra read their codes from files when the game starts
             }
             if ("ps2".equals(mode)) {
                 // Plain writes go to the EE's RAM every frame; the rest are in a .pnach.
@@ -384,6 +387,14 @@ final class Cheats {
             list.add(FBNEO_FOLDER);
             return list;
         }
+        if ("wiiu".equals(mode)) {
+            list.add(WIIU_FOLDER);
+            return list;
+        }
+        if ("3ds".equals(mode)) {
+            list.add(N3DS_FOLDER);
+            return list;
+        }
         for (String repo : Covers.repos(mode, lowerName)) {
             list.add(repo.replace('_', ' '));
         }
@@ -421,6 +432,10 @@ final class Cheats {
             }
             index = map;
         }
+        if (WIIU_FOLDER.equals(folder) || N3DS_FOLDER.equals(folder)) {
+            loadTitleIndexes(context);
+            return new ArrayList<>(WIIU_FOLDER.equals(folder) ? wiiuSources.values() : n3dsSources.values());
+        }
         List<Source> list = index.get(folder);
         return list == null ? new ArrayList<>() : list;
     }
@@ -441,6 +456,15 @@ final class Cheats {
 
     // The collection file that fits this ROM best, or null.
     static Source match(Context context, File rom, String mode, String displayName) {
+        if ("wiiu".equals(mode) || "3ds".equals(mode)) {
+            loadTitleIndexes(context);
+            String tid = titleIdOf(rom, mode);
+            if (tid == null) {
+                return null;
+            }
+            String group = ("wiiu".equals(mode) ? wiiuByTitle : n3dsByTitle).get(tid);
+            return group == null ? null : ("wiiu".equals(mode) ? wiiuSources : n3dsSources).get(group);
+        }
         String base = rom.getName().replaceFirst("\\.[^.]+$", "");
         for (String folder : folders(mode, rom.getName().toLowerCase(Locale.US))) {
             List<Source> sources = sources(context, folder);
@@ -470,6 +494,20 @@ final class Cheats {
 
     // Downloads a collection file and returns its cheats (all off).
     static List<Cheat> download(Source source) throws IOException {
+        if (WIIU_FOLDER.equals(source.folder)) {
+            return wiiuPackCheats(source.name);
+        }
+        if (N3DS_FOLDER.equals(source.folder)) {
+            String path = n3dsPaths.get(source.name);
+            if (path == null) {
+                throw new IOException("no file");
+            }
+            StringBuilder url = new StringBuilder(N3DS_BASE);
+            for (String part : path.split("/")) {
+                url.append('/').append(encode(part));
+            }
+            return parseGateway(fetch(url.toString()));
+        }
         String address = BASE + encode(source.folder) + "/" + encode(source.name) + ".cht";
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
         connection.setConnectTimeout(10000);
@@ -754,5 +792,254 @@ final class Cheats {
         String lower = name.toLowerCase(Locale.ROOT);
         return lower.contains("widescreen") || lower.contains("16:9") || lower.contains("16x9") || lower.contains("interlac")
                 || lower.contains("60 fps") || lower.contains("60fps") || lower.contains("ntsc") || lower.contains("pal ") || lower.contains("aspect");
+    }
+
+    // ---- Wii U: Cemu's official cheat graphic packs (CC0) ----
+    // assets/wiiu_cheats.tsv (cores/gen-cheat-indexes.py): title IDs, name, description,
+    // folder, files. A pack is a cheat whose code is "PACK:<folder>"; when on, its files are
+    // fetched into <system>/Cemu/customGraphicPacks/MiniCheats and turned on for Cemu (read
+    // when the game starts).
+    // ---- 3DS: the CTRPF-AR-CHEAT-CODES collection, Gateway codes for Citra's own cheat engine ----
+    // assets/n3ds_cheats.tsv: title ID and file; written for Citra as cheats/<title ID>.txt.
+
+    static final String WIIU_FOLDER = "Wii U 치트 팩";
+    static final String N3DS_FOLDER = "3DS 치트 모음";
+    static final String PACK = "PACK:";
+    static final String WIIU_BASE = "https://raw.githubusercontent.com/cemu-project/cemu_graphic_packs/efa14afb2f6b25080c19878bb6c2ea722d78655b";
+    static final String N3DS_BASE = "https://raw.githubusercontent.com/iSharingan/CTRPF-AR-CHEAT-CODES/a931ae0f4e9f0165d15b1b652e5d1511430d8196";
+
+    static final class Pack {
+        String ids;
+        String name;
+        String desc;
+        String folder;
+        String[] files;
+    }
+
+    private static Map<String, Source> wiiuSources;
+    private static final Map<String, String> wiiuByTitle = new HashMap<>();
+    private static final Map<String, List<Pack>> wiiuPacks = new HashMap<>();
+    private static final Map<String, Pack> packByFolder = new HashMap<>();
+    private static Map<String, Source> n3dsSources;
+    private static final Map<String, String> n3dsByTitle = new HashMap<>();
+    private static final Map<String, String> n3dsPaths = new HashMap<>();
+
+    private static synchronized void loadTitleIndexes(Context context) {
+        if (wiiuSources != null) {
+            return;
+        }
+        wiiuSources = new java.util.TreeMap<>();
+        n3dsSources = new java.util.TreeMap<>();
+        for (String line : assetLines(context, "wiiu_cheats.tsv")) {
+            String[] f = line.split("\t", -1);
+            if (f.length < 5) continue;
+            Pack pack = new Pack();
+            pack.ids = f[0];
+            pack.name = f[1];
+            pack.desc = f[2];
+            pack.folder = f[3];
+            pack.files = f[4].split(",");
+            // The game: the pack folder's game part ("src/BreathOfTheWild/Cheats/X" -> BreathOfTheWild).
+            String[] parts = pack.folder.split("/");
+            String game = parts.length >= 2 ? parts[1] : pack.folder;
+            wiiuPacks.computeIfAbsent(game, k -> new ArrayList<>()).add(pack);
+            packByFolder.put(pack.folder, pack);
+            for (String id : pack.ids.split(",")) {
+                if (!id.isEmpty()) wiiuByTitle.put(id.toUpperCase(Locale.ROOT), game);
+            }
+        }
+        for (Map.Entry<String, List<Pack>> e : wiiuPacks.entrySet()) {
+            wiiuSources.put(e.getKey(), new Source(WIIU_FOLDER, e.getKey(), e.getValue().size()));
+        }
+        for (String line : assetLines(context, "n3ds_cheats.tsv")) {
+            String[] f = line.split("\t", -1);
+            if (f.length < 2) continue;
+            String[] parts = f[1].split("/");
+            String game = parts.length >= 3 ? parts[parts.length - 2] : f[0];
+            if (n3dsSources.containsKey(game)) game = game + " " + f[0];
+            n3dsByTitle.put(f[0].toUpperCase(Locale.ROOT), game);
+            n3dsPaths.put(game, f[1]);
+            n3dsSources.put(game, new Source(N3DS_FOLDER, game, 0));
+        }
+    }
+
+    private static List<String> assetLines(Context context, String name) {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(context.getAssets().open(name), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("#") && !line.trim().isEmpty()) lines.add(line);
+            }
+        } catch (IOException e) {
+            // No index in this build.
+        }
+        return lines;
+    }
+
+    // The game's title ID as 16 hex digits: a 3DS file's own, a Wii U .wua's.
+    static String titleIdOf(File rom, String mode) {
+        long tid = "3ds".equals(mode) ? N3dsCia.titleIdOf(rom)
+                : rom.getName().toLowerCase(Locale.ROOT).endsWith(".wua") ? OverlayPatches.wuaTitleId(rom) : 0;
+        return tid == 0 ? null : String.format(Locale.US, "%016X", tid);
+    }
+
+    private static List<Cheat> wiiuPackCheats(String game) {
+        List<Cheat> list = new ArrayList<>();
+        List<Pack> packs = wiiuPacks.get(game);
+        if (packs == null) return list;
+        for (Pack pack : packs) {
+            String desc = pack.name + (pack.desc.isEmpty() ? "" : " — " + pack.desc);
+            list.add(new Cheat(desc, PACK + pack.folder, false, false));
+        }
+        return list;
+    }
+
+    static Pack pack(Context context, String code) {
+        loadTitleIndexes(context);
+        return code.startsWith(PACK) ? packByFolder.get(code.substring(PACK.length())) : null;
+    }
+
+    static byte[] fetchBytes(String address) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(30000);
+        try {
+            int code = connection.getResponseCode();
+            if (code != 200) {
+                throw new IOException("HTTP " + code);
+            }
+            try (InputStream in = connection.getInputStream()) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[16384];
+                int read;
+                while ((read = in.read(buffer)) > 0 && out.size() < 16 * 1024 * 1024) {
+                    out.write(buffer, 0, read);
+                }
+                return out.toByteArray();
+            }
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static String fetch(String address) throws IOException {
+        return new String(fetchBytes(address), StandardCharsets.UTF_8);
+    }
+
+    // Puts the Wii U cheat packs that are on into <cemu>/customGraphicPacks/MiniCheats, fetching
+    // what isn't there yet, and writes the options that turn them on. Throws when a pack
+    // couldn't be fetched.
+    static void syncWiiuPacks(Context context, File cemuDir, List<Cheat> cheats) throws IOException {
+        File base = new File(new File(cemuDir, "customGraphicPacks"), "MiniCheats");
+        File store = new File(context.getFilesDir(), "cheats/wiiu_packs");
+        StringBuilder options = new StringBuilder();
+        java.util.Set<String> wanted = new java.util.HashSet<>();
+        for (Cheat cheat : cheats) {
+            Pack pack = cheat.on ? pack(context, cheat.code) : null;
+            if (pack == null) continue;
+            String id = pack.folder.replaceAll("[^A-Za-z0-9]+", "_");
+            File cached = new File(store, id);
+            boolean presets = false;
+            for (String name : pack.files) {
+                File file = new File(cached, name);
+                if (!file.isFile()) {
+                    cached.mkdirs();
+                    StringBuilder url = new StringBuilder(WIIU_BASE);
+                    for (String part : (pack.folder + "/" + name).split("/")) url.append('/').append(encode(part));
+                    byte[] data = fetchBytes(url.toString());
+                    File tmp = new File(file.getPath() + ".tmp");
+                    try (OutputStream out = new FileOutputStream(tmp)) {
+                        out.write(data);
+                    }
+                    if (!tmp.renameTo(file)) throw new IOException("저장하지 못했어요");
+                }
+                if (name.equals("rules.txt")) {
+                    presets = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).contains("[Preset]");
+                }
+            }
+            File dest = new File(base, id);
+            deleteTree(dest);
+            dest.mkdirs();
+            for (String name : pack.files) {
+                copyFile(new File(cached, name), new File(dest, name));
+            }
+            wanted.add(id);
+            options.append(OverlayPatches.cemuPackKey("MiniCheats/" + id, presets ? "\u001eenabled" : "")).append("=enabled\n");
+        }
+        File[] old = base.listFiles();
+        for (File f : old == null ? new File[0] : old) {
+            if (f.isDirectory() && !wanted.contains(f.getName())) deleteTree(f);
+        }
+        base.mkdirs();
+        File opts = new File(base, "options.txt");
+        if (options.length() == 0) {
+            opts.delete();
+        } else {
+            try (OutputStream out = new FileOutputStream(opts)) {
+                out.write(options.toString().getBytes(StandardCharsets.UTF_8));
+            }
+        }
+    }
+
+    private static void deleteTree(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteTree(k);
+        f.delete();
+    }
+
+    private static void copyFile(File from, File to) throws IOException {
+        try (InputStream in = new java.io.FileInputStream(from); OutputStream out = new FileOutputStream(to)) {
+            byte[] buffer = new byte[16384];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        }
+    }
+
+    // A Gateway / Action Replay file: [Name] then "XXXXXXXX YYYYYYYY" lines; notes are skipped.
+    static List<Cheat> parseGateway(String text) {
+        List<Cheat> out = new ArrayList<>();
+        String name = null;
+        StringBuilder code = new StringBuilder();
+        for (String raw : text.replace("\r", "").split("\n")) {
+            String line = raw.trim();
+            if (line.startsWith("[") && line.endsWith("]")) {
+                if (name != null && code.length() > 0) out.add(new Cheat(name, code.toString(), false, false));
+                name = line.substring(1, line.length() - 1).trim();
+                code.setLength(0);
+            } else if (name != null && HEX_PAIR.matcher(line.replaceAll("\\s+", " ")).matches()) {
+                if (code.length() > 0) code.append('+');
+                code.append(line.replaceAll("\\s+", " ").toUpperCase(Locale.ROOT));
+            }
+        }
+        if (name != null && code.length() > 0) out.add(new Cheat(name, code.toString(), false, false));
+        return out;
+    }
+
+    // Citra's cheats/<title ID>.txt: every cheat, the ones that are on marked.
+    static String citraCheatFile(List<Cheat> cheats) {
+        StringBuilder sb = new StringBuilder();
+        for (Cheat cheat : cheats) {
+            if (cheat.code.isEmpty()) continue;
+            sb.append('[').append(cheat.desc.replace('\n', ' ').replace('[', '(').replace(']', ')')).append("]\n");
+            if (cheat.on) sb.append("*citra_enabled\n");
+            for (String line : cheat.code.split("\\+")) {
+                if (!line.trim().isEmpty()) sb.append(line.trim()).append('\n');
+            }
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    static String n3dsDescribe(String code) {
+        int n = 0;
+        for (String line : code.split("\\+")) {
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            if (!HEX_PAIR.matcher(t).matches()) {
+                return "✗ 줄 " + (n + 1) + "이 Gateway 코드 형식이 아니에요 (\"XXXXXXXX YYYYYYYY\").";
+            }
+            n++;
+        }
+        return n == 0 ? "" : "✓ 알아봄: Gateway " + n + "줄 · 다시 시작하면 적용";
     }
 }
