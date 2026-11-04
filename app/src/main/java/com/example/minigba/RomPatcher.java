@@ -376,8 +376,9 @@ final class RomPatcher {
         return table;
     }
 
-    // xdelta3's id for LZMA secondary compression; DJW (1) and FGK (16) are not supported.
+    // xdelta3's ids for secondary compression: DJW (1, Djw.java) and LZMA (2); FGK (16) is not supported.
     private static final int SECONDARY_LZMA = 2;
+    private static final int SECONDARY_DJW = 1;
 
     // How far into the original an xdelta patch reads (the end of its furthest source window),
     // or -1 when it reads none or cannot be parsed: a track shorter than this is not its original.
@@ -424,13 +425,17 @@ final class RomPatcher {
         int indicator = p.u8(4);
         long[] at = {5};
         boolean lzma = false;
+        boolean djw = false;
         if ((indicator & 0x01) != 0) {
             int compressor = p.u8(at[0]++);
-            if (compressor != SECONDARY_LZMA) {
-                throw new IOException("이 xdelta 패치는 지원하지 않는 압축(" + (compressor == 1 ? "DJW" : compressor == 16 ? "FGK" : "#" + compressor)
-                        + ")을 써요. 압축 없이 또는 LZMA로 만든 패치가 필요해요.");
+            if (compressor == SECONDARY_LZMA) {
+                lzma = true;
+            } else if (compressor == SECONDARY_DJW) {
+                djw = true;
+            } else {
+                throw new IOException("이 xdelta 패치는 지원하지 않는 압축(" + (compressor == 16 ? "FGK" : "#" + compressor)
+                        + ")을 써요. 압축 없이, DJW 또는 LZMA로 만든 패치가 필요해요.");
             }
-            lzma = true;
         }
         if ((indicator & 0x02) != 0) {
             throw new IOException("이 xdelta 패치는 지원하지 않는 형식이에요 (사용자 코드 표).");
@@ -503,7 +508,7 @@ final class RomPatcher {
                 vcdInt(p, at);  // Length of the delta encoding.
                 long windowLength = vcdInt(p, at);
                 int delta = p.u8(at[0]++);
-                if (delta != 0 && !lzma) {
+                if (delta != 0 && !lzma && !djw) {
                     throw new IOException("패치 파일이 손상됐어요.");
                 }
                 long dataLength = vcdInt(p, at);
@@ -514,9 +519,9 @@ final class RomPatcher {
                     adler = p.u32be(at[0]);
                     at[0] += 4;
                 }
-                byte[] data = section(p, at[0], dataLength, (delta & 0x01) != 0, decoders[0]);
-                byte[] inst = section(p, at[0] + dataLength, instLength, (delta & 0x02) != 0, decoders[1]);
-                byte[] addr = section(p, at[0] + dataLength + instLength, addrLength, (delta & 0x04) != 0, decoders[2]);
+                byte[] data = section(p, at[0], dataLength, (delta & 0x01) != 0, decoders[0], djw);
+                byte[] inst = section(p, at[0] + dataLength, instLength, (delta & 0x02) != 0, decoders[1], djw);
+                byte[] addr = section(p, at[0] + dataLength + instLength, addrLength, (delta & 0x04) != 0, decoders[2], djw);
                 at[0] += dataLength + instLength + addrLength;
                 int[] d = {0};
                 int[] i = {0};
@@ -595,12 +600,21 @@ final class RomPatcher {
 
     // One section of a window. When xdelta compressed it with LZMA it holds the unpacked size
     // as a VCDIFF number and then the next part of that kind's stream (read by decoder).
-    private static byte[] section(Big p, long offset, long length, boolean compressed, java.io.InputStream decoder) throws IOException {
+    private static byte[] section(Big p, long offset, long length, boolean compressed, java.io.InputStream decoder, boolean djw) throws IOException {
         if (length > Integer.MAX_VALUE) throw new IOException("패치 파일이 손상됐어요.");
         if (!compressed || length == 0) {
             byte[] raw = new byte[(int) length];
             p.read(offset, raw, 0, raw.length);
             return raw;
+        }
+        if (djw) {
+            // DJW: each section on its own; the unpacked size, then the Huffman coded bytes.
+            byte[] raw = new byte[(int) length];
+            p.read(offset, raw, 0, raw.length);
+            int[] at = {0};
+            long size = vcdInt(raw, at);
+            if (size > Integer.MAX_VALUE) throw new IOException("패치 파일이 손상됐어요.");
+            return Djw.decode(raw, at[0], raw.length - at[0], (int) size);
         }
         if (decoder == null) throw new IOException("패치 파일이 손상됐어요.");
         long size = vcdInt(p, new long[]{offset});

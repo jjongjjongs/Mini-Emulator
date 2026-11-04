@@ -25,4 +25,5 @@ wfcserver	WiiLink WFC 서버	AGPL-3.0	Wii 친구끼리 대전 때 방장 휴대�
 wfcpatcher	WiiLink WFC 패처	zlib	Wii 친구끼리 게임 접속 코드	https://github.com/WiiLink24/wfc-patcher-wii
 libchdr	libchdr	BSD-3-Clause	CHD 풀기 (LZMA · miniz · zstd 포함)	https://github.com/rtissera/libchdr
 xz	XZ for Java	퍼블릭 도메인	xdelta 패치의 LZMA 압축 풀기	https://tukaani.org/xz/java.html
+xdelta3	xdelta3 (DJW)	Apache-2.0	xdelta 패치의 DJW 압축 풀기 (코드 이식)	https://github.com/jmacd/xdelta
 fsr	AMD FidelityFX FSR 1.0	MIT	화면 확대 (FSR)	https://github.com/GPUOpen-Effects/FidelityFX-FSR
