@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.Adler32;
 import java.util.zip.CRC32;
 
@@ -438,7 +440,11 @@ final class RomPatcher {
             at[0] += length;
         }
         long firstWindow = at[0];
-        // First pass: the total size of the result.
+        List<List<long[]>> parts = new ArrayList<>();
+        for (int k = 0; k < 3; k++) {
+            parts.add(new ArrayList<>());
+        }
+        // First pass: the total size of the result (and where the compressed sections are).
         long total = 0;
         while (at[0] < p.size) {
             int win = p.u8(at[0]++);
@@ -448,12 +454,36 @@ final class RomPatcher {
             }
             vcdInt(p, at);  // Length of the delta encoding (whether it counts the checksum varies).
             total += vcdInt(p, at);
-            at[0]++;  // Delta indicator.
-            long sections = vcdInt(p, at) + vcdInt(p, at) + vcdInt(p, at);
+            int delta = p.u8(at[0]++);
+            long[] lengths = {vcdInt(p, at), vcdInt(p, at), vcdInt(p, at)};
             if ((win & 0x04) != 0) {
                 at[0] += 4;
             }
-            at[0] += sections;
+            long start = at[0];
+            for (int k = 0; k < 3; k++) {
+                if (lzma && (delta & (1 << k)) != 0 && lengths[k] > 0) {
+                    long[] payload = {start};
+                    vcdInt(p, payload);  // The unpacked size; the rest is the stream's next part.
+                    parts.get(k).add(new long[]{payload[0], start + lengths[k] - payload[0]});
+                }
+                start += lengths[k];
+            }
+            at[0] = start;
+        }
+        // xdelta3 compresses each kind of section (data, instructions, addresses) as one .xz
+        // stream running through all the windows, flushed at the end of every window, so each
+        // kind gets one decoder over its parts in order.
+        java.io.InputStream[] decoders = new java.io.InputStream[3];
+        if (lzma) {
+            for (int k = 0; k < 3; k++) {
+                if (!parts.get(k).isEmpty()) {
+                    try {
+                        decoders[k] = new org.tukaani.xz.SingleXZInputStream(new java.io.BufferedInputStream(new Parts(p, parts.get(k)), 1 << 16));
+                    } catch (org.tukaani.xz.XZIOException e) {
+                        throw new IOException("패치 파일의 압축(LZMA)을 풀 수 없어요. 패치 파일이 손상됐을 수 있어요.", e);
+                    }
+                }
+            }
         }
         try (Big dst = Big.map(out, 0, total, true)) {
             at[0] = firstWindow;
@@ -484,9 +514,9 @@ final class RomPatcher {
                     adler = p.u32be(at[0]);
                     at[0] += 4;
                 }
-                byte[] data = section(p, at[0], dataLength, (delta & 0x01) != 0);
-                byte[] inst = section(p, at[0] + dataLength, instLength, (delta & 0x02) != 0);
-                byte[] addr = section(p, at[0] + dataLength + instLength, addrLength, (delta & 0x04) != 0);
+                byte[] data = section(p, at[0], dataLength, (delta & 0x01) != 0, decoders[0]);
+                byte[] inst = section(p, at[0] + dataLength, instLength, (delta & 0x02) != 0, decoders[1]);
+                byte[] addr = section(p, at[0] + dataLength + instLength, addrLength, (delta & 0x04) != 0, decoders[2]);
                 at[0] += dataLength + instLength + addrLength;
                 int[] d = {0};
                 int[] i = {0};
@@ -563,29 +593,67 @@ final class RomPatcher {
         }
     }
 
-    // One section of a window, unpacked when xdelta compressed it with LZMA: the unpacked size
-    // as a VCDIFF number, then an .xz stream.
-    private static byte[] section(Big p, long offset, long length, boolean compressed) throws IOException {
+    // One section of a window. When xdelta compressed it with LZMA it holds the unpacked size
+    // as a VCDIFF number and then the next part of that kind's stream (read by decoder).
+    private static byte[] section(Big p, long offset, long length, boolean compressed, java.io.InputStream decoder) throws IOException {
         if (length > Integer.MAX_VALUE) throw new IOException("패치 파일이 손상됐어요.");
-        byte[] raw = new byte[(int) length];
-        p.read(offset, raw, 0, raw.length);
-        if (!compressed) {
+        if (!compressed || length == 0) {
+            byte[] raw = new byte[(int) length];
+            p.read(offset, raw, 0, raw.length);
             return raw;
         }
-        int[] at = {0};
-        long size = vcdInt(raw, at);
+        if (decoder == null) throw new IOException("패치 파일이 손상됐어요.");
+        long size = vcdInt(p, new long[]{offset});
         if (size > Integer.MAX_VALUE) throw new IOException("패치 파일이 손상됐어요.");
         byte[] result = new byte[(int) size];
-        try (org.tukaani.xz.XZInputStream in = new org.tukaani.xz.XZInputStream(
-                new java.io.ByteArrayInputStream(raw, at[0], raw.length - at[0]))) {
-            int done = 0;
+        int done = 0;
+        try {
             while (done < result.length) {
-                int n = in.read(result, done, result.length - done);
+                int n = decoder.read(result, done, result.length - done);
                 if (n < 0) throw new IOException("패치 파일이 손상됐어요.");
                 done += n;
             }
+        } catch (org.tukaani.xz.XZIOException e) {
+            throw new IOException("패치 파일의 압축(LZMA)을 풀 수 없어요. 패치 파일이 손상됐을 수 있어요.", e);
+        } catch (OutOfMemoryError e) {
+            throw new IOException("패치 압축을 푸는 데 메모리가 모자라요. 다른 앱을 닫고 다시 해 주세요.");
         }
         return result;
+    }
+
+    // The parts of one compressed stream, spread over the patch, read one after another.
+    private static final class Parts extends java.io.InputStream {
+        private final Big p;
+        private final List<long[]> parts;
+        private int index;
+        private long done;
+
+        Parts(Big p, List<long[]> parts) {
+            this.p = p;
+            this.parts = parts;
+        }
+
+        @Override
+        public int read() {
+            byte[] one = new byte[1];
+            return read(one, 0, 1) < 0 ? -1 : one[0] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] into, int at, int length) {
+            while (index < parts.size() && done >= parts.get(index)[1]) {
+                index++;
+                done = 0;
+            }
+            if (index >= parts.size()) {
+                return -1;
+            }
+            long[] part = parts.get(index);
+            int n = (int) Math.min(length, part[1] - done);
+            p.read(part[0] + done, into, at, n);
+            done += n;
+            return n;
+        }
     }
 
     // ---- Numbers in patches ----

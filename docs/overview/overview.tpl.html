@@ -247,6 +247,11 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>0.0.233에서 .dcp 패치와 CHD → GDI 풀기가 추가됐습니다(아래). 아직 실제 기기에서 확인 전입니다.</li>
 </ul>
 <figure><img src="img/trackpatch.jpg" alt="트랙 지정 패치 시안"><figcaption>트랙 지정 패치 · 드림캐스트 시안 (0.0.232).</figcaption></figure>
+<h3>xdelta LZMA 패치 고침 (0.0.250)</h3>
+<ul>
+<li>xdelta3로 LZMA 압축(-S lzma)해 만든 큰 패치(예: 드림캐스트 키카이오 한글화 Track 3용 167MB)가 "Input is not in the XZ format" 오류로 멈추던 문제를 고쳤습니다. xdelta3는 데이터 · 명령 · 주소 구간마다 압축 스트림 하나를 패치 전체에 이어 쓰는데, 앱은 구간마다 새 스트림으로 읽고 있었습니다. 지금은 구간 종류마다 스트림 하나로 이어서 풉니다.</li>
+<li>컴퓨터에서 확인한 것: xdelta3와 같은 방식(liblzma, 창마다 동기 플러시)으로 만든 여러 창짜리 패치를 이전 코드는 같은 오류로 실패, 새 코드는 기대한 결과와 바이트 단위로 같게 만듦. 원본이 1바이트라도 다르면 "원본이 이 패치와 맞지 않아요"로 멈춤. 큰 패치의 압축 사전(최대 64MB × 3)을 위해 앱이 쓸 수 있는 메모리를 늘렸습니다.</li>
+</ul>
 <h3>드림캐스트 .dcp 패치 · CHD 풀기 (0.0.233)</h3>
 <ul>
 <li><b>.dcp 패치</b>(Universal Dreamcast Patcher 형식): 패치 파일 고르는 화면에서 .dcp를 고르면 전용 창이 열립니다. 패치 안의 파일(통째로 바꾸는 파일, 파일별 xdelta, 부트 정보 IP.BIN)을 디스크의 파일 목록에 끼워 넣고 데이터 트랙을 새로 만들어 GDI로 저장합니다.</li>
