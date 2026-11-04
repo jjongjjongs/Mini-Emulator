@@ -29,6 +29,8 @@ import java.util.zip.ZipFile;
 final class OverlayPatches {
     static final String KIND_3DS = "3ds";
     static final String KIND_PNACH = "pnach";
+    static final String KIND_WIIU = "wiiu";
+    static final String KIND_RIIV = "riiv";
     private static final String MARKER = ".mini_overlay";
 
     // The 3DS mod folder entries Citra reads.
@@ -361,7 +363,7 @@ final class OverlayPatches {
         return true;
     }
 
-    private static void linkTree(File from, File to) throws IOException {
+    static void linkTree(File from, File to) throws IOException {
         File[] children = from.listFiles();
         if (children == null) {
             return;
@@ -396,6 +398,558 @@ final class OverlayPatches {
             while ((n = in.read(buffer)) > 0) {
                 out.write(buffer, 0, n);
             }
+        }
+    }
+
+    // ---- Reading a file of a picked zip or folder ----
+
+    interface Reader {
+        byte[] read(String path) throws IOException;
+    }
+
+    static Reader zipReader(File zip) {
+        return path -> {
+            try (ZipFile zf = new ZipFile(zip)) {
+                ZipEntry entry = zf.getEntry(path);
+                if (entry == null) {
+                    throw new IOException(path + "이(가) 없어요.");
+                }
+                try (InputStream in = zf.getInputStream(entry)) {
+                    return readAll(in);
+                }
+            }
+        };
+    }
+
+    static Reader dirReader(File dir) {
+        return path -> {
+            try (InputStream in = new FileInputStream(new File(dir, path))) {
+                return readAll(in);
+            }
+        };
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[1 << 16];
+        int n;
+        while ((n = in.read(buffer)) > 0) {
+            out.write(buffer, 0, n);
+        }
+        return out.toByteArray();
+    }
+
+    // Copies the files under prefix (a zip or a copied folder) into dest, keeping their paths.
+    static void copyUnder(File source, boolean zip, List<String> paths, String prefix, File dest) throws IOException {
+        if (zip) {
+            try (ZipFile zf = new ZipFile(source)) {
+                Enumeration<? extends ZipEntry> entries = zf.entries();
+                byte[] buffer = new byte[1 << 16];
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    String path = entry.getName().replace('\\', '/');
+                    if (entry.isDirectory() || !path.startsWith(prefix) || path.contains("../") || path.startsWith("__MACOSX/")) {
+                        continue;
+                    }
+                    File out = new File(dest, path.substring(prefix.length()));
+                    File parent = out.getParentFile();
+                    if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                        throw new IOException("패치 파일을 풀지 못했어요.");
+                    }
+                    try (InputStream in = zf.getInputStream(entry); OutputStream o = new FileOutputStream(out)) {
+                        int n;
+                        while ((n = in.read(buffer)) > 0) {
+                            o.write(buffer, 0, n);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        for (String path : paths) {
+            if (!path.startsWith(prefix)) {
+                continue;
+            }
+            File from = new File(source, path);
+            File out = new File(dest, path.substring(prefix.length()));
+            File parent = out.getParentFile();
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                throw new IOException("패치 파일을 옮기지 못했어요.");
+            }
+            if (!from.renameTo(out)) {
+                copy(from, out);
+            }
+        }
+    }
+
+    // ---- Wii U: Cemu graphic packs (rules.txt + content/ ...) ----
+
+    static final class WiiuAnalysis {
+        String prefix = "";
+        String name = "";
+        List<String> titleIds = new ArrayList<>();
+        java.util.LinkedHashMap<String, List<String>> presets = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> presetDefaults = new java.util.HashMap<>();
+        int contentFiles;
+        long size;
+        boolean wrap;          // content/ only (loadiine style): a rules.txt is made for it
+        int otherPacks;
+    }
+
+    static WiiuAnalysis analyzeWiiu(List<String> paths, List<Long> sizes, Reader reader, long gameTitle) throws IOException {
+        List<String> rules = new ArrayList<>();
+        for (String p : paths) {
+            if (!p.startsWith("__MACOSX/") && new File(p).getName().equalsIgnoreCase("rules.txt")) {
+                rules.add(p);
+            }
+        }
+        WiiuAnalysis a = new WiiuAnalysis();
+        if (!rules.isEmpty()) {
+            String chosen = rules.get(0);
+            String chosenText = null;
+            for (String r : rules) {
+                String text = new String(reader.read(r), StandardCharsets.UTF_8);
+                if (chosenText == null) {
+                    chosenText = text;
+                }
+                if (gameTitle != 0 && rulesTitleIds(text).contains(String.format(Locale.US, "%016x", gameTitle))) {
+                    chosen = r;
+                    chosenText = text;
+                    break;
+                }
+            }
+            a.otherPacks = rules.size() - 1;
+            a.prefix = chosen.contains("/") ? chosen.substring(0, chosen.lastIndexOf('/') + 1) : "";
+            parseRules(chosenText, a);
+        } else {
+            for (String p : paths) {
+                String[] seg = p.split("/");
+                for (int i = 0; i < seg.length - 1; i++) {
+                    if (seg[i].equalsIgnoreCase("content")) {
+                        StringBuilder prefix = new StringBuilder();
+                        for (int k = 0; k < i; k++) {
+                            prefix.append(seg[k]).append('/');
+                        }
+                        a.prefix = prefix.toString();
+                        a.wrap = true;
+                        break;
+                    }
+                }
+                if (a.wrap) {
+                    break;
+                }
+            }
+            if (!a.wrap) {
+                throw new IOException("Wii U 그래픽 팩(rules.txt)이나 content 폴더를 찾지 못했어요.");
+            }
+        }
+        for (int k = 0; k < paths.size(); k++) {
+            String p = paths.get(k);
+            if (!p.startsWith(a.prefix)) {
+                continue;
+            }
+            a.size += sizes.get(k);
+            if (p.substring(a.prefix.length()).toLowerCase(Locale.ROOT).startsWith("content/")) {
+                a.contentFiles++;
+            }
+        }
+        return a;
+    }
+
+    static List<String> rulesTitleIds(String text) {
+        List<String> ids = new ArrayList<>();
+        for (String line : text.split("\r?\n")) {
+            String t = line.trim();
+            if (t.toLowerCase(Locale.ROOT).startsWith("titleids")) {
+                for (String id : t.substring(t.indexOf('=') + 1).split(",")) {
+                    String clean = id.trim().toLowerCase(Locale.ROOT);
+                    if (!clean.isEmpty()) {
+                        ids.add(clean);
+                    }
+                }
+            }
+        }
+        return ids;
+    }
+
+    private static String rulesValue(String line) {
+        String v = line.substring(line.indexOf('=') + 1).trim();
+        if (v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
+            v = v.substring(1, v.length() - 1);
+        }
+        return v;
+    }
+
+    // [Definition] name / titleIds, and the [Preset] sections: category (or none) and name.
+    private static void parseRules(String text, WiiuAnalysis a) {
+        a.titleIds = rulesTitleIds(text);
+        String section = "";
+        String presetName = null;
+        String presetCategory = "";
+        boolean presetDefault = false;
+        List<String[]> found = new ArrayList<>();
+        for (String raw : (text + "\n[End]").split("\r?\n")) {
+            String line = raw.trim();
+            if (line.startsWith("#") || line.startsWith(";")) {
+                continue;
+            }
+            if (line.startsWith("[") && line.endsWith("]")) {
+                if ("preset".equalsIgnoreCase(section) && presetName != null) {
+                    found.add(new String[]{presetCategory, presetName, presetDefault ? "1" : "0"});
+                }
+                section = line.substring(1, line.length() - 1).trim();
+                presetName = null;
+                presetCategory = "";
+                presetDefault = false;
+                continue;
+            }
+            if (!line.contains("=")) {
+                continue;
+            }
+            String key = line.substring(0, line.indexOf('=')).trim().toLowerCase(Locale.ROOT);
+            if ("definition".equalsIgnoreCase(section) && key.equals("name")) {
+                a.name = rulesValue(line);
+            } else if ("preset".equalsIgnoreCase(section)) {
+                if (key.equals("name")) {
+                    presetName = rulesValue(line);
+                } else if (key.equals("category")) {
+                    presetCategory = rulesValue(line);
+                } else if (key.equals("default")) {
+                    presetDefault = rulesValue(line).equals("1") || rulesValue(line).equalsIgnoreCase("true");
+                }
+            }
+        }
+        for (String[] p : found) {
+            a.presets.computeIfAbsent(p[0], c -> new ArrayList<>()).add(p[1]);
+            if (p[2].equals("1") || !a.presetDefaults.containsKey(p[0])) {
+                if (p[2].equals("1") || a.presets.get(p[0]).size() == 1) {
+                    a.presetDefaults.put(p[0], p[1]);
+                }
+            }
+        }
+    }
+
+    // Cemu's core option key for a pack in customGraphicPacks (FNV-1a over "custom\x1f" folder
+    // "\x1f" category, as the libretro Cemu names them).
+    static String cemuPackKey(String folder, String category) {
+        long hash = 0xcbf29ce484222325L;
+        for (byte b : ("custom\u001f" + folder + "\u001f" + category).getBytes(StandardCharsets.UTF_8)) {
+            hash ^= b & 0xFF;
+            hash *= 0x100000001b3L;
+        }
+        return String.format(Locale.US, "cemu_zgp_%016x", hash);
+    }
+
+    static final String SEP = "\u001f";
+
+    // The packs that are on, in <system>/Cemu/customGraphicPacks/MiniEmulator/<id>, and the
+    // options that turn them on (with their presets) in options.txt next to them.
+    static void syncWiiu(File filesDir, File cemuDir, String key) throws IOException {
+        File base = new File(new File(cemuDir, "customGraphicPacks"), "MiniEmulator");
+        deleteTree(base);
+        StringBuilder options = new StringBuilder();
+        for (Entry e : list(filesDir, KIND_WIIU, key)) {
+            if (!e.on) {
+                continue;
+            }
+            File dest = new File(base, e.id);
+            if (!dest.mkdirs()) {
+                throw new IOException("그래픽 팩 폴더를 만들지 못했어요.");
+            }
+            linkTree(new File(e.dir, "files"), dest);
+            Properties meta = meta(e);
+            String folder = "MiniEmulator/" + e.id;
+            String cats = meta.getProperty("pcats", "");
+            boolean presets = meta.getProperty("haspresets", "0").equals("1");
+            options.append(cemuPackKey(folder, presets ? "\u001eenabled" : "")).append("=enabled\n");
+            if (presets) {
+                int n = 0;
+                for (String cat : cats.split(SEP, -1)) {
+                    String sel = meta.getProperty("psel." + n, "");
+                    if (!sel.isEmpty()) {
+                        options.append(cemuPackKey(folder, cat)).append('=').append(sel).append('\n');
+                    }
+                    n++;
+                }
+            }
+        }
+        if (options.length() > 0) {
+            try (OutputStream out = new FileOutputStream(new File(base, "options.txt"))) {
+                out.write(options.toString().getBytes(StandardCharsets.UTF_8));
+            }
+        }
+    }
+
+    static Properties meta(Entry e) {
+        Properties meta = new Properties();
+        try (InputStream in = new FileInputStream(new File(e.dir, "meta.properties"))) {
+            meta.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+        } catch (IOException ignored) {
+            // Empty.
+        }
+        return meta;
+    }
+
+    static void setMeta(Entry e, String key, String value) throws IOException {
+        Properties meta = meta(e);
+        meta.setProperty(key, value);
+        try (OutputStream out = new FileOutputStream(new File(e.dir, "meta.properties"))) {
+            meta.store(new java.io.OutputStreamWriter(out, StandardCharsets.UTF_8), null);
+        }
+    }
+
+    // The title ID of a Wii U game in a .wua (ZArchive): its top folders are "<title>_v<version>";
+    // the game's (0005000 0) one, else 0.
+    static long wuaTitleId(File wua) {
+        try (RandomAccessFile in = new RandomAccessFile(wua, "r")) {
+            long length = in.length();
+            if (length < 144) {
+                return 0;
+            }
+            byte[] footer = new byte[144];
+            in.seek(length - 144);
+            in.readFully(footer);
+            if (be32(footer, 140) != 0x169F52D6L) {
+                return 0;
+            }
+            long namesAt = be64(footer, 32);
+            long namesSize = be64(footer, 40);
+            long treeAt = be64(footer, 48);
+            long treeSize = be64(footer, 56);
+            if (treeSize < 16 || namesSize > 64L * 1024 * 1024 || treeAt + treeSize > length) {
+                return 0;
+            }
+            byte[] root = new byte[16];
+            in.seek(treeAt);
+            in.readFully(root);
+            long start = be32(root, 4);
+            long count = be32(root, 8);
+            long fallback = 0;
+            for (long i = 0; i < Math.min(count, 64); i++) {
+                byte[] node = new byte[16];
+                in.seek(treeAt + (start + i) * 16);
+                in.readFully(node);
+                long nameOffset = be32(node, 0) & 0x7FFFFFFFL;
+                in.seek(namesAt + nameOffset);
+                int len = in.read();
+                if ((len & 0x80) != 0) {
+                    len = (len & 0x7F) | (in.read() << 7);
+                }
+                if (len <= 0 || len > 255) {
+                    continue;
+                }
+                byte[] name = new byte[len];
+                in.readFully(name);
+                String text = new String(name, StandardCharsets.ISO_8859_1);
+                if (text.length() >= 16 && text.substring(0, 16).matches("[0-9a-fA-F]{16}")) {
+                    long tid = Long.parseUnsignedLong(text.substring(0, 16), 16);
+                    if ((tid >>> 32) == 0x00050000L) {
+                        return tid;
+                    }
+                    if (fallback == 0) {
+                        fallback = tid;
+                    }
+                }
+            }
+            return fallback;
+        } catch (IOException | RuntimeException e) {
+            return 0;
+        }
+    }
+
+    private static long be32(byte[] b, int at) {
+        return (b[at] & 0xFFL) << 24 | (b[at + 1] & 0xFFL) << 16 | (b[at + 2] & 0xFFL) << 8 | (b[at + 3] & 0xFFL);
+    }
+
+    private static long be64(byte[] b, int at) {
+        return be32(b, at) << 32 | be32(b, at + 4);
+    }
+
+    // ---- Wii: Riivolution (riivolution/*.xml + the folders it names) ----
+
+    static final class RiivOption {
+        String id;
+        String name;
+        List<String> choices = new ArrayList<>();
+        int defaultChoice;   // 0 off, 1.. a choice
+    }
+
+    static final class RiivAnalysis {
+        String prefix = "";
+        String game = "";
+        List<String> regions = new ArrayList<>();
+        List<RiivOption> options = new ArrayList<>();
+        int xmls;
+        int files;
+        long size;
+    }
+
+    static RiivAnalysis analyzeRiiv(List<String> paths, List<Long> sizes, Reader reader, String gameId) throws IOException {
+        RiivAnalysis a = new RiivAnalysis();
+        List<String> xmls = new ArrayList<>();
+        for (String p : paths) {
+            String[] seg = p.split("/");
+            if (seg.length >= 2 && seg[seg.length - 2].equalsIgnoreCase("riivolution") && seg[seg.length - 1].toLowerCase(Locale.ROOT).endsWith(".xml")) {
+                xmls.add(p);
+            }
+        }
+        if (xmls.isEmpty()) {
+            throw new IOException("Riivolution 패치(riivolution 폴더 안의 .xml)를 찾지 못했어요.");
+        }
+        String first = xmls.get(0);
+        a.prefix = first.substring(0, first.length() - ("riivolution/" + new File(first).getName()).length());
+        for (String x : xmls) {
+            if (!x.startsWith(a.prefix)) {
+                continue;
+            }
+            a.xmls++;
+            parseRiiv(reader.read(x), a, gameId);
+        }
+        for (int k = 0; k < paths.size(); k++) {
+            if (paths.get(k).startsWith(a.prefix)) {
+                a.files++;
+                a.size += sizes.get(k);
+            }
+        }
+        return a;
+    }
+
+    private static void parseRiiv(byte[] xml, RiivAnalysis a, String gameId) throws IOException {
+        try {
+            javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            org.w3c.dom.Document doc = factory.newDocumentBuilder().parse(new java.io.ByteArrayInputStream(xml));
+            org.w3c.dom.NodeList ids = doc.getElementsByTagName("id");
+            if (ids.getLength() > 0) {
+                org.w3c.dom.Element id = (org.w3c.dom.Element) ids.item(0);
+                if (a.game.isEmpty()) {
+                    a.game = id.getAttribute("game");
+                }
+                org.w3c.dom.NodeList regions = id.getElementsByTagName("region");
+                for (int i = 0; i < regions.getLength(); i++) {
+                    String r = ((org.w3c.dom.Element) regions.item(i)).getAttribute("type");
+                    if (!r.isEmpty() && !a.regions.contains(r)) {
+                        a.regions.add(r);
+                    }
+                }
+            }
+            org.w3c.dom.NodeList sections = doc.getElementsByTagName("section");
+            for (int s = 0; s < sections.getLength(); s++) {
+                org.w3c.dom.Element section = (org.w3c.dom.Element) sections.item(s);
+                org.w3c.dom.NodeList options = section.getElementsByTagName("option");
+                for (int o = 0; o < options.getLength(); o++) {
+                    org.w3c.dom.Element option = (org.w3c.dom.Element) options.item(o);
+                    RiivOption ro = new RiivOption();
+                    ro.name = option.getAttribute("name");
+                    ro.id = option.getAttribute("id").isEmpty() ? section.getAttribute("name") + ro.name : option.getAttribute("id");
+                    try {
+                        ro.defaultChoice = option.getAttribute("default").isEmpty() ? 0 : Integer.parseInt(option.getAttribute("default"));
+                    } catch (NumberFormatException e) {
+                        ro.defaultChoice = 0;
+                    }
+                    org.w3c.dom.NodeList choices = option.getElementsByTagName("choice");
+                    for (int c = 0; c < choices.getLength(); c++) {
+                        ro.choices.add(((org.w3c.dom.Element) choices.item(c)).getAttribute("name"));
+                    }
+                    // A translation is on when added: an option that starts off gets its first choice.
+                    if (ro.defaultChoice == 0 && !ro.choices.isEmpty()) {
+                        ro.defaultChoice = 1;
+                    }
+                    a.options.add(ro);
+                }
+            }
+        } catch (javax.xml.parsers.ParserConfigurationException | org.xml.sax.SAXException e) {
+            throw new IOException("Riivolution XML을 읽지 못했어요: " + e.getMessage());
+        }
+    }
+
+    // Whether the patch's game filter takes this disc (game ID prefix, and region if listed).
+    static boolean riivFits(RiivAnalysis a, String gameId) {
+        if (gameId == null || gameId.length() < 4) {
+            return true;
+        }
+        if (!a.game.isEmpty() && !gameId.startsWith(a.game)) {
+            return false;
+        }
+        return a.regions.isEmpty() || a.regions.contains(gameId.substring(3, 4));
+    }
+
+    // The patches that are on, in <Dolphin User>/Load/Riivolution, with
+    // riivolution/config/<game>.xml holding the chosen options.
+    static boolean syncRiiv(File filesDir, File dolphinUser, String key) throws IOException {
+        File root = new File(new File(dolphinUser, "Load"), "Riivolution");
+        if (root.exists() && !new File(root, MARKER).exists() && new File(root, "riivolution").exists()) {
+            return false;
+        }
+        deleteTree(root);
+        List<Entry> on = new ArrayList<>();
+        for (Entry e : list(filesDir, KIND_RIIV, key)) {
+            if (e.on) {
+                on.add(e);
+            }
+        }
+        if (on.isEmpty()) {
+            return true;
+        }
+        if (!root.mkdirs()) {
+            throw new IOException("Riivolution 폴더를 만들지 못했어요.");
+        }
+        new File(root, MARKER).createNewFile();
+        StringBuilder config = new StringBuilder("<riivolution version=\"2\">\n");
+        for (Entry e : on) {
+            linkTree(new File(e.dir, "files"), root);
+            Properties meta = meta(e);
+            int count = Integer.parseInt(meta.getProperty("opts", "0"));
+            for (int i = 0; i < count; i++) {
+                config.append("  <option id=\"").append(xmlEscape(meta.getProperty("opt." + i + ".id", ""))).append("\" default=\"")
+                        .append(meta.getProperty("opt." + i + ".sel", "0")).append("\" />\n");
+            }
+        }
+        config.append("</riivolution>\n");
+        File configDir = new File(new File(root, "riivolution"), "config");
+        if (!configDir.isDirectory() && !configDir.mkdirs()) {
+            throw new IOException("Riivolution 설정을 쓰지 못했어요.");
+        }
+        try (OutputStream out = new FileOutputStream(new File(configDir, key.substring(0, Math.min(4, key.length())) + ".xml"))) {
+            out.write(config.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        return true;
+    }
+
+    private static String xmlEscape(String s) {
+        return s.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    // The 6-letter ID of a GameCube / Wii disc image (.iso .gcm, .wbfs, .rvz .wia, .ciso), and
+    // whether it is a Wii disc; null when it can't be read (.gcz and others).
+    static String[] discId(File disc) {
+        try (RandomAccessFile in = new RandomAccessFile(disc, "r")) {
+            byte[] head = new byte[0x60];
+            if (in.length() < 0x60) {
+                return null;
+            }
+            in.readFully(head);
+            long at;
+            String magic = new String(head, 0, 4, StandardCharsets.ISO_8859_1);
+            if (magic.equals("WBFS")) {
+                at = 1L << (head[8] & 0xFF);
+            } else if (magic.equals("RVZ\u0001") || magic.equals("WIA\u0001")) {
+                at = 0x58;
+            } else if (magic.equals("CISO")) {
+                at = 0x8000;
+            } else {
+                at = 0;
+            }
+            byte[] disc0 = new byte[0x20];
+            in.seek(at);
+            in.readFully(disc0);
+            String id = new String(disc0, 0, 6, StandardCharsets.ISO_8859_1);
+            if (!id.matches("[0-9A-Z]{6}")) {
+                return null;
+            }
+            boolean wii = be32(disc0, 0x18) == 0x5D1C9EA3L;
+            return new String[]{id, wii ? "wii" : "gc"};
+        } catch (IOException | RuntimeException e) {
+            return null;
         }
     }
 

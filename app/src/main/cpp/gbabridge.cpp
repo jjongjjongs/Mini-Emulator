@@ -32,6 +32,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -403,6 +405,10 @@ struct Core {
     std::string coreId;
     std::string saveDir;
     std::string systemDir;
+    // Wii U graphic packs the app turned on (덧씌우는 한글 패치): Cemu's pack option keys and
+    // values, from <system>/Cemu/customGraphicPacks/MiniEmulator/options.txt.
+    std::map<std::string, std::string> packOptions;
+    bool packOptionsRead = false;
     std::string sramPath;
     std::string statePath;
     std::unordered_map<std::string, std::string> variables;
@@ -1870,6 +1876,24 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (const char* fixed = fixedVariable(var->key)) {
                 var->value = fixed;
                 return true;
+            }
+            if (strncmp(var->key, "cemu_zgp_", 9) == 0) {
+                if (!core->packOptionsRead) {
+                    core->packOptionsRead = true;
+                    std::ifstream in(core->systemDir + "/Cemu/customGraphicPacks/MiniEmulator/options.txt");
+                    std::string line;
+                    while (std::getline(in, line)) {
+                        size_t eq = line.find('=');
+                        if (eq != std::string::npos) {
+                            core->packOptions[line.substr(0, eq)] = line.substr(eq + 1);
+                        }
+                    }
+                }
+                auto pack = core->packOptions.find(var->key);
+                if (pack != core->packOptions.end()) {
+                    var->value = pack->second.c_str();
+                    return true;
+                }
             }
             auto it = core->variables.find(var->key);
             if (it == core->variables.end()) return false;

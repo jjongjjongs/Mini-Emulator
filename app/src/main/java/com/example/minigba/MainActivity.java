@@ -4553,7 +4553,8 @@ public final class MainActivity extends Activity {
             title.setSpan(new android.text.style.ForegroundColorSpan(RoundIconView.COLOR_DLC), start, title.length(), 0);
             title.setSpan(new android.text.style.RelativeSizeSpan(0.75f), start, title.length(), 0);
         }
-        if (MODE_PS2.equals(modeForFile(file)) && overlayOnCount(file) > 0) {
+        String overlayMode = modeForFile(file);
+        if ((MODE_PS2.equals(overlayMode) || MODE_WIIU.equals(overlayMode) || MODE_GC.equals(overlayMode)) && overlayOnCount(file) > 0) {
             int start = title.length();
             title.append("  🧩 한글 패치");
             title.setSpan(new android.text.style.ForegroundColorSpan(COLOR_OVERLAY), start, title.length(), 0);
@@ -9222,7 +9223,12 @@ public final class MainActivity extends Activity {
 
     private String overlayKind(File file) {
         String mode = modeForFile(file);
-        return MODE_N3DS.equals(mode) ? OverlayPatches.KIND_3DS : MODE_PS2.equals(mode) ? OverlayPatches.KIND_PNACH : null;
+        if (MODE_GC.equals(mode)) {
+            String[] disc = OverlayPatches.discId(file);
+            return disc != null && "wii".equals(disc[1]) ? OverlayPatches.KIND_RIIV : null;
+        }
+        return MODE_N3DS.equals(mode) ? OverlayPatches.KIND_3DS : MODE_PS2.equals(mode) ? OverlayPatches.KIND_PNACH
+                : MODE_WIIU.equals(mode) ? OverlayPatches.KIND_WIIU : null;
     }
 
     // The game's key: its title ID (3DS) or the CRC PCSX2 gives it (PS2), or null when unknown.
@@ -9231,6 +9237,14 @@ public final class MainActivity extends Activity {
         if (OverlayPatches.KIND_3DS.equals(kind)) {
             long tid = N3dsCia.titleIdOf(file);
             return tid == 0 ? null : String.format(Locale.US, "%016X", tid);
+        }
+        if (OverlayPatches.KIND_WIIU.equals(kind)) {
+            long tid = file.getName().toLowerCase(Locale.ROOT).endsWith(".wua") ? OverlayPatches.wuaTitleId(file) : 0;
+            return tid != 0 ? String.format(Locale.US, "%016X", tid) : "F" + sanitizeFileName(file.getName());
+        }
+        if (OverlayPatches.KIND_RIIV.equals(kind)) {
+            String[] disc = OverlayPatches.discId(file);
+            return disc == null ? null : disc[0];
         }
         if (OverlayPatches.KIND_PNACH.equals(kind)) {
             String known = romPrefs().getString("ps2crc:" + file.getName(), null);
@@ -9252,7 +9266,7 @@ public final class MainActivity extends Activity {
         if (kind == null) {
             return 0;
         }
-        String key = OverlayPatches.KIND_3DS.equals(kind) ? overlayKey(file) : romPrefs().getString("ps2crc:" + file.getName(), null);
+        String key = OverlayPatches.KIND_PNACH.equals(kind) ? romPrefs().getString("ps2crc:" + file.getName(), null) : overlayKey(file);
         return key == null ? 0 : OverlayPatches.onCount(getFilesDir(), kind, key);
     }
 
@@ -9269,6 +9283,10 @@ public final class MainActivity extends Activity {
             }
             if (OverlayPatches.KIND_3DS.equals(kind)) {
                 OverlayPatches.sync3ds(getFilesDir(), n3dsUserDir(), key);
+            } else if (OverlayPatches.KIND_WIIU.equals(kind)) {
+                OverlayPatches.syncWiiu(getFilesDir(), new File(systemDir(), "Cemu"), key);
+            } else if (OverlayPatches.KIND_RIIV.equals(kind)) {
+                OverlayPatches.syncRiiv(getFilesDir(), WiiHelp.wiiRoot(this).getParentFile(), key);
             } else {
                 OverlayPatches.syncPnach(getFilesDir(), new File(new File(systemDir(), "pcsx2"), "patches"), key);
             }
@@ -9294,7 +9312,7 @@ public final class MainActivity extends Activity {
         row.addView(label, labelParams);
         int on = overlayOnCount(file);
         TextView value = new TextView(this);
-        value.setText((on > 0 ? on + "개 켜짐" : OverlayPatches.KIND_3DS.equals(overlayKind(file)) ? "LayeredFS" : ".pnach") + "  ›");
+        value.setText((on > 0 ? on + "개 켜짐" : overlayTagText(overlayKind(file))) + "  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
         value.setTextColor(Theme.text(on > 0 ? COLOR_OVERLAY : Color.rgb(122, 130, 140)));
@@ -9304,6 +9322,96 @@ public final class MainActivity extends Activity {
             showOverlayPage(file);
         });
         return row;
+    }
+
+    private static String overlayTagText(String kind) {
+        return OverlayPatches.KIND_3DS.equals(kind) ? "3DS LayeredFS" : OverlayPatches.KIND_PNACH.equals(kind) ? "PS2 .pnach"
+                : OverlayPatches.KIND_WIIU.equals(kind) ? "Wii U 그래픽 팩" : "Wii Riivolution";
+    }
+
+    private static int overlayColor(String kind) {
+        return OverlayPatches.KIND_3DS.equals(kind) ? COLOR_OVERLAY : OverlayPatches.KIND_PNACH.equals(kind) ? Color.rgb(29, 78, 216)
+                : OverlayPatches.KIND_WIIU.equals(kind) ? Color.rgb(8, 145, 178) : Color.rgb(14, 165, 233);
+    }
+
+    // The choices kept with a patch (Wii U pack presets, Riivolution options), as rows of chips.
+    private void addOverlayChoices(LinearLayout card, OverlayPatches.Entry entry, String kind, Runnable reopen) {
+        java.util.Properties meta = OverlayPatches.meta(entry);
+        int color = overlayColor(kind);
+        List<String> labels = new ArrayList<>();
+        List<String[]> values = new ArrayList<>();
+        List<String> keys = new ArrayList<>();
+        List<String> selected = new ArrayList<>();
+        if (OverlayPatches.KIND_WIIU.equals(kind)) {
+            if (!"1".equals(meta.getProperty("haspresets", "0"))) {
+                return;
+            }
+            String[] cats = meta.getProperty("pcats", "").split(OverlayPatches.SEP, -1);
+            for (int n = 0; n < cats.length; n++) {
+                labels.add(cats[n].isEmpty() ? "프리셋" : cats[n]);
+                values.add(meta.getProperty("pvals." + n, "").split(OverlayPatches.SEP, -1));
+                keys.add("psel." + n);
+                selected.add(meta.getProperty("psel." + n, ""));
+            }
+        } else {
+            int count = Integer.parseInt(meta.getProperty("opts", "0"));
+            for (int n = 0; n < count; n++) {
+                labels.add(meta.getProperty("opt." + n + ".name", "항목"));
+                String[] choices = meta.getProperty("opt." + n + ".choices", "").split(OverlayPatches.SEP, -1);
+                String[] withOff = new String[choices.length + 1];
+                withOff[0] = "끄기";
+                System.arraycopy(choices, 0, withOff, 1, choices.length);
+                values.add(withOff);
+                keys.add("opt." + n + ".sel");
+                selected.add(meta.getProperty("opt." + n + ".sel", "0"));
+            }
+        }
+        for (int n = 0; n < labels.size(); n++) {
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(1);
+            box.setPadding(dp(10), dp(7), dp(10), dp(8));
+            GradientDrawable bg = rounded(Color.WHITE, dp(10));
+            bg.setStroke(dp(1), Theme.line(Color.rgb(224, 242, 254)));
+            box.setBackground(bg);
+            TextView label = new TextView(this);
+            label.setText(labels.get(n));
+            label.setTextSize(11.5f);
+            label.setTypeface(Typeface.DEFAULT_BOLD);
+            label.setTextColor(Theme.text(Color.rgb(12, 74, 110)));
+            box.addView(label);
+            android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this);
+            scroll.setHorizontalScrollBarEnabled(false);
+            LinearLayout chips = new LinearLayout(this);
+            String[] vals = values.get(n);
+            for (int v = 0; v < vals.length; v++) {
+                final String value = OverlayPatches.KIND_WIIU.equals(kind) ? vals[v] : String.valueOf(v);
+                boolean on = value.equals(selected.get(n));
+                TextView chip = new TextView(this);
+                chip.setText(vals[v].isEmpty() ? "(이름 없음)" : vals[v]);
+                chip.setTextSize(11.0f);
+                chip.setTypeface(Typeface.DEFAULT_BOLD);
+                chip.setTextColor(on ? Color.WHITE : Theme.text(Color.rgb(100, 116, 139)));
+                chip.setPadding(dp(10), dp(4), dp(10), dp(4));
+                chip.setBackground(rounded(on ? color : Color.rgb(241, 245, 249), dp(9)));
+                final String metaKey = keys.get(n);
+                chip.setOnClickListener(view -> {
+                    try {
+                        OverlayPatches.setMeta(entry, metaKey, value);
+                    } catch (IOException e) {
+                        showError("저장하지 못했어요: " + e.getMessage());
+                    }
+                    reopen.run();
+                });
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+                chipParams.setMargins(v == 0 ? 0 : dp(6), dp(5), 0, 0);
+                chips.addView(chip, chipParams);
+            }
+            scroll.addView(chips);
+            box.addView(scroll);
+            LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(-1, -2);
+            boxParams.setMargins(0, dp(7), 0, 0);
+            card.addView(box, boxParams);
+        }
     }
 
     private TextView overlayChip(String text, int fg, int stroke) {
@@ -9333,13 +9441,15 @@ public final class MainActivity extends Activity {
     private void showOverlayPage(final File file) {
         final String kind = overlayKind(file);
         final boolean n3ds = OverlayPatches.KIND_3DS.equals(kind);
+        final boolean pnach = OverlayPatches.KIND_PNACH.equals(kind);
         final String key = overlayKey(file);
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
         cardHeader(panel, RoundIconView.PATCH, COLOR_OVERLAY, "덧씌우는 한글 패치",
-                displayGameNameFor(file) + (key == null ? "" : n3ds ? " · 게임 ID " + key : " · CRC " + key));
-        if (n3ds && key == null) {
-            panel.addView(overlayNote("이 롬에서 게임 ID를 읽지 못했어요. 암호화된 롬이거나 3DS 게임 파일이 아닐 수 있어요.", Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)), spaced(10));
+                displayGameNameFor(file) + (key == null || key.startsWith("F") ? "" : pnach ? " · CRC " + key : " · 게임 ID " + key));
+        if (!pnach && key == null) {
+            panel.addView(overlayNote(n3ds ? "이 롬에서 게임 ID를 읽지 못했어요. 암호화된 롬이거나 3DS 게임 파일이 아닐 수 있어요."
+                    : "이 디스크에서 게임 ID를 읽지 못했어요. .gcz는 읽을 수 없어서 .iso · .rvz · .wbfs가 필요해요.", Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)), spaced(10));
         }
         List<OverlayPatches.Entry> entries = OverlayPatches.list(getFilesDir(), kind, key);
         final Runnable reopen = () -> {
@@ -9385,15 +9495,18 @@ public final class MainActivity extends Activity {
             });
             top.addView(toggle);
             card.addView(top);
+            if (OverlayPatches.KIND_WIIU.equals(kind) || OverlayPatches.KIND_RIIV.equals(kind)) {
+                addOverlayChoices(card, entry, kind, reopen);
+            }
             LinearLayout chips = new LinearLayout(this);
             chips.setGravity(16);
             TextView tag = new TextView(this);
-            tag.setText(n3ds ? "3DS LayeredFS" : "PS2 .pnach");
+            tag.setText(overlayTagText(kind));
             tag.setTextSize(10.5f);
             tag.setTypeface(Typeface.DEFAULT_BOLD);
             tag.setTextColor(Color.WHITE);
             tag.setPadding(dp(8), dp(3), dp(8), dp(3));
-            tag.setBackground(rounded(n3ds ? COLOR_OVERLAY : Color.rgb(29, 78, 216), dp(9)));
+            tag.setBackground(rounded(overlayColor(kind), dp(9)));
             chips.addView(tag);
             if (entries.size() > 1) {
                 TextView up = overlayChip("↑", Color.rgb(107, 114, 128), Color.rgb(229, 231, 235));
@@ -9440,7 +9553,7 @@ public final class MainActivity extends Activity {
         }
         LinearLayout adds = new LinearLayout(this);
         TextView add = new TextView(this);
-        add.setText(n3ds ? "＋ 패치 추가 (zip)" : "＋ 패치 추가 (.pnach · zip)");
+        add.setText(pnach ? "＋ 패치 추가 (.pnach · zip)" : "＋ 패치 추가 (zip)");
         add.setTextSize(13.5f);
         add.setTypeface(Typeface.DEFAULT_BOLD);
         add.setGravity(17);
@@ -9453,7 +9566,7 @@ public final class MainActivity extends Activity {
             pickOverlay(file, false);
         });
         adds.addView(add, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
-        if (n3ds) {
+        if (!pnach) {
             TextView folder = new TextView(this);
             folder.setText("＋ 폴더");
             folder.setTextSize(13.5f);
@@ -9470,7 +9583,14 @@ public final class MainActivity extends Activity {
             adds.addView(folder, folderParams);
         }
         panel.addView(adds, spaced(10));
-        if (!n3ds && !pcsx2Ready()) {
+        if (OverlayPatches.KIND_RIIV.equals(kind)) {
+            File riiv = new File(new File(WiiHelp.wiiRoot(this).getParentFile(), "Load"), "Riivolution");
+            if (new File(riiv, "riivolution").exists() && !new File(riiv, ".mini_overlay").exists()) {
+                panel.addView(overlayNote("Dolphin의 Load/Riivolution에 직접 넣어 둔 패치가 있어서 앱이 건드리지 않아요. 여기서 켠 패치를 쓰려면 그 폴더를 비워 주세요.",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(8));
+            }
+        }
+        if (pnach && !pcsx2Ready()) {
             LinearLayout warn = new LinearLayout(this);
             warn.setOrientation(1);
             warn.setPadding(dp(12), dp(10), dp(12), dp(10));
@@ -9506,6 +9626,10 @@ public final class MainActivity extends Activity {
         }
         panel.addView(overlayNote(n3ds
                 ? "원본 롬은 바뀌지 않아요. 켜진 패치만 게임을 켤 때 덧씌워져요. 둘 이상 켜면 아래쪽 패치가 우선이에요. 바꾼 뒤에는 게임을 다시 켜야 적용돼요."
+                : OverlayPatches.KIND_WIIU.equals(kind)
+                ? "원본 게임은 그대로예요. 켜진 팩만 게임을 켤 때 Cemu가 content 파일을 바꿔 끼워 읽어요. 프리셋(글꼴 · 음성 등)은 팩에 들어 있는 선택지예요."
+                : OverlayPatches.KIND_RIIV.equals(kind)
+                ? "원본 디스크는 그대로예요. 고른 항목대로 게임을 켤 때 Dolphin이 디스크 파일을 바꿔 끼우고 메모리를 고쳐요. \"끄기\"인 항목은 적용되지 않아요."
                 : "원본 디스크는 바뀌지 않아요. 켜진 .pnach만 게임을 켤 때 PCSX2가 읽어요. .pnach는 게임 CRC 이름으로 저장되고, 다른 CRC(다른 판)용이면 알려 줘요.",
                 Color.rgb(245, 243, 255), Color.rgb(76, 29, 149)), spaced(10));
         LinearLayout buttons = new LinearLayout(this);
@@ -9524,7 +9648,7 @@ public final class MainActivity extends Activity {
         play.setTypeface(Typeface.DEFAULT_BOLD);
         play.setGravity(17);
         play.setTextColor(Color.WHITE);
-        play.setBackground(rounded(n3ds ? COLOR_OVERLAY : Color.rgb(29, 78, 216), dp(14)));
+        play.setBackground(rounded(overlayColor(kind), dp(14)));
         play.setOnClickListener(view -> {
             dialog.dismiss();
             launchGame(file);
@@ -9609,7 +9733,10 @@ public final class MainActivity extends Activity {
         if (game == null || uri == null) {
             return;
         }
-        final boolean n3ds = OverlayPatches.KIND_3DS.equals(overlayKind(game));
+        final String gameKind = overlayKind(game);
+        final boolean n3ds = OverlayPatches.KIND_3DS.equals(gameKind);
+        final boolean wiiu = OverlayPatches.KIND_WIIU.equals(gameKind);
+        final boolean riiv = OverlayPatches.KIND_RIIV.equals(gameKind);
         final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
         progress.setMessage("패치를 살펴보는 중…");
         progress.setCancelable(false);
@@ -9624,6 +9751,8 @@ public final class MainActivity extends Activity {
                 pickedName = "패치";
             }
             OverlayPatches.N3dsAnalysis analysis = null;
+            OverlayPatches.WiiuAnalysis wiiuAnalysis = null;
+            OverlayPatches.RiivAnalysis riivAnalysis = null;
             List<String> paths = new ArrayList<>();
             List<Long> sizes = new ArrayList<>();
             File source = null;
@@ -9651,12 +9780,26 @@ public final class MainActivity extends Activity {
                     if (pickedName.toLowerCase(Locale.ROOT).endsWith(".pnach")) {
                         paths.add(pickedName);
                     } else {
-                        OverlayPatches.listZip(source, paths, sizes);
+                        try {
+                            OverlayPatches.listZip(source, paths, sizes);
+                        } catch (java.util.zip.ZipException e) {
+                            throw new IOException(pickedName + "은(는) zip 파일이 아니에요. 패치가 든 zip이나 폴더를 골라 주세요"
+                                    + (n3ds || wiiu || riiv ? "." : " (PS2는 .pnach도 돼요)."));
+                        }
                     }
+                }
+                if ((wiiu || riiv) && !folder && sizes.isEmpty()) {
+                    throw new IOException((wiiu ? "Wii U 그래픽 팩" : "Riivolution 패치") + "은(는) zip이나 폴더로 골라 주세요.");
                 }
                 if (n3ds) {
                     long tid = N3dsCia.titleIdOf(game);
                     analysis = OverlayPatches.analyze3ds(paths, sizes, tid);
+                } else if (wiiu) {
+                    String key = overlayKey(game);
+                    long tid = key != null && !key.startsWith("F") ? Long.parseUnsignedLong(key, 16) : 0;
+                    wiiuAnalysis = OverlayPatches.analyzeWiiu(paths, sizes, folder ? OverlayPatches.dirReader(source) : OverlayPatches.zipReader(source), tid);
+                } else if (riiv) {
+                    riivAnalysis = OverlayPatches.analyzeRiiv(paths, sizes, folder ? OverlayPatches.dirReader(source) : OverlayPatches.zipReader(source), overlayKey(game));
                 } else {
                     // A .pnach, or the first one in a zip / folder matching the game's CRC.
                     String key = overlayKey(game);
@@ -9707,6 +9850,8 @@ public final class MainActivity extends Activity {
             }
             final String why = error;
             final OverlayPatches.N3dsAnalysis a = analysis;
+            final OverlayPatches.WiiuAnalysis wa = wiiuAnalysis;
+            final OverlayPatches.RiivAnalysis ra = riivAnalysis;
             final File src = source;
             final List<String> allPaths = paths;
             final String name = pickedName;
@@ -9724,6 +9869,10 @@ public final class MainActivity extends Activity {
                 }
                 if (n3ds) {
                     confirmN3dsOverlay(game, name, a, src, allPaths, folder);
+                } else if (wiiu) {
+                    confirmWiiuOverlay(game, name, wa, src, allPaths, folder);
+                } else if (riiv) {
+                    confirmRiivOverlay(game, name, ra, src, allPaths, folder);
                 } else {
                     confirmPnachOverlay(game, name, text, lines, crc);
                 }
@@ -9861,6 +10010,209 @@ public final class MainActivity extends Activity {
         buttons.addView(ok, okParams);
         panel.addView(buttons, spaced(12));
         dialog.setOnCancelListener(d -> OverlayPatches.deleteTree(new File(getCacheDir(), "overlay_in")));
+        dialog.show();
+    }
+
+    // The bottom of a confirm card: 취소 and the action (run on a thread with a progress note).
+    private void overlayConfirmButtons(LinearLayout panel, Dialog dialog, String okText, int color, Runnable onOk) {
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setGravity(17);
+        cancel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        cancel.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        if (okText != null) {
+            TextView ok = new TextView(this);
+            ok.setText(okText);
+            ok.setTextSize(15.0f);
+            ok.setTypeface(Typeface.DEFAULT_BOLD);
+            ok.setGravity(17);
+            ok.setTextColor(Color.WHITE);
+            ok.setBackground(rounded(color, dp(14)));
+            ok.setOnClickListener(view -> onOk.run());
+            LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+            okParams.setMargins(dp(10), 0, 0, 0);
+            buttons.addView(ok, okParams);
+        }
+        panel.addView(buttons, spaced(12));
+        dialog.setOnCancelListener(d -> OverlayPatches.deleteTree(new File(getCacheDir(), "overlay_in")));
+    }
+
+    private LinearLayout overlayVerdict(boolean good, String text) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setPadding(dp(12), dp(10), dp(12), dp(10));
+        GradientDrawable boxBg = rounded(good ? Color.rgb(240, 253, 244) : Color.rgb(254, 242, 242), dp(14));
+        boxBg.setStroke(dp(2), Theme.line(good ? Color.rgb(134, 239, 172) : Color.rgb(252, 165, 165)));
+        box.setBackground(boxBg);
+        TextView verdict = new TextView(this);
+        verdict.setText(text);
+        verdict.setTextSize(14.0f);
+        verdict.setTypeface(Typeface.DEFAULT_BOLD);
+        verdict.setTextColor(Theme.text(good ? Color.rgb(22, 101, 52) : Color.rgb(153, 27, 27)));
+        box.addView(verdict);
+        return box;
+    }
+
+    // Makes the entry, fills it on a thread, then syncs and shows the game's page again.
+    private void addOverlayEntry(File game, String kind, String key, String name, String detail, java.util.Map<String, String> metaExtra,
+                                 OverlayFill fill) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("패치를 넣는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String error = null;
+            OverlayPatches.Entry entry = null;
+            try {
+                entry = OverlayPatches.create(getFilesDir(), kind, key, name, detail);
+                File dest = new File(entry.dir, "files");
+                if (!dest.mkdirs() && !dest.isDirectory()) {
+                    throw new IOException("패치 폴더를 만들지 못했어요.");
+                }
+                fill.fill(dest);
+                entry.size = OverlayPatches.treeSize(dest);
+                OverlayPatches.save(entry);
+                for (java.util.Map.Entry<String, String> m : metaExtra.entrySet()) {
+                    OverlayPatches.setMeta(entry, m.getKey(), m.getValue());
+                }
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                if (entry != null) {
+                    OverlayPatches.deleteTree(entry.dir);
+                }
+            } finally {
+                OverlayPatches.deleteTree(new File(getCacheDir(), "overlay_in"));
+            }
+            final String why = error;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (why != null) {
+                    showError("패치를 넣지 못했어요: " + why);
+                    return;
+                }
+                syncOverlays(game);
+                refreshLibrary();
+                showOverlayPage(game);
+            });
+        }, "overlay-add").start();
+    }
+
+    private interface OverlayFill {
+        void fill(File dest) throws IOException;
+    }
+
+    private EditText overlayNameField(LinearLayout panel, String name) {
+        panel.addView(sectionLabel("이름"));
+        EditText field = new EditText(this);
+        field.setSingleLine(true);
+        field.setText(name);
+        field.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(field, spaced(2));
+        return field;
+    }
+
+    private void confirmWiiuOverlay(final File game, String pickedName, final OverlayPatches.WiiuAnalysis a, final File source,
+                                    final List<String> paths, final boolean folder) {
+        final String key = overlayKey(game);
+        final boolean knownTid = key != null && !key.startsWith("F");
+        boolean match = a.wrap || !knownTid || a.titleIds.contains(key.toLowerCase(Locale.ROOT));
+        int color = overlayColor(OverlayPatches.KIND_WIIU);
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.PATCH, color, "패치 확인", pickedName + (a.size > 0 ? " · " + formatSize(a.size) : ""));
+        LinearLayout box = overlayVerdict(match && (!a.wrap || knownTid), !match ? "✕ 다른 게임용 그래픽 팩이에요"
+                : a.wrap ? (knownTid ? "✓ content 폴더 패치예요 → 이 게임용 그래픽 팩으로 감싸서 넣어요" : "✕ 이 게임의 ID를 읽지 못해 감쌀 수 없어요")
+                : knownTid ? "✓ 이 게임용 그래픽 팩이에요" : "✓ Wii U 그래픽 팩이에요 (게임 ID 확인 없이)");
+        box.addView(overlayLine("형식", a.wrap ? "content 폴더 (loadiine 방식)" : "그래픽 팩 (rules.txt)", Color.rgb(55, 65, 81)));
+        if (!a.wrap) {
+            box.addView(overlayLine("팩 이름", a.name.isEmpty() ? "(이름 없음)" : a.name, Color.rgb(55, 65, 81)));
+            box.addView(overlayLine("팩의 게임 ID", a.titleIds.isEmpty() ? "없음" : android.text.TextUtils.join(", ", a.titleIds).toUpperCase(Locale.ROOT),
+                    match ? Color.rgb(22, 163, 74) : Color.rgb(220, 38, 38)));
+        }
+        box.addView(overlayLine("이 게임", knownTid ? key : "ID 읽지 못함 (.wud · .wux)", knownTid ? Color.rgb(55, 65, 81) : Color.rgb(180, 83, 9)));
+        box.addView(overlayLine("바꾸는 파일", "content " + a.contentFiles + "개", Color.rgb(55, 65, 81)));
+        if (!a.presets.isEmpty()) {
+            List<String> parts = new ArrayList<>();
+            for (java.util.Map.Entry<String, List<String>> p : a.presets.entrySet()) {
+                parts.add((p.getKey().isEmpty() ? "프리셋" : p.getKey()) + " " + p.getValue().size());
+            }
+            box.addView(overlayLine("프리셋", android.text.TextUtils.join(" · ", parts), Color.rgb(55, 65, 81)));
+        }
+        if (a.otherPacks > 0) {
+            box.addView(overlayLine("다른 팩도 들어 있음", a.otherPacks + "개 (하나만 넣어요)", Color.rgb(180, 83, 9)));
+        }
+        panel.addView(box, spaced(10));
+        final EditText nameField = overlayNameField(panel, a.name.isEmpty() ? pickedName.replaceAll("(?i)\\.zip$", "") : a.name);
+        boolean can = key != null && (!a.wrap || knownTid);
+        overlayConfirmButtons(panel, dialog, can ? (match ? "추가하고 켜기" : "그래도 넣기") : null, color, () -> {
+            String name = nameField.getText().toString().trim().isEmpty() ? "한글 패치" : nameField.getText().toString().trim();
+            dialog.dismiss();
+            java.util.Map<String, String> extra = new java.util.HashMap<>();
+            if (!a.presets.isEmpty()) {
+                extra.put("haspresets", "1");
+                List<String> cats = new ArrayList<>(a.presets.keySet());
+                extra.put("pcats", android.text.TextUtils.join(OverlayPatches.SEP, cats));
+                for (int n = 0; n < cats.size(); n++) {
+                    extra.put("pvals." + n, android.text.TextUtils.join(OverlayPatches.SEP, a.presets.get(cats.get(n))));
+                    String def = a.presetDefaults.get(cats.get(n));
+                    extra.put("psel." + n, def != null ? def : a.presets.get(cats.get(n)).get(0));
+                }
+            }
+            addOverlayEntry(game, OverlayPatches.KIND_WIIU, key, name, (a.wrap ? "content 패치" : "그래픽 팩") + " · content 파일 " + a.contentFiles + "개", extra, dest -> {
+                OverlayPatches.copyUnder(source, !folder, paths, a.prefix, dest);
+                if (a.wrap) {
+                    String rules = "[Definition]\ntitleIds = " + key.toLowerCase(Locale.ROOT) + "\nname = \"" + name.replace("\"", "'") + "\"\nversion = 7\n";
+                    try (OutputStream out = new FileOutputStream(new File(dest, "rules.txt"))) {
+                        out.write(rules.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+            });
+        });
+        dialog.show();
+    }
+
+    private void confirmRiivOverlay(final File game, String pickedName, final OverlayPatches.RiivAnalysis a, final File source,
+                                    final List<String> paths, final boolean folder) {
+        final String key = overlayKey(game);
+        boolean fits = OverlayPatches.riivFits(a, key);
+        int color = overlayColor(OverlayPatches.KIND_RIIV);
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.PATCH, color, "패치 확인", pickedName + (a.size > 0 ? " · " + formatSize(a.size) : ""));
+        String regionText = a.regions.isEmpty() ? "모든 지역" : "지역 " + android.text.TextUtils.join(" · ", a.regions);
+        LinearLayout box = overlayVerdict(fits, fits ? "✓ 이 게임용 Riivolution 패치예요"
+                : !a.game.isEmpty() && key != null && !key.startsWith(a.game) ? "✕ 다른 게임(" + a.game + ")용이에요" : "✕ 다른 지역판용이에요 (" + regionText + ")");
+        box.addView(overlayLine("형식", "riivolution/*.xml " + a.xmls + "개 + 폴더", Color.rgb(55, 65, 81)));
+        box.addView(overlayLine("게임", (a.game.isEmpty() ? "(표시 없음)" : a.game) + " · " + regionText, fits ? Color.rgb(22, 163, 74) : Color.rgb(220, 38, 38)));
+        box.addView(overlayLine("이 게임", key == null ? "ID 읽지 못함" : key, Color.rgb(55, 65, 81)));
+        List<String> names = new ArrayList<>();
+        for (OverlayPatches.RiivOption o : a.options) {
+            names.add(o.name);
+        }
+        box.addView(overlayLine("고르는 항목", a.options.size() + "개" + (names.isEmpty() ? "" : " (" + android.text.TextUtils.join(" · ", names) + ")"), Color.rgb(55, 65, 81)));
+        box.addView(overlayLine("파일", a.files + "개", Color.rgb(55, 65, 81)));
+        panel.addView(box, spaced(10));
+        final EditText nameField = overlayNameField(panel, pickedName.replaceAll("(?i)\\.zip$", ""));
+        overlayConfirmButtons(panel, dialog, key == null ? null : fits ? "추가하고 켜기" : "그래도 넣기", color, () -> {
+            String name = nameField.getText().toString().trim().isEmpty() ? "한글 패치" : nameField.getText().toString().trim();
+            dialog.dismiss();
+            java.util.Map<String, String> extra = new java.util.HashMap<>();
+            extra.put("opts", String.valueOf(a.options.size()));
+            for (int n = 0; n < a.options.size(); n++) {
+                OverlayPatches.RiivOption o = a.options.get(n);
+                extra.put("opt." + n + ".id", o.id);
+                extra.put("opt." + n + ".name", o.name);
+                extra.put("opt." + n + ".choices", android.text.TextUtils.join(OverlayPatches.SEP, o.choices));
+                extra.put("opt." + n + ".sel", String.valueOf(o.defaultChoice));
+            }
+            addOverlayEntry(game, OverlayPatches.KIND_RIIV, key, name, "Riivolution · XML " + a.xmls + "개 · 파일 " + a.files + "개", extra,
+                    dest -> OverlayPatches.copyUnder(source, !folder, paths, a.prefix, dest));
+        });
         dialog.show();
     }
 

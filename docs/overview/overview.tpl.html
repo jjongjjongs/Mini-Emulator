@@ -269,6 +269,14 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li><b>SNES 롬 헤더(512바이트)</b>: xdelta는 패치가 읽는 크기가 헤더를 뺀 크기와 같으면 헤더를 빼고 적용합니다. RUP는 헤더 없이 MD5가 맞는지도 봅니다(NES 16바이트 헤더도). IPS는 검사값이 없어서, 헤더를 뺀 쪽에서만 SNES 내부 검사값이 맞을 때 그쪽으로 적용하고, 판단이 안 되면 예전처럼 그대로 적용합니다.</li>
 <li>컴퓨터에서 확인한 것: 형식마다 만든 시험 패치(APS GBA · APS N64 · RUP(헤더 있음 · 없음) · BDF · 헤더 있는 SNES용 IPS · xdelta)의 결과가 기대한 파일과 바이트 단위로 같음. 다른 원본은 "맞지 않아요"로 멈춤. bzip2 풀기는 파이썬 bz2로 만든 13가지 경우와 같음. N64 세 가지 순서 사이의 변환 9가지가 모두 맞음. 실제 배포 패치로는 기기에서 확인 전입니다.</li>
 </ul>
+<h3>덧씌우는 한글 패치 · Wii U 그래픽 팩 · Wii Riivolution (0.0.257)</h3>
+<ul>
+<li>같은 "🧩 덧씌우는 한글 패치" 화면이 Wii U 게임과 Wii 게임(GameCube 게임은 제외)에도 생겼습니다.</li>
+<li><b>Wii U 그래픽 팩</b>: zip · 폴더에서 rules.txt를 찾아 팩 이름 · 게임 ID · 프리셋을 확인합니다. .wua는 파일 안의 타이틀 폴더 이름에서 게임 ID를 읽어 맞는지 봅니다(.wud · .wux는 확인 없이). content 폴더만 있는 패치(loadiine 방식)는 그 게임용 rules.txt를 만들어 감쌉니다(.wua에서만). 켠 팩은 실행할 때 Cemu의 <code>customGraphicPacks/MiniEmulator/</code>에 놓이고, 앱이 그 팩을 켜는 엔진 설정과 고른 프리셋(글꼴 · 음성 등)을 넘깁니다. 엔진은 고치지 않았습니다.</li>
+<li><b>Wii Riivolution</b>: zip · 폴더에서 <code>riivolution/*.xml</code>을 찾아 게임 · 지역과 고르는 항목을 읽습니다. 디스크 ID는 .iso · .wbfs · .rvz · .wia · .ciso에서 읽습니다(.gcz는 못 읽음). 카드 안에서 항목마다 "끄기 / 선택지"를 고르고, 실행할 때 Dolphin의 <code>Load/Riivolution</code>에 패치 파일과 <code>riivolution/config/&lt;게임&gt;.xml</code>(고른 항목)을 둡니다. Dolphin 엔진에 게임을 켤 때 이 폴더의 Riivolution 패치를 적용하는 부분을 더했습니다(PC판 Dolphin의 "Riivolution 패치로 시작"과 같은 기능).</li>
+<li>컴퓨터에서 확인한 것: ISO · WBFS · RVZ 디스크 ID와 Wii/GameCube 구분, .wua 게임 ID, Cemu가 쓰는 팩 설정 이름(FNV 해시)이 같은 방식의 계산과 일치, 팩 프리셋 · loadiine 감싸기, Riivolution 항목 · 지역 판정과 설정 파일 내용, Dolphin 엔진 패치가 다른 패치들과 함께 원본 소스에 적용됨. 실제 게임 · 기기에서는 확인 전입니다.</li>
+</ul>
+<figure><img src="img/overlay2.jpg" alt="Wii U 그래픽 팩 · Riivolution 시안"><figcaption>Wii U 그래픽 팩 · Wii Riivolution 시안 (0.0.257).</figcaption></figure>
 <h3>덧씌우는 한글 패치 · 3DS LayeredFS · PS2 .pnach (0.0.256)</h3>
 <ul>
 <li>게임 메뉴(3DS · PS2)에 <b>🧩 덧씌우는 한글 패치</b> 줄이 생겼습니다. 원본 롬은 그대로 두고, 켜 둔 패치만 게임을 켤 때 엔진이 덧씌워 읽습니다. 게임마다 패치를 여러 개 넣고 켜기 · 끄기 · 순서(아래쪽이 우선) · 지우기를 할 수 있고, 목록에 "🧩 한글 패치"로 표시됩니다.</li>

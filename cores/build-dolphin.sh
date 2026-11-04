@@ -52,6 +52,8 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1
 #     app's GameCube LAN relay can take the frames (게임큐브 LAN 대전).
 #   mini-wfc: with MINI_EMULATOR_WFC set, the Wi-Fi Connection names resolve to the host
 #     phone of a Wii 친구끼리 room and its port 80 is the room's HTTP port.
+#   mini-riivolution: Riivolution patches the app puts in User/Load/Riivolution are laid over
+#     a disc game at boot, as Dolphin's own "Start with Riivolution Patches" does.
 #   mini-wiinand: retro_mini_import_nand, a BootMii NAND backup of the player's own Wii into
 #     the Wii here (내 Wii NAND 가져오기), with no game running.
 #   mini-wii-update: retro_mini_wii_update, the Wii system update and its SSL certificates
