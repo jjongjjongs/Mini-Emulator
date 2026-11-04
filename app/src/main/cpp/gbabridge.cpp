@@ -450,6 +450,9 @@ struct Core {
     // The memory regions the core announced (RETRO_ENVIRONMENT_SET_MEMORY_MAPS): Dolphin's
     // MEM1 and, for Wii games, MEM2.
     std::vector<std::pair<uint8_t*, size_t>> memoryRegions;
+    // The system RAM parts of the memory map, in its order, the way RetroArch lays out the
+    // memory its address cheats count in (DOSBox Pure, FBNeo).
+    std::vector<std::pair<uint8_t*, size_t>> cheatRegions;
     std::mutex memoryRegionsMutex;
     // Wii 인터넷 (Wiimmfi): the thread that keeps the game's addresses pointed at Wiimmfi.
     std::thread wiimmfiThread;
@@ -2009,10 +2012,14 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (map == nullptr || map->descriptors == nullptr) return false;
             std::lock_guard<std::mutex> regionsLock(core->memoryRegionsMutex);
             core->memoryRegions.clear();
+            core->cheatRegions.clear();
             for (unsigned k = 0; k < map->num_descriptors; k++) {
                 const retro_memory_descriptor& desc = map->descriptors[k];
                 if (desc.ptr != nullptr && desc.len > 0) {
                     core->memoryRegions.emplace_back(static_cast<uint8_t*>(desc.ptr) + desc.offset, desc.len);
+                    if ((desc.flags & RETRO_MEMDESC_SYSTEM_RAM) != 0) {
+                        core->cheatRegions.emplace_back(static_cast<uint8_t*>(desc.ptr), desc.len);
+                    }
                 }
             }
             return true;
@@ -3282,15 +3289,38 @@ static void applyMemoryCheats(Core* core) {
     if (core->memoryCheats.empty() || core->retroGetMemoryData == nullptr || core->retroGetMemorySize == nullptr) {
         return;
     }
-    auto* ram = static_cast<uint8_t*>(core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM));
-    size_t size = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
-    if (ram == nullptr || size < 4) {
+    // The memory the addresses count in: system RAM, or for DOSBox Pure and FBNeo (whose
+    // cheat files were made in RetroArch against their memory maps) the map's system RAM
+    // parts one after another.
+    std::vector<std::pair<uint8_t*, size_t>> regions;
+    if (core->coreId == "dosbox_pure" || core->coreId == "fbneo") {
+        std::lock_guard<std::mutex> regionsLock(core->memoryRegionsMutex);
+        regions = core->cheatRegions;
+    }
+    if (regions.empty()) {
+        auto* ram = static_cast<uint8_t*>(core->retroGetMemoryData(RETRO_MEMORY_SYSTEM_RAM));
+        size_t ramSize = core->retroGetMemorySize(RETRO_MEMORY_SYSTEM_RAM);
+        if (ram != nullptr && ramSize > 0) {
+            regions.emplace_back(ram, ramSize);
+        }
+    }
+    size_t size = 0;
+    for (const auto& region : regions) size += region.second;
+    if (size < 4) {
         return;
     }
-    auto read = [ram](size_t at, int bytes, bool big) {
+    auto byteAt = [&regions](size_t at) -> uint8_t* {
+        for (const auto& region : regions) {
+            if (at < region.second) return region.first + at;
+            at -= region.second;
+        }
+        return nullptr;
+    };
+    auto read = [&byteAt](size_t at, int bytes, bool big) {
         uint32_t v = 0;
         for (int b = 0; b < bytes; ++b) {
-            v |= static_cast<uint32_t>(ram[at + b]) << (8 * (big ? bytes - 1 - b : b));
+            uint8_t* p = byteAt(at + b);
+            v |= static_cast<uint32_t>(p != nullptr ? *p : 0) << (8 * (big ? bytes - 1 - b : b));
         }
         return v;
     };
@@ -3322,7 +3352,8 @@ static void applyMemoryCheats(Core* core) {
         for (uint32_t k = 0; k < cheat.repeat; ++k) {
             if (at + cheat.bytes > size) break;
             for (int b = 0; b < cheat.bytes; ++b) {
-                ram[at + b] = static_cast<uint8_t>(target >> (8 * (cheat.bigEndian ? cheat.bytes - 1 - b : b)));
+                uint8_t* p = byteAt(at + b);
+                if (p != nullptr) *p = static_cast<uint8_t>(target >> (8 * (cheat.bigEndian ? cheat.bytes - 1 - b : b)));
             }
             target += cheat.valueStep;
             if (mask != 0) target %= mask;

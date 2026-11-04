@@ -163,7 +163,7 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <tr><td>Wii 조작 (게임별)</td><td>리모컨 + 눈차크(기본) / 리모컨 가로로 / 클래식 컨트롤러. 화면을 누른 곳이 리모컨 포인터, 흔들기 버튼, − HOME +</td></tr>
 <tr><td>저장</td><td>이어하기 · 빠른 저장 · 세이브 슬롯 됨 (되감기는 없음)</td></tr>
 <tr><td>게임기 탭 (0.0.212)</td><td>Wii 조작 방식(Wii 게임만), 해상도 1배(기본) · 2배 · 3배, 화면 비율(게임대로 · 4:3 · 16:9로 늘리기 · 와이드 16:9로 그리기), 속도 우선(CPU 80% · 가벼운 텍스처 검사 · 빠른 디스크 읽기). 모두 게임별 · 바꾸면 그 장면에서 이어짐</td></tr>
-<tr><td>빠진 것</td><td>모션(자이로) 조작, 와이파이 · 넷플레이, 치트, Wii 시스템 메뉴</td></tr></table>
+<tr><td>빠진 것</td><td>모션(자이로) 조작, 와이파이 · 넷플레이, Wii 시스템 메뉴 (치트는 0.0.264부터 됨)</td></tr></table>
 <figure><img src="img/gc.jpg" alt="게임큐브 · Wii 시안"><figcaption>게임큐브 · Wii 시안. 해상도 · 화면 비율 · 속도 우선 줄은 0.0.212에서 들어갔습니다.</figcaption></figure>
 <h3>Wii U (실험적 · 0.0.210)</h3>
 <p>엔진은 Cemu(libretro 판, 안드로이드 arm64 빌드)입니다. 직접 덤프한 게임만 넣을 수 있고, 앱에는 키가 들어 있지 않습니다.</p>
@@ -382,9 +382,14 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <tr><td>드림캐스트</td><td>주소 치트</td><td>287게임</td><td>주소 · 값 · 크기</td></tr>
 <tr><td>Naomi · Atomiswave</td><td>주소 치트</td><td>없음 (공개 모음에 없음)</td><td>주소 · 값 · 크기</td></tr>
 <tr><td>네오지오 포켓</td><td>주소 치트로 변환</td><td>컬러 24게임</td><td>주소:값 (예: 09F8:04)</td></tr>
-<tr><td>원더스완</td><td>엔진 치트</td><td>없음 (모음이 전부 ROM 패치 형식)</td><td>RAM 주소:값 (예: 1E24:09)</td></tr></table>
+<tr><td>원더스완</td><td>엔진 치트</td><td>없음 (모음이 전부 ROM 패치 형식)</td><td>RAM 주소:값 (예: 1E24:09)</td></tr>
+<tr><td>DOS (0.0.264)</td><td>주소 치트 (엔진이 알려 주는 메모리 구역을 이어 붙인 주소, RetroArch와 같은 규칙)</td><td>19게임 (DOOM · 페르시아의 왕자 · 알라딘 · 라이온 킹 · 퀘이크 · 레이맨 등)</td><td>주소 · 값 · 크기</td></tr>
+<tr><td>아케이드 · Neo Geo (0.0.264, FBNeo 엔진만)</td><td>주소 치트 (FBNeo 메모리 구역 기준)</td><td>72세트 (세트 이름이 정확히 같을 때만: sf2ce · kof95 · mslug · 1941 · outrun 등)</td><td>주소 · 값 · 크기. MAME 엔진 게임은 "엔진 변경 → FBNeo"로 바꾸라고 안내</td></tr>
+<tr><td>PS2 (0.0.264, PCSX2 엔진만)</td><td>값 쓰기 코드는 앱이 EE 메모리(32MB)에 매 프레임 씀 → 바로 켜고 끄기. 조건 · 포인터 등이 섞인 치트는 PCSX2 patches 폴더의 &lt;CRC&gt;_mini-cheats.pnach로 → 다시 시작하면 적용 (.iso만, CHD · CSO는 CRC를 못 읽어 값 쓰기만)</td><td>없음</td><td>pnach 줄 (patch=1,EE,2031D8E4,extended,000F423F) 또는 풀린 RAW 코드 (2031D8E4 000F423F). 입력하면서 형식을 알아봐 줌. 암호화된 코드는 안 됨</td></tr>
+<tr><td>게임큐브 · Wii (0.0.264)</td><td>Dolphin 게임 설정 파일(GameSettings/&lt;ID&gt;.ini)의 [Gecko] · [ActionReplay]에 써서 켬 → 다시 시작하면 적용. 인터넷 서버(Wiimmfi · WiiLink · 친구끼리)를 켠 동안은 쓰지 않음</td><td>없음</td><td>Gecko · 액션리플레이 (자동 판별 · 직접 고르기, 암호화된 AR 코드도 됨)</td></tr></table>
 <p>주소 치트는 켜 두면 앱이 매 프레임 게임 메모리에 값을 다시 써서 고정하는 방식입니다(RetroArch와 같은 규칙). 목록에는 "주소 1EC4B4 · 값 2432"처럼 보이고, "먼저 켜기" 표시가 붙은 치트는 다른 치트보다 먼저 켜야 합니다. 값 자리가 "??"로 비어 있는 모음의 치트는 동작하지 않아 목록에서 뺐습니다.</p>
 <figure><img src="img/cheat3.jpg" alt="치트 범위 확대 시안"><figcaption>치트 범위 확대 시안 (원더스완은 시안과 달리 자동 채움 없음).</figcaption></figure>
+<figure><img src="img/cheatmore.jpg" alt="치트 추가 시안"><figcaption>0.0.264 치트 추가 시안: DOS · 아케이드(FBNeo) 모음, PS2 · 게임큐브 · Wii 코드 붙여 넣기. 실제 창은 다른 기종과 같은 치트 창을 씁니다.</figcaption></figure>
 <h3>나가기</h3>
 <figure><img src="img/backdlg.jpg" alt="나가기 확인창"><figcaption>뒤로 가기 확인창 시안. 저장하지 않은 진행이 있으면 "저장하고 나가기"를 권합니다 (C안 채택).</figcaption></figure>
 

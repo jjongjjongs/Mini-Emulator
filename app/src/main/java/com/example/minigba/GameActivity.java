@@ -3574,8 +3574,64 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private String cheatError;
 
     private boolean cheatsSupported() {
-        return !isMame139() && this.romPath != null && Cheats.supported(this.gameMode);
+        if (isMame139() || this.romPath == null || !Cheats.supported(this.gameMode)) {
+            return false;
+        }
+        // Arcade cheats are FBNeo's (addresses in its memory); PS2's need PCSX2 (Play! has none).
+        if ("arcade".equals(this.gameMode) || "neogeo".equals(this.gameMode)) {
+            return "fbneo".equals(this.coreId);
+        }
+        if (isPs2()) {
+            return "pcee2".equals(this.coreId);
+        }
+        return true;
     }
+
+    private String cheatsUnsupportedText() {
+        if ("arcade".equals(this.gameMode) || "neogeo".equals(this.gameMode)) {
+            return "아케이드 치트는 FBNeo 엔진에서만 돼요. 게임 목록의 \"엔진 변경 → FBNeo\"로 바꾸면 쓸 수 있어요.";
+        }
+        if (isPs2()) {
+            return "PS2 치트는 PCSX2 엔진에서만 돼요 (Play! 엔진은 치트 기능이 없어요).";
+        }
+        return "이 기종은 엔진이 치트를 지원하지 않아요.";
+    }
+
+    // ---- 치트 for engines that read their codes when the game starts ----
+
+    // PS2: the cheats that need PCSX2's patch engine, as <system>/pcsx2/patches/<CRC>_mini-cheats.pnach.
+    // True when the file changed.
+    private String ps2PnachWritten;
+
+    private boolean writePs2CheatPnach() {
+        if (!"pcee2".equals(this.coreId) || this.romPath == null) {
+            return false;
+        }
+        String text = Cheats.ps2Pnach(cheats());
+        long crc = OverlayPatches.ps2IsoCrc(romFile());
+        if (crc < 0) {
+            return false;
+        }
+        File file = new File(new File(new File(getFilesDir(), "system"), "pcsx2/patches"), String.format(Locale.US, "%08X", crc) + "_mini-cheats.pnach");
+        boolean changed = this.ps2PnachWritten != null && !this.ps2PnachWritten.equals(text);
+        this.ps2PnachWritten = text;
+        if (text.isEmpty()) {
+            file.delete();
+            return changed;
+        }
+        File dir = file.getParentFile();
+        if (dir != null && !dir.isDirectory()) {
+            dir.mkdirs();
+        }
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return false;
+        }
+        return changed;
+    }
+
+    private String dolphinCodesWritten;
 
     private File romFile() {
         return new File(this.romPath);
@@ -3618,6 +3674,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (handle == 0 || !cheatsSupported()) {
             return;
         }
+        if (isDolphin()) {
+            String before = this.dolphinCodesWritten;
+            applyWiiLinkCode();
+            if (before != null && !before.equals(this.dolphinCodesWritten)) {
+                Toast.makeText(this, "게임큐브 · Wii 치트는 게임을 다시 시작하면 적용돼요 (메뉴 → 재시작).", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
+        if (isPs2() && writePs2CheatPnach()) {
+            Toast.makeText(this, "조건 · 포인터가 있는 PS2 치트는 게임을 다시 시작하면 적용돼요.", Toast.LENGTH_LONG).show();
+        }
         final String[] codes = Cheats.enabledCodes(cheats(), this.gameMode);
         // Nothing was ever set for this game: leave the engine alone.
         if (codes.length == 0 && !Cheats.file(this, romFile()).exists()) {
@@ -3641,6 +3708,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "n64": return "N64: 게임샤크 (예: 8033B21E 0008)";
             case "ps1": return "PS1: 게임샤크 (예: 800B1234 FFFF)";
             case "psp": return "PSP: CWCheat (예: _L 0x20123456 0x0000270F)";
+            case "ps2": return "PS2: pnach 줄 (예: patch=1,EE,2031D8E4,extended,000F423F) 또는 풀린 RAW 코드 (예: 2031D8E4 000F423F)";
+            case "gc": return isWiiGame() ? "Wii: Gecko · 액션리플레이 (예: C2000000 00000002)" : "게임큐브: 액션리플레이 · Gecko (예: 04123456 00000063, 암호화된 AR도 돼요)";
             case "ws": return "원더스완: RAM 주소:값 (예: 1E24:09)";
             case "ngp": return "네오지오 포켓: 주소:값 (예: 09F8:04)";
             default: return "";
@@ -4120,9 +4189,58 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         code.setPadding(dp(12), dp(10), dp(12), dp(10));
         code.setBackground(roundRect(Color.rgb(255, 241, 242), dp(12)));
         panel.addView(code, marginTop(-1, -2, 6));
+        // GameCube · Wii: which kind the lines are (auto, Gecko, Action Replay); PS2 and Dolphin
+        // codes are read as they are typed.
+        final int[] dolphinKind = {editing != null && isDolphin() ? Cheats.dolphinKind(editing.code) : 0};
+        final TextView verdict = sheetText("", 11.5f, Color.rgb(17, 94, 89), true);
+        verdict.setPadding(dp(12), dp(8), dp(12), dp(8));
+        verdict.setBackground(roundRect(Color.rgb(240, 253, 250), dp(12)));
+        final Runnable judge = () -> {
+            String typed = Cheats.codeFromInput(code.getText().toString());
+            String text = typed.isEmpty() ? "" : isPs2() ? Cheats.ps2Describe(typed) : Cheats.dolphinDescribe(typed, dolphinKind[0], isWiiGame());
+            verdict.setText(text);
+            verdict.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+        };
+        if (!byAddress && (isPs2() || isDolphin())) {
+            if (isDolphin()) {
+                LinearLayout kinds = new LinearLayout(this);
+                final String[] kindNames = {"자동 판별", "Gecko", "액션리플레이"};
+                final TextView[] kindViews = new TextView[3];
+                final Runnable paintKinds = () -> {
+                    for (int k = 0; k < 3; k++) {
+                        boolean on = dolphinKind[0] == k;
+                        kindViews[k].setTextColor(Theme.text(on ? Color.WHITE : Color.rgb(55, 65, 81)));
+                        kindViews[k].setBackground(roundRect(on ? CHEAT_RED : Color.rgb(241, 242, 244), dp(10)));
+                    }
+                };
+                for (int k = 0; k < 3; k++) {
+                    final int kind = k;
+                    TextView option = sheetText(kindNames[k], 12.0f, Color.rgb(55, 65, 81), true);
+                    option.setGravity(17);
+                    option.setOnClickListener(view -> {
+                        dolphinKind[0] = kind;
+                        paintKinds.run();
+                        judge.run();
+                    });
+                    kindViews[k] = option;
+                    LinearLayout.LayoutParams optionParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
+                    optionParams.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+                    kinds.addView(option, optionParams);
+                }
+                paintKinds.run();
+                panel.addView(kinds, panel.indexOfChild(codeLabel), marginTop(-1, -2, 12));
+            }
+            panel.addView(verdict, marginTop(-1, -2, 6));
+            verdict.setVisibility(View.GONE);
+            code.addTextChangedListener(new android.text.TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence c, int a, int b, int d) { }
+                @Override public void onTextChanged(CharSequence c, int a, int b, int d) { }
+                @Override public void afterTextChanged(android.text.Editable e) { judge.run(); }
+            });
+        }
         if (editing != null) {
             name.setText(editing.desc);
-            code.setText(Cheats.codeForInput(editing.code));
+            code.setText(Cheats.codeForInput(isDolphin() ? Cheats.dolphinBody(editing.code) : editing.code));
         }
         if (byAddress) {
             codeLabel.setVisibility(View.GONE);
@@ -4179,6 +4297,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
             } else {
                 codeText = Cheats.codeFromInput(code.getText().toString());
+                if (!codeText.isEmpty() && isPs2() && Cheats.ps2Lines(codeText) == null) {
+                    Toast.makeText(this, "PS2 코드로 읽지 못했어요. pnach 줄이나 풀린 RAW 코드로 넣어 주세요.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (!codeText.isEmpty() && isDolphin()) {
+                    if (Cheats.dolphinDescribe(codeText, dolphinKind[0], isWiiGame()).startsWith("✗")) {
+                        Toast.makeText(this, "코드 형식이 아니에요. \"XXXXXXXX YYYYYYYY\" 줄로 넣어 주세요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    codeText = Cheats.dolphinCode(codeText, dolphinKind[0], isWiiGame());
+                }
             }
             if (codeText.isEmpty()) {
                 Toast.makeText(this, "코드를 입력해 주세요.", Toast.LENGTH_SHORT).show();
@@ -5399,6 +5528,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                             runOnUiThread(() -> Toast.makeText(this, "방 서버를 켜지 못했어요. 접속 기록을 확인해 주세요.", Toast.LENGTH_LONG).show());
                         }
                         NativeGba.setWiiRoom(wiiRoomAddress());
+                    }
+                    if (isPs2()) {
+                        writePs2CheatPnach();
                     }
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
@@ -7174,7 +7306,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         LinearLayout cheatRow = createSettingRow(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, "치트 코드", cheatSummary(), view -> {
             if (!cheatsSupported()) {
-                Toast.makeText(this, "이 기종은 엔진이 치트를 지원하지 않아요.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, cheatsUnsupportedText(), Toast.LENGTH_LONG).show();
                 return;
             }
             showCheatSheet();
@@ -9735,13 +9867,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (ini.isFile()) {
             try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(ini))) {
                 String first = reader.readLine();
-                ours = first != null && first.startsWith("# Mini Emulator WiiLink WFC");
+                ours = first != null && first.startsWith("# Mini Emulator");
             } catch (IOException e) {
                 ours = false;
             }
         }
         java.util.List<String> code = wiiServer() >= 2 ? wiiLinkCode() : null;
-        if (code == null) {
+        // The player's cheats (치트 코드), only while the game stays off the internet.
+        String cheatsIni = code == null && wiiServer() == 0 && cheatsSupported() ? Cheats.dolphinIni(cheats()) : "";
+        this.dolphinCodesWritten = cheatsIni;
+        if (code == null && cheatsIni.isEmpty()) {
             if (ours) {
                 ini.delete();
             }
@@ -9751,12 +9886,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // The player's own settings file: leave it alone.
             return false;
         }
-        StringBuilder text = new StringBuilder("# Mini Emulator WiiLink WFC (" + wiiLinkTitle() + "). Online communications credit to WiiLink WFC - https://wfc.wiilink.ca\n");
-        text.append("[Gecko]\n$WiiLink WFC [WiiLink]\n");
-        for (String line : code) {
-            text.append(line).append('\n');
+        StringBuilder text;
+        if (code != null) {
+            text = new StringBuilder("# Mini Emulator WiiLink WFC (" + wiiLinkTitle() + "). Online communications credit to WiiLink WFC - https://wfc.wiilink.ca\n");
+            text.append("[Gecko]\n$WiiLink WFC [WiiLink]\n");
+            for (String line : code) {
+                text.append(line).append('\n');
+            }
+            text.append("[Gecko_Enabled]\n$WiiLink WFC\n");
+        } else {
+            text = new StringBuilder("# Mini Emulator cheats (치트 코드)\n").append(cheatsIni);
         }
-        text.append("[Gecko_Enabled]\n$WiiLink WFC\n");
         File dir = ini.getParentFile();
         if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
             return false;

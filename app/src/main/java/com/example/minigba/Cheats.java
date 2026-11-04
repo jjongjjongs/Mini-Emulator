@@ -67,6 +67,7 @@ final class Cheats {
             case "gba": case "snes": case "nes": case "md": case "sms": case "pce":
             case "nds": case "n64": case "psp": case "ps1": case "mcd": case "ss":
             case "ws": case "ngp": case "dc": case "naomi":
+            case "dos": case "arcade": case "neogeo": case "ps2": case "gc":
                 return true;
             default:
                 return false;
@@ -77,13 +78,13 @@ final class Cheats {
     // the game's memory itself ("address cheats", see addressCode), and codes are typed as
     // an address, a value and a size.
     static boolean addressMode(String mode) {
-        return "dc".equals(mode) || "naomi".equals(mode);
+        return "dc".equals(mode) || "naomi".equals(mode) || "dos".equals(mode) || "arcade".equals(mode) || "neogeo".equals(mode);
     }
 
     // Consoles with no usable cheat files in the collection: WonderSwan's are all ROM
     // patches its engine can't take, and there are none for Naomi · Atomiswave.
     static boolean hasCollection(String mode) {
-        return !"ws".equals(mode) && !"naomi".equals(mode);
+        return !"ws".equals(mode) && !"naomi".equals(mode) && !"ps2".equals(mode) && !"gc".equals(mode);
     }
 
     // ---- address cheats: "@ADDR:VALUE:BYTES[:TYPE[:REPEAT:ADDRESS_STEP:VALUE_STEP[:B]]]" ----
@@ -303,6 +304,17 @@ final class Cheats {
             if (!cheat.on || cheat.code.isEmpty()) {
                 continue;
             }
+            if ("gc".equals(mode)) {
+                continue;  // Dolphin reads its codes from the game's settings file at start
+            }
+            if ("ps2".equals(mode)) {
+                // Plain writes go to the EE's RAM every frame; the rest are in a .pnach.
+                List<String> writes = ps2Writes(cheat.code);
+                if (writes != null) {
+                    codes.addAll(writes);
+                }
+                continue;
+            }
             if (!cheat.code.startsWith("@") && !"ngp".equals(mode)) {
                 codes.add(cheat.code);
                 continue;
@@ -363,6 +375,15 @@ final class Cheats {
         if (!hasCollection(mode)) {
             return list;
         }
+        // DOSBox Pure's and FBNeo's files (RetroArch address cheats on their memory maps).
+        if ("dos".equals(mode)) {
+            list.add("DOS");
+            return list;
+        }
+        if ("arcade".equals(mode) || "neogeo".equals(mode)) {
+            list.add(FBNEO_FOLDER);
+            return list;
+        }
         for (String repo : Covers.repos(mode, lowerName)) {
             list.add(repo.replace('_', ' '));
         }
@@ -416,11 +437,22 @@ final class Cheats {
         return list;
     }
 
+    static final String FBNEO_FOLDER = "FBNeo - Arcade Games";
+
     // The collection file that fits this ROM best, or null.
     static Source match(Context context, File rom, String mode, String displayName) {
         String base = rom.getName().replaceFirst("\\.[^.]+$", "");
         for (String folder : folders(mode, rom.getName().toLowerCase(Locale.US))) {
             List<Source> sources = sources(context, folder);
+            if (FBNEO_FOLDER.equals(folder)) {
+                // Arcade sets by their short name only ("sf2ce"): a near name is another board.
+                for (Source source : sources) {
+                    if (source.name.equalsIgnoreCase(base)) {
+                        return source;
+                    }
+                }
+                continue;
+            }
             List<String> names = new ArrayList<>(sources.size());
             for (Source source : sources) {
                 names.add(source.name);
@@ -487,5 +519,185 @@ final class Cheats {
             result.add(cheat);
         }
         return result;
+    }
+
+    // ---- PS2 (PCSX2): pnach lines or raw codes ----
+    // "patch=1,EE,2031D8E4,extended,000F423F" or "2031D8E4 000F423F" (decrypted RAW). The
+    // extended codes 0 / 1 / 2 (write 8 / 16 / 32 bits) and the byte / short / word patches
+    // the app applies itself on the EE's 32 MB of RAM; anything else (conditions, pointers,
+    // copies) goes whole to PCSX2 as a .pnach, read when the game starts.
+
+    private static final java.util.regex.Pattern PNACH = java.util.regex.Pattern.compile(
+            "(?i)patch\\s*=\\s*\\d+\\s*,\\s*EE\\s*,\\s*(?:0x)?([0-9A-F]{1,8})\\s*,\\s*(byte|short|word|extended)\\s*,\\s*(?:0x)?([0-9A-F]{1,8})");
+    private static final java.util.regex.Pattern RAW_PS2 = java.util.regex.Pattern.compile("(?i)([0-9A-F]{8})\\s+([0-9A-F]{8})");
+
+    // {address, type, value} of each line; null when a line isn't a PS2 code.
+    static List<String[]> ps2Lines(String code) {
+        List<String[]> lines = new ArrayList<>();
+        for (String part : code.split("\\+")) {
+            String t = part.trim();
+            if (t.isEmpty() || t.startsWith("//") || t.startsWith("[") || t.toLowerCase(Locale.ROOT).startsWith("comment") || t.toLowerCase(Locale.ROOT).startsWith("author")
+                    || t.toLowerCase(Locale.ROOT).startsWith("description") || t.toLowerCase(Locale.ROOT).startsWith("gametitle")) {
+                continue;
+            }
+            java.util.regex.Matcher m = PNACH.matcher(t);
+            if (m.matches()) {
+                lines.add(new String[]{m.group(1).toUpperCase(Locale.ROOT), m.group(2).toLowerCase(Locale.ROOT), m.group(3).toUpperCase(Locale.ROOT)});
+                continue;
+            }
+            m = RAW_PS2.matcher(t);
+            if (m.matches()) {
+                lines.add(new String[]{m.group(1).toUpperCase(Locale.ROOT), "extended", m.group(2).toUpperCase(Locale.ROOT)});
+                continue;
+            }
+            return null;
+        }
+        return lines.isEmpty() ? null : lines;
+    }
+
+    // The cheat's lines as address codes when all are plain writes, else null.
+    static List<String> ps2Writes(String code) {
+        List<String[]> lines = ps2Lines(code);
+        if (lines == null) {
+            return null;
+        }
+        List<String> out = new ArrayList<>();
+        for (String[] l : lines) {
+            long address = Long.parseLong(l[0], 16);
+            long value = Long.parseLong(l[2], 16);
+            int bytes;
+            switch (l[1]) {
+                case "byte": bytes = 1; break;
+                case "short": bytes = 2; break;
+                case "word": bytes = 4; break;
+                default: {
+                    int kind = (int) (address >>> 28);
+                    if (kind > 2) {
+                        return null;
+                    }
+                    bytes = kind == 0 ? 1 : kind == 1 ? 2 : 4;
+                }
+            }
+            long at = address & 0x01FFFFFFL;
+            long mask = bytes == 4 ? 0xFFFFFFFFL : (1L << (8 * bytes)) - 1;
+            out.add(addressCode(at, value & mask, bytes));
+        }
+        return out;
+    }
+
+    // The .pnach for the cheats that are on and need PCSX2's own patch engine; "" when none.
+    static String ps2Pnach(List<Cheat> cheats) {
+        StringBuilder sb = new StringBuilder();
+        for (Cheat cheat : cheats) {
+            if (!cheat.on || ps2Writes(cheat.code) != null) {
+                continue;
+            }
+            List<String[]> lines = ps2Lines(cheat.code);
+            if (lines == null) {
+                continue;
+            }
+            sb.append("// ").append(cheat.desc.replace('\n', ' ')).append('\n');
+            for (String[] l : lines) {
+                sb.append("patch=1,EE,").append(l[0]).append(',').append(l[1]).append(',').append(l[2]).append('\n');
+            }
+        }
+        return sb.length() == 0 ? "" : "gametitle=Mini Emulator cheats\n" + sb;
+    }
+
+    // What the editor shows under the code box.
+    static String ps2Describe(String code) {
+        List<String[]> lines = ps2Lines(code);
+        if (lines == null) {
+            return "✗ PS2 코드로 읽지 못했어요 (pnach의 patch=… 줄이나 \"XXXXXXXX YYYYYYYY\" 형식). 암호화된 코드는 풀린 코드로 넣어 주세요.";
+        }
+        return ps2Writes(code) != null ? "✓ 알아봄: " + lines.size() + "줄 · 값 쓰기 → 바로 켜고 끄기"
+                : "✓ 알아봄: " + lines.size() + "줄 · 조건 · 포인터 코드가 있어 다시 시작하면 적용";
+    }
+
+    // ---- GameCube / Wii (Dolphin): Gecko and Action Replay ----
+    // Stored as "GK:" or "AR:" then the lines; Dolphin reads them from the game's settings
+    // file when the game starts.
+
+    static final String GECKO = "GK:";
+    static final String ACTION_REPLAY = "AR:";
+    private static final java.util.regex.Pattern AR_ENCRYPTED = java.util.regex.Pattern.compile("(?i)[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{5}");
+    private static final java.util.regex.Pattern HEX_PAIR = java.util.regex.Pattern.compile("(?i)[0-9A-F]{8} [0-9A-F]{8}");
+
+    // 0 auto, 1 Gecko, 2 Action Replay.
+    static String dolphinCode(String code, int kind, boolean wii) {
+        String body = dolphinBody(code);
+        if (kind == 1) return GECKO + body;
+        if (kind == 2) return ACTION_REPLAY + body;
+        for (String line : body.split("\\+")) {
+            if (AR_ENCRYPTED.matcher(line.trim()).matches()) {
+                return ACTION_REPLAY + body;
+            }
+        }
+        if (!wii) {
+            // GameCube: Gecko when it uses Gecko-only code types (C0 / C2 / F2 …), else AR.
+            for (String line : body.split("\\+")) {
+                String t = line.trim().toUpperCase(Locale.ROOT);
+                if (t.length() >= 2 && (t.startsWith("C0") || t.startsWith("C2") || t.startsWith("C3") || t.startsWith("F2") || t.startsWith("F4") || t.startsWith("E0"))) {
+                    return GECKO + body;
+                }
+            }
+            return ACTION_REPLAY + body;
+        }
+        return GECKO + body;
+    }
+
+    static String dolphinBody(String code) {
+        String body = code;
+        if (body.startsWith(GECKO) || body.startsWith(ACTION_REPLAY)) {
+            body = body.substring(3);
+        }
+        return body;
+    }
+
+    static int dolphinKind(String code) {
+        return code.startsWith(ACTION_REPLAY) ? 2 : code.startsWith(GECKO) ? 1 : 0;
+    }
+
+    static String dolphinDescribe(String code, int kind, boolean wii) {
+        String body = dolphinBody(code);
+        int count = 0;
+        for (String line : body.split("\\+")) {
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            if (!HEX_PAIR.matcher(t).matches() && !AR_ENCRYPTED.matcher(t).matches()) {
+                return "✗ 줄 " + (count + 1) + "이 코드 형식이 아니에요 (\"XXXXXXXX YYYYYYYY\" 또는 암호화된 AR \"XXXX-XXXX-XXXXX\").";
+            }
+            count++;
+        }
+        if (count == 0) return "";
+        String made = dolphinCode(body, kind, wii);
+        return "✓ 알아봄: " + (made.startsWith(GECKO) ? "Gecko" : "액션리플레이") + " " + count + "줄 (" + (wii ? "Wii" : "게임큐브") + ") · 다시 시작하면 적용";
+    }
+
+    // The [ActionReplay] / [Gecko] sections for the codes that are on.
+    static String dolphinIni(List<Cheat> cheats) {
+        StringBuilder ar = new StringBuilder();
+        StringBuilder arOn = new StringBuilder();
+        StringBuilder gk = new StringBuilder();
+        StringBuilder gkOn = new StringBuilder();
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (Cheat cheat : cheats) {
+            if (!cheat.on || cheat.code.isEmpty()) continue;
+            String name = cheat.desc.replace('\n', ' ').replace('[', '(').replace(']', ')').trim();
+            if (name.isEmpty()) name = "Cheat";
+            String unique = name;
+            for (int n = 2; !names.add(unique); n++) unique = name + " " + n;
+            boolean gecko = !cheat.code.startsWith(ACTION_REPLAY);
+            StringBuilder body = gecko ? gk : ar;
+            body.append('$').append(unique).append('\n');
+            for (String line : dolphinBody(cheat.code).split("\\+")) {
+                if (!line.trim().isEmpty()) body.append(line.trim().toUpperCase(Locale.ROOT)).append('\n');
+            }
+            (gecko ? gkOn : arOn).append('$').append(unique).append('\n');
+        }
+        StringBuilder out = new StringBuilder();
+        if (ar.length() > 0) out.append("[ActionReplay]\n").append(ar).append("[ActionReplay_Enabled]\n").append(arOn);
+        if (gk.length() > 0) out.append("[Gecko]\n").append(gk).append("[Gecko_Enabled]\n").append(gkOn);
+        return out.toString();
     }
 }

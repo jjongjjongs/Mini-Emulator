@@ -24,6 +24,7 @@ FOLDERS = [
     "NEC - PC Engine CD - TurboGrafx-CD", "Nintendo - Nintendo 64", "Sony - PlayStation Portable",
     "Sony - PlayStation", "Sega - Mega-CD - Sega CD", "Sega - 32X", "Sega - Saturn",
     "Sega - Dreamcast", "SNK - Neo Geo Pocket", "SNK - Neo Geo Pocket Color",
+    "DOS", "FBNeo - Arcade Games",
 ]
 # (WonderSwan's files are all ROM patches its engine can't take, so it has none.)
 DESC = re.compile(r'^\s*cheat(\d+)_desc\s*=', re.M)
