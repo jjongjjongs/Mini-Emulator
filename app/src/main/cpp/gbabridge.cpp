@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <unwind.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -659,6 +660,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "picodrive") return "libpicodrive_libretro_android.so";
     if (coreId == "yabasanshiro") return "libyabasanshiro_libretro_android.so";
     if (coreId == "dolphin") return "libdolphin_libretro_android.so";
+    if (coreId == "dosbox_pure") return "libdosbox_pure_libretro_android.so";
     return nullptr;
 }
 
@@ -1370,6 +1372,87 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
 // PSP system language, chosen per game ("Korean" unless the player picked another). Only
 // changed before the game starts or on the emulation thread, which reads it.
 std::string gPspLanguage = "Korean";
+
+// ---- DOS (DOSBox Pure): the keyboard and mouse of the on-screen controls ----
+// Keys reach the core two ways: the keyboard callback it registers (run on the emulation
+// thread just before each frame) and the RETRO_DEVICE_KEYBOARD state it reads back, which
+// must agree or the core lets go of keys it thinks are up. The mouse moves by deltas
+// gathered between frames; its buttons are held bits.
+namespace dos {
+std::mutex mutex;
+std::map<std::string, std::string> options;
+std::string start;
+retro_keyboard_event_t keyboardCallback = nullptr;
+std::atomic<uint8_t> keys[RETROK_LAST];
+struct KeyEvent {
+    bool down;
+    unsigned code;
+    uint32_t character;
+    uint16_t mods;
+};
+std::deque<KeyEvent> pending;
+std::atomic<int> mouseDx{0};
+std::atomic<int> mouseDy{0};
+std::atomic<int> mouseButtons{0};
+int frameDx = 0;
+int frameDy = 0;
+
+bool held(unsigned code) {
+    return code < RETROK_LAST && keys[code].load() != 0;
+}
+
+uint16_t modifiers() {
+    uint16_t mods = 0;
+    if (held(RETROK_LSHIFT) || held(RETROK_RSHIFT)) mods |= RETROKMOD_SHIFT;
+    if (held(RETROK_LCTRL) || held(RETROK_RCTRL)) mods |= RETROKMOD_CTRL;
+    if (held(RETROK_LALT) || held(RETROK_RALT)) mods |= RETROKMOD_ALT;
+    return mods;
+}
+
+void key(unsigned code, bool down, uint32_t character) {
+    if (code == 0 || code >= RETROK_LAST) return;
+    keys[code].store(down ? 1 : 0);
+    std::lock_guard<std::mutex> lock(mutex);
+    pending.push_back({down, code, character, modifiers()});
+}
+
+// Emulation thread, before retro_run.
+void deliver() {
+    std::deque<KeyEvent> events;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.swap(pending);
+    }
+    if (keyboardCallback == nullptr) return;
+    for (const KeyEvent& e : events) {
+        keyboardCallback(e.down, e.code, e.character, e.mods);
+    }
+}
+
+void poll() {
+    int dx = mouseDx.exchange(0);
+    int dy = mouseDy.exchange(0);
+    frameDx = dx < -32767 ? -32767 : dx > 32767 ? 32767 : dx;
+    frameDy = dy < -32767 ? -32767 : dy > 32767 ? 32767 : dy;
+}
+
+void reset() {
+    keyboardCallback = nullptr;
+    for (auto& k : keys) k.store(0);
+    std::lock_guard<std::mutex> lock(mutex);
+    pending.clear();
+    mouseDx.store(0);
+    mouseDy.store(0);
+    mouseButtons.store(0);
+    frameDx = frameDy = 0;
+}
+
+const char* option(const char* key) {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto it = options.find(key);
+    return it == options.end() ? nullptr : it->second.c_str();
+}
+}  // namespace dos
 // PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
 std::atomic<int> gPspScale{2};
 // "와이파이 멀티": PSP ad-hoc over the LAN. 0 off, 1 host (runs the built-in PRO ad-hoc
@@ -1481,6 +1564,9 @@ void applyWiiuLayout(Core* core) {
 }
 
 const char* fixedVariable(const char* key) {
+    if (strncmp(key, "dosbox_pure_", 12) == 0) {
+        return dos::option(key);
+    }
     // Wii U (Cemu): Vulkan; the app places both screens itself (the layout patch), so the
     // core's own layout is one that draws both and its switching combination is off.
     if (strcmp(key, "cemu_gpu_api") == 0) return "Vulkan";
@@ -1898,6 +1984,11 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             auto it = core->variables.find(var->key);
             if (it == core->variables.end()) return false;
             var->value = it->second.c_str();
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK: {
+            auto* callback = static_cast<const retro_keyboard_callback*>(data);
+            dos::keyboardCallback = callback != nullptr ? callback->callback : nullptr;
             return true;
         }
         case RETRO_ENVIRONMENT_SET_VARIABLES:
@@ -2490,7 +2581,9 @@ void flushAudio(Core* core) {
     core->audioPending.clear();
 }
 
-void RETRO_CALLCONV inputPollCallback() {}
+void RETRO_CALLCONV inputPollCallback() {
+    dos::poll();
+}
 
 // Maps a libretro joypad id to the app's button bit. Arcade cores use a
 // different face-button layout from the GBA core.
@@ -2531,6 +2624,23 @@ int16_t joypadPressed(Core* core, int mask, unsigned id);
 
 int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned index, unsigned id) {
     Core* core = gCore;
+    if (device == RETRO_DEVICE_KEYBOARD) {
+        return port == 0 && dos::held(id) ? 1 : 0;
+    }
+    if (device == RETRO_DEVICE_MOUSE) {
+        if (port != 0) return 0;
+        int buttons = dos::mouseButtons.load();
+        switch (id) {
+            case RETRO_DEVICE_ID_MOUSE_X: return static_cast<int16_t>(dos::frameDx);
+            case RETRO_DEVICE_ID_MOUSE_Y: return static_cast<int16_t>(dos::frameDy);
+            case RETRO_DEVICE_ID_MOUSE_LEFT: return (buttons & 1) != 0 ? 1 : 0;
+            case RETRO_DEVICE_ID_MOUSE_RIGHT: return (buttons & 2) != 0 ? 1 : 0;
+            case RETRO_DEVICE_ID_MOUSE_MIDDLE: return (buttons & 4) != 0 ? 1 : 0;
+            case RETRO_DEVICE_ID_MOUSE_WHEELUP: return (buttons & 8) != 0 ? 1 : 0;
+            case RETRO_DEVICE_ID_MOUSE_WHEELDOWN: return (buttons & 16) != 0 ? 1 : 0;
+            default: return 0;
+        }
+    }
     if (port > 0 && port < 4 && core != nullptr) {
         // Players 2-4: their own pad's buttons and sticks, read like player 1's.
         if (device == RETRO_DEVICE_ANALOG && (index == RETRO_DEVICE_INDEX_ANALOG_LEFT || index == RETRO_DEVICE_INDEX_ANALOG_RIGHT)) {
@@ -2610,7 +2720,8 @@ int16_t joypadPressed(Core* core, int mask, unsigned id) {
                        core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
-                       core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu" || core->coreId == "dolphin";
+                       core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu" || core->coreId == "dolphin" ||
+                       core->coreId == "dosbox_pure";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -3289,6 +3400,7 @@ void runLoop(Core* core) {
             bool held = canRewind && core->rewindHeld.load();
             bool rewound = held && rewindStep(core);
             if (core->coreId == "melonds") dsnet::tick();
+            if (core->coreId == "dosbox_pure") dos::deliver();
             core->retroRun();
             applyMemoryCheats(core);
             core->framesRun++;
@@ -3545,6 +3657,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     }
 
     gCore = core;
+    dos::reset();
     core->retroSetEnvironment(environmentCallback);
     core->retroSetVideoRefresh(videoRefreshCallback);
     core->retroSetAudioSample(audioSampleCallback);
@@ -3572,6 +3685,16 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
 
     retro_game_info game{};
     game.path = core->romPath.c_str();
+    // DOS: "GAME.ZIP#MINIRUN.BAT" starts that file (one the app puts on C: through the
+    // game's save overlay) instead of the core's own start menu.
+    std::string dosPath;
+    if (core->coreId == "dosbox_pure") {
+        std::lock_guard<std::mutex> lock(dos::mutex);
+        if (!dos::start.empty()) {
+            dosPath = core->romPath + "#" + dos::start;
+            game.path = dosPath.c_str();
+        }
+    }
     if (core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "wswan" || core->coreId == "ngp") {
         // melonDS DS, Mupen64Plus-Next and the Beetle WonderSwan/NeoPop builds report
         // need_fullpath = false and read the game only from data/size (the other cores here
@@ -4497,6 +4620,45 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPointer(
         core->pointerY.store(y);
         core->pointerPressed.store(pressed == JNI_TRUE);
     }
+}
+
+// DOS: the core options picked for the game and the file to start, before create().
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDosOptions(
+        JNIEnv* env, jclass /*cls*/, jobjectArray keys, jobjectArray values, jstring start) {
+    std::map<std::string, std::string> options;
+    jsize count = keys == nullptr || values == nullptr ? 0 : std::min(env->GetArrayLength(keys), env->GetArrayLength(values));
+    for (jsize i = 0; i < count; ++i) {
+        auto key = static_cast<jstring>(env->GetObjectArrayElement(keys, i));
+        auto value = static_cast<jstring>(env->GetObjectArrayElement(values, i));
+        if (key != nullptr && value != nullptr) {
+            options[jstringToString(env, key)] = jstringToString(env, value);
+        }
+        if (key != nullptr) env->DeleteLocalRef(key);
+        if (value != nullptr) env->DeleteLocalRef(value);
+    }
+    std::string first = start == nullptr ? "" : jstringToString(env, start);
+    std::lock_guard<std::mutex> lock(dos::mutex);
+    dos::options.swap(options);
+    dos::start = first;
+}
+
+// DOS: a key of the on-screen keyboard (a libretro RETROK_ code) going down or up.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_dosKey(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong /*handle*/, jint code, jboolean down, jint character) {
+    dos::key(static_cast<unsigned>(code), down == JNI_TRUE, static_cast<uint32_t>(character));
+}
+
+// DOS: mouse movement since the last call, in mouse units.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_dosMouseMove(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong /*handle*/, jint dx, jint dy) {
+    dos::mouseDx.fetch_add(dx);
+    dos::mouseDy.fetch_add(dy);
+}
+
+// DOS: held mouse buttons (1 left, 2 right, 4 middle, 8 wheel up, 16 wheel down).
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_dosMouseButtons(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong /*handle*/, jint buttons) {
+    dos::mouseButtons.store(buttons);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_destroy(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {

@@ -91,6 +91,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_NDS = "nds";
     private static final String MODE_N3DS = "3ds";
     private static final String MODE_WIIU = "wiiu";
+    private static final String MODE_DOS = "dos";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
     private static final String[][] CONSOLES = {
@@ -123,6 +124,9 @@ public final class MainActivity extends Activity {
             {MODE_MCD, "picodrive", ".cue,.chd,.iso,.bin,.32x", ".cue+.bin / .chd / .32x", "roms_mcd", "1030"},
             {MODE_WS, "wswan", ".ws,.wsc,.pc2", ".ws / .wsc / .zip", "roms_ws", "1028"},
             {MODE_NGP, "ngp", ".ngp,.ngc,.ngpc,.npc", ".ngp / .ngc / .zip", "roms_ngp", "1029"},
+            // MS-DOS games on DOSBox Pure: the game's folder as a zip (kept whole, never
+            // unpacked), CD images, floppy/hard disk images.
+            {MODE_DOS, "dosbox_pure", ".zip,.dosz,.exe,.com,.bat,.iso,.cue,.chd,.img,.ima,.vhd", ".zip (게임 폴더) / .iso / .img", "roms_dos", "1069"},
     };
 
     private static String[] consoleFor(String mode) {
@@ -173,13 +177,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_DOS, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "DOS (고전 PC)", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -3140,7 +3144,7 @@ public final class MainActivity extends Activity {
     }
 
     private void importRoms(Intent intent, String mode) {
-        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode)) {
+        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
             // Disc images run to gigabytes; copy them off the UI thread.
             final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
             progress.setTitle(MODE_NAMES[modeIndex(mode)] + " 게임 가져오기");
@@ -3238,7 +3242,7 @@ public final class MainActivity extends Activity {
                 sb.append(displayNameFor).append(": 지원하지 않는 파일\n");
             } else {
                 try {
-                    if (lowerCase.endsWith(".zip") && !MODE_NAOMI.equals(mode)) {
+                    if (lowerCase.endsWith(".zip") && !MODE_NAOMI.equals(mode) && !MODE_DOS.equals(mode)) {
                         singletonOrEmpty = copyZippedRomsToAppStorage(uri2, displayNameFor, mode);
                     } else {
                         // Naomi sets stay ZIPs (the engine reads the archive itself).
@@ -4073,7 +4077,7 @@ public final class MainActivity extends Activity {
                                 failed.add(picked.name + " · 같은 게임(" + romset.renameConflict + ")이 이미 있음");
                             }
                         }
-                    } else if (lower.endsWith(".zip") && !MODE_NAOMI.equals(mode)) {
+                    } else if (lower.endsWith(".zip") && !MODE_NAOMI.equals(mode) && !MODE_DOS.equals(mode)) {
                         imported = copyZippedRomsToAppStorage(picked.uri, picked.name, mode);
                     } else {
                         imported = singletonOrEmpty(copyRomToAppStorage(picked.uri, picked.name, mode));
@@ -5369,6 +5373,18 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams naomiParams = new LinearLayout.LayoutParams(-1, -2);
             naomiParams.setMargins(0, dp(8), 0, 0);
             panel.addView(naomiRow, naomiParams);
+        }
+        if (MODE_DOS.equals(modeForFile(file))) {
+            LinearLayout dosRow = new LinearLayout(this);
+            String exe = DosSetup.start(settingsPrefs(), saveBaseNameFor(file));
+            String shown = exe == null ? "처음 실행 때 고름" : DosSetup.MENU.equals(exe) ? "시작 메뉴" : exe.substring(exe.lastIndexOf('/') + 1);
+            dosRow.addView(createActionTile(dialog, RoundIconView.PLAY, RoundIconView.COLOR_MOVE, "실행 파일", shown, false,
+                    () -> showDosExePicker(file, () -> { })), actionGridParams(0));
+            dosRow.addView(createActionTile(dialog, RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "DOS 설정", DosSetup.summary(settingsPrefs(), saveBaseNameFor(file)), false,
+                    () -> showDosSettings(file)), actionGridParams(1));
+            LinearLayout.LayoutParams dosParams = new LinearLayout.LayoutParams(-1, -2);
+            dosParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(dosRow, dosParams);
         }
         LinearLayout row2 = new LinearLayout(this);
         row2.addView(createActionTile(dialog, RoundIconView.EXPORT, RoundIconView.COLOR_SAVE, "세이브\n내보내기", null, false, () -> startSaveExport(file)), actionGridParams(0));
@@ -9677,6 +9693,10 @@ public final class MainActivity extends Activity {
     }
 
     private void listRomArchive(final String mode, final ArchiveInput in, final java.util.ArrayDeque<List<Uri>> queue) {
+        if (MODE_DOS.equals(mode)) {
+            repackDosArchive(in, queue);
+            return;
+        }
         final String archiveName = in.label;
         final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
         progress.setMessage(archiveName + " 살펴보는 중…");
@@ -9726,6 +9746,115 @@ public final class MainActivity extends Activity {
                 showRomArchive(mode, archiveName, in, games, others, size, queue);
             });
         }, "rom-archive-list").start();
+    }
+
+    // DOS: a 7z / rar holds one game's folder; DOSBox Pure reads only zip, so its files go
+    // into a zip of the same name (stored as it is, unpacked into nothing on the phone).
+    private void repackDosArchive(final ArchiveInput in, final java.util.ArrayDeque<List<Uri>> queue) {
+        final String archiveName = in.label;
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage(archiveName + " → zip으로 옮기는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String error = null;
+            File made = null;
+            File work = new File(getCacheDir(), "dos_repack");
+            deleteRecursively(work);
+            try {
+                List<PatchArchive.Listed> listed = PatchArchive.list(in.parts);
+                long total = 0;
+                List<String> names = new ArrayList<>();
+                List<File> outs = new ArrayList<>();
+                for (PatchArchive.Listed l : listed) {
+                    if (l.encrypted) {
+                        throw new IOException("암호 걸린 압축이라 풀 수 없어요. 컴퓨터에서 암호를 넣고 풀어서 가져와 주세요.");
+                    }
+                    String name = l.name.replace('\\', '/');
+                    while (name.startsWith("/")) {
+                        name = name.substring(1);
+                    }
+                    if (name.isEmpty() || name.contains("../")) {
+                        continue;
+                    }
+                    names.add(l.name);
+                    outs.add(new File(work, String.valueOf(outs.size())));
+                    total += Math.max(0, l.size);
+                }
+                if (names.isEmpty()) {
+                    throw new IOException("압축 안에 파일이 없어요.");
+                }
+                if (getCacheDir().getUsableSpace() < total * 2 + (64L << 20)) {
+                    throw new IOException("저장 공간이 모자라요 (" + formatSize(total * 2) + " 필요).");
+                }
+                work.mkdirs();
+                final long all = total;
+                PatchArchive.extract(in.parts, names, outs, done -> runOnUiThread(() ->
+                        progress.setMessage(archiveName + " 푸는 중… " + (all > 0 ? Math.min(100, done * 100 / all) : 0) + "%")));
+                String base = archiveName;
+                String lower = base.toLowerCase(Locale.ROOT);
+                for (String ext : new String[]{".7z", ".rar", ".zip"}) {
+                    if (lower.endsWith(ext)) {
+                        base = base.substring(0, base.length() - ext.length());
+                        break;
+                    }
+                }
+                base = base.replaceAll("(?i)\\.part0*1$", "").replaceAll("(?i)\\.(r00|001|z01)$", "");
+                File romDir = romDirFor(MODE_DOS);
+                romDir.mkdirs();
+                File target = new File(romDir, sanitizeFileName(base) + ".zip");
+                if (target.exists()) {
+                    throw new IOException("같은 이름의 게임이 이미 있어요: " + target.getName());
+                }
+                File temp = new File(romDir, target.getName() + ".part");
+                runOnUiThread(() -> progress.setMessage(archiveName + " → zip으로 묶는 중…"));
+                try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(new java.io.BufferedOutputStream(new FileOutputStream(temp), 1 << 16))) {
+                    zip.setLevel(1);
+                    byte[] buffer = new byte[1 << 16];
+                    for (int k = 0; k < names.size(); k++) {
+                        String name = names.get(k).replace('\\', '/');
+                        while (name.startsWith("/")) {
+                            name = name.substring(1);
+                        }
+                        zip.putNextEntry(new java.util.zip.ZipEntry(name));
+                        try (java.io.InputStream inStream = new java.io.FileInputStream(outs.get(k))) {
+                            int n;
+                            while ((n = inStream.read(buffer)) > 0) {
+                                zip.write(buffer, 0, n);
+                            }
+                        }
+                        zip.closeEntry();
+                        outs.get(k).delete();
+                    }
+                }
+                if (!temp.renameTo(target)) {
+                    temp.delete();
+                    throw new IOException("zip을 저장하지 못했어요.");
+                }
+                made = target;
+            } catch (IOException e) {
+                error = e.getMessage();
+            } catch (RuntimeException e) {
+                error = "압축 파일을 읽지 못했어요 (" + e.getClass().getSimpleName() + ").";
+            } finally {
+                deleteRecursively(work);
+                in.cleanup();
+            }
+            final String why = error;
+            final File game = made;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (why != null) {
+                    showError(archiveName + ": " + why);
+                } else if (game != null) {
+                    Toast.makeText(this, game.getName() + " 으로 넣었어요", Toast.LENGTH_SHORT).show();
+                }
+                openRomArchives(MODE_DOS, queue);
+            });
+        }, "dos-repack").start();
     }
 
     // The games inside: this console's files, a .cue / .gdi with the tracks it names as one game.
@@ -13885,6 +14014,17 @@ public final class MainActivity extends Activity {
                 return;
             }
         }
+        if (MODE_DOS.equals(mode)) {
+            if (!dosShipped()) {
+                showError("이 버전에는 DOS 엔진이 아직 들어 있지 않아요. 다음 업데이트를 기다려 주세요.");
+                return;
+            }
+            // First run of a game folder: which program starts it.
+            if (DosSetup.isZip(file) && DosSetup.start(settingsPrefs(), saveBaseNameFor(file)) == null) {
+                showDosExePicker(file, () -> startGameActivity(file));
+                return;
+            }
+        }
         if ("arcade".equals(mode)) {
             syncArcadeBiosFiles();
         } else if ("neogeo".equals(mode)) {
@@ -13913,6 +14053,255 @@ public final class MainActivity extends Activity {
         intent.putExtra(GameActivity.EXTRA_MODE, mode);
         intent.putExtra(GameActivity.EXTRA_TITLE, displayGameNameFor(file));
         afterGameProcessEnds(() -> startActivity(intent));
+    }
+
+    // ---- DOS (DOSBox Pure) ----
+
+    private boolean dosShipped() {
+        return new File(getApplicationInfo().nativeLibraryDir, "libdosbox_pure_libretro_android.so").isFile();
+    }
+
+    private TextView dosButton(String text, int background, int color) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextSize(15.0f);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setGravity(17);
+        button.setTextColor(color);
+        button.setBackground(rounded(background, dp(14)));
+        return button;
+    }
+
+    // The program a DOS game starts with, picked once (then again from the game's sheet).
+    private void showDosExePicker(final File file, final Runnable then) {
+        final String save = saveBaseNameFor(file);
+        final SharedPreferences prefs = settingsPrefs();
+        final List<DosSetup.Exe> exes;
+        try {
+            exes = DosSetup.executables(file);
+        } catch (IOException e) {
+            showError(displayGameNameFor(file) + ": zip을 읽지 못했어요. 손상됐거나 zip이 아니에요.");
+            return;
+        }
+        if (exes.isEmpty()) {
+            // A CD or disk image inside, or nothing to run: DOSBox Pure's own start menu.
+            prefs.edit().putString(DosSetup.key("exe", save), DosSetup.MENU).apply();
+            then.run();
+            return;
+        }
+        final int teal = Color.rgb(15, 118, 110);
+        final String[] picked = {DosSetup.start(prefs, save)};
+        final String[] helper = {DosSetup.helper(prefs, save)};
+        if (picked[0] == null || DosSetup.MENU.equals(picked[0])) {
+            picked[0] = exes.get(0).path;
+        }
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.PLAY, Color.rgb(51, 65, 85), "실행할 파일 고르기", displayGameNameFor(file) + " · 실행 파일 " + exes.size() + "개");
+        panel.addView(noteBox("DOS 게임은 실행 파일이 여러 개예요. 게임을 시작하는 파일을 한 번 고르면 다음부터 바로 시작해요. (게임 메뉴에서 바꿀 수 있어요)",
+                Color.rgb(248, 250, 252), Color.rgb(51, 65, 85)), spaced(10));
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        final TextView warn = noteBox("", Color.rgb(254, 242, 242), Color.rgb(153, 27, 27));
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            list.removeAllViews();
+            for (final DosSetup.Exe exe : exes) {
+                boolean on = exe.path.equals(picked[0]);
+                boolean with = exe.path.equals(helper[0]);
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(16);
+                row.setPadding(dp(11), dp(8), dp(11), dp(8));
+                GradientDrawable bg = rounded(on ? Color.rgb(236, 254, 255) : Color.rgb(246, 247, 249), dp(12));
+                bg.setStroke(dp(on ? 2 : 1), Theme.line(on ? teal : Color.rgb(229, 231, 235)));
+                row.setBackground(bg);
+                TextView kind = new TextView(this);
+                String lower = exe.path.toLowerCase(Locale.ROOT);
+                kind.setText(lower.substring(lower.lastIndexOf('.') + 1));
+                kind.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+                kind.setTextSize(11.0f);
+                kind.setTextColor(Theme.text(Color.rgb(51, 65, 85)));
+                row.addView(kind, new LinearLayout.LayoutParams(dp(30), -2));
+                LinearLayout texts = new LinearLayout(this);
+                texts.setOrientation(1);
+                TextView name = new TextView(this);
+                name.setText(exe.path + (exe.recommended ? "  · 추천" : "") + (with ? "  · 함께 실행" : ""));
+                name.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+                name.setTextSize(12.5f);
+                name.setSingleLine(true);
+                name.setEllipsize(android.text.TextUtils.TruncateAt.START);
+                name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+                texts.addView(name);
+                TextView detail = new TextView(this);
+                detail.setText((exe.note.isEmpty() ? "" : exe.note + " · ") + formatSize(exe.size));
+                detail.setTextSize(10.5f);
+                detail.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+                texts.addView(detail);
+                row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                if (exe.helper) {
+                    TextView chip = new TextView(this);
+                    chip.setText(with ? "함께 실행 ✓" : "함께 실행");
+                    chip.setTextSize(11.0f);
+                    chip.setTypeface(Typeface.DEFAULT_BOLD);
+                    chip.setTextColor(with ? Color.WHITE : Color.rgb(124, 58, 237));
+                    chip.setPadding(dp(8), dp(5), dp(8), dp(5));
+                    GradientDrawable chipBg = rounded(with ? Color.rgb(124, 58, 237) : Color.WHITE, dp(9));
+                    chipBg.setStroke(dp(1), Color.rgb(124, 58, 237));
+                    chip.setBackground(chipBg);
+                    chip.setOnClickListener(view -> {
+                        helper[0] = with ? "" : exe.path;
+                        render[0].run();
+                    });
+                    row.addView(chip);
+                }
+                row.setOnClickListener(view -> {
+                    picked[0] = exe.path;
+                    if (exe.path.equals(helper[0])) {
+                        helper[0] = "";
+                    }
+                    render[0].run();
+                });
+                list.addView(row, spaced(6));
+            }
+            boolean startable = DosSetup.dosPath(picked[0]) && (helper[0].isEmpty() || DosSetup.dosPath(helper[0]));
+            warn.setText("폴더나 파일 이름이 DOS 이름(8자.3자)이 아니라서 바로 시작할 수 없어요. 'DOS 화면으로'를 누르면 DOSBox의 시작 메뉴에서 고를 수 있어요.");
+            warn.setVisibility(startable ? View.GONE : View.VISIBLE);
+        };
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        int max = (int) (getResources().getDisplayMetrics().heightPixels * 0.45f);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, Math.min(max, exes.size() * dp(58) + dp(8))));
+        panel.addView(warn, spaced(8));
+        panel.addView(noteBox("💡 처음 하는 게임은 SETUP(설정)에서 사운드를 \"Sound Blaster\"로 맞춰 두면 소리가 나요.",
+                Color.rgb(255, 251, 235), Color.rgb(146, 64, 14)), spaced(8));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView menu = dosButton("DOS 화면으로", Color.rgb(241, 243, 245), Theme.text(Color.rgb(55, 65, 81)));
+        menu.setOnClickListener(view -> {
+            prefs.edit().putString(DosSetup.key("exe", save), DosSetup.MENU).apply();
+            dialog.dismiss();
+            then.run();
+        });
+        buttons.addView(menu, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView go = dosButton("이 파일로 시작", teal, Color.WHITE);
+        go.setOnClickListener(view -> {
+            prefs.edit().putString(DosSetup.key("exe", save), picked[0]).putString(DosSetup.key("helper", save), helper[0]).apply();
+            dialog.dismiss();
+            then.run();
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        goParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(go, goParams);
+        panel.addView(buttons, spaced(12));
+        render[0].run();
+        dialog.show();
+    }
+
+    // Per game: CPU speed, sound card, memory, controls, mouse, the key row.
+    private void showDosSettings(final File file) {
+        final String save = saveBaseNameFor(file);
+        final SharedPreferences prefs = settingsPrefs();
+        final int slate = Color.rgb(51, 65, 85);
+        final int[] cpu = {DosSetup.clamp(DosSetup.choice(prefs, "cpu", save), DosSetup.CPU_NAMES.length)};
+        final int[] sound = {DosSetup.clamp(DosSetup.choice(prefs, "sound", save), DosSetup.SOUND_NAMES.length)};
+        final int[] memory = {DosSetup.clamp(DosSetup.choice(prefs, "memory", save), DosSetup.MEMORY_NAMES.length)};
+        final int[] control = {DosSetup.clamp(DosSetup.choice(prefs, "control", save), DosSetup.CONTROL_NAMES.length)};
+        final int[] mouse = {DosSetup.clamp(DosSetup.choice(prefs, "mouse", save), DosSetup.MOUSE_NAMES.length)};
+        String exe = DosSetup.start(prefs, save);
+        final int[] start = {DosSetup.MENU.equals(exe) ? 1 : 0};
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.GEAR, slate, "DOS 설정", displayGameNameFor(file) + " · 이 게임만");
+        addDosChoice(panel, "CPU 속도", DosSetup.CPU_NAMES, cpu);
+        addDosChoice(panel, "사운드", DosSetup.SOUND_NAMES, sound);
+        addDosChoice(panel, "메모리", DosSetup.MEMORY_NAMES, memory);
+        addDosChoice(panel, "조작 (처음 보이는 화면)", DosSetup.CONTROL_NAMES, control);
+        addDosChoice(panel, "마우스", DosSetup.MOUSE_NAMES, mouse);
+        addDosChoice(panel, "시작", new String[]{"고른 실행 파일", "DOS 화면 (시작 메뉴)"}, start);
+        panel.addView(sectionLabel("키 줄 (쉼표로 · \"키=이름\"으로 이름 붙이기)"));
+        final android.widget.EditText keys = new android.widget.EditText(this);
+        keys.setText(DosSetup.keyRow(prefs, save));
+        keys.setTextSize(13.0f);
+        keys.setSingleLine(true);
+        panel.addView(keys, new LinearLayout.LayoutParams(-1, -2));
+        panel.addView(sectionLabel("큰 버튼 (예: Ctrl=공격, Space=대화 넘기기)"));
+        final android.widget.EditText big = new android.widget.EditText(this);
+        big.setText(DosSetup.buttonRow(prefs, save));
+        big.setTextSize(13.0f);
+        big.setSingleLine(true);
+        panel.addView(big, new LinearLayout.LayoutParams(-1, -2));
+        TextView change = dosButton("실행 파일 바꾸기 · 지금: " + (exe == null || DosSetup.MENU.equals(exe) ? "시작 메뉴" : exe), Color.rgb(241, 245, 249), Theme.text(slate));
+        change.setTextSize(13.0f);
+        change.setOnClickListener(view -> {
+            dialog.dismiss();
+            showDosExePicker(file, () -> showDosSettings(file));
+        });
+        panel.addView(change, spaced(10));
+        change.getLayoutParams().height = dp(44);
+        panel.addView(noteBox("세이브: 게임이 저장한 파일은 원본 zip을 건드리지 않고 따로 보관해요 (빠른 저장 · 세이브 내보내기 · 클라우드 백업도 돼요).\n"
+                + "한글: 한글판 게임은 대부분 안에 한글 출력기가 들어 있어요. 따로 필요하면 실행 파일 고르기에서 \"함께 실행\"으로 넣어요.\n"
+                + "게임패드를 연결하면 방향키 · 버튼이 DOSBox의 자동 연결로 키에 이어져요.", Color.rgb(248, 250, 252), slate), spaced(10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = dosButton("닫기", Color.rgb(241, 243, 245), Theme.text(Color.rgb(55, 65, 81)));
+        close.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView apply = dosButton("적용", Color.rgb(15, 118, 110), Color.WHITE);
+        apply.setOnClickListener(view -> {
+            SharedPreferences.Editor edit = prefs.edit()
+                    .putInt(DosSetup.key("cpu", save), cpu[0])
+                    .putInt(DosSetup.key("sound", save), sound[0])
+                    .putInt(DosSetup.key("memory", save), memory[0])
+                    .putInt(DosSetup.key("control", save), control[0])
+                    .putInt(DosSetup.key("mouse", save), mouse[0])
+                    .putString(DosSetup.key("keys", save), keys.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_KEYS : keys.getText().toString().trim())
+                    .putString(DosSetup.key("buttons", save), big.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_BUTTONS : big.getText().toString().trim());
+            String current = DosSetup.start(prefs, save);
+            if (start[0] == 1) {
+                edit.putString(DosSetup.key("exe", save), DosSetup.MENU);
+            } else if (DosSetup.MENU.equals(current)) {
+                // Back to a start file: pick it on the next run.
+                edit.remove(DosSetup.key("exe", save));
+            }
+            edit.apply();
+            dialog.dismiss();
+            Toast.makeText(this, "DOS 설정을 저장했어요 · 다음 실행부터 적용돼요", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        panel.addView(buttons, spaced(12));
+        dialog.show();
+    }
+
+    private void addDosChoice(LinearLayout panel, String title, final String[] names, final int[] chosen) {
+        panel.addView(sectionLabel(title));
+        final android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        final LinearLayout row = new LinearLayout(this);
+        scroll.addView(row);
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            row.removeAllViews();
+            for (int k = 0; k < names.length; k++) {
+                final int index = k;
+                boolean on = chosen[0] == k;
+                TextView chip = new TextView(this);
+                chip.setText(names[k]);
+                chip.setTextSize(12.0f);
+                chip.setTypeface(Typeface.DEFAULT_BOLD);
+                chip.setTextColor(on ? Color.WHITE : Theme.text(Color.rgb(100, 116, 139)));
+                chip.setPadding(dp(11), dp(7), dp(11), dp(7));
+                chip.setBackground(rounded(on ? Color.rgb(51, 65, 85) : Color.rgb(241, 245, 249), dp(10)));
+                chip.setOnClickListener(view -> {
+                    chosen[0] = index;
+                    render[0].run();
+                });
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, -2);
+                params.setMargins(0, 0, dp(6), 0);
+                row.addView(chip, params);
+            }
+        };
+        render[0].run();
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
     }
 
     // PPSSPP reads its fonts, VFPU tables and compat.ini from <system>/PPSSPP; they ship in

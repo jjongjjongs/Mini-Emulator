@@ -187,4 +187,16 @@ final class NativeGba {
     static native void setMotionEnabled(boolean on);
 
     static native void setMotion(float ax, float ay, float az, float gx, float gy, float gz);
+
+    // DOS (DOSBox Pure): the game's core options and the file to start ("" = the core's menu).
+    static native void setDosOptions(String[] keys, String[] values, String start);
+
+    // DOS: an on-screen key (libretro RETROK_ code) going down or up.
+    static native void dosKey(long handle, int code, boolean down, int character);
+
+    // DOS: mouse movement since the last call.
+    static native void dosMouseMove(long handle, int dx, int dy);
+
+    // DOS: held mouse buttons (1 left, 2 right, 4 middle, 8 wheel up, 16 wheel down).
+    static native void dosMouseButtons(long handle, int buttons);
 }

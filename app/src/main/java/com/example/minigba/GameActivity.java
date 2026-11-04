@@ -97,7 +97,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         applyScreenFilterToNative(screenFilter());
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : isDos() ? "dos" : "arcade";
         }
         CrashReports.installJavaHandler(this);
         registerPadListener();
@@ -586,6 +586,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         boolean full = i == 1;
+        if (isDos()) {
+            fitDosLandscape(frameLayout, width, height);
+            return;
+        }
         if (isSonyPad() && this.pspSideViews != null) {
             layoutPspLandscape(frameLayout, width, height);
             return;
@@ -623,6 +627,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
+        if (isDos()) {
+            addDosControls(frameLayout, true);
+            return;
+        }
         if (isDolphin()) {
             addDolphinLandscapeControls(frameLayout);
             return;
@@ -799,6 +807,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (isDos() && this.dosControls != null && !isControllerEvent(event)) {
+            // A physical keyboard types into DOS.
+            int dosKey = DosControls.fromAndroid(event.getKeyCode());
+            if (dosKey != 0 && (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP)) {
+                if (event.getRepeatCount() == 0) {
+                    this.dosControls.physicalKey(dosKey, event.getAction() == KeyEvent.ACTION_DOWN);
+                }
+                return true;
+            }
+        }
         if (!isControllerEvent(event)) {
             return super.dispatchKeyEvent(event);
         }
@@ -1194,6 +1212,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "ws": return "원더스완";
             case "ngp": return "네오지오 포켓";
             case "neogeo": return "Neo Geo";
+            case "dos": return "DOS";
             default: return "아케이드";
         }
     }
@@ -5060,6 +5079,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.activityResumed = false;
         onRewindHeld(false);
         stopMicPoll();
+        if (this.dosControls != null) {
+            this.dosControls.releaseAll();
+        }
         if (this.motionInput != null) {
             this.motionInput.stop();
         }
@@ -5381,6 +5403,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isWiiU()) {
                         NativeGba.setWiiuResolution(WIIU_RES_VALUES[wiiuResolution()]);
                         applyWiiuLayout();
+                    }
+                    if (isDos()) {
+                        // The save overlay linked to the game's .sav, the start file put in it.
+                        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+                        String start = DosSetup.prepare(prefs, new File(savePath), new File(this.romPath), this.saveBaseName);
+                        String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName);
+                        NativeGba.setDosOptions(options[0], options[1], start);
                     }
                     NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
                     if (isNds()) {
@@ -6675,6 +6704,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
+        if (isDos()) {
+            addDosControls(frameLayout, false);
+            return;
+        }
         if (isDolphin()) {
             addDolphinControls(frameLayout);
             return;
@@ -9397,6 +9430,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // pointer units across the whole screen view; melonDS DS maps them onto the lower screen.
     // The DS touch screen, and the Wii remote's pointer (Dolphin follows the finger).
     private void attachTouchScreen(View screen) {
+        if (isDos()) {
+            // The mouse mode's mouse: the game screen itself.
+            screen.setOnTouchListener((view, event) -> this.dosControls != null && this.dosControls.screenTouch(view, event));
+            return;
+        }
         if (!isDualScreen() && !isDolphin()) {
             return;
         }
@@ -10243,6 +10281,55 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // buttons instead of the Dreamcast pad.
     private boolean isNaomi() {
         return "naomi".equals(this.gameMode);
+    }
+
+    // ---- DOS (DOSBox Pure) ----
+    private DosControls dosControls;
+
+    private boolean isDos() {
+        return "dosbox_pure".equals(this.coreId);
+    }
+
+    private void addDosControls(FrameLayout frame, boolean landscape) {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        DosControls old = this.dosControls;
+        int start = old != null ? old.page() : DosSetup.clamp(DosSetup.choice(prefs, "control", this.saveBaseName), DosSetup.CONTROL_NAMES.length);
+        if (old != null) {
+            old.releaseAll();
+        }
+        DosControls controls = new DosControls(this, new DosControls.Host() {
+            @Override
+            public long handle() {
+                return nativeHandle;
+            }
+
+            @Override
+            public int dp(int value) {
+                return GameActivity.this.dp(value);
+            }
+        }, landscape, DosSetup.keyRow(prefs, this.saveBaseName), DosSetup.buttonRow(prefs, this.saveBaseName), start,
+                DosSetup.choice(prefs, "mouse", this.saveBaseName) == 1);
+        this.dosControls = controls;
+        controls.attach(frame);
+    }
+
+    // DOS: the size of the landscape screen, between the D-pad and the right-hand buttons,
+    // the key row under it.
+    private void fitDosLandscape(FrameLayout screen, int width, int height) {
+        float aspect = screenAspect();
+        int maxWidth = Math.max(dp(240), width - dp(150) * 2);
+        int maxHeight = Math.max(dp(150), height - dp(44) - dp(8));
+        int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
+        int screenHeight = Math.round(screenWidth / aspect);
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) screen.getLayoutParams();
+        if (params.width != screenWidth || params.height != screenHeight || params.topMargin != dp(6)) {
+            params.width = screenWidth;
+            params.height = screenHeight;
+            params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            params.topMargin = dp(6);
+            params.bottomMargin = 0;
+            screen.setLayoutParams(params);
+        }
     }
 
     private NaomiSets.Set naomiSet() {
@@ -11180,6 +11267,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "picodrive":
             case "yabasanshiro":
             case "dolphin":
+            case "dosbox_pure":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":

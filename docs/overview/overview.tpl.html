@@ -41,12 +41,12 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <div class="card"><b>L3 · R3와 게임별 스틱 감도</b><p class="mute">PS1 · PS2 스틱 누르기 버튼, 0.05 단위 감도 조절, 게임패드 버튼 직접 설정.</p></div>
 </div>
 
-<h2 id="s2">2. 지원 게임기 21종</h2>
+<h2 id="s2">2. 지원 게임기 23종</h2>
 <p>첫 화면에서 게임기를 고르면 그 게임기의 목록이 열립니다. 엔진은 libretro 코어를 앱 안에 넣어 쓰고, 일부 게임기는 엔진을 바꿀 수 있습니다.</p>
 <table><tr><th>게임기</th><th>엔진</th><th>파일 형식</th></tr>
 <tr><td>GBA · GBC</td><td>mGBA (Game Boy Advance)</td><td>.gba · .gbc · .gb · .zip</td></tr><tr><td>닌텐도 DS</td><td>melonDS DS</td><td>.nds · .zip</td></tr><tr><td>닌텐도 3DS</td><td>Citra (시험판)</td><td>.3ds · .cci · .cxi</td></tr>
 <tr><td>Wii U</td><td>Cemu (실험적)</td><td>.wua · .wud · .wux</td></tr><tr><td>슈퍼패미컴</td><td>Snes9x</td><td>.sfc · .smc · .zip</td></tr><tr><td>패미컴</td><td>FCEUmm</td><td>.nes · .zip</td></tr><tr><td>메가드라이브</td><td>Genesis Plus GX</td><td>.md · .gen · .bin · .zip</td></tr><tr><td>메가CD · 32X</td><td>PicoDrive</td><td>.cue+.bin · .chd · .32x</td></tr><tr><td>마스터시스템 · 게임기어</td><td>Genesis Plus GX</td><td>.sms · .gg · .sg · .zip</td></tr><tr><td>PC엔진</td><td>Beetle PCE Fast</td><td>.pce · .zip (HuCard)</td></tr><tr><td>닌텐도 64</td><td>Mupen64Plus-Next</td><td>.z64 · .n64 · .v64 · .zip</td></tr><tr><td>PSP</td><td>PPSSPP</td><td>.iso · .cso · .pbp</td></tr><tr><td>PS1</td><td>PCSX ReARMed</td><td>.cue+.bin · .chd · .pbp</td></tr><tr><td>PS2</td><td>PCSX2 계열 (pcee2) · Play!</td><td>.iso · .chd · .cso</td></tr><tr><td>세가 새턴</td><td>YabaSanshiro</td><td>.cue+.bin · .chd · .iso</td></tr><tr><td>드림캐스트</td><td>Flycast</td><td>.chd · .cdi</td></tr>
-<tr><td>Naomi · Atomiswave</td><td>Flycast (아케이드)</td><td>ROM .zip (+ .chd) · naomi.zip · naomi2.zip · awbios.zip</td></tr><tr><td>원더스완 · 컬러</td><td>Beetle Cygne</td><td>.ws · .wsc · .zip</td></tr><tr><td>네오지오 포켓 · 컬러</td><td>Beetle NeoPop</td><td>.ngp · .ngc · .zip</td></tr><tr><td>Neo Geo</td><td>FinalBurn Neo</td><td>ROM .zip · neogeo.zip BIOS 필요</td></tr><tr><td>아케이드</td><td>MAME 2003-Plus · FBNeo · MAME 2010/2015</td><td>ROM .zip</td></tr>
+<tr><td>Naomi · Atomiswave</td><td>Flycast (아케이드)</td><td>ROM .zip (+ .chd) · naomi.zip · naomi2.zip · awbios.zip</td></tr><tr><td>원더스완 · 컬러</td><td>Beetle Cygne</td><td>.ws · .wsc · .zip</td></tr><tr><td>네오지오 포켓 · 컬러</td><td>Beetle NeoPop</td><td>.ngp · .ngc · .zip</td></tr><tr><td>DOS (고전 PC)</td><td>DOSBox Pure</td><td>게임 폴더 .zip · .iso · .img (7z · rar은 zip으로 바꿔 넣음)</td></tr><tr><td>Neo Geo</td><td>FinalBurn Neo</td><td>ROM .zip · neogeo.zip BIOS 필요</td></tr><tr><td>아케이드</td><td>MAME 2003-Plus · FBNeo · MAME 2010/2015</td><td>ROM .zip</td></tr>
 
 
 
@@ -183,6 +183,22 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>최신으로 올림: 닌텐도 64 Mupen64Plus-Next(10-22) · 메가드라이브 · 마스터시스템 Genesis Plus GX(10-30) · 패미컴 FCEUmm(11-02) · PC엔진 Beetle PCE Fast(10-30) · 아케이드 MAME 2003-Plus(11-03) · FBNeo(11-03).</li>
 <li>PSP(PPSSPP v1.20.4) · 드림캐스트(Flycast v2.7) · PS2 Play!(0.77)는 정식판 최신을 유지합니다. 나머지 엔진은 원본 저장소의 최신과 같습니다(11-04 확인).</li>
 </ul>
+<h3>DOS 모드 (DOSBox Pure · 0.0.261)</h3>
+<p>고전 PC(MS-DOS) 게임 · 한글판 DOS 게임을 폰에서 합니다. 엔진은 libretro용 DOSBox Pure(1.0-preview7, GPL-2)입니다.</p>
+<table><tr><th>항목</th><th>내용</th></tr>
+<tr><td>게임 넣기</td><td>게임 폴더를 zip으로 묶어 ROM 추가(.zip · .dosz). zip은 풀지 않고 그대로 C: 드라이브로 씁니다. 7z · rar(분할 포함)는 가져올 때 같은 이름의 zip으로 바꿔 넣습니다. 시디 게임은 .iso · .cue · .chd, 디스크 이미지는 .img · .ima · .vhd</td></tr>
+<tr><td>처음 실행</td><td>zip 안의 실행 파일(.exe · .com · .bat) 목록에서 시작 파일을 한 번 고릅니다. 이름 · 크기로 추천하고, SETUP · INSTALL은 "설정 · 설치"로, HANGUL 같은 한글 출력기는 "함께 실행"으로 게임 전에 먼저 돌릴 수 있습니다. "DOS 화면으로"는 DOSBox Pure의 시작 메뉴(명령 줄 포함)로 들어갑니다. 게임 메뉴의 "실행 파일"에서 다시 고를 수 있습니다</td></tr>
+<tr><td>이름 제한</td><td>바로 시작은 폴더 · 파일 이름이 DOS 이름(8자.3자, 영문)일 때만 됩니다. 긴 이름 · 한글 이름이면 시작 메뉴에서 고르라고 안내합니다</td></tr>
+<tr><td>세로 조작</td><td>게임 화면 아래 자주 쓰는 키 두 줄(기본 Esc · Enter · Space · Y · N · F1 · F2 · F3 · F10 · Tab) + "⌨ 전체 키보드" · "🖱 마우스 모드", 방향 패드(방향키, 8방향), 마우스 패드(밀기 = 커서, 톡 = 클릭, 두 손가락 톡 = 오른쪽 클릭, 길게 누른 뒤 밀기 = 끌기), 큰 버튼 Ctrl · Alt · Shift · Enter</td></tr>
+<tr><td>가로 조작</td><td>화면 가운데, 왼쪽 방향 패드, 오른쪽 큰 버튼(2×2) + 작은 마우스 패드, 화면 아래 키 줄</td></tr>
+<tr><td>전체 키보드</td><td>숫자 · 영문 · 기호 · 방향키 · F1~F12(전환). Shift · Ctrl · Alt는 톡 = 다음 키 하나에만, 길게 = 고정. "닫기"로 돌아감</td></tr>
+<tr><td>마우스 모드</td><td>게임 화면 자체가 마우스 패드가 됩니다(밀기 · 톡 · 길게 끌기 · 두 손가락). 옆에 Esc · Enter · Space, 왼쪽 · 오른쪽 클릭, 휠 ↑↓ 버튼. DOS 설정의 마우스를 "누른 곳으로"로 바꾸면 누른 자리로 커서가 갑니다(그걸 지원하는 게임만)</td></tr>
+<tr><td>DOS 설정 (게임별)</td><td>CPU 속도(자동 · 286 · 386 · 486 · 펜티엄 · 최대), 사운드(Sound Blaster 16 · AdLib · PC 스피커), 메모리(16 · 32 · 64MB), 처음 보이는 조작(방향키 + 버튼 · 마우스 패드 · 키보드만), 마우스 방식, 시작(고른 실행 파일 · 시작 메뉴), 키 줄 · 큰 버튼 고치기("Ctrl=공격"처럼 이름 붙이기). 다음 실행부터 적용</td></tr>
+<tr><td>세이브</td><td>게임이 쓴 파일은 원본 zip을 건드리지 않고 그 게임의 세이브 파일(.sav)에 따로 쌓입니다. 그래서 세이브 내보내기 · 가져오기 · 삭제 · 클라우드 백업이 다른 게임기처럼 됩니다. 빠른 저장 · 이어하기도 엔진의 상태 저장으로 됩니다</td></tr>
+<tr><td>게임패드 · 키보드</td><td>블루투스 게임패드는 DOSBox Pure의 자동 연결(알려진 게임은 게임에 맞게, 아니면 방향키 · 버튼)로 키에 이어집니다. 블루투스 · USB 키보드는 그대로 DOS 키보드가 됩니다</td></tr>
+<tr><td>아직 없음</td><td>3dfx Voodoo 하드웨어 가속(소프트웨어로만 그림), MIDI 음악(General MIDI · MT-32 사운드폰트), 버튼 배치 편집 · 버튼 꾸미기의 DOS 버튼 반영</td></tr></table>
+<figure><img src="img/dos.jpg" alt="DOS 모드 시안"><figcaption>DOS 모드 시안: 게임 목록 · 처음 실행 때 실행 파일 고르기 · 세로 게임 화면 · DOS 설정. 실제 화면은 시안과 조금 다를 수 있습니다.</figcaption></figure>
+<figure><img src="img/dosplay.jpg" alt="DOS 게임 화면 시안"><figcaption>DOS 게임 화면 시안: 세로 기본 · 세로 전체 키보드 · 가로 기본 · 가로 마우스 모드.</figcaption></figure>
 
 <h2 id="s3">3. 게임 목록 (라이브러리)</h2>
 <ul>

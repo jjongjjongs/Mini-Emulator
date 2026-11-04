@@ -42,3 +42,4 @@ app/src/main/jniLibs/arm64-v8a/libwfcserver.so
 # Built from docs/overview by docs/overview/render.py (the release build runs it)
 app/src/main/assets/help/
 app/src/main/jniLibs/arm64-v8a/libmgba_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libdosbox_pure_libretro_android.so
