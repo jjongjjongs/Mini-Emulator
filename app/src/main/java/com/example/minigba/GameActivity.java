@@ -3359,6 +3359,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void loadButtonStyle() {
         this.buttonStyle = ButtonStyle.load(this, this.gameMode, this.saveBaseName, this.landscapeMode);
+        // The 원조 case wears the 원조 button colours unless the player picked others.
+        if (shellStyle() == ClearShellView.STYLE_RETRO && this.buttonStyle.theme == ButtonStyle.THEME_DEFAULT) {
+            this.buttonStyle.theme = ButtonStyle.THEME_RETRO;
+        }
     }
 
     /** Draws the controls just built (or rebuilt) with the style in force, sizes included. */

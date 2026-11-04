@@ -591,6 +591,9 @@ final class ButtonStyleDialog {
             case ButtonStyle.THEME_CUSTOM:
                 colors = new int[]{probe.custom[0], probe.custom[1], probe.custom[2]};
                 break;
+            case ButtonStyle.THEME_RETRO:
+                colors = new int[]{probe.color(ButtonStyle.ROLE_A), probe.color(ButtonStyle.ROLE_PILL), probe.color(ButtonStyle.ROLE_DPAD)};
+                break;
             default:
                 colors = new int[]{probe.color(ButtonStyle.ROLE_A), probe.color(ButtonStyle.ROLE_B), probe.color(ButtonStyle.ROLE_X), probe.color(ButtonStyle.ROLE_Y)};
                 if (theme == ButtonStyle.THEME_WHITE || theme == ButtonStyle.THEME_BLACK || theme == ButtonStyle.THEME_OUTLINE) {

@@ -460,6 +460,9 @@ final class DosControls {
 
     private void styleKey(DosKey view, ButtonStyle style, String key, int role) {
         boolean themed = style != null && style.themed();
+        if (themed && style.theme == ButtonStyle.THEME_RETRO && role != ButtonStyle.ROLE_A) {
+            role = ButtonStyle.ROLE_PILL;  // the first Mini GBA: one plum button (Ctrl), grey pills
+        }
         int radius = !themed || style.shape == ButtonStyle.SHAPE_ROUNDED ? host.dp(9) : style.shape == ButtonStyle.SHAPE_SQUARE ? host.dp(2) : host.dp(40);
         int body = themed ? style.colorFor(key, role) : 0;
         GradientDrawable bg = new GradientDrawable();
@@ -476,7 +479,7 @@ final class DosControls {
         } else {
             int fill = body != 0 ? body : view.baseColor;
             bg.setColor(fill);
-            textColor = ButtonStyle.isLight(fill) ? Color.rgb(31, 41, 55) : Color.WHITE;
+            textColor = body != 0 ? ButtonStyle.labelOn(fill, style) : Color.WHITE;
         }
         view.setBackground(bg);
         boolean hide = themed && style.label == ButtonStyle.LABEL_HIDE;
@@ -579,7 +582,7 @@ final class DosControls {
                 View child = row.getChildAt(k);
                 if (child instanceof DosKey) {
                     DosKey dk = (DosKey) child;
-                    styleKey(dk, style, dk.keyName != null ? "dos.key." + dk.keyName : key, ButtonStyle.ROLE_OTHER);
+                    styleKey(dk, style, dk.keyName != null ? "dos.key." + dk.keyName : key, ButtonStyle.ROLE_PILL);
                 }
             }
         }

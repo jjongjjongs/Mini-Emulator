@@ -123,7 +123,7 @@ final class TouchButton extends View {
         } else {
             int themed = look != null ? look.colorFor(this.styleKey, ButtonStyle.roleOf(this.label)) : 0;
             drawRound(canvas, width, height, themed != 0 ? ButtonStyle.palette(themed) : palette(),
-                    themed != 0 ? (ButtonStyle.isLight(themed) ? Color.rgb(40, 44, 52) : Color.WHITE) : (this.labelColor != 0 ? this.labelColor : Color.WHITE));
+                    themed != 0 ? ButtonStyle.labelOn(themed, look) : (this.labelColor != 0 ? this.labelColor : Color.WHITE));
         }
     }
 
@@ -313,7 +313,7 @@ final class TouchButton extends View {
         this.highlight.setColor(Color.argb(80, 255, 255, 255));
         canvas.drawRoundRect(new RectF(face.left + 0.8f, face.top + 0.8f, face.right - 0.8f, face.bottom - 0.8f), radius, radius, this.highlight);
         drawLabel(canvas, width / 2.0f, face.centerY(), (face.bottom - face.top) * 0.9f,
-                themed != 0 && ButtonStyle.isLight(themed) ? Color.rgb(40, 44, 52) : Color.WHITE);
+                themed != 0 ? ButtonStyle.labelOn(themed, this.look) : Color.WHITE);
     }
 
     private static int withAlpha(int color, int alpha) {

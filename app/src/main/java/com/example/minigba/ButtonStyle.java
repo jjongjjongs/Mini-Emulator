@@ -20,7 +20,9 @@ final class ButtonStyle {
     static final int THEME_NEON = 5;
     static final int THEME_PASTEL = 6;
     static final int THEME_CUSTOM = 7;
-    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기"};
+    // The first Mini GBA's colours: plum round buttons, grey pills, black pad (N64 C yellow).
+    static final int THEME_RETRO = 8;
+    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)"};
 
     static final int SHAPE_CIRCLE = 0;
     static final int SHAPE_ROUNDED = 1;
@@ -48,6 +50,7 @@ final class ButtonStyle {
     static final int ROLE_Y = 4;
     static final int ROLE_OTHER = 5;
     static final int ROLE_PILL = 6;
+    static final int ROLE_C = 7;  // N64 C buttons (▲▶▼◀)
 
     static final int MIN_SIZE = 50;
     static final int MAX_SIZE = 150;
@@ -115,6 +118,17 @@ final class ButtonStyle {
 
     /** The body colour for a role, or 0 when the theme keeps the built-in colour. */
     int color(int role) {
+        if (theme == THEME_RETRO) {
+            switch (role) {
+                case ROLE_PILL: return Color.rgb(214, 211, 204);
+                case ROLE_DPAD: return Color.rgb(34, 35, 38);
+                case ROLE_C: return Color.rgb(192, 138, 18);
+                default: return Color.rgb(151, 21, 94);
+            }
+        }
+        if (role == ROLE_C) {
+            role = ROLE_OTHER;
+        }
         switch (theme) {
             case THEME_PRIMARY:
                 switch (role) {
@@ -177,8 +191,18 @@ final class ButtonStyle {
             case "B": case "×": return ROLE_B;
             case "X": case "△": return ROLE_X;
             case "Y": case "□": return ROLE_Y;
+            case "▲": case "▶": case "▼": case "◀": return ROLE_C;
             default: return ROLE_OTHER;
         }
+    }
+
+    // The label colour on a body: dark or white, the first Mini GBA's navy or pink in its theme.
+    static int labelOn(int body, ButtonStyle look) {
+        boolean light = isLight(body);
+        if (look != null && look.theme == THEME_RETRO) {
+            return light ? Color.rgb(42, 41, 101) : Color.rgb(255, 215, 238);
+        }
+        return light ? Color.rgb(40, 44, 52) : Color.WHITE;
     }
 
     static boolean isLight(int color) {

@@ -33,9 +33,12 @@ final class ClearShellView extends View {
     static final int STYLE_METAL = 4;
     static final int STYLE_NEON = 5;
     static final int STYLE_PHOTO = 6;
-    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림"};
+    // The first Mini GBA (0.0.2 – 0.0.3): warm grey body, black band, green POWER, speaker.
+    static final int STYLE_RETRO = 7;
+    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)"};
     static final String[] STYLE_NOTES = {"지금 디자인 · 속이 비치는 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
-            "부드러운 그라데이션 + 반투명 유리판", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절"};
+            "부드러운 그라데이션 + 반투명 유리판", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
+            "GBA만 있던 첫 버전의 회베이지 몸체 · POWER 불 · 스피커 · 원조 버튼 색"};
 
     private static final int[][] TINTS = {
             // case colour, rim highlight, plate colour
@@ -383,6 +386,9 @@ final class ClearShellView extends View {
             case STYLE_PHOTO:
                 drawPhoto(canvas, width, height, plate, frame);
                 break;
+            case STYLE_RETRO:
+                drawRetro(canvas, width, height, plate, frame, screen);
+                break;
             default:
                 drawNeon(canvas, width, height, frame);
                 break;
@@ -438,6 +444,41 @@ final class ClearShellView extends View {
             hsv[2] = value;
         }
         return Color.HSVToColor(hsv);
+    }
+
+    // The first Mini GBA: the colours its code drew with.
+    private void drawRetro(Canvas canvas, float width, float height, RectF plate, RectF frame, RectF screen) {
+        paint.setShader(new LinearGradient(0, 0, 0, height, Color.rgb(226, 223, 215), Color.rgb(199, 195, 185), Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        if (frame != null) {
+            // The screen's dark navy surround.
+            paint.setColor(Color.rgb(18, 22, 32));
+            canvas.drawRoundRect(frame, dp(4), dp(4), paint);
+            text.setColor(Color.rgb(154, 160, 180));
+        }
+        // The black band along the top of the button board (portrait) or the whole top (landscape).
+        float bandTop = !landscape && screen != null ? screen.bottom + (frame != null ? frame.bottom - screen.bottom : 0) + dp(6) : 0;
+        if (!landscape && plate != null) {
+            bandTop = Math.max(bandTop, plate.top - dp(2));
+        }
+        paint.setColor(Color.rgb(31, 31, 35));
+        canvas.drawRect(0, bandTop, width, bandTop + dp(4), paint);
+        // POWER: top right of the board in portrait, bottom right in landscape.
+        float ledX = width - dp(64);
+        float ledY = landscape ? height - dp(16) : bandTop + dp(16);
+        paint.setColor(Color.argb(90, 25, 238, 86));
+        canvas.drawCircle(ledX, ledY, dp(7), paint);
+        paint.setColor(Color.rgb(25, 238, 86));
+        canvas.drawCircle(ledX, ledY, dp(4), paint);
+        android.graphics.Paint label = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        label.setColor(Color.argb(150, 48, 46, 112));
+        label.setTextSize(dp(10));
+        label.setFakeBoldText(true);
+        canvas.drawText("POWER", ledX + dp(9), ledY + dp(3.5f), label);
+        if (!landscape) {
+            drawGrille(canvas, width, height, Color.rgb(72, 69, 64), 5, 8);
+        }
     }
 
     private void drawPlastic(Canvas canvas, float width, float height, RectF frame) {
