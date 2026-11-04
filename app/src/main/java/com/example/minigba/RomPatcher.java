@@ -12,8 +12,8 @@ import java.util.zip.Adler32;
 import java.util.zip.CRC32;
 
 // Applies a patch (translations and fixes are shared this way) to a ROM or disc image and
-// writes the result to a new file: IPS, UPS, BPS, PPF and xdelta (VCDIFF, plain or with
-// xdelta3's LZMA secondary compression). The patch, the image and the result are all
+// writes the result to a new file: IPS, UPS, BPS, PPF, xdelta (VCDIFF, plain or with
+// xdelta3's DJW or LZMA secondary compression), APS (GBA and N64), RUP and BDF (bsdiff). The patch, the image and the result are all
 // memory-mapped, in 1 GB parts with 64-bit offsets, so a 4 GB PS2 disc needs no heap.
 // Errors are IOExceptions with a message for the player.
 final class RomPatcher {
@@ -22,6 +22,10 @@ final class RomPatcher {
     static final int BPS = 3;
     static final int XDELTA = 4;
     static final int PPF = 5;
+    static final int APS_GBA = 6;
+    static final int APS_N64 = 7;
+    static final int RUP = 8;
+    static final int BDF = 9;
 
     // What a patch is and whether it was made for this image.
     static final class Check {
@@ -43,6 +47,10 @@ final class RomPatcher {
             case BPS: return "BPS";
             case XDELTA: return "xdelta";
             case PPF: return "PPF";
+            case APS_GBA: return "APS (GBA)";
+            case APS_N64: return "APS (N64)";
+            case RUP: return "RUP";
+            case BDF: return "BDF";
             default: return "?";
         }
     }
@@ -53,7 +61,11 @@ final class RomPatcher {
         if (p.startsWith("BPS1")) return BPS;
         if (p.startsWith("PPF10") || p.startsWith("PPF20") || p.startsWith("PPF30")) return PPF;
         if (p.size >= 4 && p.u8(0) == 0xD6 && p.u8(1) == 0xC3 && p.u8(2) == 0xC4) return XDELTA;
-        throw new IOException("패치 파일이 아니에요. IPS · UPS · BPS · PPF · xdelta 파일을 골라 주세요.");
+        if (p.startsWith("APS10")) return APS_N64;
+        if (p.startsWith("APS1")) return APS_GBA;
+        if (p.startsWith("NINJA2")) return RUP;
+        if (p.startsWith("BSDIFF40")) return BDF;
+        throw new IOException("패치 파일이 아니에요. IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 파일을 골라 주세요.");
     }
 
     static Check check(Big p, File rom) throws IOException {
@@ -80,6 +92,21 @@ final class RomPatcher {
             }
         } else if (result.format == PPF) {
             result.sourceMatches = checkPpf(p, rom);
+        } else if (result.format == APS_GBA) {
+            result.sourceMatches = checkApsGba(p, rom);
+        } else if (result.format == APS_N64) {
+            result.sourceMatches = checkApsN64(p, rom);
+        } else if (result.format == RUP) {
+            checkRup(p, rom, result);
+        } else if (result.format == XDELTA) {
+            // A SNES ROM with a copier header, patched without one: the patch reads exactly
+            // the ROM without its first 512 bytes.
+            long length = rom.length();
+            if (length % 1024 == 512 && xdeltaSourceEnd(p) == length - 512) {
+                result.skip = 512;
+            }
+        } else if (result.format == IPS) {
+            result.skip = snesIpsSkip(p, rom);
         }
         return result;
     }
@@ -104,6 +131,18 @@ final class RomPatcher {
                         break;
                     case PPF:
                         applyPpf(patch, src, out);
+                        break;
+                    case APS_GBA:
+                        applyApsGba(patch, src, out);
+                        break;
+                    case APS_N64:
+                        applyApsN64(patch, src, out);
+                        break;
+                    case RUP:
+                        applyRup(patch, src, check, out);
+                        break;
+                    case BDF:
+                        applyBdf(patch, src, out);
                         break;
                     default:
                         applyXdelta(patch, src, out);
@@ -705,6 +744,407 @@ final class RomPatcher {
             done += n;
             return n;
         }
+    }
+
+    // ---- APS (GBA): XOR records of 64 KB blocks, each with CRC16s of the block before and after ----
+
+    private static final int APS_GBA_BLOCK = 0x10000;
+
+    private static int crc16(byte[] data, int at, int length) {
+        int crc = 0xFFFF;
+        for (int i = 0; i < length; i++) {
+            crc ^= (data[at + i] & 0xFF) << 8;
+            for (int k = 0; k < 8; k++) {
+                crc = (crc & 0x8000) != 0 ? (crc << 1) ^ 0x1021 : crc << 1;
+            }
+        }
+        return crc & 0xFFFF;
+    }
+
+    private static int checkApsGba(Big p, File rom) throws IOException {
+        if (p.size < 12 || (p.size - 12) % (8 + APS_GBA_BLOCK) != 0) throw new IOException("패치 파일이 손상됐어요.");
+        if (p.u32le(4) != rom.length()) return -1;
+        try (Big src = Big.map(rom, 0, rom.length(), false)) {
+            byte[] block = new byte[APS_GBA_BLOCK];
+            for (long at = 12; at < p.size; at += 8 + APS_GBA_BLOCK) {
+                long offset = p.u32le(at);
+                java.util.Arrays.fill(block, (byte) 0);
+                int n = (int) Math.max(0, Math.min(APS_GBA_BLOCK, src.size - offset));
+                if (n > 0) src.read(offset, block, 0, n);
+                if (crc16(block, 0, APS_GBA_BLOCK) != (p.u8(at + 4) | p.u8(at + 5) << 8)) return -1;
+            }
+        }
+        return 1;
+    }
+
+    private static void applyApsGba(Big p, Big src, File out) throws IOException {
+        long target = p.u32le(8);
+        try (Big dst = Big.map(out, 0, target, true)) {
+            copyInto(src, dst);
+            byte[] block = new byte[APS_GBA_BLOCK];
+            byte[] xor = new byte[APS_GBA_BLOCK];
+            for (long at = 12; at + 8 + APS_GBA_BLOCK <= p.size; at += 8 + APS_GBA_BLOCK) {
+                long offset = p.u32le(at);
+                int targetCrc = p.u8(at + 6) | p.u8(at + 7) << 8;
+                java.util.Arrays.fill(block, (byte) 0);
+                int n = (int) Math.max(0, Math.min(APS_GBA_BLOCK, src.size - offset));
+                if (n > 0) src.read(offset, block, 0, n);
+                p.read(at + 8, xor, 0, APS_GBA_BLOCK);
+                for (int k = 0; k < APS_GBA_BLOCK; k++) block[k] ^= xor[k];
+                if (crc16(block, 0, APS_GBA_BLOCK) != targetCrc) {
+                    throw new IOException("원본이 이 패치와 맞지 않아요. 패치 설명에 적힌 원본 롬(디스크)이 필요해요.");
+                }
+                int m = (int) Math.max(0, Math.min(APS_GBA_BLOCK, target - offset));
+                if (m > 0) dst.write(offset, block, 0, m);
+            }
+            dst.force();
+        }
+    }
+
+    // ---- APS (N64): a header naming the cartridge, then plain and run records ----
+
+    private static int checkApsN64(Big p, File rom) throws IOException {
+        if (p.size < 61) throw new IOException("패치 파일이 손상됐어요.");
+        if (p.u8(5) != 1) return 0;  // Not N64 specific: nothing to check.
+        try (Big src = Big.map(rom, 0, rom.length(), false)) {
+            if (src.size < 0x40) return -1;
+            for (int k = 0; k < 3; k++) {
+                if (src.get(0x3C + k) != p.get(58 + k)) return -1;
+            }
+            for (int k = 0; k < 8; k++) {
+                if (src.get(0x10 + k) != p.get(61 + k)) return -1;
+            }
+        }
+        return 1;
+    }
+
+    private static void applyApsN64(Big p, Big src, File out) throws IOException {
+        long at = p.u8(5) == 1 ? 57 + 1 + 3 + 8 + 5 : 57;
+        long target = p.u32le(at);
+        at += 4;
+        try (Big dst = Big.map(out, 0, target, true)) {
+            copyInto(src, dst);
+            while (at < p.size) {
+                long offset = p.u32le(at);
+                int length = p.u8(at + 4);
+                at += 5;
+                if (length == 0) {
+                    byte value = p.get(at);
+                    int count = p.u8(at + 1);
+                    at += 2;
+                    for (int k = 0; k < count; k++) dst.put(offset + k, value);
+                } else {
+                    for (int k = 0; k < length; k++) dst.put(offset + k, p.get(at + k));
+                    at += length;
+                }
+            }
+            dst.force();
+        }
+    }
+
+    // ---- RUP (NINJA 2.0): per file, MD5s of the original and the result, then XOR records ----
+
+    private static final class RupFile {
+        long sourceSize;
+        long targetSize;
+        byte[] sourceMd5 = new byte[16];
+        byte[] targetMd5 = new byte[16];
+        int overflow;            // 'A' (append) or 'M' (cut), 0 none
+        long overflowAt;
+        long overflowLength;
+        final List<long[]> records = new ArrayList<>();  // {offset, patch position, length}
+    }
+
+    private static long rupNumber(Big p, long[] at) {
+        int count = p.u8(at[0]++);
+        long value = 0;
+        for (int i = 0; i < count; i++) value |= (long) p.u8(at[0]++) << (8 * i);
+        return value;
+    }
+
+    private static List<RupFile> parseRup(Big p) throws IOException {
+        List<RupFile> files = new ArrayList<>();
+        long[] at = {0x800};
+        RupFile current = null;
+        while (at[0] < p.size) {
+            int command = p.u8(at[0]++);
+            if (command == 0) break;
+            if (command == 1) {
+                current = new RupFile();
+                files.add(current);
+                long nameLength = rupNumber(p, at);
+                at[0] += nameLength;
+                at[0]++;  // ROM type.
+                current.sourceSize = rupNumber(p, at);
+                current.targetSize = rupNumber(p, at);
+                p.read(at[0], current.sourceMd5, 0, 16);
+                p.read(at[0] + 16, current.targetMd5, 0, 16);
+                at[0] += 32;
+                if (current.sourceSize != current.targetSize) {
+                    current.overflow = p.u8(at[0]++);
+                    current.overflowLength = rupNumber(p, at);
+                    current.overflowAt = at[0];
+                    at[0] += current.overflowLength;
+                }
+            } else if (command == 2 && current != null) {
+                long offset = rupNumber(p, at);
+                long length = rupNumber(p, at);
+                current.records.add(new long[]{offset, at[0], length});
+                at[0] += length;
+            } else {
+                throw new IOException("패치 파일이 손상됐어요.");
+            }
+        }
+        if (files.isEmpty()) throw new IOException("패치 파일이 손상됐어요.");
+        return files;
+    }
+
+    private static byte[] md5(Big b, long offset, long length) throws IOException {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] chunk = new byte[1 << 20];
+            while (length > 0) {
+                int n = (int) Math.min(chunk.length, length);
+                b.read(offset, chunk, 0, n);
+                md.update(chunk, 0, n);
+                offset += n;
+                length -= n;
+            }
+            return md.digest();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+    }
+
+    // Which file of the patch this ROM is (with or without a SNES / NES header): Check.skip.
+    private static void checkRup(Big p, File rom, Check result) throws IOException {
+        List<RupFile> files = parseRup(p);
+        long length = rom.length();
+        try (Big src = Big.map(rom, 0, length, false)) {
+            long[] skips = {0, 512, 16};
+            for (long skip : skips) {
+                if (skip > 0 && (skip == 512 ? length % 1024 != 512 : !src.startsWith("NES\u001A"))) continue;
+                byte[] sum = md5(src, skip, length - skip);
+                for (RupFile file : files) {
+                    if (java.util.Arrays.equals(sum, file.sourceMd5)) {
+                        result.sourceMatches = 1;
+                        result.skip = skip;
+                        return;
+                    }
+                }
+            }
+        }
+        result.sourceMatches = -1;
+    }
+
+    private static void applyRup(Big p, Big src, Check check, File out) throws IOException {
+        byte[] sum = md5(src, 0, src.size);
+        RupFile file = null;
+        for (RupFile f : parseRup(p)) {
+            if (java.util.Arrays.equals(sum, f.sourceMd5)) file = f;
+        }
+        if (file == null) throw new IOException("원본이 이 패치와 맞지 않아요. 패치 설명에 적힌 원본 롬(디스크)이 필요해요.");
+        try (Big dst = Big.map(out, 0, file.targetSize, true)) {
+            copyInto(src, dst);
+            for (long[] record : file.records) {
+                for (long k = 0; k < record[2]; k++) {
+                    long pos = record[0] + k;
+                    if (pos >= dst.size) break;
+                    int old = pos < src.size ? src.u8(pos) : 0;
+                    dst.put(pos, (byte) (old ^ p.u8(record[1] + k)));
+                }
+            }
+            if (file.overflow == 'A') {
+                for (long k = 0; k < file.overflowLength && file.sourceSize + k < dst.size; k++) {
+                    dst.put(file.sourceSize + k, (byte) (p.u8(file.overflowAt + k) ^ 0xFF));
+                }
+            }
+            if (!java.util.Arrays.equals(md5(dst, 0, dst.size), file.targetMd5)) {
+                throw new IOException("패치한 결과가 패치에 적힌 것과 달라요. 원본이 이 패치와 맞지 않을 수 있어요.");
+            }
+            dst.force();
+        }
+    }
+
+    // ---- BDF (bsdiff 4): bzip2 compressed control, difference and extra blocks ----
+
+    private static long offtin(Big p, long at) {
+        long value = 0;
+        for (int k = 6; k >= 0; k--) value = (value << 8) | p.u8(at + k);
+        value |= (long) (p.u8(at + 7) & 0x7F) << 56;
+        return (p.u8(at + 7) & 0x80) != 0 ? -value : value;
+    }
+
+    private static long offtin(byte[] b) {
+        long value = 0;
+        for (int k = 6; k >= 0; k--) value = (value << 8) | (b[k] & 0xFF);
+        value |= (long) (b[7] & 0x7F) << 56;
+        return (b[7] & 0x80) != 0 ? -value : value;
+    }
+
+    // Part of a patch as a stream.
+    private static java.io.InputStream slice(Big p, long offset, long length) {
+        return new java.io.InputStream() {
+            long at = offset;
+            final long end = offset + length;
+
+            @Override
+            public int read() {
+                return at < end ? p.u8(at++) : -1;
+            }
+
+            @Override
+            public int read(byte[] into, int off, int len) {
+                if (at >= end) return -1;
+                int n = (int) Math.min(len, end - at);
+                p.read(at, into, off, n);
+                at += n;
+                return n;
+            }
+        };
+    }
+
+    private static void readFully(java.io.InputStream in, byte[] into, int length) throws IOException {
+        int done = 0;
+        while (done < length) {
+            int n = in.read(into, done, length - done);
+            if (n < 0) throw new IOException("패치 파일이 손상됐어요.");
+            done += n;
+        }
+    }
+
+    private static void applyBdf(Big p, Big src, File out) throws IOException {
+        if (p.size < 32) throw new IOException("패치 파일이 손상됐어요.");
+        long controlLength = offtin(p, 8);
+        long diffLength = offtin(p, 16);
+        long target = offtin(p, 24);
+        if (controlLength < 0 || diffLength < 0 || target < 0 || 32 + controlLength + diffLength > p.size) {
+            throw new IOException("패치 파일이 손상됐어요.");
+        }
+        try (Big dst = Big.map(out, 0, target, true);
+             java.io.InputStream control = new Bzip2(new java.io.BufferedInputStream(slice(p, 32, controlLength), 1 << 16));
+             java.io.InputStream diff = new Bzip2(new java.io.BufferedInputStream(slice(p, 32 + controlLength, diffLength), 1 << 16));
+             java.io.InputStream extra = new Bzip2(new java.io.BufferedInputStream(slice(p, 32 + controlLength + diffLength,
+                     p.size - 32 - controlLength - diffLength), 1 << 16))) {
+            byte[] triple = new byte[24];
+            byte[] eight = new byte[8];
+            byte[] chunk = new byte[1 << 16];
+            long newPos = 0;
+            long oldPos = 0;
+            while (newPos < target) {
+                readFully(control, triple, 24);
+                System.arraycopy(triple, 0, eight, 0, 8);
+                long add = offtin(eight);
+                System.arraycopy(triple, 8, eight, 0, 8);
+                long copy = offtin(eight);
+                System.arraycopy(triple, 16, eight, 0, 8);
+                long seek = offtin(eight);
+                if (add < 0 || copy < 0 || newPos + add + copy > target) throw new IOException("패치 파일이 손상됐어요.");
+                for (long done = 0; done < add; ) {
+                    int n = (int) Math.min(chunk.length, add - done);
+                    readFully(diff, chunk, n);
+                    for (int k = 0; k < n; k++) {
+                        long o = oldPos + done + k;
+                        if (o >= 0 && o < src.size) chunk[k] += src.get(o);
+                    }
+                    dst.write(newPos + done, chunk, 0, n);
+                    done += n;
+                }
+                newPos += add;
+                oldPos += add;
+                for (long done = 0; done < copy; ) {
+                    int n = (int) Math.min(chunk.length, copy - done);
+                    readFully(extra, chunk, n);
+                    dst.write(newPos + done, chunk, 0, n);
+                    done += n;
+                }
+                newPos += copy;
+                oldPos += seek;
+            }
+            dst.force();
+        }
+    }
+
+    // The start of a result: the original as far as both go.
+    private static void copyInto(Big src, Big dst) {
+        byte[] chunk = new byte[1 << 20];
+        long length = Math.min(src.size, dst.size);
+        for (long at = 0; at < length; ) {
+            int n = (int) Math.min(chunk.length, length - at);
+            src.read(at, chunk, 0, n);
+            dst.write(at, chunk, 0, n);
+            at += n;
+        }
+    }
+
+    // ---- SNES copier headers and IPS ----
+
+    // For an IPS patch on a SNES ROM with a 512-byte copier header: 512 when the patch was made
+    // for the ROM without it (the result then has a valid internal checksum only that way),
+    // else 0 (applied as is, as before).
+    private static long snesIpsSkip(Big p, File rom) {
+        long length = rom.length();
+        if (length % 1024 != 512 || length > 16L * 1024 * 1024 + 512) return 0;
+        try {
+            byte[] image = new byte[(int) length];
+            try (RandomAccessFile file = new RandomAccessFile(rom, "r")) {
+                file.readFully(image);
+            }
+            byte[] asIs = image.clone();
+            byte[] body = java.util.Arrays.copyOfRange(image, 512, image.length);
+            if (!ipsInMemory(p, asIs) || !ipsInMemory(p, body)) return 0;
+            boolean bodyOk = snesChecksumOk(body, 0);
+            boolean asIsOk = snesChecksumOk(asIs, 512);
+            return bodyOk && !asIsOk ? 512 : 0;
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            return 0;
+        }
+    }
+
+    // Applies an IPS patch to a ROM in memory, staying in its size; false if it reaches past.
+    private static boolean ipsInMemory(Big p, byte[] rom) {
+        long pos = 5;
+        while (pos + 3 <= p.size && !ipsEnd(p, pos)) {
+            long offset = p.u24be(pos);
+            int size = (p.u8(pos + 3) << 8) | p.u8(pos + 4);
+            pos += 5;
+            if (size == 0) {
+                int run = (p.u8(pos) << 8) | p.u8(pos + 1);
+                byte value = p.get(pos + 2);
+                pos += 3;
+                if (offset + run > rom.length) return false;
+                for (int k = 0; k < run; k++) rom[(int) offset + k] = value;
+            } else {
+                if (offset + size > rom.length) return false;
+                p.read(pos, rom, (int) offset, size);
+                pos += size;
+            }
+        }
+        return true;
+    }
+
+    // Whether the SNES internal header (LoROM or HiROM) holds a checksum that matches the ROM.
+    private static boolean snesChecksumOk(byte[] image, int start) {
+        int length = image.length - start;
+        if (length < 0x8000) return false;
+        int sum = 0;
+        int power = Integer.highestOneBit(length);
+        for (int i = 0; i < power; i++) sum += image[start + i] & 0xFF;
+        if (power < length) {
+            int rest = length - power;
+            int restSum = 0;
+            for (int i = power; i < length; i++) restSum += image[start + i] & 0xFF;
+            sum += restSum * (power / rest);
+        }
+        sum &= 0xFFFF;
+        int[] headers = {0x7FC0, 0xFFC0};
+        for (int h : headers) {
+            if (h + 0x20 > length) continue;
+            int complement = (image[start + h + 0x1C] & 0xFF) | (image[start + h + 0x1D] & 0xFF) << 8;
+            int checksum = (image[start + h + 0x1E] & 0xFF) | (image[start + h + 0x1F] & 0xFF) << 8;
+            if ((complement ^ checksum) == 0xFFFF && checksum == sum) return true;
+        }
+        return false;
     }
 
     // ---- Numbers in patches ----

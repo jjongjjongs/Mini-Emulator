@@ -5936,6 +5936,7 @@ public final class MainActivity extends Activity {
     // the first (data) track of a CUE sheet.
     private static final class PatchSource {
         File rom;
+        String n64Order;          // when an N64 ROM was put in another byte order for the patch
         String extension;
         boolean temporary;
         // A CUE sheet: its lines, and for each FILE line its index and file.
@@ -5946,6 +5947,105 @@ public final class MainActivity extends Activity {
         // A GDI sheet (드림캐스트) instead of a CUE; which tracks hold data (not music).
         boolean gdi;
         List<Boolean> dataTracks = new ArrayList<>();
+    }
+
+    // N64 ROMs come in three byte orders (.z64 big-endian, .v64 swapped in pairs, .n64 in
+    // fours); patches are made for one of them, nearly always .z64. The order whose bytes the
+    // patch says it was made for is used (else .z64, or .v64 for an APS patch made for one),
+    // in a converted copy of the ROM; the result keeps that order and its extension.
+    private void n64Order(PatchSource source, RomPatcher.Big patch) throws IOException {
+        if (source.cue != null) {
+            return;
+        }
+        int have = n64OrderOf(source.rom);
+        if (have < 0) {
+            return;
+        }
+        int format = RomPatcher.detect(patch);
+        int want = format == RomPatcher.APS_N64 && patch.size > 57 && patch.u8(5) == 1 && patch.u8(57) == 0 ? 1 : 0;
+        boolean checks = format == RomPatcher.BPS || format == RomPatcher.UPS || format == RomPatcher.RUP || format == RomPatcher.APS_N64;
+        if (checks && RomPatcher.check(patch, source.rom).sourceMatches > 0) {
+            return;  // Made for the order the ROM is in.
+        }
+        int[] tries = checks ? new int[]{0, 1, 2} : new int[]{want};
+        for (int order : tries) {
+            if (order == have) {
+                continue;
+            }
+            File converted = new File(getCacheDir(), "patch_n64" + N64_EXTENSIONS[order]);
+            n64Convert(source.rom, have, converted, order);
+            if (!checks || RomPatcher.check(patch, converted).sourceMatches > 0) {
+                if (source.temporary) {
+                    source.rom.delete();
+                }
+                source.rom = converted;
+                source.temporary = true;
+                source.extension = N64_EXTENSIONS[order];
+                source.n64Order = N64_EXTENSIONS[order];
+                return;
+            }
+            converted.delete();
+        }
+    }
+
+    private static final String[] N64_EXTENSIONS = {".z64", ".v64", ".n64"};
+
+    // 0 .z64 (80 37 12 40), 1 .v64 (37 80 40 12), 2 .n64 (40 12 37 80), -1 not an N64 ROM.
+    private static int n64OrderOf(File rom) {
+        byte[] head = new byte[4];
+        try (InputStream in = new FileInputStream(rom)) {
+            if (in.read(head) != 4) {
+                return -1;
+            }
+        } catch (IOException e) {
+            return -1;
+        }
+        int magic = (head[0] & 0xFF) << 24 | (head[1] & 0xFF) << 16 | (head[2] & 0xFF) << 8 | (head[3] & 0xFF);
+        return magic == 0x80371240 ? 0 : magic == 0x37804012 ? 1 : magic == 0x40123780 ? 2 : -1;
+    }
+
+    // Rewrites a ROM from one byte order to another (through .z64).
+    private static void n64Convert(File from, int fromOrder, File to, int toOrder) throws IOException {
+        try (InputStream in = new java.io.BufferedInputStream(new FileInputStream(from), 1 << 20);
+             OutputStream out = new java.io.BufferedOutputStream(new FileOutputStream(to), 1 << 20)) {
+            byte[] word = new byte[4];
+            byte[] z = new byte[4];
+            byte[] o = new byte[4];
+            while (true) {
+                int n = 0;
+                while (n < 4) {
+                    int got = in.read(word, n, 4 - n);
+                    if (got < 0) {
+                        break;
+                    }
+                    n += got;
+                }
+                if (n <= 0) {
+                    break;
+                }
+                if (n < 4) {
+                    out.write(word, 0, n);
+                    break;
+                }
+                // To .z64.
+                if (fromOrder == 1) {
+                    z[0] = word[1]; z[1] = word[0]; z[2] = word[3]; z[3] = word[2];
+                } else if (fromOrder == 2) {
+                    z[0] = word[3]; z[1] = word[2]; z[2] = word[1]; z[3] = word[0];
+                } else {
+                    System.arraycopy(word, 0, z, 0, 4);
+                }
+                // From .z64.
+                if (toOrder == 1) {
+                    o[0] = z[1]; o[1] = z[0]; o[2] = z[3]; o[3] = z[2];
+                } else if (toOrder == 2) {
+                    o[0] = z[3]; o[1] = z[2]; o[2] = z[1]; o[3] = z[0];
+                } else {
+                    System.arraycopy(z, 0, o, 0, 4);
+                }
+                out.write(o);
+            }
+        }
     }
 
     private static final java.util.regex.Pattern CUE_FILE = java.util.regex.Pattern.compile("^(\\s*FILE\\s+)(\"([^\"]+)\"|(\\S+))(\\s+.*)$", java.util.regex.Pattern.CASE_INSENSITIVE);
@@ -6067,6 +6167,10 @@ public final class MainActivity extends Activity {
                 RomPatcher.detect(patch);
                 source = patchSourceFor(file);
                 check = RomPatcher.check(patch, source.rom);
+                n64Order(source, patch);
+                if (source.n64Order != null) {
+                    check = RomPatcher.check(patch, source.rom);
+                }
             } catch (IOException e) {
                 error = e.getMessage();
             } catch (OutOfMemoryError e) {
@@ -8771,6 +8875,15 @@ public final class MainActivity extends Activity {
         if (got >= 3 && (head[0] & 0xFF) == 0xD6 && (head[1] & 0xFF) == 0xC3 && (head[2] & 0xFF) == 0xC4) {
             return "xdelta";
         }
+        if (text.startsWith("APS1")) {
+            return "APS";
+        }
+        if (text.startsWith("NINJA2")) {
+            return "RUP";
+        }
+        if (text.startsWith("BSDIFF40")) {
+            return "BDF";
+        }
         return null;
     }
 
@@ -8875,7 +8988,7 @@ public final class MainActivity extends Activity {
         }
         TextView kinds = new TextView(this);
         kinds.setText(MODE_DC.equals(modeForFile(file)) && file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi")
-                ? "IPS · UPS · BPS · PPF · xdelta · .dcp" : "IPS · UPS · BPS · PPF · xdelta");
+                ? "IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF · .dcp" : "IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF");
         kinds.setTextSize(11.0f);
         kinds.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         kinds.setPadding(dp(2), dp(6), 0, 0);
@@ -9054,8 +9167,8 @@ public final class MainActivity extends Activity {
         if (!bad.isEmpty()) {
             String names = android.text.TextUtils.join(", ", bad);
             boolean dcp = names.toLowerCase(Locale.ROOT).endsWith(".dcp");
-            this.prepError = dcp ? names + "는 드림캐스트 GDI 게임에만 쓸 수 있어요. 이 게임에는 IPS · UPS · BPS · PPF · xdelta 패치를 골라 주세요."
-                    : names + "는 패치 파일이 아니에요.\nIPS · UPS · BPS · PPF · xdelta 파일을 골라 주세요. 압축 파일(.zip)이면 먼저 풀어서 안의 패치 파일을 골라요.";
+            this.prepError = dcp ? names + "는 드림캐스트 GDI 게임에만 쓸 수 있어요. 이 게임에는 IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 패치를 골라 주세요."
+                    : names + "는 패치 파일이 아니에요.\nIPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 파일을 골라 주세요. 압축 파일(.zip)이면 먼저 풀어서 안의 패치 파일을 골라요.";
         } else {
             this.prepError = null;
         }
