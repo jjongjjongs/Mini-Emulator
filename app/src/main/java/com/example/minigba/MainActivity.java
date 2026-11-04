@@ -6424,6 +6424,7 @@ public final class MainActivity extends Activity {
         RomPatcher.Big patch;
         int format;
         int track = -1;          // index into the source's tracks; -1 not decided
+        int span = 1;            // tracks the patch covers, joined end to end (from track on)
         String reason = "";
         boolean noMatch;         // the patch says none of the tracks is its original
     }
@@ -6482,6 +6483,19 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private String spanLabel(PatchSource source, DiscPatch item) {
+        if (item.span <= 1) {
+            return trackLabel(source, item.track);
+        }
+        long size = 0;
+        StringBuilder names = new StringBuilder();
+        for (int k = item.track; k < item.track + item.span; k++) {
+            size += source.tracks.get(k).length();
+            names.append(names.length() == 0 ? "Track " : " + ").append(String.format(Locale.ROOT, "%02d", k + 1));
+        }
+        return names + " (이어서) · " + formatSize(size);
+    }
+
     private String trackLabel(PatchSource source, int k) {
         boolean data = k < source.dataTracks.size() && source.dataTracks.get(k);
         return String.format(Locale.ROOT, "Track %02d", k + 1) + " · " + source.tracks.get(k).getName() + " · " + formatSize(source.tracks.get(k).length())
@@ -6526,6 +6540,23 @@ public final class MainActivity extends Activity {
                     item.track = only;
                     item.reason = "원본 크기와 맞음";
                     return;
+                }
+                // A patch made for several tracks joined into one file (some patches for
+                // discs dumped as one .bin): consecutive tracks whose sizes add up to exactly
+                // what the patch reads and makes, so the result splits back at the same places.
+                if (count == 0 && RomPatcher.xdeltaTargetSize(item.patch) == end) {
+                    for (int k = 0; k < source.tracks.size(); k++) {
+                        long sum = 0;
+                        for (int n = k; n < source.tracks.size() && sum < end; n++) {
+                            sum += source.tracks.get(n).length();
+                            if (sum == end && n > k) {
+                                item.track = k;
+                                item.span = n - k + 1;
+                                item.reason = "원본 크기 = 트랙 " + (n - k + 1) + "개를 이어 붙인 크기";
+                                return;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -6737,7 +6768,7 @@ public final class MainActivity extends Activity {
                     target.setText("→ 트랙 고르기 ▾ · " + (item.noMatch ? item.reason : "정해지지 않았어요"));
                     target.setTextColor(Theme.text(Color.rgb(180, 83, 9)));
                 } else {
-                    target.setText("→ " + trackLabel(source, item.track) + " · ✓ " + item.reason);
+                    target.setText("→ " + spanLabel(source, item) + " · ✓ " + item.reason);
                     target.setTextColor(Theme.text(Color.rgb(22, 101, 52)));
                 }
                 target.setTextSize(11.0f);
@@ -6865,6 +6896,7 @@ public final class MainActivity extends Activity {
                 .setMessage(item.name + "\n안내문에 적힌 트랙을 고르세요 (예: track5.bin → Track 05).")
                 .setItems(names, (d, which) -> {
                     item.track = which;
+                    item.span = 1;
                     item.noMatch = false;
                     item.reason = "직접 고름";
                     done.run();
@@ -6886,6 +6918,11 @@ public final class MainActivity extends Activity {
         for (File track : source.tracks) {
             needed += track.length();
         }
+        for (DiscPatch item : items) {
+            for (int k = item.track; item.span > 1 && k < item.track + item.span; k++) {
+                needed += 2 * source.tracks.get(k).length();  // the joined copy and its patched copy, for a while
+            }
+        }
         long free = new android.os.StatFs(dir.getAbsolutePath()).getAvailableBytes();
         if (free < needed + 64L * 1024 * 1024) {
             deleteDiscPatchFiles(items);
@@ -6901,13 +6938,73 @@ public final class MainActivity extends Activity {
             String error = null;
             List<File> written = new ArrayList<>();
             java.util.TreeSet<Integer> patchedTracks = new java.util.TreeSet<>();
+            File[] joinedResult = new File[source.tracks.size()];
             try {
+                // Patches for joined tracks: join them, patch, and split the result back.
+                for (DiscPatch item : items) {
+                    if (item.span <= 1) {
+                        continue;
+                    }
+                    for (int k = item.track; k < item.track + item.span; k++) {
+                        if (joinedResult[k] != null) {
+                            throw new IOException(item.name + "과(와) 다른 패치가 같은 트랙(Track " + String.format(Locale.ROOT, "%02d", k + 1) + ")을 이어 붙여 바꿔요. 하나씩 적용해 주세요.");
+                        }
+                    }
+                    File joined = new File(dir, "." + name + ".joined.patching");
+                    File patched = new File(dir, "." + name + ".joined-out.patching");
+                    try {
+                        try (OutputStream joinOut = new java.io.BufferedOutputStream(new FileOutputStream(joined), 1 << 20)) {
+                            byte[] buffer = new byte[1 << 20];
+                            for (int k = item.track; k < item.track + item.span; k++) {
+                                try (InputStream in = new FileInputStream(source.tracks.get(k))) {
+                                    int n;
+                                    while ((n = in.read(buffer)) > 0) {
+                                        joinOut.write(buffer, 0, n);
+                                    }
+                                }
+                            }
+                        }
+                        RomPatcher.Check check = RomPatcher.check(item.patch, joined);
+                        RomPatcher.apply(item.patch, joined, check, patched);
+                        joined.delete();
+                        if (patched.length() != RomPatcher.xdeltaTargetSize(item.patch)) {
+                            throw new IOException("패치한 결과의 크기가 맞지 않아요.");
+                        }
+                        try (InputStream in = new java.io.BufferedInputStream(new FileInputStream(patched), 1 << 20)) {
+                            byte[] buffer = new byte[1 << 20];
+                            for (int k = item.track; k < item.track + item.span; k++) {
+                                File part = new File(dir, "." + trackName(name, k, source, multi) + ".patching");
+                                long left = source.tracks.get(k).length();
+                                try (OutputStream partOut = new FileOutputStream(part)) {
+                                    while (left > 0) {
+                                        int n = in.read(buffer, 0, (int) Math.min(buffer.length, left));
+                                        if (n <= 0) {
+                                            throw new IOException("패치한 결과를 트랙으로 나누지 못했어요.");
+                                        }
+                                        partOut.write(buffer, 0, n);
+                                        left -= n;
+                                    }
+                                }
+                                joinedResult[k] = part;
+                            }
+                        }
+                    } finally {
+                        joined.delete();
+                        patched.delete();
+                    }
+                }
                 for (int k = 0; k < source.tracks.size(); k++) {
                     File target = new File(dir, trackName(name, k, source, multi));
                     File current = source.tracks.get(k);
                     boolean first = true;
+                    if (joinedResult[k] != null) {
+                        current = joinedResult[k];
+                        joinedResult[k] = null;
+                        first = false;
+                        patchedTracks.add(k + 1);
+                    }
                     for (DiscPatch item : items) {
-                        if (item.track != k) {
+                        if (item.track != k || item.span > 1) {
                             continue;
                         }
                         RomPatcher.Check check = RomPatcher.check(item.patch, current);
@@ -6966,6 +7063,11 @@ public final class MainActivity extends Activity {
                 error = "메모리가 부족해서 패치하지 못했어요.";
             } finally {
                 deleteDiscPatchFiles(items);
+                for (File part : joinedResult) {
+                    if (part != null) {
+                        part.delete();
+                    }
+                }
             }
             if (error != null) {
                 for (File f : written) {
@@ -6990,7 +7092,8 @@ public final class MainActivity extends Activity {
                 this.carrySaveFrom = null;
                 List<String> logLines = new ArrayList<>();
                 for (DiscPatch item : items) {
-                    logLines.add(item.name + " → " + String.format(Locale.ROOT, "Track %02d", item.track + 1) + (item.reason.isEmpty() ? "" : " (" + item.reason + ")"));
+                    logLines.add(item.name + " → " + (item.span > 1 ? spanLabel(source, item) : String.format(Locale.ROOT, "Track %02d", item.track + 1))
+                            + (item.reason.isEmpty() ? "" : " (" + item.reason + ")"));
                 }
                 recordPatch(out, "트랙 패치", logLines);
                 Toast.makeText(this, "패치 " + items.size() + "개를 적용했어요 (Track " + tracksText + ") · 목록에 추가됨", Toast.LENGTH_LONG).show();

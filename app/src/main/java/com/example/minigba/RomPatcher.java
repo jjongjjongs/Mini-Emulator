@@ -380,6 +380,43 @@ final class RomPatcher {
     private static final int SECONDARY_LZMA = 2;
     private static final int SECONDARY_DJW = 1;
 
+    // The size of what an xdelta patch makes (the sum of its windows), or -1.
+    static long xdeltaTargetSize(Big p) {
+        try {
+            int indicator = p.u8(4);
+            long[] at = {5};
+            if ((indicator & 0x01) != 0) {
+                at[0]++;
+            }
+            if ((indicator & 0x02) != 0) {
+                return -1;
+            }
+            if ((indicator & 0x04) != 0) {
+                long length = vcdInt(p, at);
+                at[0] += length;
+            }
+            long total = 0;
+            while (at[0] < p.size) {
+                int win = p.u8(at[0]++);
+                if ((win & 0x03) != 0) {
+                    vcdInt(p, at);
+                    vcdInt(p, at);
+                }
+                vcdInt(p, at);
+                total += vcdInt(p, at);
+                at[0]++;
+                long sections = vcdInt(p, at) + vcdInt(p, at) + vcdInt(p, at);
+                if ((win & 0x04) != 0) {
+                    at[0] += 4;
+                }
+                at[0] += sections;
+            }
+            return total;
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
     // How far into the original an xdelta patch reads (the end of its furthest source window),
     // or -1 when it reads none or cannot be parsed: a track shorter than this is not its original.
     static long xdeltaSourceEnd(Big p) {
