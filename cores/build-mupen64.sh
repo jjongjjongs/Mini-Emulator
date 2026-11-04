@@ -8,7 +8,7 @@
 set -euo pipefail
 
 M64_REPO=https://github.com/libretro/mupen64plus-libretro-nx.git
-M64_COMMIT=12edd2c74a517ff86dfa8cfc71ad75e4c10486d5  # develop, 2026-10-01
+M64_COMMIT=15bada85906593376e8fd697f1b0b3af3a20f512  # develop, 2026-10-22
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"

@@ -1489,7 +1489,8 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "mgba_use_bios") == 0) return "ON";
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
-    if (strcmp(key, "mgba_frameskip") == 0) return gPowerMode.load() == 2 ? "1" : "0";
+    // 절전 already skips every other picture in the bridge; the core draws them all.
+    if (strcmp(key, "mgba_frameskip") == 0) return "disabled";
     // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
     if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
     // PSP: Vulkan where available, else OpenGL ES; render at the scale picked per game (2x by default).

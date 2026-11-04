@@ -7,9 +7,9 @@
 set -euo pipefail
 
 FBNEO_REPO=https://github.com/libretro/FBNeo.git
-FBNEO_COMMIT=9d82650bb9591966987a4c36ae8a1409ce0d5d68  # 2026-10-29
+FBNEO_COMMIT=da14132bab6683980b1ad7e4d0d6fd47bf06dce7  # 2026-11-03
 MAME2003P_REPO=https://github.com/libretro/mame2003-plus-libretro.git
-MAME2003P_COMMIT=273f904d7d250fe0a1709141ade73bd3059e821d  # 2026-10-30
+MAME2003P_COMMIT=ab52620ee4cef6b3ca2671a00b8629ea47d66521  # 2026-11-03
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
