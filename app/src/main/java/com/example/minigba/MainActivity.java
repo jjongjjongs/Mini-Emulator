@@ -3111,6 +3111,8 @@ public final class MainActivity extends Activity {
             if (data != null) {
                 importNaomiBiosFromTree(data);
             }
+        } else if (i == REQUEST_DOS_CONF) {
+            onDosConfPicked(intent);
         } else if (i == REQUEST_IMPORT_WIIU_KEYS) {
             if (data != null) {
                 importWiiuKeys(data);
@@ -3174,10 +3176,45 @@ public final class MainActivity extends Activity {
         int picked;
         File first;
         final StringBuilder errors = new StringBuilder();
+        // DOS: {game zip, conf text, conf name} to offer after the import.
+        final List<Object[]> dosConfs = new ArrayList<>();
+    }
+
+    // DOS: a picked or neighbouring .conf; read as bytes (ISO-8859-1 keeps them for the batch file).
+    private String readDosConf(Uri uri) {
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) return null;
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) > 0) {
+                bytes.write(buffer, 0, n);
+                if (bytes.size() > (1 << 20)) return null;
+            }
+            return new String(bytes.toByteArray(), StandardCharsets.ISO_8859_1);
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void offerDosConfs(final List<Object[]> confs, final int index, final Runnable done) {
+        if (index >= confs.size()) {
+            if (done != null) done.run();
+            return;
+        }
+        Object[] c = confs.get(index);
+        showDosConfApply((File) c[0], (String) c[1], (String) c[2], () -> offerDosConfs(confs, index + 1, done));
     }
 
     private void finishRomImport(ImportOutcome outcome) {
         if (outcome.picked == 0) {
+            return;
+        }
+        if (!outcome.dosConfs.isEmpty()) {
+            List<Object[]> confs = new ArrayList<>(outcome.dosConfs);
+            outcome.dosConfs.clear();
+            refreshLibrary();
+            offerDosConfs(confs, 0, () -> finishRomImport(outcome));
             return;
         }
         if (!outcome.archives.isEmpty()) {
@@ -3230,9 +3267,38 @@ public final class MainActivity extends Activity {
         StringBuilder sb = outcome.errors;
         File file = null;
         int i3 = 0;
+        List<String[]> dosConfs = new ArrayList<>();   // {name, text}
+        List<File> dosGames = new ArrayList<>();
         for (Uri uri2 : arrayList) {
             String displayNameFor = displayNameFor(uri2);
             String lowerCase = displayNameFor.toLowerCase(Locale.US);
+            if (MODE_DOS.equals(mode) && lowerCase.endsWith(".conf")) {
+                String text = readDosConf(uri2);
+                if (text == null) {
+                    sb.append(displayNameFor).append(": 설정 파일을 읽지 못했어요\n");
+                } else {
+                    dosConfs.add(new String[]{displayNameFor, text});
+                }
+                outcome.picked--;
+                continue;
+            }
+            if (MODE_DOS.equals(mode) && (lowerCase.endsWith(".zip") || lowerCase.endsWith(".dosz"))) {
+                // A conf beside the zip on the phone (same name, or dosbox.conf), with 모든 파일 접근.
+                File real = realFileFor(uri2);
+                if (real != null && real.getParentFile() != null) {
+                    String base = real.getName().replaceAll("(?i)\\.(zip|dosz)$", "");
+                    for (String n : new String[]{base + ".conf", "dosbox.conf"}) {
+                        File side = new File(real.getParentFile(), n);
+                        if (side.isFile() && side.length() < (1 << 20)) {
+                            String text = readDosConf(Uri.fromFile(side));
+                            if (text != null) {
+                                dosConfs.add(new String[]{base + ".conf", text, base});
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             if ((lowerCase.endsWith(".rar") || lowerCase.endsWith(".7z") || RarReader.isSplitName(lowerCase)) && !MODE_NAOMI.equals(mode)
                     && !"arcade".equals(mode) && !"neogeo".equals(mode)) {
                 outcome.archives.add(uri2);  // after this: 압축 파일 안의 게임 (split parts grouped)
@@ -3267,6 +3333,7 @@ public final class MainActivity extends Activity {
                         if (file == null) {
                             file = file2;
                         }
+                        dosGames.add(file2);
                     }
                 } catch (IOException e) {
                     sb.append(displayNameFor).append(": ").append(e.getMessage()).append('\n');
@@ -3276,6 +3343,30 @@ public final class MainActivity extends Activity {
         outcome.imported = i;
         outcome.duplicates = i3;
         outcome.first = file;
+        // Each conf to its game: same name, else the one game imported with it, else a game of
+        // that name already in the list.
+        for (String[] conf : dosConfs) {
+            String base = (conf.length > 2 ? conf[2] : conf[0].replaceAll("(?i)\\.conf$", "")).toLowerCase(Locale.ROOT);
+            File game = null;
+            for (File g : dosGames) {
+                if (g.getName().toLowerCase(Locale.ROOT).replaceAll("\\.(zip|dosz)$", "").equals(base)) game = g;
+            }
+            if (game == null && dosGames.size() == 1) game = dosGames.get(0);
+            if (game == null) {
+                File[] existing = romDirFor(MODE_DOS).listFiles();
+                for (File g : existing == null ? new File[0] : existing) {
+                    if (g.getName().toLowerCase(Locale.ROOT).replaceAll("\\.(zip|dosz)$", "").equals(base)) game = g;
+                }
+            }
+            if (game == null) {
+                sb.append(conf[0]).append(": 짝이 되는 게임 zip을 못 찾았어요. 게임 메뉴의 DOS 설정 → 설정 파일 넣기로 넣어 주세요\n");
+            } else {
+                outcome.dosConfs.add(new Object[]{game, conf[1], conf[0]});
+            }
+        }
+        if (outcome.picked == 0 && !outcome.dosConfs.isEmpty()) {
+            outcome.picked = 1;
+        }
         return outcome;
     }
 
@@ -5377,7 +5468,7 @@ public final class MainActivity extends Activity {
         if (MODE_DOS.equals(modeForFile(file))) {
             LinearLayout dosRow = new LinearLayout(this);
             String exe = DosSetup.start(settingsPrefs(), saveBaseNameFor(file));
-            String shown = exe == null ? "처음 실행 때 고름" : DosSetup.MENU.equals(exe) ? "시작 메뉴" : exe.substring(exe.lastIndexOf('/') + 1);
+            String shown = exe == null ? "처음 실행 때 고름" : DosSetup.MENU.equals(exe) ? "시작 메뉴" : DosSetup.CONF.equals(exe) ? "설정 파일" : exe.substring(exe.lastIndexOf('/') + 1);
             dosRow.addView(createActionTile(dialog, RoundIconView.PLAY, RoundIconView.COLOR_MOVE, "실행 파일", shown, false,
                     () -> showDosExePicker(file, () -> { })), actionGridParams(0));
             dosRow.addView(createActionTile(dialog, RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "DOS 설정", DosSetup.summary(settingsPrefs(), saveBaseNameFor(file)), false,
@@ -14133,7 +14224,9 @@ public final class MainActivity extends Activity {
                 name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
                 texts.addView(name);
                 TextView detail = new TextView(this);
-                detail.setText((exe.note.isEmpty() ? "" : exe.note + " · ") + formatSize(exe.size));
+                boolean renamed = exe.dos != null && !exe.dos.replace('\\', '/').equalsIgnoreCase(exe.path);
+                detail.setText((exe.note.isEmpty() ? "" : exe.note + " · ") + formatSize(exe.size)
+                        + (renamed ? "\nDOS 이름: C:\\" + dosShown(exe.dos) : ""));
                 detail.setTextSize(10.5f);
                 detail.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
                 texts.addView(detail);
@@ -14163,8 +14256,13 @@ public final class MainActivity extends Activity {
                 });
                 list.addView(row, spaced(6));
             }
-            boolean startable = DosSetup.dosPath(picked[0]) && (helper[0].isEmpty() || DosSetup.dosPath(helper[0]));
-            warn.setText("폴더나 파일 이름이 DOS 이름(8자.3자)이 아니라서 바로 시작할 수 없어요. 'DOS 화면으로'를 누르면 DOSBox의 시작 메뉴에서 고를 수 있어요.");
+            boolean startable = true;
+            for (DosSetup.Exe exe : exes) {
+                if ((exe.path.equals(picked[0]) || exe.path.equals(helper[0])) && exe.dos == null) {
+                    startable = false;
+                }
+            }
+            warn.setText("이 파일의 DOS 이름을 정하지 못해 바로 시작할 수 없어요. 'DOS 화면으로'를 누르면 DOSBox의 시작 메뉴에서 고를 수 있어요.");
             warn.setVisibility(startable ? View.GONE : View.VISIBLE);
         };
         ScrollView scroll = new ScrollView(this);
@@ -14196,6 +14294,21 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
+    // A DOS name's bytes for the screen: plain ones as they are, Korean bytes decoded.
+    private static String dosShown(String dos) {
+        byte[] bytes = dos.getBytes(StandardCharsets.ISO_8859_1);
+        for (byte b : bytes) {
+            if (b < 0) {
+                try {
+                    return new String(bytes, StandardCharsets.UTF_8).replace('\uFFFD', '?');
+                } catch (RuntimeException e) {
+                    return dos;
+                }
+            }
+        }
+        return dos;
+    }
+
     // Per game: CPU speed, sound card, memory, controls, mouse, the key row.
     private void showDosSettings(final File file) {
         final String save = saveBaseNameFor(file);
@@ -14207,16 +14320,54 @@ public final class MainActivity extends Activity {
         final int[] control = {DosSetup.clamp(DosSetup.choice(prefs, "control", save), DosSetup.CONTROL_NAMES.length)};
         final int[] mouse = {DosSetup.clamp(DosSetup.choice(prefs, "mouse", save), DosSetup.MOUSE_NAMES.length)};
         String exe = DosSetup.start(prefs, save);
-        final int[] start = {DosSetup.MENU.equals(exe) ? 1 : 0};
+        final String confName = prefs.getString(DosSetup.key("conf", save), null);
+        final boolean hasAutoexec = prefs.getString(DosSetup.key("autoexec", save), null) != null;
+        final String[] startNames = hasAutoexec ? new String[]{"고른 실행 파일", "설정 파일의 실행 순서", "DOS 화면 (시작 메뉴)"} : new String[]{"고른 실행 파일", "DOS 화면 (시작 메뉴)"};
+        final int menuIndex = startNames.length - 1;
+        final int[] start = {DosSetup.MENU.equals(exe) ? menuIndex : hasAutoexec && DosSetup.CONF.equals(exe) ? 1 : 0};
+        final int cpuBefore = cpu[0];
+        final int soundBefore = sound[0];
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
         cardHeader(panel, RoundIconView.GEAR, slate, "DOS 설정", displayGameNameFor(file) + " · 이 게임만");
+        if (confName != null) {
+            TextView badge = new TextView(this);
+            badge.setText("⚙ 설정 파일에서 가져옴 · " + confName);
+            badge.setTextSize(11.0f);
+            badge.setTypeface(Typeface.DEFAULT_BOLD);
+            badge.setTextColor(Color.rgb(15, 118, 110));
+            badge.setPadding(dp(9), dp(4), dp(9), dp(4));
+            GradientDrawable badgeBg = rounded(Color.rgb(236, 254, 255), dp(9));
+            badgeBg.setStroke(dp(1), Color.rgb(15, 118, 110));
+            badge.setBackground(badgeBg);
+            LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, -2);
+            badgeParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(badge, badgeParams);
+        }
         addDosChoice(panel, "CPU 속도", DosSetup.CPU_NAMES, cpu);
         addDosChoice(panel, "사운드", DosSetup.SOUND_NAMES, sound);
         addDosChoice(panel, "메모리", DosSetup.MEMORY_NAMES, memory);
         addDosChoice(panel, "조작 (처음 보이는 화면)", DosSetup.CONTROL_NAMES, control);
         addDosChoice(panel, "마우스", DosSetup.MOUSE_NAMES, mouse);
-        addDosChoice(panel, "시작", new String[]{"고른 실행 파일", "DOS 화면 (시작 메뉴)"}, start);
+        addDosChoice(panel, "시작", startNames, start);
+        panel.addView(sectionLabel("설정 파일 (dosbox.conf)"));
+        LinearLayout confRow = new LinearLayout(this);
+        if (hasAutoexec) {
+            confRow.addView(dosChip("실행 순서 보기", Color.rgb(241, 245, 249), slate, () -> new AppDialog.Builder(this).setTitle("실행 순서 ([autoexec])")
+                    .setMessage(prefs.getString(DosSetup.key("autoexec", save), "")).setPositiveButton("확인", null).show()));
+        }
+        confRow.addView(dosChip(confName == null ? "설정 파일 넣기" : "다른 conf 넣기", Color.rgb(241, 245, 249), slate, () -> {
+            dialog.dismiss();
+            pickDosConf(file);
+        }));
+        if (confName != null) {
+            confRow.addView(dosChip("지우기", Color.rgb(254, 242, 242), Color.rgb(185, 28, 28), () -> {
+                DosSetup.clearConf(prefs, save);
+                dialog.dismiss();
+                showDosSettings(file);
+            }));
+        }
+        panel.addView(confRow, new LinearLayout.LayoutParams(-1, -2));
         panel.addView(sectionLabel("키 줄 (쉼표로 · \"키=이름\"으로 이름 붙이기)"));
         final android.widget.EditText keys = new android.widget.EditText(this);
         keys.setText(DosSetup.keyRow(prefs, save));
@@ -14229,7 +14380,7 @@ public final class MainActivity extends Activity {
         big.setTextSize(13.0f);
         big.setSingleLine(true);
         panel.addView(big, new LinearLayout.LayoutParams(-1, -2));
-        TextView change = dosButton("실행 파일 바꾸기 · 지금: " + (exe == null || DosSetup.MENU.equals(exe) ? "시작 메뉴" : exe), Color.rgb(241, 245, 249), Theme.text(slate));
+        TextView change = dosButton("실행 파일 바꾸기 · 지금: " + (exe == null || DosSetup.MENU.equals(exe) ? "시작 메뉴" : DosSetup.CONF.equals(exe) ? "설정 파일의 실행 순서" : exe), Color.rgb(241, 245, 249), Theme.text(slate));
         change.setTextSize(13.0f);
         change.setOnClickListener(view -> {
             dialog.dismiss();
@@ -14254,10 +14405,18 @@ public final class MainActivity extends Activity {
                     .putInt(DosSetup.key("mouse", save), mouse[0])
                     .putString(DosSetup.key("keys", save), keys.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_KEYS : keys.getText().toString().trim())
                     .putString(DosSetup.key("buttons", save), big.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_BUTTONS : big.getText().toString().trim());
+            if (cpu[0] != cpuBefore) {
+                edit.remove(DosSetup.key("cycles", save));  // the chip, not the conf's exact speed
+            }
+            if (sound[0] != soundBefore) {
+                edit.remove(DosSetup.key("sbtype", save));
+            }
             String current = DosSetup.start(prefs, save);
-            if (start[0] == 1) {
+            if (start[0] == menuIndex) {
                 edit.putString(DosSetup.key("exe", save), DosSetup.MENU);
-            } else if (DosSetup.MENU.equals(current)) {
+            } else if (hasAutoexec && start[0] == 1) {
+                edit.putString(DosSetup.key("exe", save), DosSetup.CONF);
+            } else if (DosSetup.MENU.equals(current) || DosSetup.CONF.equals(current)) {
                 // Back to a start file: pick it on the next run.
                 edit.remove(DosSetup.key("exe", save));
             }
@@ -14269,6 +14428,139 @@ public final class MainActivity extends Activity {
         applyParams.setMargins(dp(10), 0, 0, 0);
         buttons.addView(apply, applyParams);
         panel.addView(buttons, spaced(12));
+        dialog.show();
+    }
+
+    private TextView dosChip(String text, int background, int color, Runnable action) {
+        TextView chip = new TextView(this);
+        chip.setText(text);
+        chip.setTextSize(12.0f);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setTextColor(color);
+        chip.setPadding(dp(11), dp(7), dp(11), dp(7));
+        chip.setBackground(rounded(background, dp(10)));
+        chip.setOnClickListener(view -> action.run());
+        chip.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+        ((LinearLayout.LayoutParams) chip.getLayoutParams()).setMargins(0, 0, dp(6), 0);
+        return chip;
+    }
+
+    // ---- dosbox.conf ----
+    private static final int REQUEST_DOS_CONF = 1070;
+    private static final String PREF_PENDING_DOS_CONF = "pending_dos_conf";
+
+    private void pickDosConf(File game) {
+        settingsPrefs().edit().putString(PREF_PENDING_DOS_CONF, game.getAbsolutePath()).apply();
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_DOS_CONF);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    private void onDosConfPicked(Intent data) {
+        String path = settingsPrefs().getString(PREF_PENDING_DOS_CONF, null);
+        settingsPrefs().edit().remove(PREF_PENDING_DOS_CONF).apply();
+        if (data == null || data.getData() == null || path == null || !new File(path).isFile()) {
+            return;
+        }
+        Uri uri = data.getData();
+        String name = displayNameFor(uri);
+        String text;
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new IOException();
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) > 0 && bytes.size() < (1 << 20)) {
+                bytes.write(buffer, 0, n);
+            }
+            text = new String(bytes.toByteArray(), StandardCharsets.ISO_8859_1);
+        } catch (IOException e) {
+            showError(name + ": 읽지 못했어요.");
+            return;
+        }
+        showDosConfApply(new File(path), text, name, null);
+    }
+
+    // What the conf sets, to apply or leave.
+    private void showDosConfApply(final File game, String text, final String confName, final Runnable after) {
+        final DosSetup.Conf conf = DosSetup.parseConf(text, game);
+        if (conf.rows.isEmpty()) {
+            showError(confName + ": DOSBox 설정 파일에서 쓸 값을 찾지 못했어요 (cycles · sbtype · memsize · [autoexec]).");
+            if (after != null) after.run();
+            return;
+        }
+        final int teal = Color.rgb(15, 118, 110);
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.GEAR, Color.rgb(51, 65, 85), "설정 파일을 찾았어요", displayGameNameFor(game) + " + " + confName);
+        panel.addView(noteBox("함께 고른 " + confName + "(eXoDOS식 · 직접 만든 것)에서 이 게임에 맞춘 값을 읽었어요. 적용하면 DOS 설정과 실행 순서가 자동으로 채워져요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89)), spaced(10));
+        LinearLayout table = new LinearLayout(this);
+        table.setOrientation(1);
+        table.setPadding(dp(10), dp(4), dp(10), dp(4));
+        table.setBackground(rounded(Color.rgb(248, 250, 252), dp(12)));
+        for (String[] row : conf.rows) {
+            LinearLayout line = new LinearLayout(this);
+            line.setGravity(16);
+            line.setPadding(0, dp(6), 0, dp(6));
+            TextView key = new TextView(this);
+            key.setText(row[0]);
+            key.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            key.setTextSize(10.5f);
+            key.setTextColor(Theme.text(Color.rgb(100, 116, 139)));
+            line.addView(key, new LinearLayout.LayoutParams(dp(120), -2));
+            TextView value = new TextView(this);
+            value.setText("→ " + row[1]);
+            value.setTextSize(11.5f);
+            value.setTypeface(Typeface.DEFAULT_BOLD);
+            value.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+            line.addView(value, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            TextView state = new TextView(this);
+            state.setText(row[2]);
+            state.setTextSize(10.0f);
+            state.setTextColor("적용".equals(row[2]) ? Color.rgb(22, 163, 74) : Color.rgb(180, 83, 9));
+            line.addView(state);
+            table.addView(line);
+        }
+        panel.addView(table, spaced(8));
+        if (!conf.autoexec.isEmpty()) {
+            panel.addView(sectionLabel("[autoexec] 실행 순서"));
+            TextView code = new TextView(this);
+            code.setText(android.text.TextUtils.join("\n", conf.autoexec));
+            code.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            code.setTextSize(11.0f);
+            code.setTextColor(Color.rgb(167, 243, 208));
+            code.setPadding(dp(11), dp(9), dp(11), dp(9));
+            code.setBackground(rounded(Color.rgb(15, 23, 42), dp(12)));
+            panel.addView(code, new LinearLayout.LayoutParams(-1, -2));
+            TextView hint = new TextView(this);
+            hint.setText("mount · imgmount 줄은 엔진이 zip을 C:로 이미 붙여서 뺐어요 (시디 이미지는 zip 안에 있어야 붙어요). 긴 폴더 이름의 cd는 DOS 이름으로 바꿨어요.");
+            hint.setTextSize(10.5f);
+            hint.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+            panel.addView(hint, spaced(6));
+        }
+        LinearLayout buttons = new LinearLayout(this);
+        TextView skip = dosButton("적용 안 함", Color.rgb(241, 243, 245), Theme.text(Color.rgb(55, 65, 81)));
+        skip.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(skip, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView ok = dosButton("이대로 적용", teal, Color.WHITE);
+        ok.setOnClickListener(view -> {
+            DosSetup.applyConf(settingsPrefs(), saveBaseNameFor(game), conf, confName);
+            dialog.dismiss();
+            Toast.makeText(this, "설정 파일을 적용했어요 · 다음 실행부터", Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        okParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(ok, okParams);
+        panel.addView(buttons, spaced(12));
+        dialog.setOnDismissListener(d -> {
+            if (after != null) after.run();
+        });
         dialog.show();
     }
 

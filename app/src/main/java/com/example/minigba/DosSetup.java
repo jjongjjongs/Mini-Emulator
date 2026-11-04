@@ -44,6 +44,7 @@ final class DosSetup {
 
     static final class Exe {
         String path;     // inside the zip, "/" separated
+        String dos;      // the same file as DOSBox Pure names it on C: ("PRIN990)\\PRINCE.EXE"), null if unknown
         long size;
         String note = "";
         boolean recommended;
@@ -57,43 +58,30 @@ final class DosSetup {
 
     // The programs in the game's zip, the likely start file marked.
     static List<Exe> executables(File zip) throws IOException {
-        try {
-            return executables(zip, StandardCharsets.UTF_8);
-        } catch (java.util.zip.ZipException e) {
-            // Names in a DOS-era code page: read them byte for byte (only plain 8.3 names
-            // can be started anyway).
-            return executables(zip, StandardCharsets.ISO_8859_1);
-        }
-    }
-
-    private static List<Exe> executables(File zip, java.nio.charset.Charset names) throws IOException {
         List<Exe> out = new ArrayList<>();
-        try (ZipFile file = new ZipFile(zip, names)) {
-            Enumeration<? extends ZipEntry> entries = file.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry e = entries.nextElement();
-                if (e.isDirectory()) {
-                    continue;
-                }
-                String name = e.getName().replace('\\', '/');
-                String lower = name.toLowerCase(Locale.ROOT);
-                if (!(lower.endsWith(".exe") || lower.endsWith(".com") || lower.endsWith(".bat"))) {
-                    continue;
-                }
-                Exe exe = new Exe();
-                exe.path = name;
-                exe.size = e.getSize();
-                String base = baseName(lower);
-                if (isHelperName(base)) {
-                    exe.helper = true;
-                    exe.note = "한글 출력기 · 게임 전에 함께 실행";
-                } else if (base.startsWith("setup") || base.startsWith("setsound") || base.startsWith("sound") || base.startsWith("config") || base.startsWith("setcfg")) {
-                    exe.note = "설정 (사운드 카드 · 그래픽)";
-                } else if (base.startsWith("install") || base.startsWith("uninst") || base.equals("inst")) {
-                    exe.note = "설치 (이미 설치된 상태면 필요 없음)";
-                }
-                out.add(exe);
+        for (ZipName e : dosNames(zip)) {
+            if (e.directory) {
+                continue;
             }
+            String name = e.path;
+            String lower = name.toLowerCase(Locale.ROOT);
+            if (!(lower.endsWith(".exe") || lower.endsWith(".com") || lower.endsWith(".bat"))) {
+                continue;
+            }
+            Exe exe = new Exe();
+            exe.path = name;
+            exe.dos = e.dos;
+            exe.size = e.size;
+            String base = baseName(lower);
+            if (isHelperName(base)) {
+                exe.helper = true;
+                exe.note = "한글 출력기 · 게임 전에 함께 실행";
+            } else if (base.startsWith("setup") || base.startsWith("setsound") || base.startsWith("sound") || base.startsWith("config") || base.startsWith("setcfg")) {
+                exe.note = "설정 (사운드 카드 · 그래픽)";
+            } else if (base.startsWith("install") || base.startsWith("uninst") || base.equals("inst")) {
+                exe.note = "설치 (이미 설치된 상태면 필요 없음)";
+            }
+            out.add(exe);
         }
         Exe best = null;
         int bestScore = Integer.MIN_VALUE;
@@ -151,43 +139,249 @@ final class DosSetup {
         return dot > 0 ? name.substring(0, dot) : name;
     }
 
-    // A DOS 8.3 name for every part of the path: the batch file can only name those.
-    static boolean dosPath(String path) {
-        for (String part : path.split("/")) {
-            if (part.isEmpty()) {
-                continue;
-            }
-            int dot = part.indexOf('.');
-            String name = dot >= 0 ? part.substring(0, dot) : part;
-            String ext = dot >= 0 ? part.substring(dot + 1) : "";
-            if (name.isEmpty() || name.length() > 8 || ext.length() > 3 || ext.indexOf('.') >= 0) {
-                return false;
-            }
-            for (char c : part.toCharArray()) {
-                if (c <= ' ' || c > '~' || "\"*+,/:;<=>?[\\]|".indexOf(c) >= 0) {
-                    return false;
-                }
-            }
-        }
-        return true;
+    // ---- DOS names ----
+    // DOSBox Pure mounts the zip as C: and names every file and folder in 8.3 form itself:
+    // a name that already fits stays; a longer one becomes its first 4 and last 4 characters
+    // (upper case, characters DOS can't hold turned to '-'), the extension cut to 3; a name
+    // already taken in the folder gets a character counted up. Done here the same way, in
+    // the order of the zip's central directory, with the names' own bytes (a Korean name's
+    // bytes are kept as they are, as the engine does), so the start file can name anything.
+
+    static final class ZipName {
+        String path;       // shown: decoded, "/" separated
+        String dos;        // DOS path without "C:\", bytes as ISO-8859-1 chars
+        long size;
+        boolean directory;
     }
 
-    static String batchFor(String exe, String helper) {
-        StringBuilder bat = new StringBuilder("@ECHO OFF\r\n");
-        if (helper != null && !helper.isEmpty()) {
-            appendRun(bat, helper);
+    private static final int[] VALID_CHAR_BITS = {0, 0, 0, 0, 250, 43, 255, 3, 255, 255, 255, 199, 1, 0, 0, 232, 1, 192, 5, 254, 224, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+
+    private static boolean validChar(int b) {
+        return (VALID_CHAR_BITS[b / 8] & (1 << (b % 8))) != 0;
+    }
+
+    private static int toUpperAndFilter(int b) {
+        if (validChar(b)) return b;
+        if (b >= 'a' && b <= 'z') return b & 0x5F;
+        return b < 0x80 ? '-' : b;  // every byte from 0x80 is valid, so never reached
+    }
+
+    // DBP_Make8dot3FileName; returns the name and whether it was changed.
+    static String make8dot3(byte[] src, int from, int to, boolean[] changed) {
+        int sDot = to - 1;
+        while (sDot > from && src[sDot] != '.') sDot--;
+        boolean hasDot = to > from && src[sDot] == '.';
+        int baseLen = (hasDot ? sDot : to) - from;
+        int extLen = hasDot ? to - 1 - sDot : 0;
+        if (baseLen <= 8 && extLen <= 3) {
+            boolean ok = true;
+            for (int p = from; p < to; p++) {
+                if (!validChar(src[p] & 0xFF) && p != sDot) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                changed[0] = false;
+                return new String(src, from, to - from, StandardCharsets.ISO_8859_1);
+            }
         }
-        appendRun(bat, exe);
+        StringBuilder out = new StringBuilder();
+        int baseLeft = baseLen > 8 ? 4 : baseLen;
+        int baseRight = baseLen > 8 ? 4 : 0;
+        for (int k = 0; k < baseLeft; k++) out.append((char) toUpperAndFilter(src[from + k] & 0xFF));
+        for (int k = 0; k < baseRight; k++) out.append((char) toUpperAndFilter(src[from + baseLen - baseRight + k] & 0xFF));
+        if (baseLen == 0) out.append('-');
+        if (extLen > 0) {
+            out.append('.');
+            for (int k = 0; k < Math.min(3, extLen); k++) out.append((char) toUpperAndFilter(src[sDot + 1 + k] & 0xFF));
+        }
+        changed[0] = true;
+        return out.toString();
+    }
+
+    // Zip_Directory::IncrementName; null when it can't.
+    private static String incrementName(String name) {
+        char[] c = name.toCharArray();
+        int dot = name.indexOf('.');
+        int baseLen = dot >= 0 ? dot : c.length;
+        int j = baseLen > 8 ? 4 : baseLen / 2;
+        if (baseLen >= 1 && j < c.length && c[j] != 0 && c[j] < '~') c[j]++;
+        else if (baseLen >= 3 && j + 1 < c.length && c[j + 1] < '~') c[j + 1]++;
+        else if (baseLen >= 5 && j + 2 < c.length && c[j + 2] < '~') c[j + 2]++;
+        else return null;
+        return new String(c);
+    }
+
+    private static int u16(byte[] b, int o) {
+        return (b[o] & 0xFF) | (b[o + 1] & 0xFF) << 8;
+    }
+
+    private static long u32(byte[] b, int o) {
+        return (u16(b, o) | (long) u16(b, o + 2) << 16) & 0xFFFFFFFFL;
+    }
+
+    private static String display(byte[] raw, int from, int len, boolean utf8Flag) {
+        if (utf8Flag) {
+            return new String(raw, from, len, StandardCharsets.UTF_8);
+        }
+        try {
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(raw, from, len)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            try {
+                return new String(raw, from, len, java.nio.charset.Charset.forName("MS949"));
+            } catch (RuntimeException e2) {
+                return new String(raw, from, len, StandardCharsets.ISO_8859_1);
+            }
+        }
+    }
+
+    // Every file and folder of the zip with the DOS name DOSBox Pure gives it.
+    static List<ZipName> dosNames(File zip) throws IOException {
+        byte[] cd;
+        int total;
+        try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(zip, "r")) {
+            long length = file.length();
+            int tail = (int) Math.min(length, 65557);
+            byte[] end = new byte[tail];
+            file.seek(length - tail);
+            file.readFully(end);
+            int eocd = -1;
+            for (int p = tail - 22; p >= 0; p--) {
+                if (end[p] == 'P' && end[p + 1] == 'K' && end[p + 2] == 5 && end[p + 3] == 6) {
+                    eocd = p;
+                    break;
+                }
+            }
+            if (eocd < 0) {
+                throw new IOException("zip이 아니에요");
+            }
+            total = u16(end, eocd + 10);
+            long size = u32(end, eocd + 12);
+            long offset = u32(end, eocd + 16);
+            if (total == 0xFFFF || size == 0xFFFFFFFFL || offset == 0xFFFFFFFFL || size > (64 << 20) || offset + size > length) {
+                throw new IOException("4GB가 넘는 zip(zip64)은 DOS 엔진이 읽지 못해요");
+            }
+            cd = new byte[(int) size];
+            file.seek(offset);
+            file.readFully(cd);
+        }
+        List<ZipName> out = new ArrayList<>();
+        java.util.Map<String, java.util.Set<String>> taken = new java.util.HashMap<>();   // DOS folder -> names in it
+        java.util.Map<String, String> folders = new java.util.HashMap<>();               // DOS path of a folder kept as is
+        java.util.Map<String, String> longFolders = new java.util.HashMap<>();           // long path -> DOS path, for shortened folders
+        java.util.Set<String> listed = new java.util.HashSet<>();
+        int p = 0;
+        for (int i = 0; i < total && p + 46 <= cd.length; i++) {
+            if (!(cd[p] == 'P' && cd[p + 1] == 'K' && cd[p + 2] == 1 && cd[p + 3] == 2)) {
+                break;
+            }
+            int flags = u16(cd, p + 8);
+            long comp = u32(cd, p + 20);
+            long decomp = u32(cd, p + 24);
+            int nameLen = u16(cd, p + 28);
+            int extraLen = u16(cd, p + 30);
+            int commentLen = u16(cd, p + 32);
+            long attr = u32(cd, p + 38);
+            int name = p + 46;
+            p = name + nameLen + extraLen + commentLen;
+            if (nameLen == 0 || name + nameLen > cd.length) {
+                continue;
+            }
+            int method = u16(cd, name - 46 + 10);
+            if ((method == 0 && decomp != comp) || (decomp != 0 && comp == 0)) {
+                continue;
+            }
+            int nameEnd = name + nameLen;
+            boolean isDir = cd[nameEnd - 1] == '/' || cd[nameEnd - 1] == '\\' || (attr & 0x10) != 0;
+            String dosPath = "";
+            String parentKey = "";
+            int nDir = name;
+            for (int n = name; n <= nameEnd; n++) {
+                if (n != nameEnd && cd[n] != '/' && cd[n] != '\\') continue;
+                if (n == nDir) {
+                    nDir++;
+                    continue;
+                }
+                boolean[] changed = new boolean[1];
+                String dos = make8dot3(cd, nDir, n, changed);
+                java.util.Set<String> names = taken.computeIfAbsent(parentKey, k -> new java.util.HashSet<>());
+                if (n == nameEnd && !isDir) {
+                    while (dos != null && names.contains(dos)) dos = incrementName(dos);
+                    if (dos == null) break;
+                    names.add(dos);
+                    String full = dosPath + dos;
+                    ZipName z = new ZipName();
+                    z.path = display(cd, name, nameLen, (flags & 0x800) != 0).replace('\\', '/');
+                    z.dos = full;
+                    z.size = decomp;
+                    out.add(z);
+                    break;
+                }
+                String longKey = new String(cd, name, n - name, StandardCharsets.ISO_8859_1);
+                String existing = changed[0] ? longFolders.get(longKey) : folders.get(dosPath + dos);
+                if (existing == null) {
+                    while (dos != null && names.contains(dos)) dos = incrementName(dos);
+                    if (dos == null) break;
+                    names.add(dos);
+                    existing = dosPath + dos;
+                    folders.put(existing, existing);
+                    if (changed[0]) longFolders.put(longKey, existing);
+                }
+                if (listed.add(existing)) {
+                    ZipName z = new ZipName();
+                    z.path = display(cd, name, n - name, (flags & 0x800) != 0).replace('\\', '/');
+                    z.dos = existing;
+                    z.directory = true;
+                    out.add(z);
+                }
+                if (n + 1 >= nameEnd) break;
+                dosPath = existing + "\\";
+                parentKey = existing;
+                nDir = n + 1;
+            }
+        }
+        return out;
+    }
+
+    // The DOS path of a file in the zip, by its shown path.
+    static String dosNameOf(File zip, String path) {
+        if (path == null || path.isEmpty()) {
+            return null;
+        }
+        try {
+            for (ZipName z : dosNames(zip)) {
+                if (!z.directory && z.path.equals(path)) {
+                    return z.dos;
+                }
+            }
+        } catch (IOException e) {
+            return null;
+        }
+        return null;
+    }
+
+    // DOS paths go into the batch file as they are; '%' means a variable there.
+    private static String batchSafe(String dos) {
+        return dos.replace("%", "%%");
+    }
+
+    static String batchFor(String exeDos, String helperDos) {
+        StringBuilder bat = new StringBuilder("@ECHO OFF\r\n");
+        if (helperDos != null && !helperDos.isEmpty()) {
+            appendRun(bat, helperDos);
+        }
+        appendRun(bat, exeDos);
         return bat.toString();
     }
 
-    private static void appendRun(StringBuilder bat, String path) {
-        String dos = path.replace('/', '\\').toUpperCase(Locale.ROOT);
+    private static void appendRun(StringBuilder bat, String dos) {
         int slash = dos.lastIndexOf('\\');
         bat.append("C:\r\n");
-        bat.append("CD \\").append(slash > 0 ? dos.substring(0, slash) : "").append("\r\n");
+        bat.append("CD \\").append(batchSafe(slash > 0 ? dos.substring(0, slash) : "")).append("\r\n");
         String file = slash >= 0 ? dos.substring(slash + 1) : dos;
-        bat.append(file.endsWith(".BAT") ? "CALL " : "").append(file).append("\r\n");
+        bat.append(file.toUpperCase(Locale.ROOT).endsWith(".BAT") ? "CALL " : "").append(batchSafe(file)).append("\r\n");
     }
 
     // ---- per-game settings ----
@@ -232,9 +426,10 @@ final class DosSetup {
         int memory = clamp(choice(prefs, "memory", saveBaseName), MEMORY_VALUES.length);
         int mouse = clamp(choice(prefs, "mouse", saveBaseName), MOUSE_NAMES.length);
         List<String[]> options = new ArrayList<>();
-        options.add(new String[]{"dosbox_pure_cycles", CPU_VALUES[cpu]});
+        options.add(new String[]{"dosbox_pure_cycles", prefs.getString(key("cycles", saveBaseName), CPU_VALUES[cpu])});
         options.add(new String[]{"dosbox_pure_memory_size", MEMORY_VALUES[memory]});
-        options.add(new String[]{"dosbox_pure_sblaster_type", sound == 0 ? "sb16" : "none"});
+        options.add(new String[]{"dosbox_pure_sblaster_type", sound == 0 ? prefs.getString(key("sbtype", saveBaseName), "sb16") : "none"});
+        options.add(new String[]{"dosbox_pure_gus", prefs.getBoolean(key("gus", saveBaseName), false) ? "true" : "false"});
         options.add(new String[]{"dosbox_pure_sblaster_adlib_mode", sound == 0 ? "auto" : sound == 1 ? "opl2" : "none"});
         options.add(new String[]{"dosbox_pure_mouse_input", mouse == 1 ? "direct" : "virtual"});
         // The app's own quick saves and rewind go through the core's save states.
@@ -298,7 +493,7 @@ final class DosSetup {
 
     // Puts MINIRUN.BAT into the save overlay (a zip), keeping everything else in it.
     static void writeStartFile(File save, String batch) throws IOException {
-        byte[] data = batch.getBytes(StandardCharsets.US_ASCII);
+        byte[] data = batch.getBytes(StandardCharsets.ISO_8859_1);
         File temp = new File(save.getParentFile(), save.getName() + ".tmp");
         try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(temp), StandardCharsets.ISO_8859_1)) {
             if (save.isFile() && save.length() > 0) {
@@ -366,7 +561,7 @@ final class DosSetup {
                 while ((n = in.read(buffer)) > 0) {
                     bytes.write(buffer, 0, n);
                 }
-                return batch.equals(new String(bytes.toByteArray(), StandardCharsets.US_ASCII));
+                return batch.equals(new String(bytes.toByteArray(), StandardCharsets.ISO_8859_1));
             }
         } catch (IOException e) {
             return false;
@@ -379,14 +574,24 @@ final class DosSetup {
         saveDir.mkdirs();
         linkSave(saveDir, game, saveBaseName);
         String exe = start(prefs, saveBaseName);
-        if (exe == null || MENU.equals(exe) || !isZip(game) || !dosPath(exe)) {
+        if (exe == null || MENU.equals(exe) || !isZip(game)) {
             return "";
         }
-        String helper = helper(prefs, saveBaseName);
-        if (!helper.isEmpty() && !dosPath(helper)) {
-            helper = "";
+        String batch;
+        if (CONF.equals(exe)) {
+            String autoexec = prefs.getString(key("autoexec", saveBaseName), null);
+            if (autoexec == null || autoexec.trim().isEmpty()) {
+                return "";
+            }
+            batch = "@ECHO OFF\r\n" + autoexec.replace("\r\n", "\n").replace("\n", "\r\n") + "\r\n";
+        } else {
+            String exeDos = dosNameOf(game, exe);
+            if (exeDos == null) {
+                return "";
+            }
+            String helperDos = dosNameOf(game, helper(prefs, saveBaseName));
+            batch = batchFor(exeDos, helperDos);
         }
-        String batch = batchFor(exe, helper);
         File save = new File(saveDir, saveBaseName + ".sav");
         if (!hasStartFile(save, batch)) {
             try {
@@ -396,5 +601,159 @@ final class DosSetup {
             }
         }
         return START_FILE;
+    }
+
+    // ---- dosbox.conf (eXoDOS-style or hand-made) ----
+    // CPU speed, sound card, memory, Gravis and the [autoexec] start lines. The mount lines go
+    // (the engine has the zip on C: already, and CD images in it mounted); a "cd" to a long
+    // folder name gets the DOS name the engine gives it.
+
+    static final String CONF = "conf";
+    private static final int[] CORE_CYCLES = {315, 1320, 2750, 4720, 7800, 13400, 26800, 77000, 200000, 500000, 1000000};
+
+    static final class Conf {
+        String cycles;          // a dosbox_pure_cycles value
+        int cpuChoice = -1;     // nearest CPU_VALUES chip
+        String sbtype;          // dosbox_pure_sblaster_type value
+        int sound = -1;
+        int memory = -1;
+        boolean gus;
+        String midi;
+        final List<String> autoexec = new ArrayList<>();
+        final List<String[]> rows = new ArrayList<>();   // {conf line, what it became, applied?}
+    }
+
+    static Conf parseConf(String text, File zip) {
+        Conf conf = new Conf();
+        java.util.Map<String, String> folders = new java.util.HashMap<>();
+        if (zip != null) {
+            try {
+                for (ZipName z : dosNames(zip)) {
+                    if (z.directory) {
+                        folders.put(z.path.toLowerCase(Locale.ROOT), z.dos);
+                    }
+                }
+            } catch (IOException e) {
+                // No translations.
+            }
+        }
+        String section = "";
+        String oplmode = null;
+        String cwd = "";
+        for (String raw : text.replace("\r", "").split("\n")) {
+            String line = raw.trim();
+            if (line.startsWith("[") && line.endsWith("]")) {
+                section = line.substring(1, line.length() - 1).trim().toLowerCase(Locale.ROOT);
+                continue;
+            }
+            if (section.equals("autoexec")) {
+                String lower = line.toLowerCase(Locale.ROOT);
+                if (line.isEmpty() || lower.startsWith("mount ") || lower.startsWith("imgmount ") || lower.equals("exit") || lower.startsWith("@echo off") || lower.startsWith("echo off")) {
+                    continue;
+                }
+                if (lower.startsWith("cd ") || lower.startsWith("cd\\") || lower.startsWith("chdir ")) {
+                    String arg = line.substring(lower.startsWith("chdir ") ? 6 : 2).trim().replace('/', '\\');
+                    boolean absolute = arg.startsWith("\\");
+                    String path = (absolute ? "" : cwd) + arg.replaceAll("^\\\\+", "").replace("\"", "");
+                    String dos = folders.get(path.replace('\\', '/').toLowerCase(Locale.ROOT));
+                    cwd = path.isEmpty() ? "" : path + "\\";
+                    if (dos != null) {
+                        line = "CD \\" + dos;
+                        cwd = path + "\\";
+                    }
+                }
+                conf.autoexec.add(line);
+                continue;
+            }
+            if (line.isEmpty() || line.startsWith("#")) {
+                continue;
+            }
+            int eq = line.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String k = line.substring(0, eq).trim().toLowerCase(Locale.ROOT);
+            String v = line.substring(eq + 1).trim().toLowerCase(Locale.ROOT);
+            if (section.equals("cpu") && k.equals("cycles")) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)").matcher(v);
+                if (v.startsWith("max")) {
+                    conf.cycles = "max";
+                    conf.cpuChoice = 5;
+                } else if (m.find() && !v.startsWith("auto")) {
+                    int n = Integer.parseInt(m.group(1));
+                    int best = CORE_CYCLES[0];
+                    for (int c : CORE_CYCLES) {
+                        if (Math.abs(c - n) < Math.abs(best - n)) best = c;
+                    }
+                    conf.cycles = String.valueOf(best);
+                    conf.cpuChoice = best <= 2750 ? 1 : best <= 7800 ? 2 : best <= 26800 ? 3 : 4;
+                } else {
+                    conf.cycles = "auto";
+                    conf.cpuChoice = 0;
+                }
+                conf.rows.add(new String[]{"cycles=" + v, "CPU 속도: " + CPU_NAMES[conf.cpuChoice] + ("auto".equals(conf.cycles) || "max".equals(conf.cycles) ? "" : " (" + conf.cycles + ")"), "적용"});
+            } else if (section.equals("dosbox") && k.equals("memsize")) {
+                try {
+                    int mb = Integer.parseInt(v.replaceAll("[^0-9]", ""));
+                    conf.memory = mb <= 16 ? 0 : mb <= 32 ? 1 : 2;
+                    conf.rows.add(new String[]{"memsize=" + v, "메모리: " + MEMORY_NAMES[conf.memory] + (mb < 16 ? " (최소값)" : ""), "적용"});
+                } catch (NumberFormatException e) {
+                    // Ignored.
+                }
+            } else if (section.equals("sblaster") && k.equals("sbtype")) {
+                if (v.equals("none")) {
+                    conf.sound = 2;
+                } else if (v.matches("sb16|sbpro2|sbpro1|sb2|sb1|gb")) {
+                    conf.sound = 0;
+                    conf.sbtype = v;
+                }
+                if (conf.sound >= 0) {
+                    conf.rows.add(new String[]{"sbtype=" + v, "사운드: " + (conf.sound == 0 ? "Sound Blaster " + v.replace("sbpro", "Pro ").replace("sb", "").toUpperCase(Locale.ROOT) : "PC 스피커"), "적용"});
+                }
+            } else if (section.equals("sblaster") && k.equals("oplmode")) {
+                oplmode = v;
+            } else if (section.equals("gus") && k.equals("gus")) {
+                conf.gus = v.equals("true");
+                if (conf.gus) conf.rows.add(new String[]{"gus=true", "Gravis Ultrasound 켜기", "적용"});
+            } else if (section.equals("midi") && (k.equals("mididevice") || k.equals("mpu401")) && !v.equals("none") && !v.equals("default") && conf.midi == null) {
+                conf.midi = v;
+                conf.rows.add(new String[]{k + "=" + v, "MIDI 음악", "아직 없음"});
+            }
+        }
+        if (conf.sound == 2 && oplmode != null && !oplmode.equals("none")) {
+            conf.sound = 1;
+            conf.rows.add(new String[]{"oplmode=" + oplmode, "사운드: AdLib", "적용"});
+        }
+        if (!conf.autoexec.isEmpty()) {
+            conf.rows.add(new String[]{"[autoexec]", "실행 순서 " + conf.autoexec.size() + "줄", "적용"});
+        }
+        return conf;
+    }
+
+    static void applyConf(SharedPreferences prefs, String saveBaseName, Conf conf, String confName) {
+        SharedPreferences.Editor edit = prefs.edit();
+        if (conf.cycles != null) {
+            edit.putString(key("cycles", saveBaseName), conf.cycles).putInt(key("cpu", saveBaseName), conf.cpuChoice);
+        }
+        if (conf.memory >= 0) edit.putInt(key("memory", saveBaseName), conf.memory);
+        if (conf.sound >= 0) edit.putInt(key("sound", saveBaseName), conf.sound);
+        if (conf.sbtype != null) edit.putString(key("sbtype", saveBaseName), conf.sbtype);
+        edit.putBoolean(key("gus", saveBaseName), conf.gus);
+        if (!conf.autoexec.isEmpty()) {
+            edit.putString(key("autoexec", saveBaseName), android.text.TextUtils.join("\n", conf.autoexec))
+                    .putString(key("exe", saveBaseName), CONF);
+        }
+        edit.putString(key("conf", saveBaseName), confName + " · " + new java.text.SimpleDateFormat("M월 d일", Locale.KOREA).format(new java.util.Date()));
+        edit.apply();
+    }
+
+    static void clearConf(SharedPreferences prefs, String saveBaseName) {
+        SharedPreferences.Editor edit = prefs.edit()
+                .remove(key("autoexec", saveBaseName)).remove(key("conf", saveBaseName)).remove(key("cycles", saveBaseName))
+                .remove(key("sbtype", saveBaseName)).remove(key("gus", saveBaseName));
+        if (CONF.equals(start(prefs, saveBaseName))) {
+            edit.remove(key("exe", saveBaseName));
+        }
+        edit.apply();
     }
 }
