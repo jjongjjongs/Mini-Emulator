@@ -37,6 +37,9 @@ final class DosSetup {
     static final String[] CONTROL_NAMES = {"방향키 + 버튼", "마우스 패드", "키보드만"};
     static final String[] MOUSE_NAMES = {"밀어서 움직이기", "누른 곳으로 (일부 게임)"};
     static final String[] MIDI_NAMES = {"끔", "General MIDI", "MT-32", "SC-55"};
+    // 3dfx Voodoo: drawn by the CPU (DOSBox Pure's "auto", which here never asks for a GPU
+    // context), by the phone's GPU through OpenGL ES ("4"), or no Voodoo card at all.
+    static final String[] VOODOO_NAMES = {"소프트웨어 (기본)", "하드웨어 (OpenGL ES)", "끔"};
     static final String DEFAULT_KEYS = "Esc,Enter,Space,Y,N,F1,F2,F3,F10,Tab";
     static final String DEFAULT_BUTTONS = "Ctrl,Alt,Shift,Enter";
 
@@ -434,6 +437,9 @@ final class DosSetup {
         options.add(new String[]{"dosbox_pure_sblaster_adlib_mode", sound == 0 ? "auto" : sound == 1 ? "opl2" : "none"});
         options.add(new String[]{"dosbox_pure_mouse_input", mouse == 1 ? "direct" : "virtual"});
         options.add(new String[]{"dosbox_pure_midi", midiOption(systemDir, midiChoice(prefs, saveBaseName))});
+        int voodoo = clamp(choice(prefs, "voodoo", saveBaseName), VOODOO_NAMES.length);
+        options.add(new String[]{"dosbox_pure_voodoo", voodoo == 2 ? "off" : "8mb"});
+        options.add(new String[]{"dosbox_pure_voodoo_perf", voodoo == 1 ? "4" : "auto"});
         // The app's own quick saves and rewind go through the core's save states.
         options.add(new String[]{"dosbox_pure_savestate", "on"});
         String[][] out = new String[2][options.size()];

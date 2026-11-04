@@ -14307,6 +14307,7 @@ public final class MainActivity extends Activity {
         final int[] control = {DosSetup.clamp(DosSetup.choice(prefs, "control", save), DosSetup.CONTROL_NAMES.length)};
         final int[] mouse = {DosSetup.clamp(DosSetup.choice(prefs, "mouse", save), DosSetup.MOUSE_NAMES.length)};
         final int[] midi = {DosSetup.midiChoice(prefs, save)};
+        final int[] voodoo = {DosSetup.clamp(DosSetup.choice(prefs, "voodoo", save), DosSetup.VOODOO_NAMES.length)};
         String exe = DosSetup.start(prefs, save);
         final String confName = prefs.getString(DosSetup.key("conf", save), null);
         final boolean hasAutoexec = prefs.getString(DosSetup.key("autoexec", save), null) != null;
@@ -14352,6 +14353,10 @@ public final class MainActivity extends Activity {
         });
         panel.addView(midiSheet, spaced(8));
         midiSheet.getLayoutParams().height = dp(40);
+        addDosChoice(panel, "3D 가속 (3dfx Voodoo) · 실험적", DosSetup.VOODOO_NAMES, voodoo);
+        panel.addView(noteBox("3dfx(Glide) 판이 있는 게임만 해당돼요 (툼레이더 · 카마게돈 · 디센트 II 등). 게임의 SETUP에서 그래픽을 3Dfx / Glide로 골라야 써요. "
+                + "하드웨어는 폰 GPU로 그려서 빨라요(실험적 · 화면 전체가 GPU로 그려져요). GPU를 못 쓰면 엔진이 소프트웨어로 돌아가요. 다음 실행부터.",
+                Color.rgb(245, 243, 255), Color.rgb(91, 33, 182)), spaced(6));
         addDosChoice(panel, "메모리", DosSetup.MEMORY_NAMES, memory);
         addDosChoice(panel, "조작 (처음 보이는 화면)", DosSetup.CONTROL_NAMES, control);
         addDosChoice(panel, "마우스", DosSetup.MOUSE_NAMES, mouse);
@@ -14411,6 +14416,7 @@ public final class MainActivity extends Activity {
                     .putInt(DosSetup.key("control", save), control[0])
                     .putInt(DosSetup.key("mouse", save), mouse[0])
                     .putInt(DosSetup.key("midi", save), midi[0])
+                    .putInt(DosSetup.key("voodoo", save), voodoo[0])
                     .putString(DosSetup.key("keys", save), keys.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_KEYS : keys.getText().toString().trim())
                     .putString(DosSetup.key("buttons", save), big.getText().toString().trim().isEmpty() ? DosSetup.DEFAULT_BUTTONS : big.getText().toString().trim());
             if (cpu[0] != cpuBefore) {

@@ -32,6 +32,21 @@ final class DosControls {
         long handle();
 
         int dp(int value);
+
+        // The views were built again (another page, a key taken out of the row): the layout
+        // editor's list and the button style have to be taken again.
+        default void rebuilt() {
+        }
+    }
+
+    // A piece of the DOS controls the layout editor moves and "버튼 꾸미기" styles: its key in
+    // the saved layout ("dos.dpad", "dos.btn.Ctrl", "dos.key.Esc" …), its size group.
+    interface Item {
+        String itemKey();
+
+        int styleGroup();
+
+        void applyStyle(ButtonStyle style, String key);
     }
 
     static final int PAGE_PAD = 0;
@@ -59,6 +74,51 @@ final class DosControls {
     private int latched;      // one-shot Shift / Ctrl / Alt from the keyboard
     private int locked;       // held down until tapped again
     private final List<View> pageViews = new ArrayList<>();
+    // Keys taken out of the row to stand on their own (lower case), for this screen direction.
+    private final java.util.Set<String> pulled = new java.util.LinkedHashSet<>();
+    private android.content.SharedPreferences prefs;
+
+    void setPulledStore(android.content.SharedPreferences prefs) {
+        this.prefs = prefs;
+        this.pulled.clear();
+        String saved = prefs.getString(pulledKey(), "");
+        for (String k : saved.split(",")) {
+            if (!k.trim().isEmpty()) pulled.add(k.trim().toLowerCase(Locale.ROOT));
+        }
+    }
+
+    private String pulledKey() {
+        return "dos_pulled_" + (landscape ? "L" : "P");
+    }
+
+    // Takes a key out of the row, or puts a taken-out one back. True when something changed.
+    boolean togglePulled(String key) {
+        String k = key.toLowerCase(Locale.ROOT);
+        if (!pulled.remove(k)) {
+            pulled.add(k);
+        }
+        if (prefs != null) {
+            prefs.edit().putString(pulledKey(), android.text.TextUtils.join(",", pulled)).apply();
+        }
+        show(page);
+        return true;
+    }
+
+    // The taken-out keys that this game's row has, each a key of its own at the top right.
+    private void addPulledKeys() {
+        int dp = host.dp(1);
+        int n = 0;
+        for (String[] key : keyRow) {
+            if (!pulled.contains(key[0].toLowerCase(Locale.ROOT))) continue;
+            DosKey view = keyButton(key[0], key[1], SLATE, 12f);
+            view.itemKey = "dos.key." + key[0];
+            view.group = ButtonStyle.GROUP_SHOULDER;
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, (landscape ? 30 : 34) * dp, Gravity.TOP | Gravity.END);
+            params.setMargins(0, (landscape ? 60 : 8) * dp + (landscape ? n * 38 * dp : 0), (landscape ? 180 : 12) * dp + (landscape ? 0 : n * 62 * dp), 0);
+            add(view, params);
+            n++;
+        }
+    }
 
     DosControls(Context context, Host host, boolean landscape, String keys, String bigButtons, int startPage, boolean directMouse) {
         this.context = context;
@@ -359,23 +419,80 @@ final class DosControls {
         return d;
     }
 
-    private TextView label(String text, int color, float size) {
-        TextView view = new TextView(context);
-        view.setText(text);
-        view.setTextColor(Color.WHITE);
-        view.setTextSize(size);
-        view.setTypeface(Typeface.DEFAULT_BOLD);
-        view.setGravity(Gravity.CENTER);
-        view.setSingleLine(true);
-        view.setBackground(rounded(color, host.dp(9)));
-        view.setPadding(host.dp(8), 0, host.dp(8), 0);
-        return view;
+    // A key or button: its own colour and size, restyled by "버튼 꾸미기".
+    final class DosKey extends TextView implements Item {
+        final int baseColor;
+        final float baseSize;
+        String itemKey;
+        int group = ButtonStyle.GROUP_SHOULDER;
+        int role = ButtonStyle.ROLE_OTHER;
+        String keyName;
+
+        DosKey(String text, int color, float size) {
+            super(context);
+            this.baseColor = color;
+            this.baseSize = size;
+            setText(text);
+            setTextColor(Color.WHITE);
+            setTextSize(size);
+            setTypeface(Typeface.DEFAULT_BOLD);
+            setGravity(Gravity.CENTER);
+            setSingleLine(true);
+            setBackground(rounded(color, host.dp(9)));
+            setPadding(host.dp(8), 0, host.dp(8), 0);
+        }
+
+        @Override
+        public String itemKey() {
+            return itemKey;
+        }
+
+        @Override
+        public int styleGroup() {
+            return group;
+        }
+
+        @Override
+        public void applyStyle(ButtonStyle style, String key) {
+            styleKey(this, style, key, role);
+        }
+    }
+
+    private void styleKey(DosKey view, ButtonStyle style, String key, int role) {
+        boolean themed = style != null && style.themed();
+        int radius = !themed || style.shape == ButtonStyle.SHAPE_ROUNDED ? host.dp(9) : style.shape == ButtonStyle.SHAPE_SQUARE ? host.dp(2) : host.dp(40);
+        int body = themed ? style.colorFor(key, role) : 0;
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(radius);
+        int textColor = Color.WHITE;
+        if (themed && style.outline()) {
+            bg.setColor(Color.argb(40, 255, 255, 255));
+            bg.setStroke(host.dp(2), body != 0 ? body : Color.WHITE);
+        } else if (themed && style.neon()) {
+            int glow = body != 0 ? body : Color.rgb(43, 240, 255);
+            bg.setColor(Color.argb(215, 8, 20, 40));
+            bg.setStroke(host.dp(2), glow);
+            textColor = glow;
+        } else {
+            int fill = body != 0 ? body : view.baseColor;
+            bg.setColor(fill);
+            textColor = ButtonStyle.isLight(fill) ? Color.rgb(31, 41, 55) : Color.WHITE;
+        }
+        view.setBackground(bg);
+        boolean hide = themed && style.label == ButtonStyle.LABEL_HIDE;
+        view.setTextColor(hide ? Color.TRANSPARENT : textColor);
+        view.setTextSize(themed && style.label == ButtonStyle.LABEL_SMALL ? view.baseSize * 0.8f : view.baseSize);
+    }
+
+    private DosKey label(String text, int color, float size) {
+        return new DosKey(text, color, size);
     }
 
     // A key held while touched.
-    private TextView keyButton(String key, String text, int color, float size) {
+    private DosKey keyButton(String key, String text, int color, float size) {
         final int code = code(key);
-        final TextView view = label(text, color, size);
+        final DosKey view = label(text, color, size);
+        view.keyName = key;
         view.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -395,8 +512,8 @@ final class DosControls {
         return view;
     }
 
-    private TextView actionButton(String text, int color, float size, Runnable action) {
-        TextView view = label(text, color, size);
+    private DosKey actionButton(String text, int color, float size, Runnable action) {
+        DosKey view = label(text, color, size);
         view.setOnClickListener(v -> {
             Haptics.tap();
             action.run();
@@ -405,8 +522,8 @@ final class DosControls {
     }
 
     // A mouse button held while touched (bit: 1 left, 2 right); wheel bits are taps.
-    private TextView mouseButton(String text, int color, int bit) {
-        TextView view = label(text, color, 12f);
+    private DosKey mouseButton(String text, int color, int bit) {
+        DosKey view = label(text, color, 12f);
         view.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -435,12 +552,70 @@ final class DosControls {
         return lower.contains("ctrl") ? RED : lower.contains("alt") ? BLUE : SLATE;
     }
 
+    // The row of keys: moved and sized as one; a key can be taken out of it (pulled).
+    final class KeyStrip extends HorizontalScrollView implements Item {
+        final String itemKey;
+
+        KeyStrip(String itemKey) {
+            super(context);
+            this.itemKey = itemKey;
+        }
+
+        @Override
+        public String itemKey() {
+            return itemKey;
+        }
+
+        @Override
+        public int styleGroup() {
+            return ButtonStyle.GROUP_SHOULDER;
+        }
+
+        @Override
+        public void applyStyle(ButtonStyle style, String key) {
+            if (getChildCount() == 0) return;
+            LinearLayout row = (LinearLayout) getChildAt(0);
+            for (int k = 0; k < row.getChildCount(); k++) {
+                View child = row.getChildAt(k);
+                if (child instanceof DosKey) {
+                    DosKey dk = (DosKey) child;
+                    styleKey(dk, style, dk.keyName != null ? "dos.key." + dk.keyName : key, ButtonStyle.ROLE_OTHER);
+                }
+            }
+        }
+
+        // The key under a point of the window, or null (the toggles aren't keys).
+        String keyAt(float windowX, float windowY) {
+            if (getChildCount() == 0) return null;
+            LinearLayout row = (LinearLayout) getChildAt(0);
+            int[] at = new int[2];
+            for (int k = 0; k < row.getChildCount(); k++) {
+                View child = row.getChildAt(k);
+                child.getLocationOnScreen(at);
+                float w = child.getWidth() * getScaleX();
+                float h = child.getHeight() * getScaleY();
+                if (child instanceof DosKey && ((DosKey) child).keyName != null
+                        && windowX >= at[0] && windowX <= at[0] + w && windowY >= at[1] && windowY <= at[1] + h) {
+                    return ((DosKey) child).keyName;
+                }
+            }
+            return null;
+        }
+    }
+
     private HorizontalScrollView keyStrip(String[][] keys, boolean toggles, int height) {
-        HorizontalScrollView scroll = new HorizontalScrollView(context);
+        return keyStrip(keys, toggles, height, null);
+    }
+
+    private HorizontalScrollView keyStrip(String[][] keys, boolean toggles, int height, String itemKey) {
+        HorizontalScrollView scroll = itemKey != null ? new KeyStrip(itemKey) : new HorizontalScrollView(context);
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(context);
         row.setGravity(Gravity.CENTER_VERTICAL);
         for (String[] key : keys) {
+            if (itemKey != null && pulled.contains(key[0].toLowerCase(Locale.ROOT))) {
+                continue;  // placed on its own
+            }
             addStrip(row, keyButton(key[0], key[1], SLATE, 12f), height);
         }
         if (toggles) {
@@ -459,8 +634,33 @@ final class DosControls {
         row.addView(view, params);
     }
 
+    final class MousePad extends LinearLayout implements Item {
+        MousePad() {
+            super(context);
+        }
+
+        @Override
+        public String itemKey() {
+            return "dos.mouse";
+        }
+
+        @Override
+        public int styleGroup() {
+            return ButtonStyle.GROUP_NONE;
+        }
+
+        @Override
+        public void applyStyle(ButtonStyle style, String key) {
+            boolean themed = style != null && style.themed();
+            int c = themed ? style.colorFor(key, ButtonStyle.ROLE_OTHER) : 0;
+            GradientDrawable bg = rounded(themed && (style.neon() || style.outline()) ? Color.argb(200, 8, 20, 40) : c != 0 ? ButtonStyle.darker(c, 0.55f) : DARK, host.dp(16));
+            bg.setStroke(host.dp(2), c != 0 ? c : Color.rgb(71, 85, 105), host.dp(6), host.dp(4));
+            setBackground(bg);
+        }
+    }
+
     private View mousePad(boolean hint) {
-        LinearLayout pad = new LinearLayout(context);
+        LinearLayout pad = new MousePad();
         pad.setOrientation(LinearLayout.VERTICAL);
         pad.setGravity(Gravity.CENTER);
         GradientDrawable bg = rounded(DARK, host.dp(16));
@@ -486,9 +686,42 @@ final class DosControls {
     }
 
     // The arrow keys as a round pad (eight ways).
-    private final class ArrowPad extends View {
+    private final class ArrowPad extends View implements Item {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private int held;  // bits: 1 up, 2 down, 4 left, 8 right
+        private int ring = DARK;
+        private int rim = SLATE;
+        private int mark = Color.rgb(156, 163, 175);
+
+        @Override
+        public String itemKey() {
+            return "dos.dpad";
+        }
+
+        @Override
+        public int styleGroup() {
+            return ButtonStyle.GROUP_DPAD;
+        }
+
+        @Override
+        public void applyStyle(ButtonStyle style, String key) {
+            boolean themed = style != null && style.themed();
+            int c = themed ? style.colorFor(key, ButtonStyle.ROLE_DPAD) : 0;
+            if (c == 0) {
+                ring = DARK;
+                rim = SLATE;
+                mark = Color.rgb(156, 163, 175);
+            } else if (style.neon() || style.outline()) {
+                ring = Color.argb(200, 8, 20, 40);
+                rim = c;
+                mark = c;
+            } else {
+                ring = c;
+                rim = ButtonStyle.darker(c, 0.25f);
+                mark = ButtonStyle.isLight(c) ? Color.rgb(55, 65, 81) : Color.rgb(229, 231, 235);
+            }
+            invalidate();
+        }
 
         ArrowPad() {
             super(context);
@@ -500,11 +733,11 @@ final class DosControls {
             float h = getHeight();
             float r = Math.min(w, h) / 2f - host.dp(2);
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(DARK);
+            paint.setColor(ring);
             canvas.drawCircle(w / 2f, h / 2f, r, paint);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(host.dp(2));
-            paint.setColor(SLATE);
+            paint.setColor(rim);
             canvas.drawCircle(w / 2f, h / 2f, r, paint);
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(Color.rgb(75, 85, 99));
@@ -515,7 +748,7 @@ final class DosControls {
             String[] arrows = {"↑", "↓", "←", "→"};
             float[][] spots = {{w / 2f, h / 2f - r * 0.72f}, {w / 2f, h / 2f + r * 0.72f}, {w / 2f - r * 0.72f, h / 2f}, {w / 2f + r * 0.72f, h / 2f}};
             for (int i = 0; i < 4; i++) {
-                paint.setColor((held & (1 << i)) != 0 ? Color.WHITE : Color.rgb(156, 163, 175));
+                paint.setColor((held & (1 << i)) != 0 ? Color.WHITE : mark);
                 canvas.drawText(arrows[i], spots[i][0], spots[i][1] + host.dp(5), paint);
             }
         }
@@ -709,7 +942,21 @@ final class DosControls {
         } else {
             buildPortrait();
         }
+        if (page != PAGE_KEYBOARD) {
+            addPulledKeys();
+        }
+        host.rebuilt();
     }
+
+    // A button the layout editor and "버튼 꾸미기" treat as its own.
+    private DosKey item(DosKey view, String itemKey, int group, int role) {
+        view.itemKey = itemKey;
+        view.group = group;
+        view.role = role;
+        return view;
+    }
+
+    private static final int[] ROLES = {ButtonStyle.ROLE_A, ButtonStyle.ROLE_B, ButtonStyle.ROLE_X, ButtonStyle.ROLE_Y};
 
     private void add(View view, FrameLayout.LayoutParams params) {
         frame.addView(view, params);
@@ -741,10 +988,10 @@ final class DosControls {
         String[][] second = new String[keyRow.length - half][];
         System.arraycopy(keyRow, 0, first, 0, half);
         System.arraycopy(keyRow, half, second, 0, second.length);
-        column.addView(keyStrip(first, false, 32 * dp), new LinearLayout.LayoutParams(-1, 32 * dp));
+        column.addView(keyStrip(first, false, 32 * dp, "dos.keys1"), new LinearLayout.LayoutParams(-1, 32 * dp));
         LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(-1, 32 * dp);
         secondParams.setMargins(0, 5 * dp, 0, 0);
-        column.addView(keyStrip(second, true, 32 * dp), secondParams);
+        column.addView(keyStrip(second, true, 32 * dp, "dos.keys2"), secondParams);
         LinearLayout middle = new LinearLayout(context);
         middle.setGravity(Gravity.CENTER_VERTICAL);
         if (page == PAGE_PAD) {
@@ -759,7 +1006,7 @@ final class DosControls {
             for (String key : new String[]{"Esc", "Enter", "Space"}) {
                 LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, 38 * dp);
                 p.setMargins(0, 0, 0, 6 * dp);
-                left.addView(keyButton(key, key, SLATE, 12f), p);
+                left.addView(item(keyButton(key, key, SLATE, 12f), "dos.mm." + key, ButtonStyle.GROUP_ACTION, ButtonStyle.ROLE_OTHER), p);
             }
             middle.addView(left, new LinearLayout.LayoutParams(0, -2, 1f));
             TextView hint = new TextView(context);
@@ -777,7 +1024,7 @@ final class DosControls {
             for (Object[] m : mouse) {
                 LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, 28 * dp);
                 p.setMargins(0, 0, 0, 5 * dp);
-                right.addView(mouseButton((String) m[0], (Integer) m[1], (Integer) m[2]), p);
+                right.addView(item(mouseButton((String) m[0], (Integer) m[1], (Integer) m[2]), "dos.mm." + m[0], ButtonStyle.GROUP_ACTION, ButtonStyle.ROLE_OTHER), p);
             }
             middle.addView(right, new LinearLayout.LayoutParams(0, -2, 1f));
         }
@@ -786,10 +1033,11 @@ final class DosControls {
         column.addView(middle, middleParams);
         if (page == PAGE_PAD) {
             LinearLayout big = new LinearLayout(context);
+            int bi = 0;
             for (String[] b : buttons) {
                 LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 44 * dp, 1f);
                 p.setMargins(3 * dp, 0, 3 * dp, 0);
-                big.addView(keyButton(b[0], b[1], buttonColor(b[0]), 13f), p);
+                big.addView(item(keyButton(b[0], b[1], buttonColor(b[0]), 13f), "dos.btn." + b[0], ButtonStyle.GROUP_ACTION, ROLES[bi++ % 4]), p);
             }
             LinearLayout.LayoutParams bigParams = new LinearLayout.LayoutParams(-1, -2);
             bigParams.setMargins(4 * dp, 14 * dp, 4 * dp, 0);
@@ -809,7 +1057,7 @@ final class DosControls {
             return;
         }
         // The key row under the screen.
-        HorizontalScrollView strip = keyStrip(keyRow, true, 30 * dp);
+        HorizontalScrollView strip = keyStrip(keyRow, true, 30 * dp, "dos.keys");
         FrameLayout.LayoutParams stripParams = new FrameLayout.LayoutParams(-1, 30 * dp, Gravity.BOTTOM);
         stripParams.setMargins(150 * dp, 0, 150 * dp, 6 * dp);
         add(strip, stripParams);
@@ -826,7 +1074,7 @@ final class DosControls {
                 for (int c = r; c < Math.min(buttons.length, r + 2); c++) {
                     LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(62 * dp, 40 * dp);
                     p.setMargins(c == r ? 0 : 6 * dp, 0, 0, 0);
-                    row.addView(keyButton(buttons[c][0], buttons[c][1], buttonColor(buttons[c][0]), 12f), p);
+                    row.addView(item(keyButton(buttons[c][0], buttons[c][1], buttonColor(buttons[c][0]), 12f), "dos.btn." + buttons[c][0], ButtonStyle.GROUP_ACTION, ROLES[c % 4]), p);
                 }
                 LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-2, -2);
                 rowParams.setMargins(0, 0, 0, 6 * dp);
@@ -846,12 +1094,12 @@ final class DosControls {
         for (String key : new String[]{"Esc", "Enter", "Space"}) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(118 * dp, 36 * dp);
             p.setMargins(0, 0, 0, 6 * dp);
-            left.addView(keyButton(key, key, SLATE, 12f), p);
+            left.addView(item(keyButton(key, key, SLATE, 12f), "dos.mm." + key, ButtonStyle.GROUP_ACTION, ButtonStyle.ROLE_OTHER), p);
         }
         LinearLayout.LayoutParams kb = new LinearLayout.LayoutParams(118 * dp, 36 * dp);
         kb.setMargins(0, 10 * dp, 0, 6 * dp);
-        left.addView(actionButton("⌨ 키보드", TEAL, 12f, () -> show(PAGE_KEYBOARD)), kb);
-        left.addView(actionButton("🎮 패드로", VIOLET, 12f, () -> show(PAGE_PAD)), new LinearLayout.LayoutParams(118 * dp, 36 * dp));
+        left.addView(item(actionButton("⌨ 키보드", TEAL, 12f, () -> show(PAGE_KEYBOARD)), "dos.mm.keyboard", ButtonStyle.GROUP_ACTION, ButtonStyle.ROLE_PILL), kb);
+        left.addView(item(actionButton("🎮 패드로", VIOLET, 12f, () -> show(PAGE_PAD)), "dos.mm.pad", ButtonStyle.GROUP_ACTION, ButtonStyle.ROLE_PILL), new LinearLayout.LayoutParams(118 * dp, 36 * dp));
         FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
         leftParams.setMargins(14 * dp, 64 * dp, 0, 0);
         add(left, leftParams);
@@ -861,7 +1109,7 @@ final class DosControls {
         for (Object[] m : mouse) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(118 * dp, 36 * dp);
             p.setMargins(0, 0, 0, 6 * dp);
-            right.addView(mouseButton((String) m[0], (Integer) m[1], (Integer) m[2]), p);
+            right.addView(item(mouseButton((String) m[0], (Integer) m[1], (Integer) m[2]), "dos.mm." + m[0], ButtonStyle.GROUP_ACTION, ButtonStyle.ROLE_OTHER), p);
         }
         FrameLayout.LayoutParams rightParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
         rightParams.setMargins(0, 100 * dp, 14 * dp, 0);

@@ -29,6 +29,34 @@ final class LayoutEditorView extends FrameLayout {
         void onSave(float[][] edits);
 
         void onCancel();
+
+        // A finger held still on a control (DOS: take a key out of its row, or put it back).
+        // True when the activity handled it (it may rebuild the controls and this editor).
+        default boolean onHold(int index, float rawX, float rawY) {
+            return false;
+        }
+    }
+
+    private int holdIndex = -1;
+    private float holdX;
+    private float holdY;
+    private float downX;
+    private float downY;
+    private Listener listenerRef;
+    private final Runnable hold = this::onHoldFired;
+
+    private void onHoldFired() {
+        int index = holdIndex;
+        holdIndex = -1;
+        if (index >= 0 && listenerRef != null) {
+            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            listenerRef.onHold(index, holdX, holdY);
+        }
+    }
+
+    /** The edits as they stand (dx dp, dy dp, scale x, scale y per control). */
+    float[][] currentEdits() {
+        return edits;
     }
 
     private static final float MIN_SCALE = 0.6f;
@@ -491,12 +519,23 @@ final class LayoutEditorView extends FrameLayout {
                 selected = controlAt(event.getX(), event.getY());
                 lastX = event.getX();
                 lastY = event.getY();
+                downX = event.getX();
+                downY = event.getY();
+                listenerRef = listener;
+                removeCallbacks(hold);
+                if (selected >= 0) {
+                    holdIndex = selected;
+                    holdX = event.getRawX();
+                    holdY = event.getRawY();
+                    postDelayed(hold, 600);
+                }
                 snapped = false;
                 refreshScreenRow();
                 updateSizeText();
                 invalidate();
                 return true;
             case MotionEvent.ACTION_POINTER_DOWN:
+                removeCallbacks(hold);
                 if (selected >= 0 && event.getPointerCount() == 2) {
                     startDistance = distance(event);
                     startScaleX = edits[selected][2];
@@ -504,6 +543,9 @@ final class LayoutEditorView extends FrameLayout {
                 }
                 return true;
             case MotionEvent.ACTION_MOVE:
+                if (Math.hypot(event.getX() - downX, event.getY() - downY) > dp(10)) {
+                    removeCallbacks(hold);
+                }
                 if (selected < 0) {
                     return true;
                 }
@@ -545,6 +587,7 @@ final class LayoutEditorView extends FrameLayout {
                 return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                removeCallbacks(hold);
                 snapped = false;
                 invalidate();
                 return true;

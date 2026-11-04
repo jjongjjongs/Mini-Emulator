@@ -2214,7 +2214,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static boolean isLayoutControl(View view) {
         return view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView
                 || view instanceof ArcadeJoystickView || view instanceof SpeedButtonView || view instanceof RewindButtonView
-                || view instanceof WiiuPadWindowView;
+                || view instanceof WiiuPadWindowView
+                || (view instanceof DosControls.Item && ((DosControls.Item) view).itemKey() != null);
     }
 
     // Saved per console, screen direction and screen style.
@@ -3031,6 +3032,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Finds the controls just built, names them (kind, button bit, n-th of the same) so a saved
     // layout still fits when another button comes or goes, and applies the saved moves.
     private void applyLayoutEdits(View root) {
+        this.contentRoot = root;
+        // Views that stay across a rebuild of part of the controls (DOS pages) keep the
+        // position they had before any edit.
+        java.util.Map<View, float[]> oldBase = new java.util.IdentityHashMap<>();
+        for (int k = 0; k < this.layoutControls.size() && k < this.layoutBase.size(); k++) {
+            oldBase.put(this.layoutControls.get(k), this.layoutBase.get(k));
+        }
         this.controlsGeneration++;
         this.gapOffsets.clear();
         this.layoutControls.clear();
@@ -3042,19 +3050,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (this.screenArea != null && !isPadScreen()) {
             this.layoutControls.add(this.screenArea);
             this.layoutIds.add(SCREEN_LAYOUT_ID);
-            this.layoutBase.add(new float[]{this.screenArea.getTranslationX(), this.screenArea.getTranslationY()});
+            float[] keep = oldBase.get(this.screenArea);
+            this.layoutBase.add(keep != null ? keep : new float[]{this.screenArea.getTranslationX(), this.screenArea.getTranslationY()});
         }
         java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
         queue.add(root);
         while (!queue.isEmpty()) {
             View view = queue.poll();
             if (isLayoutControl(view)) {
-                String kind = view.getClass().getSimpleName() + (view instanceof TouchButton ? "." + ((TouchButton) view).bit() : "");
+                String kind = view instanceof DosControls.Item ? ((DosControls.Item) view).itemKey()
+                        : view.getClass().getSimpleName() + (view instanceof TouchButton ? "." + ((TouchButton) view).bit() : "");
                 int count = seen.containsKey(kind) ? seen.get(kind) : 0;
                 seen.put(kind, count + 1);
                 this.layoutControls.add(view);
                 this.layoutIds.add(kind + "#" + count);
-                this.layoutBase.add(new float[]{view.getTranslationX(), view.getTranslationY()});
+                float[] keep = oldBase.get(view);
+                this.layoutBase.add(keep != null ? keep : new float[]{view.getTranslationX(), view.getTranslationY()});
             } else if (view instanceof android.view.ViewGroup) {
                 android.view.ViewGroup group = (android.view.ViewGroup) view;
                 for (int k = 0; k < group.getChildCount(); k++) {
@@ -3318,6 +3329,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             } else if (view instanceof AnalogStickView) {
                 name = ++sticks == 1 ? "스틱" : "오른쪽 스틱";
                 role = ButtonStyle.ROLE_DPAD;
+            } else if (view instanceof DosControls.DosKey) {
+                DosControls.DosKey key = (DosControls.DosKey) view;
+                name = key.getText().toString();
+                role = key.role;
+            } else if (view instanceof DosControls.Item && ((DosControls.Item) view).styleGroup() == ButtonStyle.GROUP_DPAD) {
+                name = "방향 패드";
+                role = ButtonStyle.ROLE_DPAD;
             } else {
                 continue;
             }
@@ -3328,6 +3346,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // ---- 버튼 꾸미기 (button style) ----
     private static int styleGroup(View view) {
+        if (view instanceof DosControls.Item) return ((DosControls.Item) view).styleGroup();
         if (view instanceof DPadView) return ButtonStyle.GROUP_DPAD;
         if (view instanceof AnalogStickView || view instanceof ArcadeJoystickView) return ButtonStyle.GROUP_STICK;
         if (view instanceof TouchButton) return ((TouchButton) view).isKeycap() ? ButtonStyle.GROUP_SHOULDER : ButtonStyle.GROUP_ACTION;
@@ -3358,6 +3377,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 ((DPadView) view).setStyle(style, key);
             } else if (view instanceof AnalogStickView) {
                 ((AnalogStickView) view).setStyle(style, key);
+            } else if (view instanceof DosControls.Item) {
+                ((DosControls.Item) view).applyStyle(style, key);
             }
         }
         computeGapOffsets(() -> {
@@ -3496,6 +3517,23 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return new android.graphics.Rect(origin[0], origin[1], origin[0] + screen.getWidth(), origin[1] + screen.getHeight());
     }
 
+    private void saveLayoutEdits(float[][] result) {
+        StringBuilder sb = new StringBuilder();
+        for (int k = 0; k < result.length && k < this.layoutIds.size(); k++) {
+            float[] edit = result[k];
+            if (Math.abs(edit[0]) < 0.5f && Math.abs(edit[1]) < 0.5f && Math.abs(edit[2] - 1) < 0.01f && Math.abs(edit[3] - 1) < 0.01f) {
+                continue;
+            }
+            sb.append(this.layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',')
+                    .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f);
+            if (Math.abs(edit[2] - edit[3]) >= 0.005f) {
+                sb.append(',').append(Math.round(edit[3] * 100) / 100.0f);
+            }
+            sb.append(';');
+        }
+        MainActivity.sharedSettings(this).edit().putString(layoutKey(), sb.toString()).apply();
+    }
+
     private void startLayoutEditor() {
         if (this.layoutControls.isEmpty() || this.layoutEditor != null) {
             return;
@@ -3519,31 +3557,53 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
             @Override
             public void onSave(float[][] result) {
-                StringBuilder sb = new StringBuilder();
-                for (int k = 0; k < result.length; k++) {
-                    float[] edit = result[k];
-                    if (Math.abs(edit[0]) < 0.5f && Math.abs(edit[1]) < 0.5f && Math.abs(edit[2] - 1) < 0.01f && Math.abs(edit[3] - 1) < 0.01f) {
-                        continue;
-                    }
-                    sb.append(layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',')
-                            .append(Math.round(edit[1])).append(',').append(Math.round(edit[2] * 100) / 100.0f);
-                    if (Math.abs(edit[2] - edit[3]) >= 0.005f) {
-                        sb.append(',').append(Math.round(edit[3] * 100) / 100.0f);
-                    }
-                    sb.append(';');
-                }
-                MainActivity.sharedSettings(GameActivity.this).edit().putString(layoutKey(), sb.toString()).apply();
+                saveLayoutEdits(result);
                 finishLayoutEditor("버튼 배치를 저장했어요.");
             }
-
             @Override
             public void onCancel() {
                 finishLayoutEditor(null);
+            }
+
+            @Override
+            public boolean onHold(int index, float rawX, float rawY) {
+                return dosEditorHold(index, rawX, rawY);
             }
         });
         editor.setGuards(new java.util.ArrayList<>(this.layoutGuards));
         addContentView(editor, new FrameLayout.LayoutParams(-1, -1));
         this.layoutEditor = editor;
+    }
+
+    // DOS, in the layout editor: a key of the row held → it stands on its own; a key on its own
+    // held → back into the row. The edits so far are kept, the editor opens again.
+    private boolean dosEditorHold(int index, float rawX, float rawY) {
+        if (this.dosControls == null || index < 0 || index >= this.layoutControls.size() || this.layoutEditor == null) {
+            return false;
+        }
+        View view = this.layoutControls.get(index);
+        String key = null;
+        if (view instanceof DosControls.KeyStrip) {
+            key = ((DosControls.KeyStrip) view).keyAt(rawX, rawY);
+        } else if (view instanceof DosControls.DosKey && ((DosControls.DosKey) view).itemKey != null
+                && ((DosControls.DosKey) view).itemKey.startsWith("dos.key.")) {
+            key = ((DosControls.DosKey) view).keyName;
+        }
+        if (key == null) {
+            return false;
+        }
+        float[][] result = this.layoutEditor.currentEdits();
+        saveLayoutEdits(result);
+        final boolean back = view instanceof DosControls.DosKey;
+        finishLayoutEditor(null);
+        this.dosControls.togglePulled(key);
+        final String shown = key;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (this.destroyed) return;
+            startLayoutEditor();
+            Toast.makeText(this, back ? shown + " 키를 줄에 다시 넣었어요" : shown + " 키를 줄에서 꺼냈어요 · 끌어서 옮겨요", Toast.LENGTH_SHORT).show();
+        }, 250);
+        return true;
     }
 
     private void finishLayoutEditor(String message) {
@@ -10742,6 +10802,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // ---- DOS (DOSBox Pure) ----
     private DosControls dosControls;
+    private View contentRoot;
 
     private boolean isDos() {
         return "dosbox_pure".equals(this.coreId);
@@ -10764,8 +10825,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             public int dp(int value) {
                 return GameActivity.this.dp(value);
             }
+
+            @Override
+            public void rebuilt() {
+                // Another page or a key taken out: the editor's list and the style again.
+                frame.post(() -> {
+                    View root = contentRoot;
+                    if (!destroyed && root != null && root.isAttachedToWindow() && dosControls != null && frame.isAttachedToWindow()) {
+                        applyLayoutEdits(root);
+                    }
+                });
+            }
         }, landscape, DosSetup.keyRow(prefs, this.saveBaseName), DosSetup.buttonRow(prefs, this.saveBaseName), start,
                 DosSetup.choice(prefs, "mouse", this.saveBaseName) == 1);
+        controls.setPulledStore(prefs);
         this.dosControls = controls;
         controls.attach(frame);
     }

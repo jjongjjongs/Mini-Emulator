@@ -199,9 +199,12 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <tr><td>MIDI 음악 (0.0.263)</td><td>DOS 설정에 MIDI 칸(끔 · General MIDI(기본) · MT-32 · SC-55). General MIDI는 앱에 든 자유 사운드폰트 TimGM6mb(GPL-2, 약 6MB)로 바로 나오고, DOS 설정 → 🎵 MIDI 음원 관리에서 내 .sf2로 바꿀 수 있습니다. Roland MT-32(MT32_CONTROL.ROM + MT32_PCM.ROM, CM32L_ 이름도 됨) · SC-55(ROM1 · ROM2 · WAVEROM 등)는 저작권 때문에 앱에 없고, 본인 기기에서 뽑은 파일을 등록하면 쓸 수 있습니다. ROM이 없으면 General MIDI로 대신합니다. 게임 zip 안의 DOSBOX.SF2는 엔진이 알아서 씁니다. 게임의 SETUP에서 음악 장치를 General MIDI(또는 MT-32 · Roland)로 골라야 MIDI 소리가 납니다. conf의 mididevice · mpu401도 적용합니다</td></tr>
 <tr><td>한글 표시 (0.0.263)</td><td>conf 안의 한글(UTF-8 · 옛 한글 CP949를 알아내서)과 실행 파일 목록의 DOS 이름을 제대로 읽히게 보여 줍니다. 엔진이 앞뒤 4바이트로 자른 한글 이름은 잘린 자리를 '·'로 보여 줍니다(예: "창세기전 한글판" → "창·판"). 시작 파일에는 원래 바이트 그대로 씁니다</td></tr>
 <tr><td>게임패드 · 키보드</td><td>블루투스 게임패드는 DOSBox Pure의 자동 연결(알려진 게임은 게임에 맞게, 아니면 방향키 · 버튼)로 키에 이어집니다. 블루투스 · USB 키보드는 그대로 DOS 키보드가 됩니다</td></tr>
-<tr><td>아직 없음</td><td>3dfx Voodoo 하드웨어 가속(소프트웨어로만 그림), 버튼 배치 편집 · 버튼 꾸미기의 DOS 버튼 반영</td></tr></table>
+<tr><td>버튼 배치 편집 (0.0.267)</td><td>다른 게임기와 같은 편집기에서 DOS 버튼을 하나씩: 게임 화면 · 방향 패드 · 마우스 패드 · Ctrl · Alt · Shift · Enter(큰 버튼) · 마우스 모드 버튼, 키 줄은 줄 통째로. 편집 중 키 줄의 키를 길게 누르면 줄에서 꺼내 따로 놓을 수 있고(예: Esc를 오른쪽 위로), 꺼낸 키를 길게 누르면 줄로 돌아감. 꺼낸 키는 키 이름으로 기억해서 게임마다 키 줄이 달라도 그 키가 있으면 그 자리에. 세로 · 가로 따로 저장</td></tr>
+<tr><td>버튼 꾸미기 (0.0.267)</td><td>테마(원색 · 화이트 · 블랙 · 윤곽선 · 네온 · 파스텔 · 내 색 · 버튼마다 색) · 모양 · 글자(숨김 · 작게) · 크기(방향 패드 / 큰 버튼 / 키 줄 묶음별)를 DOS 버튼에도 적용</td></tr>
+<tr><td>3D 가속 (0.0.267, 실험적)</td><td>DOS 설정의 "3D 가속 (3dfx Voodoo)": 소프트웨어(기본) · 하드웨어(OpenGL ES, 폰 GPU) · 끔. 3dfx(Glide) 판이 있는 게임만 해당(게임 SETUP에서 3Dfx/Glide 선택). 하드웨어로 켜면 DOS 화면 전체가 GPU로 그려지고, GPU를 못 쓰면 엔진이 소프트웨어로 돌아감. 다음 실행부터</td></tr></table>
 <figure><img src="img/dos.jpg" alt="DOS 모드 시안"><figcaption>DOS 모드 시안: 게임 목록 · 처음 실행 때 실행 파일 고르기 · 세로 게임 화면 · DOS 설정. 실제 화면은 시안과 조금 다를 수 있습니다.</figcaption></figure>
 <figure><img src="img/dosplay.jpg" alt="DOS 게임 화면 시안"><figcaption>DOS 게임 화면 시안: 세로 기본 · 세로 전체 키보드 · 가로 기본 · 가로 마우스 모드.</figcaption></figure>
+<figure><img src="img/dosedit.jpg" alt="DOS 버튼 배치 편집 시안"><figcaption>0.0.267 DOS 버튼 배치 편집 시안: 버튼별 · 게임 화면 · 키 꺼내기(Esc).</figcaption></figure>
 
 <h2 id="s3">3. 게임 목록 (라이브러리)</h2>
 <ul>
