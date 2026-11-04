@@ -3135,6 +3135,8 @@ public final class MainActivity extends Activity {
     }
 
     private static final class ImportOutcome {
+        String mode;
+        final List<Uri> archives = new ArrayList<>();
         int imported;
         int duplicates;
         int picked;
@@ -3144,6 +3146,17 @@ public final class MainActivity extends Activity {
 
     private void finishRomImport(ImportOutcome outcome) {
         if (outcome.picked == 0) {
+            return;
+        }
+        if (!outcome.archives.isEmpty()) {
+            refreshLibrary();
+            if (outcome.errors.length() > 0) {
+                showError(outcome.errors.toString());
+            }
+            if (outcome.imported > 0) {
+                Toast.makeText(this, "가져오기 완료: " + outcome.imported + "개", Toast.LENGTH_SHORT).show();
+            }
+            openRomArchives(outcome.mode, new java.util.ArrayDeque<>(outcome.archives));
             return;
         }
         refreshLibrary();
@@ -3163,6 +3176,7 @@ public final class MainActivity extends Activity {
 
     private ImportOutcome copyRoms(Intent intent, String mode) {
         ImportOutcome outcome = new ImportOutcome();
+        outcome.mode = mode;
         List<File> singletonOrEmpty;
         ArrayList<Uri> arrayList = new ArrayList();
         ClipData clipData = intent.getClipData();
@@ -3187,6 +3201,15 @@ public final class MainActivity extends Activity {
         for (Uri uri2 : arrayList) {
             String displayNameFor = displayNameFor(uri2);
             String lowerCase = displayNameFor.toLowerCase(Locale.US);
+            if ((lowerCase.endsWith(".rar") || lowerCase.endsWith(".7z") || RarReader.isSplitName(lowerCase)) && !MODE_NAOMI.equals(mode)
+                    && !"arcade".equals(mode) && !"neogeo".equals(mode)) {
+                if (RarReader.isSplitName(lowerCase)) {
+                    sb.append(displayNameFor).append(": 여러 파일로 나뉜 RAR는 아직 못 풀어요\n");
+                } else {
+                    outcome.archives.add(uri2);  // after this: 압축 파일 안의 게임
+                }
+                continue;
+            }
             if (!isRomNameFor(mode, lowerCase) && !lowerCase.endsWith(".zip")) {
                 sb.append(displayNameFor).append(": 지원하지 않는 파일\n");
             } else {
@@ -9243,12 +9266,12 @@ public final class MainActivity extends Activity {
         for (Uri uri : picked) {
             String name = displayNameFor(uri);
             String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
-            if (lower.endsWith(".rar")) {
-                this.prepError = name + "는 RAR 압축이에요. RAR는 앱에서 풀 수 없어서, 먼저 풀어서 안의 패치 파일을 골라 주세요 (zip · 7z는 바로 돼요).";
+            if (RarReader.isSplitName(name == null ? "" : name)) {
+                this.prepError = name + "는 여러 파일로 나뉜 RAR의 한 조각이에요. 나뉜 RAR는 아직 못 풀어서, 한 파일로 된 압축이나 푼 파일을 골라 주세요.";
                 renderPatchPrep();
                 return;
             }
-            if (lower.endsWith(".zip") || lower.endsWith(".7z")) {
+            if (lower.endsWith(".zip") || lower.endsWith(".7z") || lower.endsWith(".rar")) {
                 openPatchArchive(file, uri, name);
                 return;
             }
@@ -9293,13 +9316,410 @@ public final class MainActivity extends Activity {
             String names = android.text.TextUtils.join(", ", bad);
             boolean dcp = names.toLowerCase(Locale.ROOT).endsWith(".dcp");
             this.prepError = dcp ? names + "는 드림캐스트 GDI 게임에만 쓸 수 있어요. 이 게임에는 IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 패치를 골라 주세요."
-                    : names + "는 패치 파일이 아니에요.\nIPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 파일이나, 그것이 든 zip · 7z를 골라 주세요.";
+                    : names + "는 패치 파일이 아니에요.\nIPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF 파일이나, 그것이 든 zip · 7z · rar를 골라 주세요.";
         } else {
             this.prepError = null;
         }
         renderPatchPrep();
     }
 
+
+
+    // ---- 압축 파일 안의 게임: a RAR or 7z picked in ROM 추가 ----
+
+    private static final class ArchiveGame {
+        String label;
+        final List<String> entries = new ArrayList<>();   // the main file first (a sheet, then its tracks)
+        long size;
+        boolean exists;
+        boolean sheet;
+    }
+
+    private void openRomArchives(final String mode, final java.util.ArrayDeque<Uri> queue) {
+        final Uri uri = queue.poll();
+        if (uri == null) {
+            refreshLibrary();
+            return;
+        }
+        final String archiveName = displayNameFor(uri);
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage(archiveName + " 살펴보는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String error = null;
+            File copy = new File(getCacheDir(), "rom_archive_" + System.currentTimeMillis());
+            List<ArchiveGame> games = new ArrayList<>();
+            List<String> others = new ArrayList<>();
+            long total = 0;
+            try {
+                try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(copy)) {
+                    if (in == null) {
+                        throw new IOException("압축 파일을 열 수 없어요.");
+                    }
+                    byte[] buffer = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        out.write(buffer, 0, n);
+                    }
+                }
+                List<PatchArchive.Listed> listed = PatchArchive.list(copy);
+                boolean encrypted = false;
+                for (PatchArchive.Listed l : listed) {
+                    encrypted |= l.encrypted;
+                    total += Math.max(0, l.size);
+                }
+                if (encrypted) {
+                    throw new IOException("암호 걸린 압축이라 풀 수 없어요. 컴퓨터에서 암호를 넣고 풀어서 가져와 주세요.");
+                }
+                findArchiveGames(copy, mode, listed, games, others);
+            } catch (IOException e) {
+                error = e.getMessage();
+                copy.delete();
+            } catch (RuntimeException e) {
+                error = "압축 파일을 읽지 못했어요 (" + e.getClass().getSimpleName() + ").";
+                copy.delete();
+            }
+            final String why = error;
+            final long size = total;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    copy.delete();
+                    return;
+                }
+                if (why != null) {
+                    showError(archiveName + ": " + why);
+                    openRomArchives(mode, queue);
+                    return;
+                }
+                if (games.isEmpty()) {
+                    copy.delete();
+                    showError(archiveName + " 안에 " + MODE_NAMES[modeIndex(mode)] + " 게임(" + MODE_FILES[modeIndex(mode)] + ")이 없어요. 다른 게임기 모드에서 가져와 주세요.");
+                    openRomArchives(mode, queue);
+                    return;
+                }
+                showRomArchive(mode, archiveName, copy, games, others, size, queue);
+            });
+        }, "rom-archive").start();
+    }
+
+    // The games inside: this console's files, a .cue / .gdi with the tracks it names as one game.
+    private void findArchiveGames(File archive, String mode, List<PatchArchive.Listed> listed, List<ArchiveGame> games, List<String> others) throws IOException {
+        java.util.Map<String, Long> sizes = new java.util.LinkedHashMap<>();
+        for (PatchArchive.Listed l : listed) {
+            sizes.put(l.name, l.size);
+        }
+        java.util.Set<String> used = new java.util.HashSet<>();
+        File sheets = new File(getCacheDir(), "rom_archive_sheets");
+        deleteRecursively(sheets);
+        List<String> sheetNames = new ArrayList<>();
+        List<File> sheetFiles = new ArrayList<>();
+        for (String name : sizes.keySet()) {
+            String lower = name.toLowerCase(Locale.ROOT);
+            if ((lower.endsWith(".cue") || lower.endsWith(".gdi")) && isRomNameFor(mode, lower) && sizes.get(name) < (1 << 20)) {
+                sheetNames.add(name);
+                sheetFiles.add(new File(sheets, String.valueOf(sheetFiles.size())));
+            }
+        }
+        if (!sheetNames.isEmpty()) {
+            PatchArchive.extract(archive, sheetNames, sheetFiles, null);
+        }
+        File romDir = romDirFor(mode);
+        for (int k = 0; k < sheetNames.size(); k++) {
+            String sheet = sheetNames.get(k);
+            String dir = sheet.contains("/") ? sheet.substring(0, sheet.lastIndexOf('/') + 1) : "";
+            ArchiveGame game = new ArchiveGame();
+            game.sheet = true;
+            game.entries.add(sheet);
+            game.size = sizes.get(sheet);
+            String text = PatchArchive.readText(sheetFiles.get(k));
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?im)^[ \\t]*FILE[ \\t]+\"([^\"]+)\"|^[ \\t]*FILE[ \\t]+(\\S+)|^[ \\t]*\\d+[ \\t]+\\d+[ \\t]+\\d+[ \\t]+\\d+[ \\t]+\"([^\"]+)\"|^[ \\t]*\\d+[ \\t]+\\d+[ \\t]+\\d+[ \\t]+\\d+[ \\t]+(\\S+)").matcher(text);
+            while (m.find()) {
+                String ref = m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3) != null ? m.group(3) : m.group(4);
+                String full = dir + ref.replace('\\', '/');
+                String match = null;
+                for (String name : sizes.keySet()) {
+                    if (name.equalsIgnoreCase(full)) {
+                        match = name;
+                    }
+                }
+                if (match != null && !game.entries.contains(match)) {
+                    game.entries.add(match);
+                    game.size += sizes.get(match);
+                }
+            }
+            String base = new File(sheet).getName();
+            game.label = base + (game.entries.size() > 1 ? " + 트랙 " + (game.entries.size() - 1) + "개" : " (트랙 없음)");
+            game.exists = new File(romDir, base).exists();
+            used.addAll(game.entries);
+            games.add(game);
+        }
+        for (String name : sizes.keySet()) {
+            if (used.contains(name)) {
+                continue;
+            }
+            String base = new File(name).getName();
+            String lower = base.toLowerCase(Locale.ROOT);
+            if (isRomNameFor(mode, lower) && !lower.endsWith(".cue") && !lower.endsWith(".gdi")) {
+                // Tracks of a sheet game that isn't in the archive are not games of their own.
+                boolean track = (lower.endsWith(".bin") || lower.endsWith(".raw")) && consoleFor(mode) != null
+                        && (consoleFor(mode)[2].contains(".cue") || consoleFor(mode)[2].contains(".gdi")) && !MODE_MD.equals(mode);
+                if (!track) {
+                    ArchiveGame game = new ArchiveGame();
+                    game.entries.add(name);
+                    game.size = sizes.get(name);
+                    game.label = base;
+                    game.exists = new File(romDir, sanitizeFileName(base)).exists();
+                    games.add(game);
+                    continue;
+                }
+            }
+            String other = null;
+            for (String[] console : CONSOLES) {
+                if (!console[0].equals(mode) && hasExtension(lower, console[2])) {
+                    other = MODE_NAMES[modeIndex(console[0])] + " 게임 · 그 모드에서 가져와요";
+                    break;
+                }
+            }
+            others.add(base + " — " + (other != null ? other : "게임이 아닌 파일"));
+        }
+        deleteRecursively(sheets);
+    }
+
+    private void showRomArchive(final String mode, final String archiveName, final File archive, final List<ArchiveGame> games,
+                                final List<String> others, long totalSize, final java.util.ArrayDeque<Uri> queue) {
+        final java.util.Set<ArchiveGame> chosen = new java.util.LinkedHashSet<>();
+        for (ArchiveGame g : games) {
+            if (!g.exists) {
+                chosen.add(g);
+            }
+        }
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        String type = PatchArchive.isRar(archive) ? "RAR" : PatchArchive.isSevenZip(archive) ? "7z" : "zip";
+        cardHeader(panel, RoundIconView.IMPORT, RoundIconView.COLOR_PATCH, "압축 파일 안의 게임", archiveName + " · " + type + " · " + formatSize(totalSize));
+        TextView intro = new TextView(this);
+        intro.setText("이 게임기(" + MODE_FILES[modeIndex(mode)] + ")의 게임만 골라 담아요. 고른 게임은 풀어서 앱 안에 넣고, 압축 파일은 그대로 둬요."
+                + " 압축 파일 안의 게임은 '복사 없이 연결하기'를 쓸 수 없어서 앱 용량이 그만큼 늘어요.");
+        intro.setTextSize(11.5f);
+        intro.setTextColor(Theme.text(Color.rgb(17, 94, 89)));
+        intro.setPadding(dp(12), dp(9), dp(12), dp(9));
+        intro.setBackground(rounded(Color.rgb(240, 253, 250), dp(12)));
+        panel.addView(intro, spaced(10));
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        final TextView ok = new TextView(this);
+        final TextView space = new TextView(this);
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            list.removeAllViews();
+            list.addView(sectionLabel("게임 " + games.size() + "개"));
+            long need = 0;
+            for (final ArchiveGame g : games) {
+                boolean on = chosen.contains(g);
+                if (on) {
+                    need += g.size;
+                }
+                LinearLayout row = new LinearLayout(this);
+                row.setGravity(16);
+                row.setPadding(dp(11), dp(9), dp(11), dp(9));
+                GradientDrawable bg = rounded(on ? Color.rgb(236, 254, 255) : Color.rgb(246, 247, 249), dp(12));
+                bg.setStroke(dp(on ? 2 : 1), Theme.line(on ? RoundIconView.COLOR_PATCH : Color.rgb(229, 231, 235)));
+                row.setBackground(bg);
+                LinearLayout texts = new LinearLayout(this);
+                texts.setOrientation(1);
+                TextView name = new TextView(this);
+                name.setText("🎮 " + g.label);
+                name.setTextSize(12.5f);
+                name.setTypeface(Typeface.DEFAULT_BOLD);
+                name.setSingleLine(true);
+                name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+                name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+                texts.addView(name);
+                TextView detail = new TextView(this);
+                detail.setText(formatSize(Math.max(0, g.size)) + (g.sheet ? " · " + new File(g.entries.get(0)).getName().replaceAll(".*\\.", "").toUpperCase(Locale.ROOT) + " + 트랙" : "")
+                        + (g.exists ? " · 이미 목록에 있음" : ""));
+                detail.setTextSize(10.5f);
+                detail.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+                texts.addView(detail);
+                row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                TextView mark = new TextView(this);
+                mark.setText(on ? "✓" : "");
+                mark.setGravity(17);
+                mark.setTextColor(Color.WHITE);
+                mark.setTypeface(Typeface.DEFAULT_BOLD);
+                GradientDrawable box = rounded(on ? RoundIconView.COLOR_PATCH : Color.WHITE, dp(6));
+                if (!on) {
+                    box.setStroke(dp(2), Theme.line(Color.rgb(203, 213, 225)));
+                }
+                mark.setBackground(box);
+                row.addView(mark, new LinearLayout.LayoutParams(dp(22), dp(22)));
+                row.setOnClickListener(view -> {
+                    if (!chosen.remove(g)) {
+                        chosen.add(g);
+                    }
+                    render[0].run();
+                });
+                list.addView(row, spaced(6));
+            }
+            if (!others.isEmpty()) {
+                list.addView(sectionLabel("이 게임기 게임이 아닌 파일 " + others.size() + "개"));
+                TextView rest = new TextView(this);
+                StringBuilder text = new StringBuilder();
+                for (int k = 0; k < Math.min(others.size(), 12); k++) {
+                    text.append(k == 0 ? "" : "\n").append("📦 ").append(others.get(k));
+                }
+                if (others.size() > 12) {
+                    text.append("\n… 외 ").append(others.size() - 12).append("개");
+                }
+                rest.setText(text);
+                rest.setTextSize(11.0f);
+                rest.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+                rest.setPadding(dp(11), dp(8), dp(11), dp(8));
+                rest.setBackground(rounded(Color.rgb(249, 250, 251), dp(12)));
+                list.addView(rest, spaced(6));
+            }
+            long free = new android.os.StatFs(romDirFor(mode).getParentFile() != null && romDirFor(mode).getParentFile().exists()
+                    ? romDirFor(mode).getParentFile().getAbsolutePath() : getFilesDir().getAbsolutePath()).getAvailableBytes();
+            space.setText("필요한 저장 공간: " + formatSize(need) + " · 남은 공간 " + formatSize(free) + (need > free ? " · 공간이 모자라요" : ""));
+            space.setTextColor(Theme.text(need > free ? Color.rgb(185, 28, 28) : Color.rgb(30, 58, 138)));
+            ok.setText(chosen.size() + "개 가져오기");
+            ok.setAlpha(chosen.isEmpty() ? 0.5f : 1f);
+        };
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        int max = (int) (getResources().getDisplayMetrics().heightPixels * 0.5f);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, Math.min(max, dp(90) + games.size() * dp(62) + (others.isEmpty() ? 0 : dp(90)))));
+        space.setTextSize(11.5f);
+        space.setPadding(dp(12), dp(9), dp(12), dp(9));
+        space.setBackground(rounded(Color.rgb(239, 246, 255), dp(12)));
+        panel.addView(space, spaced(8));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setGravity(17);
+        cancel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        cancel.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        ok.setTextSize(15.0f);
+        ok.setTypeface(Typeface.DEFAULT_BOLD);
+        ok.setGravity(17);
+        ok.setTextColor(Color.WHITE);
+        ok.setBackground(rounded(RoundIconView.COLOR_PATCH, dp(14)));
+        final boolean[] going = {false};
+        ok.setOnClickListener(view -> {
+            if (chosen.isEmpty()) {
+                return;
+            }
+            going[0] = true;
+            dialog.dismiss();
+            extractRomArchive(mode, archiveName, archive, new ArrayList<>(chosen), queue);
+        });
+        LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        okParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(ok, okParams);
+        panel.addView(buttons, spaced(12));
+        render[0].run();
+        dialog.setOnDismissListener(d -> {
+            if (!going[0]) {
+                archive.delete();
+                openRomArchives(mode, queue);
+            }
+        });
+        dialog.show();
+    }
+
+    private void extractRomArchive(final String mode, final String archiveName, final File archive, final List<ArchiveGame> chosen,
+                                   final java.util.ArrayDeque<Uri> queue) {
+        long need = 0;
+        for (ArchiveGame g : chosen) {
+            need += Math.max(0, g.size);
+        }
+        final long total = need;
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage(archiveName + " 푸는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            StringBuilder errors = new StringBuilder();
+            int imported = 0;
+            File romDir = romDirFor(mode);
+            try {
+                if (!romDir.isDirectory() && !romDir.mkdirs()) {
+                    throw new IOException("ROM 폴더를 만들 수 없어요.");
+                }
+                List<String> names = new ArrayList<>();
+                List<File> outs = new ArrayList<>();
+                List<File[]> singles = new ArrayList<>();
+                for (ArchiveGame g : chosen) {
+                    if (g.sheet) {
+                        // Sheet and tracks keep their names (the sheet names the tracks).
+                        boolean clash = false;
+                        for (String e : g.entries) {
+                            clash |= new File(romDir, new File(e).getName()).exists();
+                        }
+                        if (clash) {
+                            errors.append(g.label).append(": 같은 이름의 파일이 이미 있어요\n");
+                            continue;
+                        }
+                        for (String e : g.entries) {
+                            names.add(e);
+                            outs.add(new File(romDir, new File(e).getName()));
+                        }
+                    } else {
+                        String base = new File(g.entries.get(0)).getName();
+                        File temp = new File(romDir, "." + System.nanoTime() + ".importing");
+                        names.add(g.entries.get(0));
+                        outs.add(temp);
+                        singles.add(new File[]{temp, uniqueFile(romDir, sanitizeFileName(base))});
+                    }
+                }
+                final String[] text = {archiveName + " 푸는 중…"};
+                PatchArchive.extract(archive, names, outs, done -> runOnUiThread(() ->
+                        progress.setMessage(text[0] + " " + formatSize(done) + " / " + formatSize(total))));
+                for (File[] single : singles) {
+                    if (!single[0].renameTo(single[1])) {
+                        single[0].delete();
+                        throw new IOException("풀어 낸 게임을 저장하지 못했어요.");
+                    }
+                    File imported1 = finalizeImportedRom(single[1], baseNameWithoutExtension(single[1].getName()));
+                    if (imported1 != null) {
+                        imported++;
+                    } else {
+                        errors.append(single[1].getName()).append(": 이미 있는 게임이라 건너뜀\n");
+                    }
+                }
+                for (ArchiveGame g : chosen) {
+                    if (g.sheet && new File(romDir, new File(g.entries.get(0)).getName()).exists()) {
+                        imported++;
+                    }
+                }
+            } catch (IOException e) {
+                errors.append(e.getMessage()).append('\n');
+                for (File f : romDir.listFiles((d, n) -> n.endsWith(".importing")) == null ? new File[0] : romDir.listFiles((d, n) -> n.endsWith(".importing"))) {
+                    f.delete();
+                }
+            } finally {
+                archive.delete();
+            }
+            final int count = imported;
+            final String why = errors.toString();
+            runOnUiThread(() -> {
+                progress.dismiss();
+                refreshLibrary();
+                if (!why.isEmpty()) {
+                    showError("가져오기 완료: " + count + "개\n" + why);
+                } else {
+                    showMessage("가져오기 완료: " + count + "개 (" + archiveName + ")");
+                }
+                openRomArchives(mode, queue);
+            });
+        }, "rom-archive-extract").start();
+    }
 
     // ---- 압축 파일 안의 패치: a zip / 7z picked in 1단계 ----
 
@@ -9329,9 +9749,6 @@ public final class MainActivity extends Activity {
                     while ((n = in.read(buffer)) > 0) {
                         out.write(buffer, 0, n);
                     }
-                }
-                if (PatchArchive.isRar(copy)) {
-                    throw new IOException(archiveName + "는 이름은 zip · 7z지만 RAR 압축이에요. 먼저 풀어서 안의 패치 파일을 골라 주세요.");
                 }
                 items = PatchArchive.open(copy, dir);
                 recommendArchivePatches(game, items);

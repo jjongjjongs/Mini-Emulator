@@ -13,7 +13,7 @@ import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-// A zip or 7z a patch came in: its files sorted into patches (by their first bytes),
+// A zip, 7z or RAR a patch came in: its files sorted into patches (by their first bytes),
 // read-me files, Windows programs (the patcher the app stands in for) and the rest. Patches
 // and read-mes are taken out into a folder; the rest only listed.
 final class PatchArchive {
@@ -135,7 +135,22 @@ final class PatchArchive {
     // Lists and takes out a zip or 7z into dir.
     static List<Item> open(File archive, File dir) throws IOException {
         List<Item> items = new ArrayList<>();
-        if (isSevenZip(archive)) {
+        if (isRar(archive)) {
+            List<String> names = new ArrayList<>();
+            List<File> outs = new ArrayList<>();
+            for (Listed l : list(archive)) {
+                Item item = classify(l.name, l.size);
+                if (wanted(item)) {
+                    item.file = target(dir, l.name);
+                    names.add(l.name);
+                    outs.add(item.file);
+                }
+                items.add(item);
+            }
+            if (!names.isEmpty()) {
+                extract(archive, names, outs, null);
+            }
+        } else if (isSevenZip(archive)) {
             try (RandomAccessFile raf = new RandomAccessFile(archive, "r");
                  org.apache.commons.compress.archivers.sevenz.SevenZFile seven =
                          new org.apache.commons.compress.archivers.sevenz.SevenZFile(raf.getChannel())) {
@@ -191,6 +206,125 @@ final class PatchArchive {
             }
         }
         return items;
+    }
+
+    // ---- Any archive the app reads: zip, 7z (Commons Compress), RAR (libarchive) ----
+
+    static final class Listed {
+        String name;
+        long size;
+        boolean encrypted;
+    }
+
+    static List<Listed> list(File archive) throws IOException {
+        List<Listed> out = new ArrayList<>();
+        if (isRar(archive)) {
+            for (RarReader.Entry e : RarReader.entries(archive)) {
+                Listed l = new Listed();
+                l.name = e.name;
+                l.size = e.size;
+                l.encrypted = e.encrypted;
+                out.add(l);
+            }
+        } else if (isSevenZip(archive)) {
+            try (RandomAccessFile raf = new RandomAccessFile(archive, "r");
+                 org.apache.commons.compress.archivers.sevenz.SevenZFile seven =
+                         new org.apache.commons.compress.archivers.sevenz.SevenZFile(raf.getChannel())) {
+                for (org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry e : seven.getEntries()) {
+                    if (e.isDirectory() || e.isAntiItem()) {
+                        continue;
+                    }
+                    Listed l = new Listed();
+                    l.name = e.getName().replace('\\', '/');
+                    l.size = e.getSize();
+                    out.add(l);
+                }
+            } catch (org.apache.commons.compress.PasswordRequiredException e) {
+                throw new IOException("암호가 걸린 7z라서 풀 수 없어요.");
+            }
+        } else {
+            try (ZipFile zip = new ZipFile(archive)) {
+                Enumeration<? extends ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry e = entries.nextElement();
+                    if (e.isDirectory()) {
+                        continue;
+                    }
+                    Listed l = new Listed();
+                    l.name = e.getName().replace('\\', '/');
+                    l.size = e.getSize();
+                    out.add(l);
+                }
+            } catch (java.util.zip.ZipException e) {
+                throw new IOException("zip 파일을 열 수 없어요. 손상됐거나 zip이 아니에요.");
+            }
+        }
+        return out;
+    }
+
+    // Takes the named entries out to the given files.
+    static void extract(File archive, List<String> names, List<File> outs, RarReader.Progress progress) throws IOException {
+        if (isRar(archive)) {
+            RarReader.extract(archive, names, outs, progress);
+            return;
+        }
+        java.util.Map<String, File> wanted = new java.util.HashMap<>();
+        for (int i = 0; i < names.size(); i++) {
+            wanted.put(names.get(i), outs.get(i));
+        }
+        long[] done = {0};
+        if (isSevenZip(archive)) {
+            try (RandomAccessFile raf = new RandomAccessFile(archive, "r");
+                 org.apache.commons.compress.archivers.sevenz.SevenZFile seven =
+                         new org.apache.commons.compress.archivers.sevenz.SevenZFile(raf.getChannel())) {
+                org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry entry;
+                while (!wanted.isEmpty() && (entry = seven.getNextEntry()) != null) {
+                    File out = wanted.remove(entry.getName().replace('\\', '/'));
+                    if (out == null) {
+                        continue;
+                    }
+                    try (InputStream in = seven.getInputStream(entry)) {
+                        copyCounting(in, out, done, progress);
+                    }
+                }
+            }
+        } else {
+            try (ZipFile zip = new ZipFile(archive)) {
+                for (java.util.Map.Entry<String, File> w : wanted.entrySet()) {
+                    ZipEntry entry = zip.getEntry(w.getKey());
+                    if (entry == null) {
+                        throw new IOException(w.getKey() + "을(를) 찾지 못했어요.");
+                    }
+                    try (InputStream in = zip.getInputStream(entry)) {
+                        copyCounting(in, w.getValue(), done, progress);
+                    }
+                }
+                wanted.clear();
+            }
+        }
+        if (!wanted.isEmpty()) {
+            throw new IOException("압축 파일 안에서 파일을 찾지 못했어요.");
+        }
+    }
+
+    private static void copyCounting(InputStream in, File out, long[] done, RarReader.Progress progress) throws IOException {
+        File parent = out.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+            throw new IOException("폴더를 만들지 못했어요.");
+        }
+        try (OutputStream o = new FileOutputStream(out)) {
+            byte[] buffer = new byte[1 << 18];
+            int n;
+            long reported = done[0];
+            while ((n = in.read(buffer)) > 0) {
+                o.write(buffer, 0, n);
+                done[0] += n;
+                if (progress != null && done[0] - reported >= (8 << 20)) {
+                    reported = done[0];
+                    progress.onProgress(done[0]);
+                }
+            }
+        }
     }
 
     // A read-me's text: UTF-8, else the Korean code page (EUC-KR / CP949).
