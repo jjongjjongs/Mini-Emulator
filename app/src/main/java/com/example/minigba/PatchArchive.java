@@ -134,11 +134,17 @@ final class PatchArchive {
 
     // Lists and takes out a zip or 7z into dir.
     static List<Item> open(File archive, File dir) throws IOException {
+        return open(java.util.Collections.singletonList(archive), dir);
+    }
+
+    // The parts of a split RAR in order, or one archive.
+    static List<Item> open(List<File> parts, File dir) throws IOException {
+        File archive = parts.get(0);
         List<Item> items = new ArrayList<>();
         if (isRar(archive)) {
             List<String> names = new ArrayList<>();
             List<File> outs = new ArrayList<>();
-            for (Listed l : list(archive)) {
+            for (Listed l : list(parts)) {
                 Item item = classify(l.name, l.size);
                 if (wanted(item)) {
                     item.file = target(dir, l.name);
@@ -148,7 +154,7 @@ final class PatchArchive {
                 items.add(item);
             }
             if (!names.isEmpty()) {
-                extract(archive, names, outs, null);
+                extract(parts, names, outs, null);
             }
         } else if (isSevenZip(archive)) {
             try (RandomAccessFile raf = new RandomAccessFile(archive, "r");
@@ -217,9 +223,14 @@ final class PatchArchive {
     }
 
     static List<Listed> list(File archive) throws IOException {
+        return list(java.util.Collections.singletonList(archive));
+    }
+
+    static List<Listed> list(List<File> parts) throws IOException {
+        File archive = parts.get(0);
         List<Listed> out = new ArrayList<>();
         if (isRar(archive)) {
-            for (RarReader.Entry e : RarReader.entries(archive)) {
+            for (RarReader.Entry e : RarReader.entries(parts)) {
                 Listed l = new Listed();
                 l.name = e.name;
                 l.size = e.size;
@@ -264,8 +275,13 @@ final class PatchArchive {
 
     // Takes the named entries out to the given files.
     static void extract(File archive, List<String> names, List<File> outs, RarReader.Progress progress) throws IOException {
+        extract(java.util.Collections.singletonList(archive), names, outs, progress);
+    }
+
+    static void extract(List<File> parts, List<String> names, List<File> outs, RarReader.Progress progress) throws IOException {
+        File archive = parts.get(0);
         if (isRar(archive)) {
-            RarReader.extract(archive, names, outs, progress);
+            RarReader.extract(parts, names, outs, progress);
             return;
         }
         java.util.Map<String, File> wanted = new java.util.HashMap<>();

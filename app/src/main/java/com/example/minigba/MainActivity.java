@@ -2960,6 +2960,34 @@ public final class MainActivity extends Activity {
             return;
         }
         Uri data = intent.getData();
+        if (i == REQUEST_ARCHIVE_PARTS) {
+            List<Uri> merged = this.pendingArchiveUris == null ? new ArrayList<>() : this.pendingArchiveUris;
+            java.util.function.Consumer<List<Uri>> resume = this.pendingArchiveResume;
+            this.pendingArchiveUris = null;
+            this.pendingArchiveResume = null;
+            android.content.ClipData clip = intent.getClipData();
+            for (int k = 0; clip != null && k < clip.getItemCount(); k++) {
+                Uri u = clip.getItemAt(k).getUri();
+                if (u != null && !merged.contains(u)) {
+                    merged.add(u);
+                }
+            }
+            if (clip == null && intent.getData() != null && !merged.contains(intent.getData())) {
+                merged.add(intent.getData());
+            }
+            if (resume != null) {
+                // Only the parts of the same set.
+                List<Uri> same = new ArrayList<>();
+                String key = merged.isEmpty() ? null : displayNameFor(merged.get(0));
+                for (Uri u : merged) {
+                    if (key == null || RarReader.sameSet(displayNameFor(u), key)) {
+                        same.add(u);
+                    }
+                }
+                resume.accept(same.isEmpty() ? merged : same);
+            }
+            return;
+        }
         if (i == REQUEST_OVERLAY_FILE || i == REQUEST_OVERLAY_FOLDER) {
             File game = this.overlayGame;
             this.overlayGame = null;
@@ -3156,7 +3184,7 @@ public final class MainActivity extends Activity {
             if (outcome.imported > 0) {
                 Toast.makeText(this, "가져오기 완료: " + outcome.imported + "개", Toast.LENGTH_SHORT).show();
             }
-            openRomArchives(outcome.mode, new java.util.ArrayDeque<>(outcome.archives));
+            openRomArchives(outcome.mode, new java.util.ArrayDeque<>(groupArchives(outcome.archives)));
             return;
         }
         refreshLibrary();
@@ -3203,11 +3231,7 @@ public final class MainActivity extends Activity {
             String lowerCase = displayNameFor.toLowerCase(Locale.US);
             if ((lowerCase.endsWith(".rar") || lowerCase.endsWith(".7z") || RarReader.isSplitName(lowerCase)) && !MODE_NAOMI.equals(mode)
                     && !"arcade".equals(mode) && !"neogeo".equals(mode)) {
-                if (RarReader.isSplitName(lowerCase)) {
-                    sb.append(displayNameFor).append(": 여러 파일로 나뉜 RAR는 아직 못 풀어요\n");
-                } else {
-                    outcome.archives.add(uri2);  // after this: 압축 파일 안의 게임
-                }
+                outcome.archives.add(uri2);  // after this: 압축 파일 안의 게임 (split parts grouped)
                 continue;
             }
             if (!isRomNameFor(mode, lowerCase) && !lowerCase.endsWith(".zip")) {
@@ -9263,18 +9287,18 @@ public final class MainActivity extends Activity {
         boolean gdi = file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi");
         // A zip / 7z: the patches inside it (or, for a game with 덧씌우는 패치, that screen
         // when it holds none).
+        List<Uri> archives = new ArrayList<>();
         for (Uri uri : picked) {
             String name = displayNameFor(uri);
             String lower = name == null ? "" : name.toLowerCase(Locale.ROOT);
-            if (RarReader.isSplitName(name == null ? "" : name)) {
-                this.prepError = name + "는 여러 파일로 나뉜 RAR의 한 조각이에요. 나뉜 RAR는 아직 못 풀어서, 한 파일로 된 압축이나 푼 파일을 골라 주세요.";
-                renderPatchPrep();
-                return;
+            if (lower.endsWith(".zip") || lower.endsWith(".7z") || lower.endsWith(".rar") || RarReader.isSplitName(lower)) {
+                archives.add(uri);
             }
-            if (lower.endsWith(".zip") || lower.endsWith(".7z") || lower.endsWith(".rar")) {
-                openPatchArchive(file, uri, name);
-                return;
-            }
+        }
+        if (!archives.isEmpty()) {
+            List<Uri> first = groupArchives(archives).get(0);
+            openPatchArchive(file, first, displayNameFor(first.get(0)));
+            return;
         }
         // A PS2 .pnach is a 덧씌우는 패치: over to that screen.
         if (overlayKind(file) != null) {
@@ -9335,35 +9359,336 @@ public final class MainActivity extends Activity {
         boolean sheet;
     }
 
-    private void openRomArchives(final String mode, final java.util.ArrayDeque<Uri> queue) {
-        final Uri uri = queue.poll();
-        if (uri == null) {
+    // ---- An archive picked (one file, or the parts of a split RAR) and where it is read from ----
+
+    private static final int REQUEST_ARCHIVE_PARTS = 1068;
+    private List<Uri> pendingArchiveUris;
+    private java.util.function.Consumer<List<Uri>> pendingArchiveResume;
+
+    private static final class ArchiveInput {
+        final List<File> parts = new ArrayList<>();
+        final List<String> partNames = new ArrayList<>();
+        final List<String> missing = new ArrayList<>();
+        final List<File> temps = new ArrayList<>();
+        final List<Uri> uris = new ArrayList<>();
+        String label;
+        boolean split;
+        boolean direct;
+        long size;
+
+        void cleanup() {
+            for (File f : temps) {
+                f.delete();
+            }
+            temps.clear();
+        }
+    }
+
+    // The file a picked document is, when its path can be read directly (모든 파일 접근).
+    private File realFileFor(Uri uri) {
+        if (!hasAllFilesAccess() || uri == null) {
+            return null;
+        }
+        try {
+            if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
+                File f = new File(uri.getPath());
+                return f.canRead() ? f : null;
+            }
+            if (!android.provider.DocumentsContract.isDocumentUri(this, uri)) {
+                return null;
+            }
+            String id = android.provider.DocumentsContract.getDocumentId(uri);
+            String authority = uri.getAuthority();
+            File f = null;
+            if ("com.android.externalstorage.documents".equals(authority) && id.contains(":")) {
+                String volume = id.substring(0, id.indexOf(':'));
+                String path = id.substring(id.indexOf(':') + 1);
+                f = "primary".equalsIgnoreCase(volume) ? new File(android.os.Environment.getExternalStorageDirectory(), path) : new File("/storage/" + volume, path);
+            } else if ("com.android.providers.downloads.documents".equals(authority) && id.startsWith("raw:")) {
+                f = new File(id.substring(4));
+            } else if ("com.android.providers.downloads.documents".equals(authority)) {
+                String name = displayNameFor(uri);
+                File guess = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), name);
+                if (guess.isFile() && guess.length() == sizeForUri(uri)) {
+                    f = guess;
+                }
+            }
+            return f != null && f.isFile() && f.canRead() ? f : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    // Groups picked archives: the parts of one split RAR together, others on their own.
+    private List<List<Uri>> groupArchives(List<Uri> uris) {
+        List<List<Uri>> groups = new ArrayList<>();
+        List<String> keys = new ArrayList<>();
+        for (Uri u : uris) {
+            String name = displayNameFor(u);
+            Object[] part = RarReader.isSplitName(name) || name.toLowerCase(Locale.ROOT).endsWith(".rar") ? RarReader.partOf(name) : null;
+            String key = part != null ? (String) part[0] : "\u0002" + u;
+            int at = keys.indexOf(key);
+            if (at < 0) {
+                keys.add(key);
+                groups.add(new ArrayList<>());
+                at = groups.size() - 1;
+            }
+            groups.get(at).add(u);
+        }
+        return groups;
+    }
+
+    // Where the archive is read from: its own files when they can be read (and a split set's
+    // other parts from the same folder), else copies in the cache. Run off the UI thread.
+    private ArchiveInput resolveArchive(List<Uri> uris) throws IOException {
+        ArchiveInput in = new ArchiveInput();
+        in.uris.addAll(uris);
+        List<String> names = new ArrayList<>();
+        for (Uri u : uris) {
+            names.add(displayNameFor(u));
+        }
+        in.split = uris.size() > 1 || RarReader.isSplitName(names.get(0));
+        File first = realFileFor(uris.get(0));
+        if (first != null) {
+            in.direct = true;
+            if (in.split) {
+                in.parts.addAll(RarReader.siblings(first));
+            } else {
+                in.parts.add(first);
+            }
+        } else {
+            File dir = new File(getCacheDir(), "archive_in_" + System.currentTimeMillis());
+            if (!dir.mkdirs()) {
+                throw new IOException("임시 폴더를 만들지 못했어요.");
+            }
+            for (int k = 0; k < uris.size(); k++) {
+                File copy = new File(dir, new File(names.get(k)).getName());
+                try (InputStream is = getContentResolver().openInputStream(uris.get(k)); OutputStream out = new FileOutputStream(copy)) {
+                    if (is == null) {
+                        throw new IOException(names.get(k) + "을(를) 열 수 없어요.");
+                    }
+                    byte[] buffer = new byte[1 << 16];
+                    int n;
+                    while ((n = is.read(buffer)) > 0) {
+                        out.write(buffer, 0, n);
+                    }
+                }
+                in.temps.add(copy);
+                in.parts.add(copy);
+            }
+            in.temps.add(dir);
+            if (in.split) {
+                in.parts.sort((a, b) -> Integer.compare((Integer) RarReader.partOf(a.getName())[1], (Integer) RarReader.partOf(b.getName())[1]));
+            }
+        }
+        for (File p : in.parts) {
+            in.partNames.add(p.getName());
+            in.size += p.length();
+        }
+        if (in.split) {
+            in.missing.addAll(RarReader.missingParts(new ArrayList<>(in.partNames)));
+            String base = in.partNames.get(0).replaceAll("(?i)(\\.part\\d+)?\\.(rar|r\\d\\d)$", "");
+            in.label = base + (in.partNames.get(0).toLowerCase(Locale.ROOT).matches(".*\\.part\\d+\\.rar$") ? ".part1~" + in.partNames.size() + ".rar" : ".rar 외 " + (in.partNames.size() - 1) + "개");
+        } else {
+            in.label = names.get(0);
+        }
+        return in;
+    }
+
+    // For a split archive: its parts, what is missing, and on to the next step when all are there.
+    private void splitGate(final ArchiveInput in, final Runnable cancel, final Runnable go, final java.util.function.Consumer<List<Uri>> repick) {
+        if (!in.split) {
+            go.run();
+            return;
+        }
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.IMPORT, RoundIconView.COLOR_PATCH, "분할 압축 찾기",
+                in.direct ? new File(in.uris.isEmpty() ? in.partNames.get(0) : displayNameFor(in.uris.get(0))).getName() + " 을 골랐어요" : "고른 파일 " + in.uris.size() + "개");
+        TextView intro = new TextView(this);
+        intro.setText(in.direct ? "\"모든 파일 접근\"이 켜져 있어서 같은 폴더에서 나머지 조각을 찾았어요. 복사 없이 원래 자리에서 바로 읽어요."
+                : "\"모든 파일 접근\"이 꺼져 있어서 고른 파일만 읽을 수 있어요. 조각을 모두 함께 골라 주세요.");
+        intro.setTextSize(11.5f);
+        intro.setTextColor(Theme.text(in.direct ? Color.rgb(17, 94, 89) : Color.rgb(146, 64, 14)));
+        intro.setPadding(dp(12), dp(9), dp(12), dp(9));
+        intro.setBackground(rounded(in.direct ? Color.rgb(240, 253, 250) : Color.rgb(255, 251, 235), dp(12)));
+        panel.addView(intro, spaced(10));
+        List<String> all = new ArrayList<>(in.partNames);
+        all.addAll(in.missing);
+        RarReader.sortParts(all);
+        panel.addView(sectionLabel("조각 " + all.size() + "개" + (in.missing.isEmpty() ? " · 모두 있음" : " 중 " + in.partNames.size() + "개")));
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        for (String name : all) {
+            boolean have = in.partNames.contains(name);
+            File f = have ? in.parts.get(in.partNames.indexOf(name)) : null;
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(16);
+            row.setPadding(dp(10), dp(7), dp(10), dp(7));
+            GradientDrawable bg = rounded(have ? Color.rgb(240, 253, 244) : Color.rgb(254, 242, 242), dp(10));
+            bg.setStroke(dp(1), Theme.line(have ? Color.rgb(134, 239, 172) : Color.rgb(252, 165, 165)));
+            row.setBackground(bg);
+            TextView n = new TextView(this);
+            n.setText("📦 " + name);
+            n.setTextSize(11.5f);
+            n.setTypeface(Typeface.DEFAULT_BOLD);
+            n.setSingleLine(true);
+            n.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            n.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+            row.addView(n, new LinearLayout.LayoutParams(0, -2, 1.0f));
+            TextView size = new TextView(this);
+            size.setText(f != null ? formatSize(f.length()) + "  " : "—  ");
+            size.setTextSize(10.5f);
+            size.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+            row.addView(size);
+            TextView mark = new TextView(this);
+            mark.setText(have ? "✓" : "없음");
+            mark.setTextSize(10.0f);
+            mark.setTypeface(Typeface.DEFAULT_BOLD);
+            mark.setTextColor(Color.WHITE);
+            mark.setGravity(17);
+            mark.setPadding(dp(6), dp(1), dp(6), dp(1));
+            mark.setBackground(rounded(have ? Color.rgb(22, 163, 74) : Color.rgb(220, 38, 38), dp(7)));
+            row.addView(mark, new LinearLayout.LayoutParams(dp(38), -2));
+            list.addView(row, spaced(5));
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, Math.min((int) (getResources().getDisplayMetrics().heightPixels * 0.4f), dp(44) * all.size() + dp(10))));
+        TextView info = new TextView(this);
+        if (in.missing.isEmpty()) {
+            info.setText("압축 크기 " + formatSize(in.size) + (in.direct ? " · 캐시에 복사하지 않아요" : "") + "\n다음: 압축 파일 안을 살펴봐요");
+            info.setTextColor(Theme.text(Color.rgb(30, 58, 138)));
+            info.setBackground(rounded(Color.rgb(239, 246, 255), dp(12)));
+        } else {
+            info.setText(android.text.TextUtils.join(", ", in.missing) + " 조각이 빠졌어요. 다시 고를 때 조각을 모두 함께 골라 주세요. (여러 개 고르기: 파일을 길게 누른 뒤 나머지를 눌러요)");
+            info.setTextColor(Theme.text(Color.rgb(153, 27, 27)));
+            info.setBackground(rounded(Color.rgb(254, 242, 242), dp(12)));
+        }
+        info.setTextSize(11.5f);
+        info.setPadding(dp(12), dp(9), dp(12), dp(9));
+        panel.addView(info, spaced(8));
+        final boolean[] going = {false};
+        LinearLayout buttons = new LinearLayout(this);
+        TextView no = new TextView(this);
+        no.setText("취소");
+        no.setTextSize(15.0f);
+        no.setTypeface(Typeface.DEFAULT_BOLD);
+        no.setGravity(17);
+        no.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        no.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        no.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(no, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView yes = new TextView(this);
+        yes.setText(in.missing.isEmpty() ? "다음 →" : "빠진 조각 고르기");
+        yes.setTextSize(15.0f);
+        yes.setTypeface(Typeface.DEFAULT_BOLD);
+        yes.setGravity(17);
+        yes.setTextColor(Color.WHITE);
+        yes.setBackground(rounded(RoundIconView.COLOR_PATCH, dp(14)));
+        yes.setOnClickListener(view -> {
+            going[0] = true;
+            dialog.dismiss();
+            if (in.missing.isEmpty()) {
+                go.run();
+                return;
+            }
+            in.cleanup();
+            this.pendingArchiveUris = new ArrayList<>(in.uris);
+            this.pendingArchiveResume = repick;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            try {
+                startActivityForResult(intent, REQUEST_ARCHIVE_PARTS);
+            } catch (Exception e) {
+                showError("파일을 고르는 화면을 열 수 없어요.");
+            }
+        });
+        LinearLayout.LayoutParams yesParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        yesParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(yes, yesParams);
+        panel.addView(buttons, spaced(12));
+        if (!in.missing.isEmpty() && !hasAllFilesAccess()) {
+            TextView auto = new TextView(this);
+            auto.setText("\"모든 파일 접근\" 켜고 자동으로 찾기 ›");
+            auto.setTextSize(12.0f);
+            auto.setTypeface(Typeface.DEFAULT_BOLD);
+            auto.setGravity(17);
+            auto.setTextColor(Theme.text(COLOR_OVERLAY));
+            auto.setPadding(0, dp(10), 0, dp(2));
+            auto.setOnClickListener(view -> {
+                going[0] = true;
+                dialog.dismiss();
+                in.cleanup();
+                withAllFilesAccess(() -> repick.accept(new ArrayList<>(in.uris)));
+            });
+            panel.addView(auto);
+        }
+        dialog.setOnDismissListener(d -> {
+            if (!going[0]) {
+                in.cleanup();
+                cancel.run();
+            }
+        });
+        dialog.show();
+    }
+
+    private void openRomArchives(final String mode, final java.util.ArrayDeque<List<Uri>> queue) {
+        final List<Uri> job = queue.poll();
+        if (job == null) {
             refreshLibrary();
             return;
         }
-        final String archiveName = displayNameFor(uri);
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage(displayNameFor(job.get(0)) + " 살펴보는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            ArchiveInput resolved = null;
+            String error = null;
+            try {
+                resolved = resolveArchive(job);
+            } catch (IOException e) {
+                error = e.getMessage();
+            }
+            final ArchiveInput in = resolved;
+            final String why = error;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    if (in != null) {
+                        in.cleanup();
+                    }
+                    return;
+                }
+                if (why != null) {
+                    showError(displayNameFor(job.get(0)) + ": " + why);
+                    openRomArchives(mode, queue);
+                    return;
+                }
+                splitGate(in, () -> openRomArchives(mode, queue), () -> listRomArchive(mode, in, queue), uris -> {
+                    queue.addFirst(uris);
+                    openRomArchives(mode, queue);
+                });
+            });
+        }, "rom-archive").start();
+    }
+
+    private void listRomArchive(final String mode, final ArchiveInput in, final java.util.ArrayDeque<List<Uri>> queue) {
+        final String archiveName = in.label;
         final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
         progress.setMessage(archiveName + " 살펴보는 중…");
         progress.setCancelable(false);
         progress.show();
         new Thread(() -> {
             String error = null;
-            File copy = new File(getCacheDir(), "rom_archive_" + System.currentTimeMillis());
             List<ArchiveGame> games = new ArrayList<>();
             List<String> others = new ArrayList<>();
             long total = 0;
             try {
-                try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(copy)) {
-                    if (in == null) {
-                        throw new IOException("압축 파일을 열 수 없어요.");
-                    }
-                    byte[] buffer = new byte[1 << 16];
-                    int n;
-                    while ((n = in.read(buffer)) > 0) {
-                        out.write(buffer, 0, n);
-                    }
-                }
-                List<PatchArchive.Listed> listed = PatchArchive.list(copy);
+                List<PatchArchive.Listed> listed = PatchArchive.list(in.parts);
                 boolean encrypted = false;
                 for (PatchArchive.Listed l : listed) {
                     encrypted |= l.encrypted;
@@ -9372,40 +9697,39 @@ public final class MainActivity extends Activity {
                 if (encrypted) {
                     throw new IOException("암호 걸린 압축이라 풀 수 없어요. 컴퓨터에서 암호를 넣고 풀어서 가져와 주세요.");
                 }
-                findArchiveGames(copy, mode, listed, games, others);
+                findArchiveGames(in.parts, mode, listed, games, others);
             } catch (IOException e) {
                 error = e.getMessage();
-                copy.delete();
             } catch (RuntimeException e) {
                 error = "압축 파일을 읽지 못했어요 (" + e.getClass().getSimpleName() + ").";
-                copy.delete();
             }
             final String why = error;
             final long size = total;
             runOnUiThread(() -> {
                 progress.dismiss();
                 if (isFinishing() || isDestroyed()) {
-                    copy.delete();
+                    in.cleanup();
                     return;
                 }
                 if (why != null) {
+                    in.cleanup();
                     showError(archiveName + ": " + why);
                     openRomArchives(mode, queue);
                     return;
                 }
                 if (games.isEmpty()) {
-                    copy.delete();
+                    in.cleanup();
                     showError(archiveName + " 안에 " + MODE_NAMES[modeIndex(mode)] + " 게임(" + MODE_FILES[modeIndex(mode)] + ")이 없어요. 다른 게임기 모드에서 가져와 주세요.");
                     openRomArchives(mode, queue);
                     return;
                 }
-                showRomArchive(mode, archiveName, copy, games, others, size, queue);
+                showRomArchive(mode, archiveName, in, games, others, size, queue);
             });
-        }, "rom-archive").start();
+        }, "rom-archive-list").start();
     }
 
     // The games inside: this console's files, a .cue / .gdi with the tracks it names as one game.
-    private void findArchiveGames(File archive, String mode, List<PatchArchive.Listed> listed, List<ArchiveGame> games, List<String> others) throws IOException {
+    private void findArchiveGames(List<File> archive, String mode, List<PatchArchive.Listed> listed, List<ArchiveGame> games, List<String> others) throws IOException {
         java.util.Map<String, Long> sizes = new java.util.LinkedHashMap<>();
         for (PatchArchive.Listed l : listed) {
             sizes.put(l.name, l.size);
@@ -9487,8 +9811,8 @@ public final class MainActivity extends Activity {
         deleteRecursively(sheets);
     }
 
-    private void showRomArchive(final String mode, final String archiveName, final File archive, final List<ArchiveGame> games,
-                                final List<String> others, long totalSize, final java.util.ArrayDeque<Uri> queue) {
+    private void showRomArchive(final String mode, final String archiveName, final ArchiveInput archive, final List<ArchiveGame> games,
+                                final List<String> others, long totalSize, final java.util.ArrayDeque<List<Uri>> queue) {
         final java.util.Set<ArchiveGame> chosen = new java.util.LinkedHashSet<>();
         for (ArchiveGame g : games) {
             if (!g.exists) {
@@ -9497,7 +9821,8 @@ public final class MainActivity extends Activity {
         }
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
-        String type = PatchArchive.isRar(archive) ? "RAR" : PatchArchive.isSevenZip(archive) ? "7z" : "zip";
+        File head = archive.parts.get(0);
+        String type = (PatchArchive.isRar(head) ? "RAR" : PatchArchive.isSevenZip(head) ? "7z" : "zip") + (archive.split ? " · 분할 " + archive.parts.size() : "");
         cardHeader(panel, RoundIconView.IMPORT, RoundIconView.COLOR_PATCH, "압축 파일 안의 게임", archiveName + " · " + type + " · " + formatSize(totalSize));
         TextView intro = new TextView(this);
         intro.setText("이 게임기(" + MODE_FILES[modeIndex(mode)] + ")의 게임만 골라 담아요. 고른 게임은 풀어서 앱 안에 넣고, 압축 파일은 그대로 둬요."
@@ -9626,15 +9951,15 @@ public final class MainActivity extends Activity {
         render[0].run();
         dialog.setOnDismissListener(d -> {
             if (!going[0]) {
-                archive.delete();
+                archive.cleanup();
                 openRomArchives(mode, queue);
             }
         });
         dialog.show();
     }
 
-    private void extractRomArchive(final String mode, final String archiveName, final File archive, final List<ArchiveGame> chosen,
-                                   final java.util.ArrayDeque<Uri> queue) {
+    private void extractRomArchive(final String mode, final String archiveName, final ArchiveInput archive, final List<ArchiveGame> chosen,
+                                   final java.util.ArrayDeque<List<Uri>> queue) {
         long need = 0;
         for (ArchiveGame g : chosen) {
             need += Math.max(0, g.size);
@@ -9647,6 +9972,7 @@ public final class MainActivity extends Activity {
         new Thread(() -> {
             StringBuilder errors = new StringBuilder();
             int imported = 0;
+            final long started = System.currentTimeMillis() - 2000;
             File romDir = romDirFor(mode);
             try {
                 if (!romDir.isDirectory() && !romDir.mkdirs()) {
@@ -9679,7 +10005,7 @@ public final class MainActivity extends Activity {
                     }
                 }
                 final String[] text = {archiveName + " 푸는 중…"};
-                PatchArchive.extract(archive, names, outs, done -> runOnUiThread(() ->
+                PatchArchive.extract(archive.parts, names, outs, done -> runOnUiThread(() ->
                         progress.setMessage(text[0] + " " + formatSize(done) + " / " + formatSize(total))));
                 for (File[] single : singles) {
                     if (!single[0].renameTo(single[1])) {
@@ -9703,8 +10029,19 @@ public final class MainActivity extends Activity {
                 for (File f : romDir.listFiles((d, n) -> n.endsWith(".importing")) == null ? new File[0] : romDir.listFiles((d, n) -> n.endsWith(".importing"))) {
                     f.delete();
                 }
+                // A game left half out (a part missing): its sheet and tracks go too.
+                for (ArchiveGame g : chosen) {
+                    if (g.sheet) {
+                        for (String entry : g.entries) {
+                            File out = new File(romDir, new File(entry).getName());
+                            if (out.isFile() && out.lastModified() >= started) {
+                                out.delete();
+                            }
+                        }
+                    }
+                }
             } finally {
-                archive.delete();
+                archive.cleanup();
             }
             final int count = imported;
             final String why = errors.toString();
@@ -9725,7 +10062,7 @@ public final class MainActivity extends Activity {
 
     private final java.util.Map<Uri, String> prepArchiveOf = new java.util.HashMap<>();
 
-    private void openPatchArchive(final File game, final Uri uri, final String archiveName) {
+    private void openPatchArchive(final File game, final List<Uri> uris, final String archiveName) {
         if (this.prepDialog != null && this.prepDialog.isShowing()) {
             this.prepDialog.dismiss();
         }
@@ -9734,30 +10071,53 @@ public final class MainActivity extends Activity {
         progress.setCancelable(false);
         progress.show();
         new Thread(() -> {
+            ArchiveInput resolved = null;
+            String error = null;
+            try {
+                resolved = resolveArchive(uris);
+            } catch (IOException e) {
+                error = e.getMessage();
+            }
+            final ArchiveInput in = resolved;
+            final String why = error;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    if (in != null) {
+                        in.cleanup();
+                    }
+                    return;
+                }
+                if (why != null) {
+                    this.prepError = why;
+                    renderPatchPrep();
+                    return;
+                }
+                splitGate(in, this::renderPatchPrep, () -> readPatchArchive(game, uris, in), more -> openPatchArchive(game, more, archiveName));
+            });
+        }, "patch-archive").start();
+    }
+
+    private void readPatchArchive(final File game, final List<Uri> uris, final ArchiveInput in) {
+        final String archiveName = in.label;
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage(archiveName + " 살펴보는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
             String error = null;
             List<PatchArchive.Item> items = null;
             File dir = new File(getCacheDir(), "patch_archive_" + System.currentTimeMillis());
-            File copy = new File(getCacheDir(), "patch_archive_in");
             try {
                 deleteRecursively(dir);
-                try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(copy)) {
-                    if (in == null) {
-                        throw new IOException("압축 파일을 열 수 없어요.");
-                    }
-                    byte[] buffer = new byte[1 << 16];
-                    int n;
-                    while ((n = in.read(buffer)) > 0) {
-                        out.write(buffer, 0, n);
-                    }
-                }
-                items = PatchArchive.open(copy, dir);
+                items = PatchArchive.open(in.parts, dir);
                 recommendArchivePatches(game, items);
             } catch (IOException e) {
                 error = e.getMessage();
             } catch (OutOfMemoryError e) {
                 error = "압축 파일이 너무 커서 열 수 없어요.";
             } finally {
-                copy.delete();
+                in.cleanup();
             }
             final String why = error;
             final List<PatchArchive.Item> list = items;
@@ -9777,7 +10137,7 @@ public final class MainActivity extends Activity {
                 }
                 if (!anyPatch && overlayKind(game) != null && archiveName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
                     Toast.makeText(this, "덧씌우는 한글 패치로 넣어요 (원본은 그대로)", Toast.LENGTH_SHORT).show();
-                    onOverlayPicked(game, uri, false);
+                    onOverlayPicked(game, uris.get(0), false);
                     return;
                 }
                 if (!anyPatch) {
@@ -9787,7 +10147,7 @@ public final class MainActivity extends Activity {
                 }
                 showArchivePatches(game, archiveName, list);
             });
-        }, "patch-archive").start();
+        }, "patch-archive-read").start();
     }
 
     // "추천" for the patch made for this ROM (its checksum, or an xdelta reading exactly its size).
