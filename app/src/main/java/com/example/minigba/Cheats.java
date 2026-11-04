@@ -528,10 +528,10 @@ final class Cheats {
     // copies) goes whole to PCSX2 as a .pnach, read when the game starts.
 
     private static final java.util.regex.Pattern PNACH = java.util.regex.Pattern.compile(
-            "(?i)patch\\s*=\\s*\\d+\\s*,\\s*EE\\s*,\\s*(?:0x)?([0-9A-F]{1,8})\\s*,\\s*(byte|short|word|extended)\\s*,\\s*(?:0x)?([0-9A-F]{1,8})");
+            "(?i)patch\\s*=\\s*(\\d+)\\s*,\\s*(EE|IOP)\\s*,\\s*(?:0x)?([0-9A-F]{1,8})\\s*,\\s*(byte|short|word|double|extended|beshort|beword|bedouble)\\s*,\\s*(?:0x)?([0-9A-F]{1,16})");
     private static final java.util.regex.Pattern RAW_PS2 = java.util.regex.Pattern.compile("(?i)([0-9A-F]{8})\\s+([0-9A-F]{8})");
 
-    // {address, type, value} of each line; null when a line isn't a PS2 code.
+    // {address, type, value, place, cpu} of each line; null when a line isn't a PS2 code.
     static List<String[]> ps2Lines(String code) {
         List<String[]> lines = new ArrayList<>();
         for (String part : code.split("\\+")) {
@@ -542,12 +542,13 @@ final class Cheats {
             }
             java.util.regex.Matcher m = PNACH.matcher(t);
             if (m.matches()) {
-                lines.add(new String[]{m.group(1).toUpperCase(Locale.ROOT), m.group(2).toLowerCase(Locale.ROOT), m.group(3).toUpperCase(Locale.ROOT)});
+                lines.add(new String[]{m.group(3).toUpperCase(Locale.ROOT), m.group(4).toLowerCase(Locale.ROOT), m.group(5).toUpperCase(Locale.ROOT),
+                        m.group(1), m.group(2).toUpperCase(Locale.ROOT)});
                 continue;
             }
             m = RAW_PS2.matcher(t);
             if (m.matches()) {
-                lines.add(new String[]{m.group(1).toUpperCase(Locale.ROOT), "extended", m.group(2).toUpperCase(Locale.ROOT)});
+                lines.add(new String[]{m.group(1).toUpperCase(Locale.ROOT), "extended", m.group(2).toUpperCase(Locale.ROOT), "1", "EE"});
                 continue;
             }
             return null;
@@ -563,6 +564,10 @@ final class Cheats {
         }
         List<String> out = new ArrayList<>();
         for (String[] l : lines) {
+            // Only EE writes applied all the time; once-at-boot (place 0) and IOP lines go to PCSX2.
+            if (!"1".equals(l[3]) || !"EE".equals(l[4]) || l[2].length() > 8) {
+                return null;
+            }
             long address = Long.parseLong(l[0], 16);
             long value = Long.parseLong(l[2], 16);
             int bytes;
@@ -598,7 +603,7 @@ final class Cheats {
             }
             sb.append("// ").append(cheat.desc.replace('\n', ' ')).append('\n');
             for (String[] l : lines) {
-                sb.append("patch=1,EE,").append(l[0]).append(',').append(l[1]).append(',').append(l[2]).append('\n');
+                sb.append("patch=").append(l[3]).append(',').append(l[4]).append(',').append(l[0]).append(',').append(l[1]).append(',').append(l[2]).append('\n');
             }
         }
         return sb.length() == 0 ? "" : "gametitle=Mini Emulator cheats\n" + sb;
@@ -611,7 +616,7 @@ final class Cheats {
             return "✗ PS2 코드로 읽지 못했어요 (pnach의 patch=… 줄이나 \"XXXXXXXX YYYYYYYY\" 형식). 암호화된 코드는 풀린 코드로 넣어 주세요.";
         }
         return ps2Writes(code) != null ? "✓ 알아봄: " + lines.size() + "줄 · 값 쓰기 → 바로 켜고 끄기"
-                : "✓ 알아봄: " + lines.size() + "줄 · 조건 · 포인터 코드가 있어 다시 시작하면 적용";
+                : "✓ 알아봄: " + lines.size() + "줄 · PCSX2가 직접 적용하는 코드(조건 · 포인터 · 시작 때 한 번 · IOP)가 있어 다시 시작하면 적용";
     }
 
     // ---- GameCube / Wii (Dolphin): Gecko and Action Replay ----
@@ -699,5 +704,55 @@ final class Cheats {
         if (ar.length() > 0) out.append("[ActionReplay]\n").append(ar).append("[ActionReplay_Enabled]\n").append(arOn);
         if (gk.length() > 0) out.append("[Gecko]\n").append(gk).append("[Gecko_Enabled]\n").append(gkOn);
         return out.toString();
+    }
+
+    // ---- .pnach files ----
+    // PCSX2's cheat / patch files: each [Name] (PCSX2 2.x, "[Cheats/Infinite HP]" too) becomes
+    // a cheat of its own; lines before any [Name] (older files) one cheat named after the file.
+    static List<Cheat> parsePnach(String text, String fileName) {
+        List<Cheat> out = new ArrayList<>();
+        String name = null;
+        StringBuilder code = new StringBuilder();
+        String fallback = fileName == null ? "pnach" : fileName.replaceFirst("(?i)\\.pnach$", "");
+        for (String raw : text.replace("\r", "").split("\n")) {
+            String line = raw.trim();
+            int comment = line.indexOf("//");
+            if (comment >= 0) {
+                line = line.substring(0, comment).trim();
+            }
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (line.startsWith("[") && line.endsWith("]")) {
+                addPnachCheat(out, name != null ? name : fallback, code);
+                name = line.substring(1, line.length() - 1).trim();
+                int slash = name.lastIndexOf('/');
+                if (slash >= 0 && slash < name.length() - 1) {
+                    name = name.substring(slash + 1).trim();
+                }
+                code.setLength(0);
+                continue;
+            }
+            if (PNACH.matcher(line).matches()) {
+                if (code.length() > 0) code.append('+');
+                code.append(line.replaceAll("\\s+", ""));
+            }
+        }
+        addPnachCheat(out, name != null ? name : fallback, code);
+        return out;
+    }
+
+    private static void addPnachCheat(List<Cheat> out, String name, StringBuilder code) {
+        if (code.length() == 0) {
+            return;
+        }
+        out.add(new Cheat(name.isEmpty() ? "치트 " + (out.size() + 1) : name, code.toString(), false, true));
+    }
+
+    // A pnach section that changes the game rather than cheating (widescreen, interlacing, fps).
+    static boolean isPnachPatch(String name) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.contains("widescreen") || lower.contains("16:9") || lower.contains("16x9") || lower.contains("interlac")
+                || lower.contains("60 fps") || lower.contains("60fps") || lower.contains("ntsc") || lower.contains("pal ") || lower.contains("aspect");
     }
 }

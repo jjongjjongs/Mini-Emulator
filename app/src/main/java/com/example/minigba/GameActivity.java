@@ -3845,7 +3845,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             add.setTextSize(13.5f);
             add.setOnClickListener(view -> showCheatEditor(null));
             buttons.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1.0f));
-            TextView file = dialogButton("파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+            TextView file = dialogButton(isPs2() ? "파일에서 (.pnach · .cht)" : "파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
             file.setTextSize(13.5f);
             file.setOnClickListener(view -> openCheatFile());
             LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(0, dp(44), 1.0f);
@@ -3949,7 +3949,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setGravity(1);
         box.addView(title);
         TextView detail = sheetText(collection ? "한글판·일본판처럼 모음에 없는 판일 수 있어요.\n비슷한 판을 직접 고르거나 코드를 입력해 주세요."
-                : "치트 코드를 직접 입력하거나 .cht 파일을 가져와 주세요.", 12.0f, Color.rgb(122, 130, 140), false);
+                : isPs2() ? "치트 코드를 직접 입력하거나 PCSX2 .pnach 파일을 가져와 주세요." : "치트 코드를 직접 입력하거나 .cht 파일을 가져와 주세요.", 12.0f, Color.rgb(122, 130, 140), false);
         detail.setGravity(1);
         detail.setPadding(0, dp(6), 0, 0);
         box.addView(detail);
@@ -3958,7 +3958,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             panel.addView(createSettingRow(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "", view -> showCheatVersionPicker()), marginTop(-1, dp(52), 12));
         }
         panel.addView(createSettingRow(RoundIconView.CHEAT, CHEAT_RED, "직접 입력", "", view -> showCheatEditor(null)), marginTop(-1, dp(52), collection ? 8 : 12));
-        panel.addView(createSettingRow(RoundIconView.IMPORT, Color.rgb(75, 85, 99), "파일에서 가져오기 (.cht)", "", view -> openCheatFile()), marginTop(-1, dp(52), 8));
+        panel.addView(createSettingRow(RoundIconView.IMPORT, Color.rgb(75, 85, 99), isPs2() ? "파일에서 가져오기 (.pnach · .cht)" : "파일에서 가져오기 (.cht)", "", view -> openCheatFile()), marginTop(-1, dp(52), 8));
         if (!collection) {
             return;
         }
@@ -4349,8 +4349,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // A .cht file the player picked: its cheats join the player's own (off).
+    private String cheatFileName(android.net.Uri uri) {
+        try (android.database.Cursor cursor = getContentResolver().query(uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String name = cursor.getString(0);
+                if (name != null) return name;
+            }
+        } catch (RuntimeException e) {
+            // Fall through.
+        }
+        String last = uri.getLastPathSegment();
+        return last == null ? "" : last.substring(last.lastIndexOf('/') + 1);
+    }
+
     private void importCheatFile(android.net.Uri uri) {
         java.util.List<Cheats.Cheat> found;
+        boolean pnach = false;
         try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
             if (in == null) {
                 throw new IOException("no stream");
@@ -4361,13 +4375,26 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             while ((read = in.read(buffer)) > 0 && out.size() < 4 * 1024 * 1024) {
                 out.write(buffer, 0, read);
             }
-            found = Cheats.parse(new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8));
+            String text = new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+            String fileName = cheatFileName(uri);
+            // PS2: PCSX2's .pnach files, each [section] a cheat of its own.
+            pnach = isPs2() && (fileName.toLowerCase(Locale.US).endsWith(".pnach") || !text.contains("cheat0_"));
+            found = pnach ? Cheats.parsePnach(text, fileName) : Cheats.parse(text);
         } catch (IOException | RuntimeException e) {
             found = new java.util.ArrayList<>();
         }
         if (found.isEmpty()) {
-            Toast.makeText(this, "이 파일에서 치트를 찾지 못했어요. (.cht 파일인지 확인해 주세요)", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, isPs2() ? "이 파일에서 치트를 찾지 못했어요. (PCSX2 .pnach나 .cht 파일인지 확인해 주세요)"
+                    : "이 파일에서 치트를 찾지 못했어요. (.cht 파일인지 확인해 주세요)", Toast.LENGTH_LONG).show();
             return;
+        }
+        int patches = 0;
+        int later = 0;
+        if (pnach) {
+            for (Cheats.Cheat cheat : found) {
+                if (Cheats.isPnachPatch(cheat.desc)) patches++;
+                if (Cheats.ps2Writes(cheat.code) == null) later++;
+            }
         }
         for (Cheats.Cheat cheat : found) {
             cheat.on = false;
@@ -4375,7 +4402,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         cheats().addAll(firstCollectionCheat(), found);
         cheatsChanged();
-        Toast.makeText(this, "치트 " + found.size() + "개를 가져왔어요.", Toast.LENGTH_SHORT).show();
+        if (pnach && (patches > 0 || later > 0)) {
+            new AppDialog.Builder(this).setTitle(".pnach에서 " + found.size() + "개를 가져왔어요")
+                    .setMessage((later > 0 ? "조건 · 포인터 · 시작할 때 한 번 쓰는 코드가 있는 " + later + "개는 켠 뒤 게임을 다시 시작하면 적용돼요. 나머지는 바로 켜고 꺼져요.\n\n" : "")
+                            + (patches > 0 ? "와이드스크린 · 화면 비율처럼 게임을 고치는 묶음이 " + patches + "개 있어요. 이런 건 게임 목록에서 게임을 길게 눌러 패치 칸에 넣는 게 더 맞아요 (치트로 켜도 동작은 해요)." : "").trim())
+                    .setPositiveButton("확인", null).show();
+        } else {
+            Toast.makeText(this, "치트 " + found.size() + "개를 가져왔어요.", Toast.LENGTH_SHORT).show();
+        }
         showCheatSheet();
     }
 
