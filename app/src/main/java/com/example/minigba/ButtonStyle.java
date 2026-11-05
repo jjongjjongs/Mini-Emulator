@@ -22,7 +22,11 @@ final class ButtonStyle {
     static final int THEME_CUSTOM = 7;
     // The first Mini GBA's colours: plum round buttons, grey pills, black pad (N64 C yellow).
     static final int THEME_RETRO = 8;
-    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)"};
+    // The pastel glass case's buttons: white glass pills, a lavender pad, candy A · B.
+    static final int THEME_GLASS = 9;
+    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)", "파스텔 글라스"};
+    // Which pastel glass the case is (ClearShellView.GLASS_*): it tints A · B. Not saved.
+    int glass;
 
     static final int SHAPE_CIRCLE = 0;
     static final int SHAPE_ROUNDED = 1;
@@ -126,6 +130,16 @@ final class ButtonStyle {
                 default: return Color.rgb(151, 21, 94);
             }
         }
+        if (theme == THEME_GLASS) {
+            int candy = glass == 1 ? Color.rgb(139, 92, 246) : glass == 2 ? Color.rgb(225, 29, 72) : Color.rgb(236, 72, 153);
+            switch (role) {
+                case ROLE_PILL: return Color.rgb(246, 245, 252);
+                case ROLE_DPAD: return Color.rgb(201, 192, 240);
+                case ROLE_C: return Color.rgb(168, 154, 226);
+                case ROLE_A: case ROLE_B: return candy;
+                default: return lighter(candy, 0.3f);
+            }
+        }
         if (role == ROLE_C) {
             role = ROLE_OTHER;
         }
@@ -201,6 +215,9 @@ final class ButtonStyle {
         boolean light = isLight(body);
         if (look != null && look.theme == THEME_RETRO) {
             return light ? Color.rgb(42, 41, 101) : Color.rgb(255, 215, 238);
+        }
+        if (look != null && look.theme == THEME_GLASS) {
+            return light ? Color.rgb(91, 84, 134) : Color.WHITE;
         }
         return light ? Color.rgb(40, 44, 52) : Color.WHITE;
     }

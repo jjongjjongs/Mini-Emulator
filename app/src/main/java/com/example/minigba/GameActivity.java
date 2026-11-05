@@ -461,18 +461,48 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Background picked in the game settings (ClearShellView.STYLE_*), for all games.
     private int shellStyle() {
         // The clear case is gone (0.0.270): it, and no choice at all, read as 실물 플라스틱.
-        return ClearShellView.normalize(MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_PLASTIC));
+        return ClearShellView.normalize(shellPref("shell_style", ClearShellView.STYLE_PLASTIC));
     }
 
-    // Metal · carbon has no name strip under the screen, so the layout gives that room back.
+    // The background can be set for one game mode ("○○ 모드만"): its settings are stored
+    // under "<name>@<mode>" and win over the ones for all modes while the style key exists.
+    private static String modeShellKey(String base, String mode) {
+        return base + "@" + mode;
+    }
+
+    private boolean shellModeOnly() {
+        return MainActivity.sharedSettings(this).contains(modeShellKey("shell_style", this.gameMode));
+    }
+
+    private int shellPref(String base, int fallback) {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        String own = modeShellKey(base, this.gameMode);
+        if (shellModeOnly() && prefs.contains(own)) {
+            return prefs.getInt(own, fallback);
+        }
+        return prefs.getInt(base, fallback);
+    }
+
+    // Writes one background setting where the background in force for this mode lives.
+    private void putShellPref(String base, int value) {
+        MainActivity.sharedSettings(this).edit().putInt(shellModeOnly() ? modeShellKey(base, this.gameMode) : base, value).apply();
+    }
+
+    // Metal · carbon and pastel glass have no name strip under the screen, so the layout gives that room back.
     private boolean noNameStrip() {
-        return shellStyle() == ClearShellView.STYLE_METAL;
+        return !ClearShellView.hasNameStrip(shellStyle());
     }
 
     // 포인트 색 of the metal · carbon case (ClearShellView.TRIM_NAMES).
     private int shellTrim() {
-        int value = MainActivity.sharedSettings(this).getInt("shell_trim", 0);
+        int value = shellPref("shell_trim", 0);
         return value >= 0 && value < ClearShellView.TRIM_NAMES.length ? value : 0;
+    }
+
+    // Kind of 파스텔 글라스 (ClearShellView.GLASS_NAMES).
+    private int shellGlass() {
+        int value = shellPref("shell_glass", 0);
+        return value >= 0 && value < ClearShellView.GLASS_NAMES.length ? value : 0;
     }
 
     // The mode's colour on the mode picker, and the colour of the console's own plastic.
@@ -504,6 +534,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private int shellTextColor() {
         if (shellStyle() == ClearShellView.STYLE_RETRO) {
             return Color.rgb(48, 46, 112);
+        }
+        if (shellStyle() == ClearShellView.STYLE_PASTEL) {
+            return Color.rgb(76, 69, 119);
         }
         return ClearShellView.darkBackground(shellStyle(), shellColors()[1]) ? Color.rgb(236, 238, 242) : Color.rgb(44, 48, 58);
     }
@@ -564,6 +597,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int[] colors = shellColors();
         ClearShellView shell = new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape, shellStyle(), colors[0], colors[1]);
         shell.setTrim(shellTrim());
+        shell.setGlass(shellGlass());
         if (shellStyle() == ClearShellView.STYLE_PHOTO) {
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             shell.setPhoto(PhotoBackground.load(PhotoBackground.rendered(this, this.gameMode, landscape), metrics.widthPixels, metrics.heightPixels));
@@ -588,10 +622,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final int REQUEST_BG_EDITOR = 3102;
 
     private void openBackgroundEditor() {
+        openBackgroundEditor(shellModeOnly() ? modeShellKey("shell_style", this.gameMode) : "shell_style");
+    }
+
+    // styleKey: where the editor records 내 사진 · 그림 once a photo is applied.
+    private void openBackgroundEditor(String styleKey) {
         Intent intent = new Intent(this, BgEditorActivity.class);
         intent.putExtra(BgEditorActivity.EXTRA_MODE, this.gameMode);
         intent.putExtra(BgEditorActivity.EXTRA_MODE_NAME, consoleName());
         intent.putExtra(BgEditorActivity.EXTRA_LANDSCAPE, this.landscapeMode);
+        intent.putExtra(BgEditorActivity.EXTRA_STYLE_KEY, styleKey);
         startActivityForResult(intent, REQUEST_BG_EDITOR);
     }
 
@@ -3381,6 +3421,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (shellStyle() == ClearShellView.STYLE_RETRO && this.buttonStyle.theme == ButtonStyle.THEME_DEFAULT) {
             this.buttonStyle.theme = ButtonStyle.THEME_RETRO;
         }
+        // Likewise the pastel glass case and its glass buttons.
+        if (shellStyle() == ClearShellView.STYLE_PASTEL && this.buttonStyle.theme == ButtonStyle.THEME_DEFAULT) {
+            this.buttonStyle.theme = ButtonStyle.THEME_GLASS;
+        }
+        this.buttonStyle.glass = shellGlass();
     }
 
     /** Draws the controls just built (or rebuilt) with the style in force, sizes included. */
@@ -5454,40 +5499,30 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // The controller-only screen has no case behind it.
             LinearLayout.LayoutParams styleParams = new LinearLayout.LayoutParams(-1, dp(52));
             styleParams.setMargins(0, dp(8), 0, 0);
-            int[] styles = ClearShellView.CHOICES;
-            String[] styleNames = new String[styles.length];
-            String[] styleNotes = new String[styles.length];
-            int currentStyle = 0;
-            for (int k = 0; k < styles.length; k++) {
-                styleNames[k] = ClearShellView.STYLE_NAMES[styles[k]];
-                styleNotes[k] = ClearShellView.STYLE_NOTES[styles[k]];
-                if (styles[k] == shellStyle()) {
-                    currentStyle = k;
-                }
+            String styleShown = ClearShellView.STYLE_NAMES[shellStyle()]
+                    + (shellStyle() == ClearShellView.STYLE_PASTEL ? " · " + ClearShellView.GLASS_NAMES[shellGlass()] : "")
+                    + (shellModeOnly() ? "\n" + consoleName() + " 모드만" : "");
+            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", styleShown,
+                    view -> showBackgroundDialog(refresh)), styleParams);
+            if (shellStyle() == ClearShellView.STYLE_PASTEL) {
+                LinearLayout.LayoutParams glassParams = new LinearLayout.LayoutParams(-1, dp(52));
+                glassParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "글라스 종류", ClearShellView.GLASS_NAMES[shellGlass()],
+                        view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "글라스 종류", ClearShellView.GLASS_NAMES, ClearShellView.GLASS_NOTES,
+                                shellGlass(), shellScopeNote(), Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
+                            putShellPref("shell_glass", choice);
+                            rebuildContent();
+                            refresh.run();
+                        })), glassParams);
             }
-            final int currentIndex = currentStyle;
-            panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES[shellStyle()],
-                    view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", styleNames, styleNotes,
-                            currentIndex, "모든 게임에 바로 적용돼요. 버튼 배치는 그대로예요.\n실물 플라스틱·다크 매트·파스텔·네온은 모드마다 색이 달라요.",
-                            Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", picked -> {
-                        int choice = styles[picked];
-                        if (choice == ClearShellView.STYLE_PHOTO) {
-                            // The editor picks the photo and saves the style when it is applied.
-                            openBackgroundEditor();
-                            return;
-                        }
-                        MainActivity.sharedSettings(this).edit().putInt("shell_style", choice).apply();
-                        rebuildContent();
-                        refresh.run();
-                    })), styleParams);
             if (shellStyle() == ClearShellView.STYLE_METAL) {
                 LinearLayout.LayoutParams trimParams = new LinearLayout.LayoutParams(-1, dp(52));
                 trimParams.setMargins(0, dp(8), 0, 0);
                 panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "포인트 색", ClearShellView.TRIM_NAMES[shellTrim()],
                         view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "포인트 색", ClearShellView.TRIM_NAMES, ClearShellView.TRIM_NOTES,
-                                shellTrim(), "메탈 · 카본 배경에서 게임 화면 테두리 선의 색이에요. 모든 게임에 같이 적용돼요.",
+                                shellTrim(), "메탈 · 카본 배경에서 게임 화면 테두리 선의 색이에요. " + shellScopeNote(),
                                 Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
-                            MainActivity.sharedSettings(this).edit().putInt("shell_trim", choice).apply();
+                            putShellPref("shell_trim", choice);
                             rebuildContent();
                             refresh.run();
                         })), trimParams);
@@ -8970,6 +9005,285 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         startActivity(relaunch);
         callCore(NativeGba::saveNow, null, null);
         finish();
+    }
+
+    private String shellScopeNote() {
+        return shellModeOnly() ? consoleName() + " 모드의 모든 게임에 적용돼요." : "모든 모드에 적용돼요 (따로 정한 모드는 빼고).";
+    }
+
+    // "배경": [모든 모드 | ○○ 모드만], the styles, and under the picked one its own options
+    // (pastel glass kind, metal 포인트 색). Applied with the button.
+    private void showBackgroundDialog(Runnable after) {
+        final int color = RoundIconView.COLOR_PALETTE;
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        final String mode = this.gameMode;
+        final String modeName = consoleName() + " 모드만";
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.PALETTE, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText("배경");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        titles.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(consoleName() + " 모드");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        titles.addView(sub);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        // state[0] scope (0 all modes, 1 this mode), [1] style (-1: follow all modes), [2] glass, [3] trim
+        final int[] state = new int[4];
+        final String styleOwn = modeShellKey("shell_style", mode);
+        java.util.function.IntConsumer load = scope -> {
+            state[0] = scope;
+            if (scope == 1) {
+                state[1] = prefs.contains(styleOwn) ? ClearShellView.normalize(prefs.getInt(styleOwn, ClearShellView.STYLE_PLASTIC)) : -1;
+                state[2] = prefs.getInt(modeShellKey("shell_glass", mode), prefs.getInt("shell_glass", 0));
+                state[3] = prefs.getInt(modeShellKey("shell_trim", mode), prefs.getInt("shell_trim", 0));
+            } else {
+                state[1] = ClearShellView.normalize(prefs.getInt("shell_style", ClearShellView.STYLE_PLASTIC));
+                state[2] = prefs.getInt("shell_glass", 0);
+                state[3] = prefs.getInt("shell_trim", 0);
+            }
+            state[2] = Math.max(0, Math.min(ClearShellView.GLASS_NAMES.length - 1, state[2]));
+            state[3] = Math.max(0, Math.min(ClearShellView.TRIM_NAMES.length - 1, state[3]));
+        };
+        load.accept(shellModeOnly() ? 1 : 0);
+
+        LinearLayout segment = new LinearLayout(this);
+        segment.setOrientation(0);
+        segment.setPadding(dp(3), dp(3), dp(3), dp(3));
+        android.graphics.drawable.GradientDrawable segmentBackground = new android.graphics.drawable.GradientDrawable();
+        segmentBackground.setColor(Theme.bg(Color.rgb(238, 241, 245)));
+        segmentBackground.setCornerRadius(dp(12));
+        segment.setBackground(segmentBackground);
+        TextView[] tabs = {new TextView(this), new TextView(this)};
+        String[] tabNames = {"모든 모드", modeName};
+        LinearLayout.LayoutParams segmentParams = new LinearLayout.LayoutParams(-1, -2);
+        segmentParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(segment, segmentParams);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        panel.addView(list, new LinearLayout.LayoutParams(-1, -2));
+        TextView note = new TextView(this);
+        note.setTextSize(12.0f);
+        note.setLineSpacing(0, 1.15f);
+        note.setTextColor(Theme.text(Color.rgb(159, 18, 57)));
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        android.graphics.drawable.GradientDrawable noteBackground = new android.graphics.drawable.GradientDrawable();
+        noteBackground.setColor(Theme.bg(Color.rgb(255, 241, 244)));
+        noteBackground.setCornerRadius(dp(12));
+        note.setBackground(noteBackground);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(note, noteParams);
+
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            for (int k = 0; k < 2; k++) {
+                boolean on = state[0] == k;
+                android.graphics.drawable.GradientDrawable tab = new android.graphics.drawable.GradientDrawable();
+                tab.setColor(on ? Theme.bg(Color.WHITE) : 0);
+                tab.setCornerRadius(dp(10));
+                tabs[k].setBackground(tab);
+                tabs[k].setTextColor(Theme.text(on ? Color.rgb(31, 41, 51) : Color.rgb(100, 116, 139)));
+            }
+            list.removeAllViews();
+            if (state[0] == 1) {
+                int all = ClearShellView.normalize(prefs.getInt("shell_style", ClearShellView.STYLE_PLASTIC));
+                String allName = ClearShellView.STYLE_NAMES[all] + (all == ClearShellView.STYLE_PASTEL ? " · " + ClearShellView.GLASS_NAMES[Math.max(0, Math.min(2, prefs.getInt("shell_glass", 0)))] : "");
+                list.addView(backgroundOption("모든 모드 설정 따르기", "지금 " + allName, state[1] == -1, color, () -> {
+                    state[1] = -1;
+                    render[0].run();
+                }), optionParams());
+            }
+            for (int style : ClearShellView.CHOICES) {
+                list.addView(backgroundOption(ClearShellView.STYLE_NAMES[style], ClearShellView.STYLE_NOTES[style], state[1] == style, color, () -> {
+                    state[1] = style;
+                    render[0].run();
+                }), optionParams());
+                if (state[1] == style && style == ClearShellView.STYLE_PASTEL) {
+                    list.addView(backgroundChips("글라스 종류", ClearShellView.GLASS_NAMES, state[2], color, k -> {
+                        state[2] = k;
+                        render[0].run();
+                    }), optionParams());
+                } else if (state[1] == style && style == ClearShellView.STYLE_METAL) {
+                    list.addView(backgroundChips("포인트 색", ClearShellView.TRIM_NAMES, state[3], color, k -> {
+                        state[3] = k;
+                        render[0].run();
+                    }), optionParams());
+                } else if (state[1] == style && style == ClearShellView.STYLE_PHOTO) {
+                    TextView photoNote = new TextView(this);
+                    photoNote.setText("사진은 원래처럼 모드마다 따로 저장돼요 · 적용을 누르면 사진 편집 창이 열려요");
+                    photoNote.setTextSize(11.5f);
+                    photoNote.setTextColor(Theme.text(Color.rgb(71, 85, 105)));
+                    photoNote.setPadding(dp(14), dp(4), dp(8), dp(4));
+                    list.addView(photoNote, optionParams());
+                }
+            }
+            note.setText(state[0] == 1
+                    ? consoleName() + " 모드의 모든 게임에 적용돼요. 다른 모드는 그대로예요. 버튼 배치는 그대로예요."
+                    : "모든 모드에 적용돼요. \"모드만\"으로 따로 정한 모드는 그대로예요. 버튼 배치는 그대로예요.");
+        };
+        for (int k = 0; k < 2; k++) {
+            final int scope = k;
+            tabs[k].setText(tabNames[k]);
+            tabs[k].setTextSize(13.0f);
+            tabs[k].setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tabs[k].setGravity(17);
+            tabs[k].setPadding(0, dp(8), 0, dp(8));
+            tabs[k].setOnClickListener(view -> {
+                load.accept(scope);
+                render[0].run();
+            });
+            segment.addView(tabs[k], new LinearLayout.LayoutParams(0, -2, 1.0f));
+        }
+        render[0].run();
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        TextView cancel = dialogButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView apply = dialogButton("적용", color, Color.WHITE);
+        apply.setOnClickListener(view -> {
+            dialog.dismiss();
+            boolean own = state[0] == 1;
+            android.content.SharedPreferences.Editor edit = prefs.edit();
+            if (own && state[1] == -1) {
+                // Back to the setting for all modes.
+                edit.remove(styleOwn).remove(modeShellKey("shell_glass", mode)).remove(modeShellKey("shell_trim", mode)).apply();
+            } else if (state[1] == ClearShellView.STYLE_PHOTO) {
+                // The editor records the style once a photo is applied.
+                edit.apply();
+                openBackgroundEditor(own ? styleOwn : "shell_style");
+                return;
+            } else {
+                edit.putInt(own ? styleOwn : "shell_style", state[1]);
+                edit.putInt(own ? modeShellKey("shell_glass", mode) : "shell_glass", state[2]);
+                edit.putInt(own ? modeShellKey("shell_trim", mode) : "shell_trim", state[3]);
+                edit.apply();
+            }
+            rebuildContent();
+            after.run();
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380));
+            window.setLayout(width, -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout.LayoutParams optionParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(7), 0, 0);
+        return params;
+    }
+
+    // One radio row of the background list.
+    private LinearLayout backgroundOption(String name, String detail, boolean on, int color, Runnable onPick) {
+        LinearLayout option = new LinearLayout(this);
+        option.setOrientation(0);
+        option.setGravity(16);
+        option.setPadding(dp(14), dp(10), dp(14), dp(10));
+        android.graphics.drawable.GradientDrawable optionBackground = new android.graphics.drawable.GradientDrawable();
+        optionBackground.setColor(Theme.bg(on ? Color.argb(28, Color.red(color), Color.green(color), Color.blue(color)) : Color.rgb(246, 247, 249)));
+        optionBackground.setCornerRadius(dp(14));
+        option.setBackground(optionBackground);
+        View dot = new View(this);
+        android.graphics.drawable.GradientDrawable ring = new android.graphics.drawable.GradientDrawable();
+        ring.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        ring.setStroke(dp(2), Theme.line(on ? color : Color.rgb(201, 206, 214)));
+        ring.setColor(Theme.bg(Color.WHITE));
+        dot.setBackground(on ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{ring, innerDot(color)}) : ring);
+        option.addView(dot, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(14.5f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        texts.addView(title);
+        TextView note = new TextView(this);
+        note.setText(detail);
+        note.setTextSize(11.5f);
+        note.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        texts.addView(note);
+        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        textsParams.setMargins(dp(12), 0, 0, 0);
+        option.addView(texts, textsParams);
+        option.setOnClickListener(view -> onPick.run());
+        return option;
+    }
+
+    // A labelled row of chips under the picked background (glass kind, 포인트 색).
+    private LinearLayout backgroundChips(String label, String[] names, int selected, int color, java.util.function.IntConsumer onPick) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setPadding(dp(14), dp(2), 0, dp(2));
+        TextView caption = new TextView(this);
+        caption.setText(label);
+        caption.setTextSize(12.0f);
+        caption.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        caption.setTextColor(Theme.text(Color.rgb(51, 65, 85)));
+        box.addView(caption);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        for (int k = 0; k < names.length; k++) {
+            final int index = k;
+            boolean on = k == selected;
+            TextView chip = new TextView(this);
+            chip.setText(names[k]);
+            chip.setTextSize(13.0f);
+            chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            chip.setGravity(17);
+            chip.setPadding(0, dp(8), 0, dp(8));
+            chip.setTextColor(Theme.text(on ? color : Color.rgb(71, 85, 105)));
+            android.graphics.drawable.GradientDrawable chipBackground = new android.graphics.drawable.GradientDrawable();
+            chipBackground.setColor(Theme.bg(on ? Color.argb(28, Color.red(color), Color.green(color), Color.blue(color)) : Color.rgb(246, 247, 249)));
+            chipBackground.setStroke(dp(on ? 2 : 1), Theme.line(on ? color : Color.rgb(226, 230, 236)));
+            chipBackground.setCornerRadius(dp(12));
+            chip.setBackground(chipBackground);
+            chip.setOnClickListener(view -> onPick.accept(index));
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            chipParams.setMargins(k == 0 ? 0 : dp(6), dp(6), 0, 0);
+            row.addView(chip, chipParams);
+        }
+        box.addView(row);
+        return box;
     }
 
     // A pause-menu row: icon, name, the current value and an arrow.

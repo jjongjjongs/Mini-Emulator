@@ -46,6 +46,8 @@ public final class BgEditorActivity extends Activity {
     // The game's orientation when it opened the editor (true = landscape): the editor starts
     // on that one, whichever way the phone itself is held.
     static final String EXTRA_LANDSCAPE = "com.example.minigba.BG_LANDSCAPE";
+    // Where to record 내 사진 · 그림 as the background: "shell_style" for all modes, or a mode's own key.
+    static final String EXTRA_STYLE_KEY = "com.example.minigba.BG_STYLE_KEY";
     private static final int REQUEST_ADD = 1;
     private static final int REQUEST_REPLACE = 2;
     private static final int ACCENT = Color.rgb(225, 29, 72);
@@ -679,7 +681,8 @@ public final class BgEditorActivity extends Activity {
                 SharedPreferences.Editor edit = MainActivity.sharedSettings(this).edit();
                 String key = "bg:" + scopeNow + ":";
                 edit.putInt(key + "dim", dimNow).putInt(key + "blur", blurNow).putInt(key + "btn", buttonNow);
-                edit.putInt("shell_style", ClearShellView.STYLE_PHOTO);
+                String styleKey = getIntent().getStringExtra(EXTRA_STYLE_KEY);
+                edit.putInt(styleKey != null ? styleKey : "shell_style", ClearShellView.STYLE_PHOTO);
                 edit.commit();
             } catch (IOException | OutOfMemoryError e) {
                 error = e.getMessage() == null ? e.toString() : e.getMessage();

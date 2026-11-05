@@ -39,7 +39,7 @@ final class ClearShellView extends View {
     // 실물 플라스틱 (see normalize), and the choice list leaves it out (CHOICES).
     static final String[] STYLE_NAMES = {"실물 플라스틱", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)"};
     static final String[] STYLE_NOTES = {"게임기 원래 색의 무광 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
-            "부드러운 그라데이션 + 반투명 유리판", "몸체 전체 카본 + 알루미늄 테 · 화면 테두리에 포인트 색", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
+            "몸체 전체 한 장의 유리 · 프로스트 · 오로라 · 젤리", "몸체 전체 카본 + 알루미늄 테 · 화면 테두리에 포인트 색", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
             "GBA만 있던 첫 버전의 회베이지 몸체 · POWER 불 · 스피커 · 원조 버튼 색"};
     // Styles shown in the "배경" list, in order.
     static final int[] CHOICES = {STYLE_PLASTIC, STYLE_DARK, STYLE_PASTEL, STYLE_METAL, STYLE_NEON, STYLE_PHOTO, STYLE_RETRO};
@@ -47,6 +47,13 @@ final class ClearShellView extends View {
     static int normalize(int style) {
         return style > STYLE_CLEAR && style < STYLE_NAMES.length ? style : STYLE_PLASTIC;
     }
+
+    // Kinds of 파스텔 글라스.
+    static final int GLASS_FROST = 0;
+    static final int GLASS_AURORA = 1;
+    static final int GLASS_JELLY = 2;
+    static final String[] GLASS_NAMES = {"프로스트", "오로라", "젤리"};
+    static final String[] GLASS_NOTES = {"파스텔 빛 번짐 + 젖빛 유리 · 모드마다 색이 달라요", "무지갯빛 홀로그램 + 비눗방울", "모드 색 젤리 + 도트 · 큰 광택 줄"};
 
     // 포인트 색 of the metal · carbon case: the line around the game screen.
     static final String[] TRIM_NAMES = {"빨강", "파랑", "금색", "없음"};
@@ -107,6 +114,18 @@ final class ClearShellView extends View {
 
     private int trim = TRIM_COLORS[0];
     private Shader weave;
+    private Shader dots;
+    private int glass;
+
+    void setGlass(int kind) {
+        this.glass = kind >= 0 && kind < GLASS_NAMES.length ? kind : GLASS_FROST;
+        invalidate();
+    }
+
+    // Metal · carbon and pastel glass have no name strip under the screen.
+    static boolean hasNameStrip(int style) {
+        return style != STYLE_METAL && style != STYLE_PASTEL;
+    }
 
     void setTrim(int index) {
         this.trim = TRIM_COLORS[index >= 0 && index < TRIM_COLORS.length ? index : 0];
@@ -376,9 +395,9 @@ final class ClearShellView extends View {
 
     // The frame around the game screen, the same size as the clear case's bezel.
     private RectF frameAround(RectF screen) {
-        if (thinBezel || style == STYLE_METAL) {
-            // Metal · carbon: a thin aluminium surround, no name strip under the screen.
-            float edge = dp(thinBezel ? 5 : 8);
+        if (thinBezel || !hasNameStrip(style)) {
+            // Metal · carbon / pastel glass: a thin surround, no name strip under the screen.
+            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL ? 10 : 8);
             return new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
         }
         float side = dp(landscape ? 10 : 14);
@@ -416,7 +435,7 @@ final class ClearShellView extends View {
                 drawNeon(canvas, width, height, frame);
                 break;
         }
-        if (frame != null && label != null && !thinBezel && !compactBezel && style != STYLE_METAL) {
+        if (frame != null && label != null && !thinBezel && !compactBezel && hasNameStrip(style)) {
             text.setTextSize(dp(landscape ? 8 : 9));
             canvas.drawText(label, frame.centerX(), screen.bottom + (frame.bottom - screen.bottom) * 0.62f, text);
         }
@@ -561,28 +580,104 @@ final class ClearShellView extends View {
         }
     }
 
+    // Pastel glass: the whole body is one sheet of glass (no plate under the controls),
+    // in three kinds; the screen sits in a glass surround with a thin coloured line.
     private void drawPastel(Canvas canvas, float width, float height, RectF plate, RectF frame) {
-        int a = mix(accent, Color.WHITE, 0.6f);
-        int b = mix(hue(accent, 45, -1, -1), Color.WHITE, 0.62f);
-        int c = mix(hue(accent, -40, -1, -1), Color.WHITE, 0.72f);
-        paint.setShader(new LinearGradient(0, 0, width * 0.5f, height, new int[]{a, b, c}, new float[]{0, 0.55f, 1}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, width, height, paint);
-        paint.setShader(null);
-        float glow = Math.min(width, height) * 0.55f;
-        paint.setShader(new RadialGradient(width * 0.1f, height * 0.7f, glow, Color.argb(110, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
-        canvas.drawCircle(width * 0.1f, height * 0.7f, glow, paint);
-        paint.setShader(null);
-        if (plate != null) {
-            paint.setColor(Color.argb(97, 255, 255, 255));
-            canvas.drawRoundRect(plate, dp(26), dp(26), paint);
-            strokeRoundRect(canvas, plate, dp(26), dp(1.5f), Color.argb(190, 255, 255, 255));
+        int line;
+        if (glass == GLASS_AURORA) {
+            paint.setShader(new android.graphics.SweepGradient(width * 0.4f, height * 0.45f,
+                    new int[]{Color.rgb(251, 207, 232), Color.rgb(221, 214, 254), Color.rgb(186, 230, 253), Color.rgb(187, 247, 208),
+                            Color.rgb(254, 243, 199), Color.rgb(254, 202, 202), Color.rgb(251, 207, 232)}, null));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(new LinearGradient(0, 0, 0, height, new int[]{Color.argb(90, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(64, 255, 255, 255)},
+                    new float[]{0, 0.4f, 1}, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(null);
+            // Faint holographic stripes.
+            paint.setColor(Color.argb(30, 255, 255, 255));
+            paint.setStrokeWidth(dp(2));
+            for (float d = -height; d < width; d += dp(24)) {
+                canvas.drawLine(d, height, d + height * 0.58f, 0, paint);
+            }
+            bubble(canvas, dp(28), height - dp(30), dp(18));
+            bubble(canvas, width - dp(80), height - dp(40), dp(11));
+            line = Color.rgb(196, 181, 253);
+        } else if (glass == GLASS_JELLY) {
+            paint.setShader(new LinearGradient(0, 0, 0, height, mix(accent, Color.WHITE, 0.78f), mix(accent, Color.WHITE, 0.5f), Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            float glow = Math.max(width, height) * 0.6f;
+            paint.setShader(new RadialGradient(width / 2, -height * 0.1f, glow, Color.argb(190, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            if (dots == null) {
+                int cell = Math.max(6, Math.round(dp(14)));
+                android.graphics.Bitmap tile = android.graphics.Bitmap.createBitmap(cell, cell, android.graphics.Bitmap.Config.ARGB_8888);
+                Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
+                dot.setColor(Color.argb(90, 255, 255, 255));
+                new Canvas(tile).drawCircle(cell / 2f, cell / 2f, dp(1.6f), dot);
+                dots = new android.graphics.BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
+            }
+            paint.setShader(dots);
+            canvas.drawRect(0, 0, width, height, paint);
+            // One big gloss band.
+            paint.setShader(new LinearGradient(0, 0, width, height * 0.3f,
+                    new int[]{Color.argb(0, 255, 255, 255), Color.argb(70, 255, 255, 255), Color.argb(0, 255, 255, 255)},
+                    new float[]{0.05f, 0.2f, 0.36f}, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(null);
+            line = Color.WHITE;
+        } else {
+            // Frost: soft blooms of the mode's colour and its neighbours under frosted glass.
+            canvas.drawColor(mix(accent, Color.WHITE, 0.9f));
+            float big = Math.max(width, height);
+            int[] blooms = {mix(hue(accent, 60, -1, -1), Color.WHITE, 0.6f), mix(accent, Color.WHITE, 0.55f),
+                    mix(hue(accent, -50, -1, -1), Color.WHITE, 0.62f), mix(hue(accent, 120, -1, -1), Color.WHITE, 0.65f)};
+            float[][] at = {{0.15f, 0.1f}, {0.95f, 0.3f}, {0.2f, 0.9f}, {0.9f, 0.95f}};
+            for (int k = 0; k < 4; k++) {
+                float cx = width * at[k][0];
+                float cy = height * at[k][1];
+                paint.setShader(new RadialGradient(cx, cy, big * 0.45f, blooms[k], withAlpha(blooms[k], 0), Shader.TileMode.CLAMP));
+                canvas.drawRect(0, 0, width, height, paint);
+            }
+            paint.setShader(new LinearGradient(0, 0, width * 0.4f, height, Color.argb(76, 255, 255, 255), Color.argb(26, 255, 255, 255), Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(new LinearGradient(0, 0, width, height * 0.6f,
+                    new int[]{Color.argb(0, 255, 255, 255), Color.argb(96, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(0, 255, 255, 255), Color.argb(56, 255, 255, 255), Color.argb(0, 255, 255, 255)},
+                    new float[]{0.22f, 0.3f, 0.38f, 0.62f, 0.67f, 0.72f}, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(null);
+            line = mix(accent, Color.WHITE, 0.35f);
         }
+        // Glass rim round the whole case.
+        RectF rim = new RectF(dp(1), dp(1), width - dp(1), height - dp(1));
+        strokeRoundRect(canvas, rim, dp(22), dp(2), Color.argb(240, 255, 255, 255));
+        strokeRoundRect(canvas, new RectF(dp(3.5f), dp(3.5f), width - dp(3.5f), height - dp(3.5f)), dp(20), dp(3), Color.argb(90, 255, 255, 255));
         if (frame != null) {
-            paint.setColor(Color.argb(140, 255, 255, 255));
-            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
-            strokeRoundRect(canvas, frame, frameRadius(), dp(1.5f), Color.argb(230, 255, 255, 255));
-            text.setColor(mix(accent, Color.rgb(60, 56, 80), 0.6f));
+            float radius = dp(14);
+            paint.setColor(Color.argb(40, 90, 80, 150));
+            canvas.drawRoundRect(new RectF(frame.left, frame.top + dp(4), frame.right, frame.bottom + dp(6)), radius, radius, paint);
+            paint.setShader(new LinearGradient(frame.left, frame.top, frame.right, frame.bottom,
+                    Color.argb(glass == GLASS_JELLY ? 120 : 165, 255, 255, 255), Color.argb(glass == GLASS_JELLY ? 100 : 80, 255, 255, 255), Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(frame, radius, radius, paint);
+            paint.setShader(null);
+            strokeRoundRect(canvas, frame, radius, dp(glass == GLASS_JELLY ? 2 : 1), Color.argb(235, 255, 255, 255));
+            // White, then the coloured line, just outside the picture.
+            float e = dp(thinBezel ? 5 : 10);
+            RectF edge = new RectF(frame.left + e - dp(3), frame.top + e - dp(3), frame.right - e + dp(3), frame.bottom - e + dp(3));
+            strokeRoundRect(canvas, edge, dp(6), dp(2), line);
+            RectF white = new RectF(edge.left + dp(2), edge.top + dp(2), edge.right - dp(2), edge.bottom - dp(2));
+            strokeRoundRect(canvas, white, dp(5), dp(2), Color.WHITE);
+            paint.setColor(Color.rgb(17, 17, 20));
+            canvas.drawRect(frame.left + e, frame.top + e, frame.right - e, frame.bottom - e, paint);
         }
+    }
+
+    // A soap bubble: a clear disc with a bright corner.
+    private void bubble(Canvas canvas, float x, float y, float r) {
+        paint.setShader(new RadialGradient(x - r * 0.4f, y - r * 0.4f, r * 1.4f,
+                new int[]{Color.argb(240, 255, 255, 255), Color.argb(50, 255, 255, 255), Color.argb(64, 196, 181, 253)}, new float[]{0, 0.45f, 1}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(x, y, r, paint);
+        paint.setShader(null);
+        strokeRoundRect(canvas, new RectF(x - r, y - r, x + r, y + r), r, dp(1), Color.argb(200, 255, 255, 255));
     }
 
     // Carbon fibre over the whole body, an aluminium rim round the edge, a thin brushed
