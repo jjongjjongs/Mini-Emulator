@@ -1515,6 +1515,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "sms":
             case "mcd":
                 return 2;
+            case "msx":
+                // 2인용 (포트 2): 0 empty, 1 the second pad (default), 2 the screen pad on port 2.
+                return msxInt("port2", 1) == 1 ? 2 : 1;
             default:
                 return 1;
         }
@@ -4188,6 +4191,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "gc": return isWiiGame() ? "Wii: Gecko · 액션리플레이 (예: C2000000 00000002)" : "게임큐브: 액션리플레이 · Gecko (예: 04123456 00000063, 암호화된 AR도 돼요)";
             case "ws": return "원더스완: RAM 주소:값 (예: 1E24:09)";
             case "ngp": return "네오지오 포켓: 주소:값 (예: 09F8:04)";
+            case "msx": return "MSX: blueMSX 치트 주소:값:크기 (16진, 크기 0 = 8비트 · 1 = 16비트, 예: E0A2:01:0) · 치트 찾기로 찾은 주소도 돼요";
             default: return "";
         }
     }
@@ -5768,6 +5772,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (requestCode == REQUEST_MSX_BIOS && resultCode == RESULT_OK && data != null) {
             importMsxBios(data);
         }
+        if (requestCode == REQUEST_MSX_SLOT2 && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            importMsxSlot2(data.getData());
+        }
         if (requestCode == REQUEST_BG_EDITOR) {
             // Whatever was applied (or not), draw the case as it now stands.
             rebuildContent();
@@ -6078,10 +6085,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         this.msxMachine = msxPickMachine();
                         int hz = msxInt("hz", 0);
                         NativeGba.setDosOptions(new String[]{"bluemsx_msxtype", "bluemsx_nospritelimits", "bluemsx_ym2413_enable",
-                                        "bluemsx_overscan", "bluemsx_vdp_synctype", "bluemsx_auto_rewind_cas"},
+                                        "bluemsx_overscan", "bluemsx_vdp_synctype", "bluemsx_auto_rewind_cas", "bluemsx_additional_cart", "bluemsx_cartmapper"},
                                 new String[]{this.msxMachine, msxBool("sprites", true) ? "ON" : "OFF",
                                         msxBool("fm", true) ? "enabled" : "disabled", msxBool("overscan", false) ? "disabled" : "enabled",
-                                        hz == 1 ? "60Hz" : hz == 2 ? "50Hz" : "Auto", "ON"}, "");
+                                        hz == 1 ? "60Hz" : hz == 2 ? "50Hz" : "Auto", "ON", msxSlot2Path() == null ? "disabled" : msxSlot2Path(),
+                                        MSX_MAPPER_VALUES[msxMapper()]}, "");
                     }
                     NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
                     if (isNds()) {
@@ -6125,7 +6133,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         startAdhocBeaconIfHosting();
         shareVpnInviteIfPending();
         startMotionIfOn();
-        NativeGba.setInput(handle, isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask);
+        sendMainInput(handle);
         NativeGba.setSpeedPercent(handle, this.speedPercent);
         if (isMsxTape() && !this.msxResumed) {
             msxAutoStartTape(false);
@@ -7619,7 +7627,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         long j = this.nativeHandle;
         if (j != 0) {
-            NativeGba.setInput(j, isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask);
+            sendMainInput(j);
         }
     }
 
@@ -11317,6 +11325,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // ---- MSX · 재믹스 (blueMSX) ----
     private static final int REQUEST_MSX_BIOS = 3110;
+    private static final int REQUEST_MSX_SLOT2 = 3111;
     private static final String[] MSX_TYPE_NAMES = {"자동", "MSX1", "MSX2", "MSX2+", "turbo R"};
     private static final String[] MSX_TYPE_VALUES = {"Auto", "MSX", "MSX2", "MSX2+", "MSXturboR"};
     private static final String[] MSX_TYPE_NOTES = {"파일을 보고 골라요 (추천) · 원래 바이오스가 없으면 롬팩은 C-BIOS, 디스크는 XBIOS로",
@@ -11840,7 +11849,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         })), biosParams);
         LinearLayout.LayoutParams importParams = new LinearLayout.LayoutParams(-1, dp(52));
         importParams.setMargins(0, dp(8), 0, 0);
-        panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "원래 바이오스 넣기 · 예제 디스크", bios > 0 ? "넣은 파일 " + bios + "개" : "없음",
+        panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "바이오스 상태 · 넣기", msxBiosSummary(),
                 view -> showMsxBiosDialog()), importParams);
         if (isMsxTape()) {
             LinearLayout.LayoutParams tapeParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -11861,6 +11870,21 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         screenParams.setMargins(0, dp(8), 0, 0);
         String screenShown = (msxBool("sprites", true) ? "깜빡임 줄임" : "깜빡임 그대로") + (msxBool("fm", true) ? " · FM" : "");
         panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "MSX 화면 · 소리", screenShown, view -> showMsxScreenDialog(dialog)), screenParams);
+        LinearLayout.LayoutParams slotParams = new LinearLayout.LayoutParams(-1, dp(52));
+        slotParams.setMargins(0, dp(8), 0, 0);
+        String slot2 = msxSlot2Path();
+        panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_LOAD, "두 번째 롬팩 슬롯", slot2 == null ? "없음" : new File(slot2).getName(),
+                view -> showMsxSlot2Dialog(dialog)), slotParams);
+        LinearLayout.LayoutParams portParams = new LinearLayout.LayoutParams(-1, dp(52));
+        portParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_PAD, "2인용 (포트 2)", MSX_PORT2_NAMES[msxPort2()],
+                view -> showMsxPort2Dialog()), portParams);
+        if (!isMsxDisk() && !isMsxTape()) {
+            LinearLayout.LayoutParams mapperParams = new LinearLayout.LayoutParams(-1, dp(52));
+            mapperParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "롬 매퍼 (고급)", MSX_MAPPER_NAMES[msxMapper()],
+                    view -> showMsxMapperDialog(dialog)), mapperParams);
+        }
         int[] disk = NativeGba.diskInfo(this.nativeHandle);
         if (disk != null && disk.length == 2 && disk[1] > 1) {
             LinearLayout.LayoutParams diskParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -11891,20 +11915,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         reload.run();
                         return;
                     }
-                    android.widget.EditText input = new android.widget.EditText(this);
-                    input.setSingleLine(true);
-                    input.setText(msxString("tape_custom", "RUN\"CAS:\""));
-                    input.setTypeface(android.graphics.Typeface.MONOSPACE);
-                    new android.app.AlertDialog.Builder(this)
-                            .setTitle("테이프 시작 명령")
-                            .setMessage("예: RUN\"CAS:\" · BLOAD\"CAS:\",R · CLOAD (영문 · 숫자 · \" : , . / 만)")
-                            .setView(input)
-                            .setPositiveButton("적용", (d, w) -> {
-                                MainActivity.sharedSettings(this).edit().putString(msxKey("tape_custom"), input.getText().toString().trim()).apply();
-                                reload.run();
-                            })
-                            .setNegativeButton("취소", null)
-                            .show();
+                    android.widget.EditText input = msxInput(msxString("tape_custom", "RUN\"CAS:\""), true);
+                    LinearLayout body = new LinearLayout(this);
+                    body.setOrientation(1);
+                    body.addView(msxNote("예: RUN\"CAS:\" · BLOAD\"CAS:\",R · CLOAD\n영문 · 숫자 · \" : , . / ( ) 만 입력돼요. 여러 줄은 쓸 수 없어요.",
+                            Color.rgb(248, 250, 252), Color.rgb(71, 85, 105)));
+                    body.addView(input, marginTop(-1, dp(46), 10));
+                    msxSheet(RoundIconView.PLAY, RoundIconView.COLOR_LOAD, "테이프 시작 명령", body, "적용 후 다시 불러오기", () -> {
+                        MainActivity.sharedSettings(this).edit().putString(msxKey("tape_custom"), input.getText().toString().trim()).apply();
+                        reload.run();
+                    }, null, null);
                 });
     }
 
@@ -11998,19 +12018,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             body.addView(msxChipFlow(keys.size(), k -> {
                 String[] key = keys.get(k);
                 TextView chip = msxChip(key[1].equals(key[0]) ? key[1] + "  ✎" : key[1] + " (" + key[0] + ")  ✎", true, Color.rgb(58, 61, 69));
-                chip.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
-                        .setTitle(key[0] + (key[1].equals(key[0]) ? "" : " · " + key[1]))
-                        .setItems(new String[]{"이름 바꾸기", "앞으로", "뒤로", "빼기"}, (d, which) -> {
+                chip.setOnClickListener(v -> {
+                    LinearLayout actions = new LinearLayout(this);
+                    actions.setOrientation(1);
+                    final android.app.Dialog[] sheet = new android.app.Dialog[1];
+                    String[] labels = {"✎  이름 바꾸기", "◀  앞으로", "▶  뒤로", "✕  빼기"};
+                    for (int a = 0; a < labels.length; a++) {
+                        final int which = a;
+                        TextView action = msxActionRow(labels[a], which == 3 ? Color.rgb(190, 18, 60) : Theme.text(Color.rgb(31, 41, 51)));
+                        action.setOnClickListener(av -> {
+                            sheet[0].dismiss();
                             if (which == 0) {
-                                android.widget.EditText input = new android.widget.EditText(this);
-                                input.setSingleLine(true);
-                                input.setText(key[1]);
-                                new android.app.AlertDialog.Builder(this).setTitle(key[0] + " 이름").setView(input)
-                                        .setPositiveButton("적용", (d2, w2) -> {
-                                            String name = input.getText().toString().trim();
-                                            keys.set(k, new String[]{key[0], name.isEmpty() ? key[0] : name});
-                                            render[0].run();
-                                        }).setNegativeButton("취소", null).show();
+                                android.widget.EditText input = msxInput(key[1], false);
+                                msxSheet(RoundIconView.EDIT, RoundIconView.COLOR_EDIT, key[0] + " 키 이름", input, "적용", () -> {
+                                    String name = input.getText().toString().trim();
+                                    keys.set(k, new String[]{key[0], name.isEmpty() ? key[0] : name});
+                                    render[0].run();
+                                }, null, null);
+                                return;
                             } else if (which == 1 && k > 0) {
                                 java.util.Collections.swap(keys, k, k - 1);
                             } else if (which == 2 && k < keys.size() - 1) {
@@ -12019,7 +12044,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                                 keys.remove(k);
                             }
                             render[0].run();
-                        }).show());
+                        });
+                        actions.addView(action, marginTop(-1, dp(46), a == 0 ? 0 : 6));
+                    }
+                    sheet[0] = msxSheet(RoundIconView.EDIT, RoundIconView.COLOR_EDIT, key[0] + (key[1].equals(key[0]) ? "" : " · " + key[1]), actions, null, null, null, null);
+                });
                 return chip;
             }));
             TextView add = new TextView(this);
@@ -12132,79 +12161,465 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         String[] names = {"스프라이트 깜빡임 줄이기", "FM 음원 (MSX-MUSIC)", "화면 테두리 보이기 (오버스캔)"};
         String[] notes = {"한 줄 스프라이트 수 제한을 풀어 깜빡임을 줄여요 · 일부 게임은 숨겨 둔 물체가 보일 수 있어요",
                 "지원하는 게임에서 더 풍성한 음악 (MSX2+ 이상)", "실기처럼 화면 둘레 테두리 색까지"};
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(1);
-        panel.setPadding(dp(6), dp(4), dp(6), 0);
+        final int accent = Color.rgb(159, 18, 57);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(1);
         for (int k = 0; k < 3; k++) {
-            final int index = k;
-            android.widget.Switch row = new android.widget.Switch(this);
-            row.setText(names[k] + "\n" + notes[k]);
-            row.setTextSize(12.5f);
-            row.setChecked(on[k]);
-            row.setPadding(dp(4), dp(8), dp(4), dp(8));
-            row.setOnCheckedChangeListener((b, checked) -> on[index] = checked);
-            panel.addView(row);
+            body.addView(msxToggleRow(names[k], notes[k], on, k, accent), marginTop(-1, -2, k == 0 ? 0 : 7));
         }
         TextView hzLabel = new TextView(this);
         hzLabel.setText("화면 주사율");
+        hzLabel.setTextSize(13f);
         hzLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        hzLabel.setPadding(dp(4), dp(10), 0, dp(4));
-        panel.addView(hzLabel);
-        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
-        String[] hzNames = {"자동", "60Hz (일본 · 한국)", "50Hz (유럽)"};
-        for (int k = 0; k < 3; k++) {
-            android.widget.RadioButton radio = new android.widget.RadioButton(this);
-            radio.setText(hzNames[k]);
-            radio.setId(100 + k);
-            group.addView(radio);
-        }
-        group.check(100 + hz[0]);
-        group.setOnCheckedChangeListener((g, id) -> hz[0] = id - 100);
-        panel.addView(group);
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
-        scroll.addView(panel);
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("MSX 화면 · 소리 · 이 게임만")
-                .setView(scroll)
-                .setPositiveButton("적용 (다시 시작)", (d, w) -> {
-                    MainActivity.sharedSettings(this).edit().putBoolean(msxKey("sprites"), on[0]).putBoolean(msxKey("fm"), on[1])
-                            .putBoolean(msxKey("overscan"), on[2]).putInt(msxKey("hz"), hz[0]).apply();
-                    if (menu != null) menu.dismiss();
-                    relaunchGame();
-                })
-                .setNegativeButton("닫기", null)
-                .show();
+        hzLabel.setTextColor(Theme.text(Color.rgb(51, 65, 85)));
+        body.addView(hzLabel, marginTop(-1, -2, 14));
+        final String[] hzNames = {"자동", "60Hz (일본 · 한국)", "50Hz (유럽)"};
+        final LinearLayout hzRow = new LinearLayout(this);
+        final Runnable[] paint = new Runnable[1];
+        paint[0] = () -> {
+            hzRow.removeAllViews();
+            for (int k = 0; k < hzNames.length; k++) {
+                final int index = k;
+                TextView chip = msxChip(hzNames[k], k == hz[0], accent);
+                chip.setGravity(Gravity.CENTER);
+                chip.setOnClickListener(v -> {
+                    hz[0] = index;
+                    paint[0].run();
+                });
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(40), k == 0 ? 0.8f : 1.3f);
+                params.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+                hzRow.addView(chip, params);
+            }
+        };
+        paint[0].run();
+        body.addView(hzRow, marginTop(-1, -2, 6));
+        body.addView(msxNote("바꾸면 게임을 다시 시작해요 (빠른 저장으로 이어서). 기종 · 바이오스는 메뉴의 \"MSX 기종\" · \"MSX 바이오스\"에서.",
+                Color.rgb(248, 250, 252), Color.rgb(71, 85, 105)), marginTop(-1, -2, 12));
+        msxSheet(RoundIconView.HD, RoundIconView.COLOR_HD, "MSX 화면 · 소리", body, "적용 (다시 시작)", () -> {
+            MainActivity.sharedSettings(this).edit().putBoolean(msxKey("sprites"), on[0]).putBoolean(msxKey("fm"), on[1])
+                    .putBoolean(msxKey("overscan"), on[2]).putInt(msxKey("hz"), hz[0]).apply();
+            if (menu != null) menu.dismiss();
+            relaunchGame();
+        }, null, null);
     }
 
     // What the original BIOS is for, which file names blueMSX looks for, and the picker.
     private void showMsxBiosDialog() {
-        new android.app.AlertDialog.Builder(this)
-                .setTitle("MSX 바이오스")
-                .setMessage("지금: " + (msxBiosCount() > 0 ? "넣은 파일 " + msxBiosCount() + "개 + C-BIOS" : "C-BIOS만 (앱에 들어 있음)") + "\n\n"
-                        + "C-BIOS(오픈소스 대체 바이오스)로 롬팩 게임 대부분이 돌아가요. 디스크(.dsk) 게임, 테이프 일부, 한글 MSX, turbo R은 원래 바이오스가 있어야 해요.\n\n"
-                        + "직접 가진 MSX에서 뽑은 파일을 이 이름 그대로 넣어 주세요 (여러 개를 한 번에 고를 수 있어요):\n"
-                        + "MSX2+: MSX2P.rom · MSX2PEXT.rom · MSX2PMUS.rom\n"
-                        + "MSX2: MSX2.rom · MSX2EXT.rom\n"
-                        + "MSX1: MSX.rom\n"
-                        + "디스크: PHILIPSDISK.rom 또는 PANASONICDISK.rom\n"
-                        + "한글 MSX: MSXKR.rom · MSX2KR.rom · MSX2HAN.rom\n"
-                        + "turbo R: MSXTR.ROM · MSXTREXT.ROM 등\n\n"
-                        + "넣은 다음 게임을 다시 시작하면 적용돼요.")
-                .setPositiveButton("파일 고르기", (d, w) -> {
-                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                    intent.addCategory(Intent.CATEGORY_OPENABLE);
-                    intent.setType("*/*");
-                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                    try {
-                        startActivityForResult(intent, REQUEST_MSX_BIOS);
-                    } catch (RuntimeException e) {
-                        Toast.makeText(this, "파일을 고를 앱이 없어요.", Toast.LENGTH_SHORT).show();
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(1);
+        String[][] rows = msxBiosRows();
+        for (int k = 0; k < rows.length; k++) {
+            body.addView(msxStatusRow(rows[k][0], rows[k][1], rows[k][2], rows[k][3]), marginTop(-1, -2, k == 0 ? 0 : 6));
+        }
+        body.addView(msxNote("직접 가진 MSX에서 뽑은 파일을 이 이름 그대로 넣어요 (여러 개를 한 번에). 이름과 있는지만 보고, 내용이 맞는지는 확인하지 못해요. "
+                        + "blueMSX의 기종 구성은 적힌 파일이 모두 있어야 켜져요 (없으면 롬팩은 C-BIOS, 디스크는 XBIOS로).\n넣은 다음 게임을 다시 시작하면 적용돼요.",
+                Color.rgb(248, 250, 252), Color.rgb(71, 85, 105)), marginTop(-1, -2, 12));
+        msxSheet(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "바이오스 상태 · 넣은 파일 " + msxBiosCount() + "개", body, "파일 넣기", () -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            try {
+                startActivityForResult(intent, REQUEST_MSX_BIOS);
+            } catch (RuntimeException e) {
+                Toast.makeText(this, "파일을 고를 앱이 없어요.", Toast.LENGTH_SHORT).show();
+            }
+        }, "예제 디스크 다시 넣기", () -> Toast.makeText(this,
+                MainActivity.copyXbiosExamples(this, true) ? "게임 목록에 \"XBIOS 예제 디스크\"를 넣었어요" : "예제 디스크를 넣지 못했어요", Toast.LENGTH_LONG).show());
+    }
+
+    // ---- 바이오스 상태: what each blueMSX machine wants from Machines/Shared Roms ----
+    private static final String[][] MSX_STATUS_MACHINES = {
+            {"MSX2+", "MSX2+", "롬팩은 C-BIOS · 디스크는 XBIOS"}, {"MSX2", "MSX2", "롬팩은 C-BIOS · 디스크는 XBIOS"},
+            {"MSX1", "MSX", "롬팩은 C-BIOS · 디스크는 XBIOS"}, {"turbo R", "MSXturboR", "원래 바이오스 필요"},
+            {"한글 MSX2 (대우 CPC-300)", "MSX2 - Daewoo CPC-300", "없으면 다른 기종으로"}, {"한글 MSX1 (대우 DPC-200)", "MSX - Daewoo DPC-200", "없으면 다른 기종으로"},
+    };
+
+    // The Shared Roms file names a machine's config.ini names.
+    private java.util.List<String> msxSharedNames(String machine) {
+        java.util.List<String> names = new java.util.ArrayList<>();
+        File config = new File(new File(new File(new File(getFilesDir(), "system"), "Machines"), machine), "config.ini");
+        try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.FileReader(config))) {
+            String line;
+            while ((line = in.readLine()) != null) {
+                int open = line.indexOf('"');
+                int close = open < 0 ? -1 : line.indexOf('"', open + 1);
+                if (close <= open + 1) continue;
+                String path = line.substring(open + 1, close).replace('\\', '/');
+                String prefix = "Machines/Shared Roms/";
+                if (path.regionMatches(true, 0, prefix, 0, prefix.length())) {
+                    String name = path.substring(prefix.length());
+                    if (!names.contains(name)) names.add(name);
+                }
+            }
+        } catch (java.io.IOException ignored) {
+        }
+        return names;
+    }
+
+    // {title, files line, state (ok / part / alt / no), state text}
+    private String[][] msxBiosRows() {
+        File shared = msxSharedRoms();
+        java.util.List<String[]> rows = new java.util.ArrayList<>();
+        for (String[] m : MSX_STATUS_MACHINES) {
+            java.util.List<String> names = msxSharedNames(m[1]);
+            if (names.isEmpty()) continue;
+            int have = 0;
+            StringBuilder files = new StringBuilder();
+            for (String name : names) {
+                boolean there = new File(shared, name).isFile();
+                if (there) have++;
+                files.append(files.length() == 0 ? "" : "  ").append(name).append(there ? " ✓" : " ✗");
+            }
+            String state = have == names.size() ? "ok" : have > 0 ? "part" : m[2].startsWith("롬팩") ? "alt" : "no";
+            String text = have == names.size() ? "준비됨 ✓" : have > 0 ? "일부만 " + have + "/" + names.size() : m[2].startsWith("롬팩") ? "대체 사용" : "없음";
+            rows.add(new String[]{m[0], files + (have == names.size() ? "" : "\n→ " + m[2]), state, text});
+        }
+        boolean philips = new File(shared, "PHILIPSDISK.rom").isFile();
+        boolean panasonic = new File(shared, "PANASONICDISK.rom").isFile();
+        rows.add(new String[]{"디스크", "PHILIPSDISK.rom" + (philips ? " ✓" : " ✗") + "  PANASONICDISK.rom" + (panasonic ? " ✓" : " ✗")
+                + (philips || panasonic ? "" : "\n→ 디스크 게임은 XBIOS"), philips || panasonic ? "ok" : "alt", philips || panasonic ? "있음 ✓" : "대체 사용"});
+        return rows.toArray(new String[0][]);
+    }
+
+    private String msxBiosSummary() {
+        int bios = msxBiosCount();
+        if (bios == 0) return "넣은 파일 없음";
+        for (String[] m : MSX_STATUS_MACHINES) {
+            if (msxMachineValid(m[1])) return m[0] + " 준비됨";
+        }
+        return "넣은 파일 " + bios + "개";
+    }
+
+    private View msxStatusRow(String title, String files, String state, String stateText) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(1);
+        row.setPadding(dp(12), dp(9), dp(12), dp(9));
+        row.setBackground(roundRect(Theme.bg(Color.rgb(246, 247, 249)), dp(12)));
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = new TextView(this);
+        name.setText(title);
+        name.setTextSize(13f);
+        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        top.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        int[] colors = "ok".equals(state) ? new int[]{Color.rgb(220, 252, 231), Color.rgb(22, 101, 52)}
+                : "part".equals(state) ? new int[]{Color.rgb(254, 243, 199), Color.rgb(146, 64, 14)}
+                : "alt".equals(state) ? new int[]{Color.rgb(224, 242, 254), Color.rgb(7, 89, 133)}
+                : new int[]{Color.rgb(241, 245, 249), Color.rgb(100, 116, 139)};
+        TextView badge = new TextView(this);
+        badge.setText(stateText);
+        badge.setTextSize(10.5f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(colors[1]);
+        badge.setPadding(dp(8), dp(2), dp(8), dp(2));
+        badge.setBackground(roundRect(colors[0], dp(8)));
+        top.addView(badge);
+        row.addView(top);
+        TextView list = new TextView(this);
+        list.setText(files);
+        list.setTextSize(10.5f);
+        list.setTypeface(android.graphics.Typeface.MONOSPACE);
+        list.setTextColor(Theme.text(Color.rgb(100, 116, 139)));
+        list.setLineSpacing(0, 1.15f);
+        row.addView(list, marginTop(-1, -2, 4));
+        return row;
+    }
+
+    // ---- 두 번째 롬팩 슬롯 ----
+    private String msxSlot2Path() {
+        String path = msxString("slot2", "");
+        return path.isEmpty() || !new File(path).isFile() ? null : path;
+    }
+
+    private void showMsxSlot2Dialog(android.app.Dialog menu) {
+        final java.util.List<File> carts = new java.util.ArrayList<>();
+        File folder = this.romPath == null ? null : new File(this.romPath).getParentFile();
+        File[] files = folder == null ? null : folder.listFiles();
+        if (files != null) {
+            java.util.Arrays.sort(files, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+            for (File f : files) {
+                String lower = f.getName().toLowerCase(java.util.Locale.ROOT);
+                if (f.isFile() && !f.getAbsolutePath().equals(new File(this.romPath).getAbsolutePath())
+                        && (lower.endsWith(".rom") || lower.endsWith(".mx1") || lower.endsWith(".mx2"))) {
+                    carts.add(f);
+                }
+            }
+        }
+        String current = msxSlot2Path();
+        if (current != null && !carts.contains(new File(current))) carts.add(0, new File(current));
+        String[] names = new String[carts.size() + 2];
+        String[] notes = new String[names.length];
+        names[0] = "없음";
+        notes[0] = "슬롯 2를 비워 둠 (기본)";
+        int selected = 0;
+        for (int k = 0; k < carts.size(); k++) {
+            names[k + 1] = carts.get(k).getName();
+            notes[k + 1] = "롬팩 · " + Math.max(1, carts.get(k).length() / 1024) + "KB";
+            if (current != null && carts.get(k).getAbsolutePath().equals(new File(current).getAbsolutePath())) selected = k + 1;
+        }
+        names[names.length - 1] = "다른 파일 고르기…";
+        notes[names.length - 1] = "휴대폰에서 .rom 고르기";
+        showChoiceDialog(RoundIconView.IMPORT, RoundIconView.COLOR_LOAD, "두 번째 롬팩 슬롯", names, notes, selected,
+                "코나미 게임 일부는 다른 코나미 롬팩을 같이 꽂으면 숨겨진 요소가 열려요. 어떤 조합이 되는지는 게임마다 달라요. 이 게임에만 적용되고, 적용하면 다시 시작해요.",
+                Color.rgb(239, 246, 255), Color.rgb(30, 58, 138), "적용 (다시 시작)", choice -> {
+                    if (choice == names.length - 1) {
+                        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                        intent.addCategory(Intent.CATEGORY_OPENABLE);
+                        intent.setType("*/*");
+                        try {
+                            startActivityForResult(intent, REQUEST_MSX_SLOT2);
+                        } catch (RuntimeException e) {
+                            Toast.makeText(this, "파일을 고를 앱이 없어요.", Toast.LENGTH_SHORT).show();
+                        }
+                        return;
                     }
-                })
-                .setNeutralButton("XBIOS 예제 디스크 다시 넣기", (d, w) -> Toast.makeText(this,
-                        MainActivity.copyXbiosExamples(this, true) ? "게임 목록에 \"XBIOS 예제 디스크\"를 넣었어요" : "예제 디스크를 넣지 못했어요", Toast.LENGTH_LONG).show())
-                .setNegativeButton("닫기", null)
-                .show();
+                    android.content.SharedPreferences.Editor edit = MainActivity.sharedSettings(this).edit();
+                    if (choice == 0) edit.remove(msxKey("slot2"));
+                    else edit.putString(msxKey("slot2"), carts.get(choice - 1).getAbsolutePath());
+                    edit.apply();
+                    if (menu != null) menu.dismiss();
+                    relaunchGame();
+                });
+    }
+
+    private void importMsxSlot2(android.net.Uri uri) {
+        String name = new File(cheatFileName(uri)).getName();
+        if (name.isEmpty() || name.startsWith(".")) name = "slot2.rom";
+        File dir = new File(getFilesDir(), "msx_slot2");
+        dir.mkdirs();
+        File target = new File(dir, name);
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+             java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+            if (in == null) throw new java.io.IOException();
+            byte[] buffer = new byte[65536];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+        } catch (java.io.IOException e) {
+            target.delete();
+            Toast.makeText(this, "파일을 넣지 못했어요", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        MainActivity.sharedSettings(this).edit().putString(msxKey("slot2"), target.getAbsolutePath()).apply();
+        Toast.makeText(this, "슬롯 2에 " + name + "을(를) 꽂았어요 · 다시 시작해요", Toast.LENGTH_SHORT).show();
+        relaunchGame();
+    }
+
+    // ---- 2인용 (포트 2) ----
+    private static final String[] MSX_PORT2_NAMES = {"비워 둠", "두 번째 패드", "포트 바꾸기"};
+
+    private int msxPort2() {
+        int value = msxInt("port2", 1);
+        return value >= 0 && value < MSX_PORT2_NAMES.length ? value : 1;
+    }
+
+    // The screen pad (and 1P's pad) to port 1, or to port 2 for games that read only that.
+    private void sendMainInput(long handle) {
+        int mask = isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask;
+        if (isMsx() && msxPort2() == 2) {
+            NativeGba.setInput(handle, 0);
+            NativeGba.setPlayerInput(handle, 1, mask);
+        } else {
+            NativeGba.setInput(handle, mask);
+        }
+    }
+
+    private void showMsxPort2Dialog() {
+        showChoiceDialog(RoundIconView.PAD, RoundIconView.COLOR_PAD, "2인용 · 조이스틱 포트 2", MSX_PORT2_NAMES,
+                new String[]{"1인용", "연결한 블루투스 패드의 2P가 포트 2로 (기본)", "화면 패드를 포트 2로 (포트 2만 읽는 게임)"}, msxPort2(),
+                "MSX 게임은 대부분 1P가 포트 1, 2P가 포트 2예요. 패드를 두 개 연결하면 두 번째 패드가 2P가 돼요. 이 게임에만 적용돼요.",
+                Color.rgb(248, 250, 252), Color.rgb(71, 85, 105), "적용", choice -> {
+                    long handle = this.nativeHandle;
+                    if (handle != 0) {
+                        NativeGba.setInput(handle, 0);
+                        NativeGba.setPlayerInput(handle, 1, 0);
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt(msxKey("port2"), choice).apply();
+                    refreshPlayers(false);
+                    updateInput();
+                });
+    }
+
+    // ---- 롬 매퍼 (고급) ----
+    private static final String[] MSX_MAPPER_NAMES = {"자동 (추천)", "코나미 (SCC 없음)", "코나미 SCC", "ASCII 8K", "ASCII 16K", "ASCII 8K + 세이브",
+            "ASCII 16K + 세이브", "일반 (16 · 32KB)", "일반 · 거울상", "한국 메가롬 80", "한국 메가롬 90", "한국 메가롬 126"};
+    private static final String[] MSX_MAPPER_VALUES = {"Auto", "konami4", "konami5", "ascii8", "ascii16", "ascii8sram",
+            "ascii16sram", "Normal", "mirrored", "korean80", "korean90", "korean126"};
+
+    private int msxMapper() {
+        int value = msxInt("mapper", 0);
+        return value >= 0 && value < MSX_MAPPER_VALUES.length ? value : 0;
+    }
+
+    private void showMsxMapperDialog(android.app.Dialog menu) {
+        String[] notes = {"데이터베이스 → 자동 감지", "Konami4 · 메가롬 초기 코나미", "Konami5 · SCC 음원 코나미", "ASCII8 · 많은 메가롬", "ASCII16",
+                "ascii8sram · 세이브가 있는 롬팩", "ascii16sram", "Normal · 메가롬이 아닌 롬팩", "mirrored", "korean80 · 국산 롬팩", "korean90", "korean126"};
+        showChoiceDialog(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "롬 매퍼 (고급)", MSX_MAPPER_NAMES, notes, msxMapper(),
+                "켜지지 않거나 화면이 깨지는 롬팩에만 써요. 보통은 \"자동\"이 데이터베이스와 자동 감지로 맞춰요. 이 게임에만 적용되고, 적용하면 다시 시작해요.",
+                Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용 (다시 시작)", choice -> {
+                    if (choice == msxMapper()) return;
+                    MainActivity.sharedSettings(this).edit().putInt(msxKey("mapper"), choice).apply();
+                    if (menu != null) menu.dismiss();
+                    relaunchGame();
+                });
+    }
+
+    // ---- MSX dialogs in the app's own style (header icon, rounded panel, two buttons) ----
+    private android.app.Dialog msxSheet(int icon, int color, String titleText, View body, String applyText, Runnable onApply,
+                                        String extraText, Runnable onExtra) {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(20), dp(16), dp(16));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(titleText);
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        titles.addView(title);
+        TextView game = new TextView(this);
+        game.setText(this.gameTitle + " · 이 게임만");
+        game.setTextSize(12.0f);
+        game.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        game.setSingleLine(true);
+        game.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(game);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        panel.addView(body, marginTop(-1, -2, 14));
+        LinearLayout buttons = new LinearLayout(this);
+        if (extraText != null) {
+            TextView extra = dialogButton(extraText, Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+            extra.setTextSize(13f);
+            extra.setOnClickListener(v -> {
+                dialog.dismiss();
+                onExtra.run();
+            });
+            LinearLayout.LayoutParams extraParams = new LinearLayout.LayoutParams(0, dp(48), 1.3f);
+            extraParams.setMargins(0, 0, dp(8), 0);
+            buttons.addView(extra, extraParams);
+        }
+        TextView close = dialogButton(applyText == null ? "닫기" : "취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        if (applyText != null) {
+            TextView apply = dialogButton(applyText, color, Color.WHITE);
+            apply.setOnClickListener(v -> {
+                dialog.dismiss();
+                onApply.run();
+            });
+            LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+            applyParams.setMargins(dp(8), 0, 0, 0);
+            buttons.addView(apply, applyParams);
+        }
+        panel.addView(buttons, marginTop(-1, -2, 14));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(400)), -2);
+        }
+        dialog.show();
+        return dialog;
+    }
+
+    private TextView msxNote(String text, int background, int color) {
+        TextView note = new TextView(this);
+        note.setText(text);
+        note.setTextSize(12f);
+        note.setLineSpacing(0, 1.15f);
+        note.setTextColor(Theme.text(color));
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(roundRect(Theme.bg(background), dp(12)));
+        return note;
+    }
+
+    private android.widget.EditText msxInput(String text, boolean mono) {
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setText(text);
+        input.setSelection(input.getText().length());
+        input.setTextSize(15f);
+        input.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        if (mono) input.setTypeface(android.graphics.Typeface.MONOSPACE);
+        input.setPadding(dp(12), 0, dp(12), 0);
+        android.graphics.drawable.GradientDrawable bg = roundRect(Theme.bg(Color.rgb(246, 247, 249)), dp(12));
+        bg.setStroke(dp(2), Color.rgb(203, 213, 225));
+        input.setBackground(bg);
+        return input;
+    }
+
+    private TextView msxActionRow(String text, int color) {
+        TextView row = new TextView(this);
+        row.setText(text);
+        row.setTextSize(14.5f);
+        row.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        row.setTextColor(color);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setBackground(roundRect(Theme.bg(Color.rgb(246, 247, 249)), dp(13)));
+        return row;
+    }
+
+    // A setting with its note and a switch; the whole row toggles it.
+    private View msxToggleRow(String name, String note, boolean[] state, int index, int color) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(13.5f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        texts.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(note);
+        sub.setTextSize(11f);
+        sub.setLineSpacing(0, 1.1f);
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        texts.addView(sub, marginTop(-1, -2, 2));
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1f));
+        ToggleView toggle = new ToggleView(this, color);
+        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(dp(44), dp(26));
+        toggleParams.setMargins(dp(10), 0, 0, 0);
+        row.addView(toggle, toggleParams);
+        Runnable paint = () -> {
+            toggle.setOn(state[index]);
+            row.setBackground(roundRect(Theme.bg(state[index] ? Color.rgb(255, 241, 242) : Color.rgb(246, 247, 249)), dp(13)));
+        };
+        paint.run();
+        row.setOnClickListener(v -> {
+            state[index] = !state[index];
+            paint.run();
+        });
+        return row;
+    }
+
+    // blueMSX opens the files by their exact names: msx2p.rom becomes MSX2P.rom.
+    private String msxCanonicalRomName(String name) {
+        java.util.List<String> known = new java.util.ArrayList<>(java.util.Arrays.asList("PHILIPSDISK.rom", "PANASONICDISK.rom"));
+        for (String[] m : MSX_STATUS_MACHINES) known.addAll(msxSharedNames(m[1]));
+        for (String k : known) {
+            if (k.equalsIgnoreCase(name)) return k;
+        }
+        return name;
     }
 
     // Copies the picked ROMs into <system>/Machines/Shared Roms under their own names.
@@ -12221,7 +12636,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         dir.mkdirs();
         int copied = 0;
         for (android.net.Uri uri : uris) {
-            String name = new File(cheatFileName(uri)).getName();
+            String name = msxCanonicalRomName(new File(cheatFileName(uri)).getName());
             if (name.isEmpty() || name.startsWith(".")) continue;
             File target = new File(dir, name);
             try (java.io.InputStream in = getContentResolver().openInputStream(uri);

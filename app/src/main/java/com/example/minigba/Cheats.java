@@ -67,7 +67,7 @@ final class Cheats {
             case "gba": case "snes": case "nes": case "md": case "sms": case "pce":
             case "nds": case "n64": case "psp": case "ps1": case "mcd": case "ss":
             case "ws": case "ngp": case "dc": case "naomi":
-            case "dos": case "arcade": case "neogeo": case "ps2": case "gc": case "wiiu": case "3ds":
+            case "dos": case "arcade": case "neogeo": case "ps2": case "gc": case "wiiu": case "3ds": case "msx":
                 return true;
             default:
                 return false;
@@ -84,7 +84,7 @@ final class Cheats {
     // Consoles with no usable cheat files in the collection: WonderSwan's are all ROM
     // patches its engine can't take, and there are none for Naomi · Atomiswave.
     static boolean hasCollection(String mode) {
-        return !"ws".equals(mode) && !"naomi".equals(mode) && !"ps2".equals(mode) && !"gc".equals(mode);
+        return !"ws".equals(mode) && !"msx".equals(mode) && !"naomi".equals(mode) && !"ps2".equals(mode) && !"gc".equals(mode);
     }
 
     // ---- address cheats: "@ADDR:VALUE:BYTES[:TYPE[:REPEAT:ADDRESS_STEP:VALUE_STEP[:B]]]" ----
