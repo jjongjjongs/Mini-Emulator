@@ -1674,14 +1674,17 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "ppsspp_spline_quality") == 0) return "Low";
         // No anisotropic filtering (16x by default).
         if (strcmp(key, "ppsspp_texture_anisotropic_filtering") == 0) return "disabled";
-        // PS2: the EE at 75% with mild cycle skipping, and the cheapest blending. GPU
-        // read-backs stay accurate: quick saves read the picture back.
+        // PS2: the EE at 75% with mild cycle skipping (not in 그림만 가볍게), the cheapest
+        // blending, and GPU read-backs that don't wait (0.0.288): accurate ones stall the
+        // whole pipeline on a phone's tiler GPU, at the cost of effects (and the quick save's
+        // picture) using the frame before.
         bool strong = gSpeedFirstStrong.load();
         if (!gSpeedFirstLight.load()) {
             if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return strong ? "-2" : "-1";
             if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return strong ? "2" : "1";
         }
         if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
+        if (strcmp(key, "pcsx2_hw_download_mode") == 0) return "unsynchronized";
         // No dithering or hardware mipmapping (anisotropic filtering is already off).
         if (strcmp(key, "pcsx2_dithering") == 0) return "0";
         if (strcmp(key, "pcsx2_mipmapping") == 0) return "disabled";

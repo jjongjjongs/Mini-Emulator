@@ -9112,7 +9112,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 ? "· 게임기 CPU를 80%로 낮춰 계산을 줄여요\n· 텍스처 변경 검사를 가장 가볍게 해요\n· 디스크 읽기를 기다리지 않아요 (로딩이 빨라져요)\n게임에 따라 게임 속도가 느려지거나 텍스처가 잠깐 깨질 수 있어요."
                 : isDreamcast()
                 ? "· 사운드 DSP(울림 · 에코 효과) 흉내를 꺼요\n· 늦어질 때만 화면을 한 장씩 건너뛰어 그려요\n게임에 따라 소리 울림이 빠질 수 있어요."
-                : "· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n· (켬 · 강하게만) PS2 CPU를 75% · 60%로 낮추고 일부 계산을 건너뛰어요\n그림만 가볍게는 게임 속도에 손대지 않아요. 게임에 따라 일부 반투명 효과가 달라 보이거나, 켬 · 강하게에서는 게임이 느려지거나 드물게 멈출 수 있어요.";
+                : "· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n· 그린 화면을 되읽을 때 기다리지 않아요 (아지랑이 · 잔상 같은 효과가 살짝 어긋날 수 있어요)\n· (켬 · 강하게만) PS2 CPU를 75% · 60%로 낮추고 일부 계산을 건너뛰어요\n그림만 가볍게는 게임 속도에 손대지 않아요. 게임에 따라 일부 반투명 효과가 달라 보이거나, 켬 · 강하게에서는 게임이 느려지거나 드물게 멈출 수 있어요.";
         boolean ps2 = "pcee2".equals(this.coreId);
         int level = speedFirstLevel();
         LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", (ps2 ? FAST_SHORT_PS2 : FAST_SHORT)[level],
