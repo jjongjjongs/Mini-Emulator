@@ -191,6 +191,11 @@ final class NativeGba {
     // DOS (DOSBox Pure): the game's core options and the file to start ("" = the core's menu).
     static native void setDosOptions(String[] keys, String[] values, String start);
 
+    // Disk swapping (multi-disk games, .m3u): the next disk at the next frame; {current, count}.
+    static native void diskNext(long handle);
+
+    static native int[] diskInfo(long handle);
+
     // DOS: an on-screen key (libretro RETROK_ code) going down or up.
     static native void dosKey(long handle, int code, boolean down, int character);
 

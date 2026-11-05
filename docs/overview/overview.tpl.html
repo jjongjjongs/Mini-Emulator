@@ -711,6 +711,18 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <h3>어스라이즈를 실제 사진으로 (0.0.278)</h3>
 <p>우주 배경의 <b>어스라이즈</b>를 직접 그린 그림에서 NASA 원본 사진(아폴로 8호, 1968, AS08-14-2383)으로 바꿨습니다. 필름 스캔을 돌려 달 지평선을 아래로 놓고 수평을 맞췄으며, 필름의 청록 빛을 걷어 우주는 검정, 달은 자연스러운 회색이 되게 했습니다. 지구는 원본 사진의 지구를 그대로 쓰되, 버튼과 겹치지 않게 세로는 B 버튼 오른쪽, 가로는 게임 화면과 B 사이의 지평선 위에 놓았습니다. 사진 출처: NASA / Apollo 8.</p>
 <figure><img src="img/earthrise-photo.jpg" alt="어스라이즈 실제 사진 시안"><figcaption>어스라이즈 · NASA 원본 사진 시안.</figcaption></figure>
+<h3>MSX · 재믹스 모드 (0.0.279)</h3>
+<p>1983년 일본에서 만든 8비트 가정용 컴퓨터 공통 규격 <b>MSX</b>(MSX1 · MSX2 · MSX2+ · turbo R)와 대우 <b>재믹스</b> 같은 호환기의 게임을 돌립니다. 엔진은 <b>blueMSX</b>입니다.</p>
+<ul>
+<li><b>파일</b>: 롬팩 .rom · .mx1 · .mx2, 디스크 .dsk (여러 장이면 .m3u), 테이프 .cas, 그리고 이것들이 든 .zip.</li>
+<li><b>바이오스</b>: 오픈소스 대체 바이오스 <b>C-BIOS</b>가 앱에 들어 있어 롬팩 게임 대부분은 바로 됩니다. 디스크 게임 · 테이프 일부 · 한글 MSX · turbo R은 원래 바이오스가 필요합니다 — 게임 중 메뉴 → 기본 → <b>MSX 바이오스</b>에서 직접 가진 기계에서 뽑은 파일을 이름 그대로(MSX2P.rom · MSX2PEXT.rom · PHILIPSDISK.rom 등) 넣습니다. 앱은 원래 바이오스를 담지 않습니다.</li>
+<li><b>기종</b>: 메뉴 → MSX 기종에서 자동(추천) · MSX1 · MSX2 · MSX2+ · turbo R (게임마다). 자동은 MSX2+로 시작하고, 원래 바이오스가 없으면 C-BIOS로 돌아갑니다.</li>
+<li><b>버튼 (세로)</b>: 위에 ESC · F1~F5 · ⌨, 가운데 방향키와 트리거 A(대부분 게임에서 스페이스와 같음) · B, 아래에 SPACE · 엔터 · Y · N, 맨 아래 STOP · GRAPH. <b>가로</b>: 방향키와 ESC · F1 · F2 · STOP · SPACE는 왼쪽, A · B와 F3~F5 · ⌨ · 엔터 · GRAPH는 오른쪽.</li>
+<li><b>⌨ 전체 키보드</b>: 실제 MSX 배열(F1~F5 · STOP · SELECT · HOME · INS · DEL · 숫자 · 글자 · CTRL · SHIFT · CAPS · GRAPH · 방향키). SHIFT · CTRL · GRAPH는 톡 = 다음 키에, 길게 = 고정. "패드로"로 닫습니다. 실물 키보드를 연결하면 그대로 입력됩니다.</li>
+<li><b>디스크 바꾸기</b>: 여러 장짜리(.m3u) 게임은 메뉴에 "디스크 바꾸기"가 나와 다음 디스크로 넘깁니다.</li>
+<li>키 줄 버튼도 버튼 배치 편집 · 버튼 꾸미기의 대상입니다.</li>
+</ul>
+<figure><img src="img/msx.jpg" alt="MSX 모드 시안"><figcaption>MSX · 재믹스 모드 시안 (게임 화면은 가상의 예시).</figcaption></figure>
 <figure><img src="img/bgopt.jpg" alt="배경 시안"><figcaption>배경 시안. (시안의 "레트로 그레이"는 이후 뺐습니다.)</figcaption></figure>
 <h3>내 사진 · 그림 배경 (0.0.177 ~ 0.0.180)</h3>
 <p>게임 중 메뉴 › 설정 › 배경에 "내 사진 · 그림"이 7번째 항목으로 추가됐습니다. 고르면 갤러리에서 사진을 고른 뒤 편집 화면이 열립니다. 0.0.204부터는 가로 화면으로 게임하다가 편집기를 열면 가로 편집부터 시작하고, 0.0.205부터는 열리는 순간 세로로 잠깐 도는 일도 없습니다.</p>

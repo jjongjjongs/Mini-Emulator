@@ -92,6 +92,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_N3DS = "3ds";
     private static final String MODE_WIIU = "wiiu";
     private static final String MODE_DOS = "dos";
+    private static final String MODE_MSX = "msx";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
     private static final String[][] CONSOLES = {
@@ -124,6 +125,10 @@ public final class MainActivity extends Activity {
             {MODE_MCD, "picodrive", ".cue,.chd,.iso,.bin,.32x", ".cue+.bin / .chd / .32x", "roms_mcd", "1030"},
             {MODE_WS, "wswan", ".ws,.wsc,.pc2", ".ws / .wsc / .zip", "roms_ws", "1028"},
             {MODE_NGP, "ngp", ".ngp,.ngc,.ngpc,.npc", ".ngp / .ngc / .zip", "roms_ngp", "1029"},
+            // MSX / MSX2 / MSX2+ / turbo R (and Daewoo's Zemmix) on blueMSX: cartridges,
+            // disks (.m3u for several), tapes. C-BIOS ships with it; original BIOS ROMs the
+            // player adds go to <system>/Machines/Shared Roms.
+            {MODE_MSX, "bluemsx", ".rom,.mx1,.mx2,.ri,.dsk,.cas,.m3u", ".rom / .dsk / .cas / .zip", "roms_msx", "1071"},
             // MS-DOS games on DOSBox Pure: the game's folder as a zip (kept whole, never
             // unpacked), CD images, floppy/hard disk images.
             {MODE_DOS, "dosbox_pure", ".zip,.dosz,.exe,.com,.bat,.iso,.cue,.chd,.img,.ima,.vhd", ".zip (게임 폴더) / .iso / .img", "roms_dos", "1069"},
@@ -177,13 +182,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_DOS, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "DOS (고전 PC)", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_DOS, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "DOS (고전 PC)", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -14125,6 +14130,9 @@ public final class MainActivity extends Activity {
         } else if (MODE_PSP.equals(mode) && !preparePspSystemFiles()) {
             showError("PSP 시스템 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
+        } else if (MODE_MSX.equals(mode) && !prepareMsxSystemFiles()) {
+            showError("MSX 시스템 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
+            return;
         } else if (CORE_PCSX2.equals(coreFor(file)) && !unpackSystemAsset("pcsx2_resources.zip", new File(new File(systemDir(), "pcsx2"), "resources"))) {
             showError("PCSX2 게임 데이터베이스를 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
@@ -14820,9 +14828,20 @@ public final class MainActivity extends Activity {
         return unpackSystemAsset("ppsspp_system.zip", new File(systemDir(), "PPSSPP"));
     }
 
+    // blueMSX reads <system>/Machines (machine descriptions, C-BIOS) and <system>/Databases;
+    // they ship in assets/msx_system.zip. BIOS ROMs the player added stay where they are.
+    private boolean prepareMsxSystemFiles() {
+        File system = systemDir();
+        new File(new File(system, "Machines"), "Shared Roms").mkdirs();
+        return unpackSystemAsset("msx_system.zip", system, new File(new File(system, "Machines"), ".mini_emulator_version"));
+    }
+
     // Unpacks a zip from the assets into a system folder, again whenever the app version changes.
     private boolean unpackSystemAsset(String asset, File dir) {
-        File marker = new File(dir, ".mini_emulator_version");
+        return unpackSystemAsset(asset, dir, new File(dir, ".mini_emulator_version"));
+    }
+
+    private boolean unpackSystemAsset(String asset, File dir, File marker) {
         String version;
         try {
             version = String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).versionCode);
@@ -20043,6 +20062,9 @@ public final class MainActivity extends Activity {
         }
         if ("wswan".equals(str)) {
             return "Beetle Cygne";
+        }
+        if ("bluemsx".equals(str)) {
+            return "blueMSX";
         }
         if ("picodrive".equals(str)) {
             return "PicoDrive";

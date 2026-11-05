@@ -664,6 +664,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "yabasanshiro") return "libyabasanshiro_libretro_android.so";
     if (coreId == "dolphin") return "libdolphin_libretro_android.so";
     if (coreId == "dosbox_pure") return "libdosbox_pure_libretro_android.so";
+    if (coreId == "bluemsx") return "libbluemsx_libretro_android.so";
     return nullptr;
 }
 
@@ -1557,6 +1558,38 @@ std::atomic<int> gDolphinScale{1};
 std::atomic<bool> gWiiPointerStick{false};
 std::atomic<int> gDolphinAspect{0};
 
+// Disk swapping (libretro disk control): the app asks for the next disk; the emulation
+// thread opens the drive, moves to it and closes it between frames.
+namespace disk {
+retro_disk_control_callback callbacks{};
+bool available = false;
+std::atomic<int> nextRequested{0};
+std::atomic<int> index{0};
+std::atomic<int> count{0};
+
+void reset() {
+    callbacks = retro_disk_control_callback{};
+    available = false;
+    nextRequested.store(0);
+    index.store(0);
+    count.store(0);
+}
+
+// Emulation thread, before retro_run.
+void tick() {
+    if (!available || callbacks.get_num_images == nullptr || callbacks.get_image_index == nullptr) return;
+    unsigned n = callbacks.get_num_images();
+    if (nextRequested.exchange(0) != 0 && n > 1 && callbacks.set_eject_state != nullptr && callbacks.set_image_index != nullptr) {
+        unsigned current = callbacks.get_image_index();
+        callbacks.set_eject_state(true);
+        callbacks.set_image_index((current + 1) % n);
+        callbacks.set_eject_state(false);
+    }
+    count.store(static_cast<int>(n));
+    index.store(static_cast<int>(callbacks.get_image_index()));
+}
+}  // namespace disk
+
 // Core options the app pins regardless of what the core reports as default.
 namespace motion {
 extern std::atomic<bool> enabled;
@@ -1570,6 +1603,10 @@ void applyWiiuLayout(Core* core) {
 
 const char* fixedVariable(const char* key) {
     if (strncmp(key, "dosbox_pure_", 12) == 0) {
+        return dos::option(key);
+    }
+    // MSX (blueMSX): the machine type the player picked, through the same option store.
+    if (strncmp(key, "bluemsx_", 8) == 0) {
         return dos::option(key);
     }
     // Wii U (Cemu): Vulkan; the app places both screens itself (the layout patch), so the
@@ -1992,6 +2029,14 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             auto it = core->variables.find(var->key);
             if (it == core->variables.end()) return false;
             var->value = it->second.c_str();
+            return true;
+        }
+        case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
+        case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE: {
+            // The extended interface starts with the same callbacks as the plain one.
+            if (data == nullptr) return false;
+            disk::callbacks = *static_cast<const retro_disk_control_callback*>(data);
+            disk::available = true;
             return true;
         }
         case RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK: {
@@ -2733,7 +2778,7 @@ int16_t joypadPressed(Core* core, int mask, unsigned id) {
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
                        core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu" || core->coreId == "dolphin" ||
-                       core->coreId == "dosbox_pure";
+                       core->coreId == "dosbox_pure" || core->coreId == "bluemsx";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
@@ -3437,6 +3482,7 @@ void runLoop(Core* core) {
             bool rewound = held && rewindStep(core);
             if (core->coreId == "melonds") dsnet::tick();
             if (core->coreId == "dosbox_pure") dos::deliver();
+            disk::tick();
             core->retroRun();
             applyMemoryCheats(core);
             core->framesRun++;
@@ -3694,6 +3740,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
 
     gCore = core;
     dos::reset();
+    disk::reset();
     core->retroSetEnvironment(environmentCallback);
     core->retroSetVideoRefresh(videoRefreshCallback);
     core->retroSetAudioSample(audioSampleCallback);
@@ -4676,6 +4723,19 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDosOptions(
     std::lock_guard<std::mutex> lock(dos::mutex);
     dos::options.swap(options);
     dos::start = first;
+}
+
+// Disk swapping: move to the next disk of a multi-disk game (an .m3u) at the next frame.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_diskNext(JNIEnv* /*env*/, jclass /*cls*/, jlong /*handle*/) {
+    disk::nextRequested.store(1);
+}
+
+// {current disk (from 0), number of disks}; {0, 0} when the game has no disk control.
+JNIEXPORT jintArray JNICALL Java_com_example_minigba_NativeGba_diskInfo(JNIEnv* env, jclass /*cls*/, jlong /*handle*/) {
+    jint values[2] = {disk::index.load(), disk::available ? disk::count.load() : 0};
+    jintArray out = env->NewIntArray(2);
+    if (out != nullptr) env->SetIntArrayRegion(out, 0, 2, values);
+    return out;
 }
 
 // DOS: a key of the on-screen keyboard (a libretro RETROK_ code) going down or up.

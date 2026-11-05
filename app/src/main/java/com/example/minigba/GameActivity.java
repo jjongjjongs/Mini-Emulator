@@ -764,6 +764,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addWonderSwanLandscapeControls(frameLayout);
             return;
         }
+        if (isMsx()) {
+            addMsxLandscapeControls(frameLayout);
+            return;
+        }
         if (isNeoGeoPocket()) {
             addNeoGeoPocketLandscapeControls(frameLayout);
             return;
@@ -930,6 +934,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (dosKey != 0 && (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP)) {
                 if (event.getRepeatCount() == 0) {
                     this.dosControls.physicalKey(dosKey, event.getAction() == KeyEvent.ACTION_DOWN);
+                }
+                return true;
+            }
+        }
+        if (isMsx() && !isControllerEvent(event)) {
+            // A physical keyboard types into the MSX.
+            int msxKey = DosControls.fromAndroid(event.getKeyCode());
+            if (msxKey != 0 && (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP)) {
+                if (event.getRepeatCount() == 0) {
+                    MsxKeys.send(this.nativeHandle, msxKey, event.getAction() == KeyEvent.ACTION_DOWN);
                 }
                 return true;
             }
@@ -1265,6 +1279,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 targets.add(new PadMapping.Target(4, selectLabel(), middle));
             }
             targets.add(new PadMapping.Target(8, startLabel(), middle));
+        } else if (isMsx()) {
+            // The MSX joystick: triggers A and B (the keys stay on the screen).
+            targets.add(new PadMapping.Target(1, "A", face));
+            targets.add(new PadMapping.Target(2, "B", face));
         } else if (isWonderSwan() || isNeoGeoPocket()) {
             targets.add(new PadMapping.Target(1, "A", face));
             targets.add(new PadMapping.Target(2, "B", face));
@@ -5741,6 +5759,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (requestCode == REQUEST_CHEAT_FILE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             importCheatFile(data.getData());
         }
+        if (requestCode == REQUEST_MSX_BIOS && resultCode == RESULT_OK && data != null) {
+            importMsxBios(data);
+        }
         if (requestCode == REQUEST_BG_EDITOR) {
             // Whatever was applied (or not), draw the case as it now stands.
             rebuildContent();
@@ -6044,6 +6065,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         DosSetup.ensureSoundfont(this, new File(systemPath));
                         String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName, new File(systemPath));
                         NativeGba.setDosOptions(options[0], options[1], start);
+                    }
+                    if (isMsx()) {
+                        // The machine type the player picked for this game (자동 by default).
+                        NativeGba.setDosOptions(new String[]{"bluemsx_msxtype"}, new String[]{MSX_TYPE_VALUES[msxType()]}, "");
                     }
                     NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
                     if (isNds()) {
@@ -7363,6 +7388,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addWonderSwanControls(frameLayout);
             return;
         }
+        if (isMsx()) {
+            addMsxControls(frameLayout);
+            return;
+        }
         if (isNeoGeoPocket()) {
             addNeoGeoPocketControls(frameLayout);
             return;
@@ -7826,6 +7855,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams cheatParams = new LinearLayout.LayoutParams(-1, dp(52));
         cheatParams.setMargins(0, dp(10), 0, 0);
         panel.addView(cheatRow, cheatParams);
+        if (isMsx()) {
+            addMsxMenuRows(panel, dialog);
+        }
         if (!isMame139()) {
             TextView status = new TextView(this);
             status.setText(runStatusText());
@@ -11264,6 +11296,241 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "dosbox_pure".equals(this.coreId);
     }
 
+    // ---- MSX · 재믹스 (blueMSX) ----
+    private static final int REQUEST_MSX_BIOS = 3110;
+    private static final String[] MSX_TYPE_NAMES = {"자동", "MSX1", "MSX2", "MSX2+", "turbo R"};
+    private static final String[] MSX_TYPE_VALUES = {"Auto", "MSX", "MSX2", "MSX2+", "MSXturboR"};
+    private static final String[] MSX_TYPE_NOTES = {"파일을 보고 골라요 (추천) · 원래 바이오스가 없으면 C-BIOS로",
+            "1983년 첫 MSX", "1985년 · 그래픽이 좋아진 2세대", "1988년", "1990년 마지막 세대 · 원래 바이오스 필요"};
+    private MsxKeys msxKeys;
+    private View msxKeyboardView;
+
+    private boolean isMsx() {
+        return "bluemsx".equals(this.coreId);
+    }
+
+    private int msxType() {
+        int value = MainActivity.sharedSettings(this).getInt("msx_type:" + this.saveBaseName, 0);
+        return value >= 0 && value < MSX_TYPE_VALUES.length ? value : 0;
+    }
+
+    private File msxSharedRoms() {
+        return new File(new File(new File(getFilesDir(), "system"), "Machines"), "Shared Roms");
+    }
+
+    private int msxBiosCount() {
+        File[] files = msxSharedRoms().listFiles();
+        int count = 0;
+        if (files != null) {
+            for (File f : files) {
+                if (f.isFile() && f.length() > 0) count++;
+            }
+        }
+        return count;
+    }
+
+    private MsxKeys msxKeys() {
+        if (this.msxKeys == null) {
+            this.msxKeys = new MsxKeys(this, new MsxKeys.Host() {
+                @Override
+                public long handle() {
+                    return GameActivity.this.nativeHandle;
+                }
+
+                @Override
+                public int dp(int value) {
+                    return GameActivity.this.dp(value);
+                }
+
+                @Override
+                public void closeKeyboard() {
+                    showMsxKeyboard(false);
+                }
+            });
+        }
+        return this.msxKeys;
+    }
+
+    // A key of the MSX keyboard as a pad button (rows of often used keys).
+    private TouchButton msxKeyButton(String label, String key) {
+        int code = MsxKeys.code(key);
+        TouchButton button = new TouchButton(this, label, MsxKeys.bitFor(code),
+                (bit, down) -> MsxKeys.send(this.nativeHandle, MsxKeys.codeOfBit(bit), down), TouchButton.STYLE_DARK);
+        return button;
+    }
+
+    // The ⌨ key: opens the full keyboard over the controls.
+    private TouchButton msxKeyboardButton() {
+        TouchButton button = new TouchButton(this, "⌨", 0, (bit, down) -> {
+            if (!down) showMsxKeyboard(true);
+        }, TouchButton.STYLE_PINK);
+        return button;
+    }
+
+    private void showMsxKeyboard(boolean show) {
+        if (this.msxKeyboardView != null) {
+            this.msxKeyboardView.setVisibility(show ? View.VISIBLE : View.GONE);
+        }
+        if (!show && this.msxKeys != null) {
+            this.msxKeys.releaseAll();
+        }
+    }
+
+    // A row of keys: weights give the wide ones (SPACE) more room.
+    private LinearLayout msxKeyRow(String[][] keys) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        for (String[] k : keys) {
+            View view = k[0].equals("⌨") ? msxKeyboardButton() : msxKeyButton(k[1], k[0]);
+            float weight = k.length > 2 ? Float.parseFloat(k[2]) : 1f;
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, weight);
+            params.setMargins(dp(2), 0, dp(2), 0);
+            row.addView(view, params);
+        }
+        return row;
+    }
+
+    private void addMsxRow(FrameLayout frameLayout, String[][] keys, int gravity, int leftDp, int rightDp, int topDp, int bottomDp, int widthDp, int heightDp) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(widthDp > 0 ? dp(widthDp) : -1, dp(heightDp), gravity);
+        params.setMargins(dp(leftDp), dp(topDp), dp(rightDp), dp(bottomDp));
+        frameLayout.addView(msxKeyRow(keys), params);
+    }
+
+    // The full keyboard, hidden until ⌨ (portrait: the controls' area; landscape: the bottom).
+    private void addMsxKeyboard(FrameLayout frameLayout, boolean landscape) {
+        View board = msxKeys().keyboard(landscape ? 30 : 36);
+        FrameLayout.LayoutParams params = landscape
+                ? new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM)
+                : new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        if (landscape) {
+            params.setMargins(dp(96), 0, dp(96), dp(2));
+        } else {
+            params.setMargins(dp(6), dp(2), dp(6), 0);
+        }
+        board.setVisibility(View.GONE);
+        frameLayout.addView(board, params);
+        this.msxKeyboardView = board;
+    }
+
+    // Portrait: often used keys on top, the MSX joystick (D-pad, triggers A and B), SPACE ·
+    // RETURN · Y · N, and STOP / GRAPH at the bottom with the speed button in between.
+    private void addMsxControls(FrameLayout frameLayout) {
+        addMsxRow(frameLayout, new String[][]{{"ESC", "ESC"}, {"F1", "F1"}, {"F2", "F2"}, {"F3", "F3"}, {"F4", "F4"}, {"F5", "F5"}, {"⌨", "⌨"}},
+                Gravity.TOP, 10, 10, 0, 0, 0, 30);
+        addFastForwardButton(frameLayout);
+        addDPadAt(frameLayout, 22, 100, 136);
+        addRoundButton(frameLayout, "A", 1, true, 128, 150, 60, TouchButton.STYLE_ARCADE_RED);
+        addRoundButton(frameLayout, "B", 2, true, 58, 206, 60, TouchButton.STYLE_ARCADE_RED);
+        addMsxRow(frameLayout, new String[][]{{"SPACE", "SPACE", "2.4"}, {"RETURN", "↵ 엔터", "1.4"}, {"Y", "Y"}, {"N", "N"}},
+                Gravity.BOTTOM, 22, 22, 0, 52, 0, 34);
+        addMsxRow(frameLayout, new String[][]{{"STOP", "STOP"}}, Gravity.BOTTOM | Gravity.START, 22, 0, 0, 10, 96, 32);
+        addMsxRow(frameLayout, new String[][]{{"GRAPH", "GRAPH"}}, Gravity.BOTTOM | Gravity.END, 0, 22, 0, 10, 96, 32);
+        addMsxKeyboard(frameLayout, false);
+    }
+
+    // Pause menu (기본): machine type, the player's own BIOS ROMs, the next disk.
+    private void addMsxMenuRows(LinearLayout panel, android.app.Dialog dialog) {
+        LinearLayout.LayoutParams typeParams = new LinearLayout.LayoutParams(-1, dp(52));
+        typeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "MSX 기종", MSX_TYPE_NAMES[msxType()], view -> {
+            showChoiceDialog(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "MSX 기종", MSX_TYPE_NAMES, MSX_TYPE_NOTES, msxType(),
+                    "이 게임에만 적용돼요. 바꾸면 게임을 다시 시작해요 (빠른 저장으로 이어서).\n원래 바이오스가 없는 기종은 C-BIOS로 돌아가요 (롬팩 게임만).",
+                    Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용", choice -> {
+                        if (choice == msxType()) return;
+                        MainActivity.sharedSettings(this).edit().putInt("msx_type:" + this.saveBaseName, choice).apply();
+                        dialog.dismiss();
+                        relaunchGame();
+                    });
+        }), typeParams);
+        int bios = msxBiosCount();
+        LinearLayout.LayoutParams biosParams = new LinearLayout.LayoutParams(-1, dp(52));
+        biosParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "MSX 바이오스", bios > 0 ? "넣은 파일 " + bios + "개" : "C-BIOS (기본)",
+                view -> showMsxBiosDialog()), biosParams);
+        int[] disk = NativeGba.diskInfo(this.nativeHandle);
+        if (disk != null && disk.length == 2 && disk[1] > 1) {
+            LinearLayout.LayoutParams diskParams = new LinearLayout.LayoutParams(-1, dp(52));
+            diskParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.SWAP, RoundIconView.COLOR_LOAD, "디스크 바꾸기", (disk[0] + 1) + " / " + disk[1] + " → 다음", view -> {
+                NativeGba.diskNext(this.nativeHandle);
+                Toast.makeText(this, "디스크 " + ((disk[0] + 1) % disk[1] + 1) + "번으로 바꿨어요", Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+            }), diskParams);
+        }
+    }
+
+    // What the original BIOS is for, which file names blueMSX looks for, and the picker.
+    private void showMsxBiosDialog() {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("MSX 바이오스")
+                .setMessage("지금: " + (msxBiosCount() > 0 ? "넣은 파일 " + msxBiosCount() + "개 + C-BIOS" : "C-BIOS만 (앱에 들어 있음)") + "\n\n"
+                        + "C-BIOS(오픈소스 대체 바이오스)로 롬팩 게임 대부분이 돌아가요. 디스크(.dsk) 게임, 테이프 일부, 한글 MSX, turbo R은 원래 바이오스가 있어야 해요.\n\n"
+                        + "직접 가진 MSX에서 뽑은 파일을 이 이름 그대로 넣어 주세요 (여러 개를 한 번에 고를 수 있어요):\n"
+                        + "MSX2+: MSX2P.rom · MSX2PEXT.rom · MSX2PMUS.rom\n"
+                        + "MSX2: MSX2.rom · MSX2EXT.rom\n"
+                        + "MSX1: MSX.rom\n"
+                        + "디스크: PHILIPSDISK.rom 또는 PANASONICDISK.rom\n"
+                        + "한글 MSX: MSXKR.rom · MSX2KR.rom · MSX2HAN.rom\n"
+                        + "turbo R: MSXTR.ROM · MSXTREXT.ROM 등\n\n"
+                        + "넣은 다음 게임을 다시 시작하면 적용돼요.")
+                .setPositiveButton("파일 고르기", (d, w) -> {
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    try {
+                        startActivityForResult(intent, REQUEST_MSX_BIOS);
+                    } catch (RuntimeException e) {
+                        Toast.makeText(this, "파일을 고를 앱이 없어요.", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("닫기", null)
+                .show();
+    }
+
+    // Copies the picked ROMs into <system>/Machines/Shared Roms under their own names.
+    private void importMsxBios(Intent data) {
+        java.util.List<android.net.Uri> uris = new java.util.ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int k = 0; k < data.getClipData().getItemCount(); k++) {
+                uris.add(data.getClipData().getItemAt(k).getUri());
+            }
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        File dir = msxSharedRoms();
+        dir.mkdirs();
+        int copied = 0;
+        for (android.net.Uri uri : uris) {
+            String name = new File(cheatFileName(uri)).getName();
+            if (name.isEmpty() || name.startsWith(".")) continue;
+            File target = new File(dir, name);
+            try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+                 java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+                if (in == null) continue;
+                byte[] buffer = new byte[65536];
+                int n;
+                while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                copied++;
+            } catch (java.io.IOException e) {
+                target.delete();
+            }
+        }
+        Toast.makeText(this, copied > 0 ? "바이오스 파일 " + copied + "개를 넣었어요 · 게임을 다시 시작하면 적용돼요" : "파일을 넣지 못했어요", Toast.LENGTH_LONG).show();
+    }
+
+    // Landscape: D-pad and keys in the left column, A / B and keys in the right one.
+    private void addMsxLandscapeControls(FrameLayout frameLayout) {
+        addDPadAt(frameLayout, 28, 104, 124);
+        addRoundButton(frameLayout, "A", 1, true, 130, 168, 56, TouchButton.STYLE_ARCADE_RED);
+        addRoundButton(frameLayout, "B", 2, true, 62, 214, 56, TouchButton.STYLE_ARCADE_RED);
+        addMsxRow(frameLayout, new String[][]{{"ESC", "ESC"}, {"F1", "F1"}, {"F2", "F2"}}, Gravity.BOTTOM | Gravity.START, 12, 0, 0, 58, 168, 30);
+        addMsxRow(frameLayout, new String[][]{{"STOP", "STOP"}, {"SPACE", "SPACE", "1.6"}}, Gravity.BOTTOM | Gravity.START, 12, 0, 0, 16, 168, 32);
+        addMsxRow(frameLayout, new String[][]{{"F3", "F3"}, {"F4", "F4"}, {"F5", "F5"}, {"⌨", "⌨"}}, Gravity.BOTTOM | Gravity.END, 0, 12, 0, 58, 176, 30);
+        addMsxRow(frameLayout, new String[][]{{"RETURN", "↵"}, {"GRAPH", "GRAPH", "1.4"}}, Gravity.BOTTOM | Gravity.END, 0, 12, 0, 16, 176, 32);
+        addMsxKeyboard(frameLayout, true);
+    }
+
     private void addDosControls(FrameLayout frame, boolean landscape) {
         android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
         DosControls old = this.dosControls;
@@ -12254,6 +12521,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "yabasanshiro":
             case "dolphin":
             case "dosbox_pure":
+            case "bluemsx":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":
