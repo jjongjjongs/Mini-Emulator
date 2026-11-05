@@ -3,7 +3,9 @@
 # app/src/main/jniLibs. Vita3K's libretro port (danprice142's "libretro" branch, on top of
 # upstream Vita3K, GPL-2) is built with BUILD_LIBRETRO; its Android dependencies (Boost,
 # OpenSSL, zlib) come from vcpkg for the arm64-android triplet, as upstream's Android build
-# does. A long build: it runs in its own workflow and the APK build restores its result.
+# does. Android Vulkan types are switched on for every file (the libretro header includes
+# vulkan.h before Vita3K's own vkutil.h would), and Vita3K's Android-app code (SDL, JNI, its
+# GUI) is left out of the core by cores/patches/vita3k-libretro-android.patch. A long build: it runs in its own workflow and the APK build restores its result.
 #
 # Usage: ANDROID_NDK_HOME=/path/to/ndk VCPKG_ROOT=/path/to/vcpkg ./cores/build-vita3k.sh
 set -euo pipefail
@@ -49,6 +51,8 @@ echo "== building vita3k_libretro"
         -DBUILD_LIBRETRO=ON -DUSE_VITA3K_UPDATE=OFF -DUSE_DISCORD_RICH_PRESENCE=OFF \
         -DCMAKE_SYSTEM_NAME=Android -DANDROID_PLATFORM=android-28 -DANDROID_ABI=arm64-v8a -DANDROID_STL=c++_static \
         -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
+        "-DCMAKE_C_FLAGS=-DVK_USE_PLATFORM_ANDROID_KHR -Wno-macro-redefined" \
+        "-DCMAKE_CXX_FLAGS=-DVK_USE_PLATFORM_ANDROID_KHR -Wno-macro-redefined" \
         "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384") &&
     cmake --build "$BUILD" --target vita3k_libretro -- -k 0 -j "$(nproc)"
 } > "$WORK/vita3k.log" 2>&1 || {

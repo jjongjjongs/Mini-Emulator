@@ -1,7 +1,16 @@
 diff --git a/vita3k/app/src/app.cpp b/vita3k/app/src/app.cpp
-index 9446512..d65b960 100644
+index 9446512..50e36ff 100644
 --- a/vita3k/app/src/app.cpp
 +++ b/vita3k/app/src/app.cpp
+@@ -28,7 +28,7 @@
+ #include <SDL3/SDL_messagebox.h>
+ #include <SDL3/SDL_timer.h>
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #include <SDL3/SDL_system.h>
+ #include <host/dialog/filesystem.h>
+ #include <miniz.h>
 @@ -86,7 +86,7 @@ void set_window_title(EmuEnvState &emuenv) {
  }
  #endif // !BUILD_LIBRETRO
@@ -12,7 +21,7 @@ index 9446512..d65b960 100644
      fs::path file_path{};
      host::dialog::filesystem::Result result = host::dialog::filesystem::open_file(file_path);
 diff --git a/vita3k/app/src/app_init.cpp b/vita3k/app/src/app_init.cpp
-index 7bc0b98..70e1fa1 100644
+index 7bc0b98..a6484de 100644
 --- a/vita3k/app/src/app_init.cpp
 +++ b/vita3k/app/src/app_init.cpp
 @@ -54,7 +54,7 @@
@@ -33,6 +42,22 @@ index 7bc0b98..70e1fa1 100644
      fs::path storage_path = fs::path(SDL_GetAndroidExternalStoragePath()) / "";
      fs::path vita_storage_path = storage_path / "vita/";
  
+@@ -607,13 +607,13 @@ void destroy(EmuEnvState &emuenv, ImGui_State *imgui) {
+ 
+ void switch_state(EmuEnvState &emuenv, const bool pause) {
+     if (pause) {
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         emuenv.display.imgui_render = true;
+         gui::set_controller_overlay_state(0);
+ #endif
+         emuenv.kernel.pause_threads();
+     } else {
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         emuenv.display.imgui_render = false;
+         gui::set_controller_overlay_state(gui::get_overlay_display_mask(emuenv.cfg));
+ #endif
 diff --git a/vita3k/ctrl/src/ctrl.cpp b/vita3k/ctrl/src/ctrl.cpp
 index 3de3d68..1e8300a 100644
 --- a/vita3k/ctrl/src/ctrl.cpp
@@ -46,6 +71,28 @@ index 3de3d68..1e8300a 100644
          // for whatever reasons, fingerprint sensors are detected as controllers, filter them out
          const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
          if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
+diff --git a/vita3k/modules/SceIme/SceIme.cpp b/vita3k/modules/SceIme/SceIme.cpp
+index ac6fdf5..c3ba069 100644
+--- a/vita3k/modules/SceIme/SceIme.cpp
++++ b/vita3k/modules/SceIme/SceIme.cpp
+@@ -45,7 +45,7 @@ EXPORT(SceInt32, sceImeClose) {
+     TRACY_FUNC(sceImeClose);
+     emuenv.ime.state = false;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     if (emuenv.cfg.enable_gamepad_overlay)
+         gui::set_controller_overlay_state(gui::get_overlay_display_mask(emuenv.cfg));
+ #endif
+@@ -93,7 +93,7 @@ EXPORT(SceInt32, sceImeOpen, SceImeParam *param) {
+     emuenv.ime.event_id = SCE_IME_EVENT_OPEN;
+     emuenv.ime.state = true;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     gui::set_controller_overlay_state(0);
+ #endif
+ 
 diff --git a/vita3k/motion/src/motion.cpp b/vita3k/motion/src/motion.cpp
 index 53795eb..750a749 100644
 --- a/vita3k/motion/src/motion.cpp
