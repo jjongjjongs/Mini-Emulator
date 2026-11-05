@@ -676,6 +676,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "dolphin") return "libdolphin_libretro_android.so";
     if (coreId == "dosbox_pure") return "libdosbox_pure_libretro_android.so";
     if (coreId == "bluemsx") return "libbluemsx_libretro_android.so";
+    if (coreId == "vita3k") return "libvita3k_libretro_android.so";
     return nullptr;
 }
 
@@ -746,7 +747,7 @@ size_t stateHeaderSize(const Core* core) {
 // PS2 games keep their progress on the memory card, and the menu's quick save still works.
 bool autoState(const Core* core) {
     // Cemu cannot serialize its state at all.
-    return core->coreId != "play" && core->coreId != "cemu" && !core->noAutoState;
+    return core->coreId != "play" && core->coreId != "cemu" && core->coreId != "vita3k" && !core->noAutoState;
 }
 
 namespace crash {
@@ -1515,6 +1516,8 @@ std::atomic<bool> gVulkanAllowed{true};
 bool vulkanFor(const std::string& coreId) {
     // Cemu has no OpenGL ES renderer, so it takes Vulkan whatever the setting.
     if (coreId == "cemu") return vkhw::available();
+    // Vita3K's libretro port draws with Vulkan (its OpenGL path wants desktop GL).
+    if (coreId == "vita3k") return vkhw::available();
     return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2") && gVulkanAllowed.load() && vkhw::available();
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
@@ -1620,6 +1623,10 @@ const char* fixedVariable(const char* key) {
     }
     // MSX (blueMSX): the machine type the player picked, through the same option store.
     if (strncmp(key, "bluemsx_", 8) == 0) {
+        return dos::option(key);
+    }
+    // PS Vita (Vita3K): renderer, resolution and the rest, set by the app per game.
+    if (strncmp(key, "vita3k_", 7) == 0) {
         return dos::option(key);
     }
     // Wii U (Cemu): Vulkan; the app places both screens itself (the layout patch), so the
@@ -2800,7 +2807,7 @@ int16_t joypadPressed(Core* core, int mask, unsigned id) {
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
                        core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu" || core->coreId == "dolphin" ||
-                       core->coreId == "dosbox_pure" || core->coreId == "bluemsx";
+                       core->coreId == "dosbox_pure" || core->coreId == "bluemsx" || core->coreId == "vita3k";
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;

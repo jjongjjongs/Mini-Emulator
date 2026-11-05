@@ -93,6 +93,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_WIIU = "wiiu";
     private static final String MODE_DOS = "dos";
     private static final String MODE_MSX = "msx";
+    private static final String MODE_VITA = "vita";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
     private static final String[][] CONSOLES = {
@@ -128,6 +129,9 @@ public final class MainActivity extends Activity {
             // MSX / MSX2 / MSX2+ / turbo R (and Daewoo's Zemmix) on blueMSX: cartridges,
             // disks (.m3u for several), tapes. C-BIOS ships with it; original BIOS ROMs the
             // player adds go to <system>/Machines/Shared Roms.
+            // PS Vita on Vita3K (libretro port): .vpk packages, installed on first start into
+            // <system>/vita3k; the player adds the system software (firmware) themselves.
+            {MODE_VITA, "vita3k", ".vpk", ".vpk", "roms_vita", "1075"},
             {MODE_MSX, "bluemsx", ".rom,.mx1,.mx2,.ri,.dsk,.cas,.m3u", ".rom / .dsk / .cas / .zip", "roms_msx", "1071"},
             // MS-DOS games on DOSBox Pure: the game's folder as a zip (kept whole, never
             // unpacked), CD images, floppy/hard disk images.
@@ -182,13 +186,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_DOS, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "DOS (고전 PC)", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_DOS, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "DOS (고전 PC)", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -1970,6 +1974,9 @@ public final class MainActivity extends Activity {
                 this.wiiOnlineStatusView = (TextView) wiiTile.getTag();
                 actionRow.addView(wiiTile, actionTileParams());
             }
+            if (MODE_VITA.equals(this.currentMode)) {
+                actionRow.addView(createActionCard("PS Vita 펌웨어", vitaFirmwareStatusText(), R.drawable.action_bios, Color.rgb(29, 78, 216), view -> showVitaFirmwareSheet()), actionTileParams());
+            }
             if (MODE_WIIU.equals(this.currentMode)) {
                 LinearLayout keysTile = createActionCard("Wii U 키 파일", wiiuKeysStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showWiiuKeysSheet());
                 this.wiiuKeysStatusView = (TextView) keysTile.getTag();
@@ -3123,6 +3130,8 @@ public final class MainActivity extends Activity {
             onDosConfPicked(intent);
         } else if (i == REQUEST_DOS_PATCH) {
             onDosPatchPicked(intent);
+        } else if (i == REQUEST_VITA_FIRMWARE) {
+            onVitaFirmwarePicked(intent);
         } else if (i == REQUEST_IMPORT_WIIU_KEYS) {
             if (data != null) {
                 importWiiuKeys(data);
@@ -14109,6 +14118,17 @@ public final class MainActivity extends Activity {
                 return;
             }
         }
+        if (MODE_VITA.equals(mode)) {
+            if (!new File(getApplicationInfo().nativeLibraryDir, "libvita3k_libretro_android.so").isFile()) {
+                showError("이 버전에는 PS Vita 엔진이 아직 들어 있지 않아요. 다음 업데이트를 기다려 주세요.");
+                return;
+            }
+            if (!vitaFirmwareReady()) {
+                showError("PS Vita 펌웨어(시스템 소프트웨어)가 필요해요. PS Vita 화면의 펌웨어 칸에서 PSP2UPDAT.PUP를 넣어 주세요.");
+                showVitaFirmwareSheet();
+                return;
+            }
+        }
         if (MODE_WIIU.equals(mode)) {
             if (!cemuShipped()) {
                 showError("이 버전에는 Wii U 엔진이 아직 들어 있지 않아요. 다음 업데이트를 기다려 주세요.");
@@ -19219,6 +19239,141 @@ public final class MainActivity extends Activity {
         return new File(disc.getParentFile(), (dot > 0 ? name.substring(0, dot) : name) + ".key");
     }
 
+    // ---- PS Vita firmware (Vita3K installs it from the PUP files on the first start) ----
+    private static final int REQUEST_VITA_FIRMWARE = 1076;
+    private static final String[][] VITA_FIRMWARE = {
+            {"PSP2UPDAT.PUP", "vs0", "시스템 소프트웨어 본체", "필수 · 약 130MB"},
+            {"PSP2UPDAT_PREINST.PUP", "pd0", "기본 앱 · 설정 데이터 (PREINST)", "권장"},
+            {"PSP2UPDAT_FONT.PUP", "sa0", "시스템 글꼴 (FONT · 한글 · 일본어 표시)", "권장"},
+    };
+    private int pendingVitaFirmware = -1;
+
+    private File vitaSystemDir() {
+        return new File(systemDir(), "vita3k");
+    }
+
+    private boolean vitaFirmwarePart(int k) {
+        File installed = new File(vitaSystemDir(), VITA_FIRMWARE[k][1]);
+        String[] names = installed.list();
+        return new File(vitaSystemDir(), VITA_FIRMWARE[k][0]).isFile() || (names != null && names.length > 0);
+    }
+
+    private boolean vitaFirmwareReady() {
+        return vitaFirmwarePart(0);
+    }
+
+    private String vitaFirmwareStatusText() {
+        return vitaFirmwareReady() ? "준비됨" + (vitaFirmwarePart(1) && vitaFirmwarePart(2) ? "" : " · 권장 파일 없음") : "필요 · 없음";
+    }
+
+    private void showVitaFirmwareSheet() {
+        final int color = Color.rgb(29, 78, 216);
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(Theme.bg(Color.WHITE), dp(24)));
+        panel.addView(dosPatchText("PS Vita 펌웨어", 17f, Color.rgb(31, 41, 51), true));
+        panel.addView(dosPatchText("시스템 소프트웨어 · 모든 게임 공통", 12f, Color.rgb(122, 130, 140), false));
+        for (int k = 0; k < VITA_FIRMWARE.length; k++) {
+            final int index = k;
+            boolean ok = vitaFirmwarePart(k);
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            row.setBackground(rounded(Theme.bg(ok ? Color.rgb(240, 253, 244) : Color.rgb(246, 247, 249)), dp(12)));
+            TextView mark = dosPatchText(ok ? "✓" : "＋", 15f, ok ? Color.rgb(22, 163, 74) : color, true);
+            row.addView(mark, new LinearLayout.LayoutParams(dp(26), -2));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            TextView name = dosPatchText(VITA_FIRMWARE[k][0] + "  · " + VITA_FIRMWARE[k][3], 12f, Color.rgb(31, 41, 51), true);
+            name.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            texts.addView(name);
+            texts.addView(dosPatchText(VITA_FIRMWARE[k][2] + (ok ? " · 넣음" : " · 눌러서 넣기"), 11f, Color.rgb(107, 114, 128), false));
+            row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.setOnClickListener(v -> {
+                dialog.dismiss();
+                this.pendingVitaFirmware = index;
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                try {
+                    startActivityForResult(intent, REQUEST_VITA_FIRMWARE);
+                } catch (Exception e) {
+                    showError("파일을 고르는 화면을 열 수 없어요.");
+                }
+            });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, dp(8), 0, 0);
+            panel.addView(row, params);
+        }
+        TextView note = dosPatchText("소니 PlayStation 공식 사이트의 PS Vita 시스템 소프트웨어 업데이트 파일을 직접 받아 넣어요. 앱에는 들어 있지 않아요. "
+                + "파일 이름이 모두 PSP2UPDAT.PUP일 수 있으니, 칸마다 맞는 파일을 골라 주세요. 게임을 처음 켤 때 한 번 설치해요 (1~2분).", 12f, Color.rgb(30, 58, 138), false);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(rounded(Theme.bg(Color.rgb(239, 246, 255)), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(note, noteParams);
+        TextView close = dosPatchText("닫기", 15f, Color.rgb(75, 85, 99), true);
+        close.setGravity(android.view.Gravity.CENTER);
+        close.setBackground(rounded(Theme.bg(Color.rgb(241, 242, 244)), dp(14)));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
+        closeParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(close, closeParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        dialog.show();
+    }
+
+    private void onVitaFirmwarePicked(Intent data) {
+        int k = this.pendingVitaFirmware;
+        this.pendingVitaFirmware = -1;
+        if (data == null || data.getData() == null || k < 0 || k >= VITA_FIRMWARE.length) {
+            return;
+        }
+        final Uri uri = data.getData();
+        final File target = new File(vitaSystemDir(), VITA_FIRMWARE[k][0]);
+        Toast.makeText(this, "펌웨어 파일을 넣는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String error = null;
+            File part = new File(target.getParentFile(), target.getName() + ".part");
+            try {
+                target.getParentFile().mkdirs();
+                copyUriToFile(uri, part);
+                byte[] head = readHead(part, 4);
+                // PUP files start with "SCEUF".
+                if (head == null || head[0] != 'S' || head[1] != 'C' || head[2] != 'E' || head[3] != 'U') {
+                    part.delete();
+                    error = "PS Vita 펌웨어(.PUP) 파일이 아니에요.";
+                } else if (!part.renameTo(target)) {
+                    part.delete();
+                    error = "파일을 넣지 못했어요.";
+                }
+            } catch (IOException e) {
+                part.delete();
+                error = "파일을 넣지 못했어요. 저장 공간을 확인해 주세요.";
+            }
+            final String why = error;
+            runOnUiThread(() -> {
+                if (why != null) {
+                    showError(why);
+                } else {
+                    Toast.makeText(this, VITA_FIRMWARE[k][0] + "을(를) 넣었어요 · 게임을 처음 켤 때 설치돼요", Toast.LENGTH_LONG).show();
+                }
+                refreshLibrary();
+                showVitaFirmwareSheet();
+            });
+        }, "vita-firmware").start();
+    }
+
     private boolean cemuShipped() {
         return new File(getApplicationInfo().nativeLibraryDir, "libcemu_libretro_android.so").isFile();
     }
@@ -20494,6 +20649,9 @@ public final class MainActivity extends Activity {
         }
         if ("bluemsx".equals(str)) {
             return "blueMSX";
+        }
+        if ("vita3k".equals(str)) {
+            return "Vita3K";
         }
         if ("picodrive".equals(str)) {
             return "PicoDrive";

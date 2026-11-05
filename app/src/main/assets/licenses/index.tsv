@@ -13,6 +13,7 @@ ppsspp	PPSSPP	GPL-2.0+	PSP 엔진	https://github.com/hrydgard/ppsspp
 pcsx	PCSX ReARMed	GPL-2.0	PS1 엔진	https://github.com/libretro/pcsx_rearmed
 play	Play!	BSD-2-Clause	PS2 엔진	https://github.com/jpd002/Play-
 pcsx2	PCSX2 (pcee2)	GPL-3.0	PS2 엔진 (PCSX2)	https://github.com/portableandroid/pcee2-libretro
+vita3k	Vita3K (libretro)	GPL-2.0	PS Vita 엔진 (실험적)	https://github.com/Vita3K/Vita3K
 dolphin	Dolphin	GPL-2.0+	게임큐브 · Wii 엔진	https://github.com/libretro/dolphin
 yabasanshiro	YabaSanshiro	GPL-2.0	세가 새턴 엔진	https://github.com/libretro/yabause (yabasanshiro)
 flycast	Flycast	GPL-2.0	드림캐스트 · Naomi · Atomiswave 엔진	https://github.com/flyinghead/flycast

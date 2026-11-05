@@ -400,6 +400,23 @@ jobs:
           path: app/src/main/assets/wiilink_wfc.txt
           key: wiilink-${{ hashFiles('cores/build-wiilink.sh') }}
 
+      # Vita3K (PS Vita) is built by the "Build Vita3K core" workflow; without its cache the
+      # APK ships without it and the PS Vita mode says the engine is missing.
+      - name: Restore Vita3K core
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+          key: vita3k-${{ hashFiles('cores/build-vita3k.sh', 'cores/patches/vita3k-*.patch') }}
+
+      - name: Report Vita3K core
+        run: |
+          if [ -f app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so ]; then
+            ls -lh app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+          else
+            echo "::warning::Vita3K core not in the cache; this APK has no PS Vita engine"
+          fi
+
       # Cemu (Wii U) is built by the "Build Cemu core" workflow; without its cache the APK
       # ships without it and the Wii U mode says the engine is missing.
       - name: Restore Cemu core

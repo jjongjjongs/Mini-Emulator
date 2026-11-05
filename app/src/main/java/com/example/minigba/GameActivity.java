@@ -97,7 +97,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         applyScreenFilterToNative(screenFilter());
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : isDos() ? "dos" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isVita() ? "vita" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : isDos() ? "dos" : "arcade";
         }
         CrashReports.installJavaHandler(this);
         registerPadListener();
@@ -2222,7 +2222,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // PS2 and Dreamcast states are tens of MB; MAME 0.139 has no states here at all.
     private boolean rewindSupported() {
-        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isWiiU() && !isDolphin() && !isMame139() && !stvBoard();
+        return !isPs2() && !isDreamcast() && !isSaturn() && !isN3ds() && !isWiiU() && !isVita() && !isDolphin() && !isMame139() && !stvBoard();
     }
 
     private Boolean stvBoard;
@@ -5306,6 +5306,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
             }
         }
+        if (isVita() && !MainActivity.sharedSettings(this).getBoolean("vita_notice", false)) {
+            MainActivity.sharedSettings(this).edit().putBoolean("vita_notice", true).apply();
+            new AppDialog.Builder(this).setTitle("PS Vita 모드 · 실험적")
+                    .setMessage("• 빠른 저장 · 이어하기 · 되감기가 없어요\n엔진이 장면 저장을 지원하지 않아요. 게임 안에서 저장해 주세요.\n\n"
+                            + "• 터치\n게임 화면을 누르면 앞면 터치예요. L2를 누른 채 화면을 누르면 뒷면 터치예요.\n\n"
+                            + "• 처음 실행\n.vpk를 처음 켤 때 한 번 설치해요(몇 분). 장면마다 셰이더를 처음 만들 때 잠깐 멈춰요.")
+                    .setPositiveButton("알겠어요", null).show();
+            return;
+        }
         if (isWiiU() && !MainActivity.sharedSettings(this).getBoolean("wiiu_notice", false)) {
             MainActivity.sharedSettings(this).edit().putBoolean("wiiu_notice", true).apply();
             new AppDialog.Builder(this).setTitle("Wii U 모드 · 실험적")
@@ -6030,7 +6039,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 showFatalError("ROM 실행 실패: 세이브 폴더를 만들 수 없습니다");
                 return;
             }
-            File file2 = new File(getFilesDir(), "system");
+            // Vita3K keeps its whole PS Vita (firmware, installed games) under its system folder.
+            File file2 = isVita() ? new File(new File(getFilesDir(), "system"), "vita3k") : new File(getFilesDir(), "system");
             if (!file2.exists() && !file2.mkdirs()) {
                 showFatalError("ROM 실행 실패: 시스템 폴더를 만들 수 없습니다");
                 return;
@@ -6102,6 +6112,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         DosSetup.ensureSoundfont(this, new File(systemPath));
                         String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName, new File(systemPath));
                         NativeGba.setDosOptions(options[0], options[1], start);
+                    }
+                    if (isVita()) {
+                        int scale = vitaScale();
+                        NativeGba.setDosOptions(new String[]{"vita3k_backend_renderer", "vita3k_resolution_multiplier", "vita3k_async_pipeline", "vita3k_v_sync"},
+                                new String[]{"Vulkan", String.valueOf(scale), "enabled", "disabled"}, "");
                     }
                     if (isMsx()) {
                         // The machine type and screen / sound the player picked for this game.
@@ -6451,7 +6466,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void createQuickSave(boolean withSram) {
-        if (isWiiU()) {
+        if (noStates()) {
             showWiiuNoStates();
             return;
         }
@@ -6683,11 +6698,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private boolean stvSaveConfirmed;
 
     private void showWiiuNoStates() {
-        Toast.makeText(this, "Wii U는 엔진이 장면 저장을 지원하지 않아요. 게임 안에서 저장해 주세요.", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, (isVita() ? "PS Vita" : "Wii U") + "는 엔진이 장면 저장을 지원하지 않아요. 게임 안에서 저장해 주세요.", Toast.LENGTH_LONG).show();
     }
 
     private void saveToSlot(int n, String memo, boolean overwrite) {
-        if (isWiiU()) {
+        if (noStates()) {
             showWiiuNoStates();
             return;
         }
@@ -7104,7 +7119,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private boolean holdPause;
 
     private void showLoadList() {
-        if (isWiiU()) {
+        if (noStates()) {
             showWiiuNoStates();
             return;
         }
@@ -8064,6 +8079,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             panel.addView(createDolphinScaleRow(dialog), tabRowParams(panel));
             panel.addView(createDolphinAspectRow(dialog), tabRowParams(panel));
             panel.addView(createFastRow(dialog), tabRowParams(panel));
+        }
+        if (isVita()) {
+            panel.addView(createVitaScaleRow(dialog), tabRowParams(panel));
+            TextView vitaNote = new TextView(this);
+            vitaNote.setText("PS Vita는 엔진이 장면을 저장하지 못해서 이어하기 · 되감기 · 세이브 슬롯이 없어요. 게임 안에서 저장해 주세요.\n앞면 터치 = 게임 화면 누르기 · 뒷면 터치 = L2를 누른 채 화면 누르기");
+            vitaNote.setTextSize(12f);
+            vitaNote.setTextColor(Theme.text(Color.rgb(100, 116, 139)));
+            vitaNote.setPadding(dp(4), dp(8), dp(4), 0);
+            panel.addView(vitaNote);
         }
         if (isWiiU()) {
             panel.addView(createWiiuViewRow(dialog), tabRowParams(panel));
@@ -10538,7 +10562,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             screen.setOnTouchListener((view, event) -> this.dosControls != null && this.dosControls.screenTouch(view, event));
             return;
         }
-        if (!isDualScreen() && !isDolphin()) {
+        if (!isDualScreen() && !isDolphin() && !isVita()) {
             return;
         }
         screen.setOnTouchListener((view, event) -> {
@@ -13050,6 +13074,34 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return "ppsspp".equals(this.coreId);
     }
 
+    // PS Vita (Vita3K): △○×□, L/R, two sticks, the screen as its touch screen.
+    private boolean isVita() {
+        return "vita3k".equals(this.coreId);
+    }
+
+    // Engines that cannot save a scene: no quick saves, slots, resume or rewind.
+    private int vitaScale() {
+        int value = MainActivity.sharedSettings(this).getInt("vita_scale:" + this.saveBaseName, 1);
+        return value >= 1 && value <= 3 ? value : 1;
+    }
+
+    private LinearLayout createVitaScaleRow(android.app.Dialog menu) {
+        String[] names = {"1배 · 960×544 (추천)", "2배 · 1920×1088", "3배 · 2880×1632"};
+        String[] notes = {"PS Vita 원래 해상도 · 가장 가벼워요", "더 선명 · 휴대폰이 뜨거워질 수 있어요", "가장 선명 · 무거워요"};
+        return createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도 배율", vitaScale() + "배",
+                view -> showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "해상도 배율", names, notes, vitaScale() - 1,
+                        "이 게임에만 적용돼요. 바꾸면 게임이 다시 켜져요 (PS Vita는 이어하기가 없어서 타이틀부터).",
+                        Color.rgb(239, 246, 255), Color.rgb(30, 64, 175), "적용 (다시 시작)", choice -> {
+                            MainActivity.sharedSettings(this).edit().putInt("vita_scale:" + this.saveBaseName, choice + 1).apply();
+                            if (menu != null) menu.dismiss();
+                            relaunchGame();
+                        }));
+    }
+
+    private boolean noStates() {
+        return isWiiU() || isVita();
+    }
+
     private boolean isPs1() {
         return "pcsx_rearmed".equals(this.coreId);
     }
@@ -13060,12 +13112,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // PSP, PS1 and PS2 share △○×□, a D-pad and analog sticks.
     private boolean isSonyPad() {
-        return isPsp() || isPs1() || isPs2();
+        return isPsp() || isPs1() || isPs2() || isVita();
     }
 
     // PS1 (DualShock) and PS2 pads: L1/L2/R1/R2 and two sticks.
     private boolean isDualShock() {
-        return isPs1() || isPs2();
+        return isPs1() || isPs2() || isVita();
     }
 
     // Button bits the bridge reads as libretro L2 and R2.
@@ -13687,6 +13739,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private float baseScreenAspect() {
+        if (isVita()) {
+            return 960.0f / 544.0f;
+        }
         if (isWiiU()) {
             // The TV over the GamePad in portrait (both 16:9), one of them otherwise.
             return this.ndsLayout == 0 && wiiuView() == 0 ? 1280.0f / 1440.0f : 1280.0f / 720.0f;
@@ -13744,6 +13799,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "dolphin":
             case "dosbox_pure":
             case "bluemsx":
+            case "vita3k":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);
             case "fbneo":
             case "mame2003plus":
