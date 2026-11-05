@@ -50,9 +50,9 @@ echo "== building vita3k_libretro"
         -DCMAKE_SYSTEM_NAME=Android -DANDROID_PLATFORM=android-28 -DANDROID_ABI=arm64-v8a -DANDROID_STL=c++_static \
         -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON \
         "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384") &&
-    cmake --build "$BUILD" --target vita3k_libretro -- -j "$(nproc)"
+    cmake --build "$BUILD" --target vita3k_libretro -- -k 0 -j "$(nproc)"
 } > "$WORK/vita3k.log" 2>&1 || {
-    grep -n "error:\|Error [0-9]\|CMake Error\|undefined reference" "$WORK/vita3k.log" | head -n 80 || true
+    grep -n "error:\|Error [0-9]\|CMake Error\|undefined reference" "$WORK/vita3k.log" | head -n 200 || true
     tail -n 80 "$WORK/vita3k.log"
     exit 1
 }

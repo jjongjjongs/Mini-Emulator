@@ -1,0 +1,158 @@
+diff --git a/vita3k/app/src/app.cpp b/vita3k/app/src/app.cpp
+index 9446512..d65b960 100644
+--- a/vita3k/app/src/app.cpp
++++ b/vita3k/app/src/app.cpp
+@@ -86,7 +86,7 @@ void set_window_title(EmuEnvState &emuenv) {
+ }
+ #endif // !BUILD_LIBRETRO
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ void add_custom_driver(EmuEnvState &emuenv) {
+     fs::path file_path{};
+     host::dialog::filesystem::Result result = host::dialog::filesystem::open_file(file_path);
+diff --git a/vita3k/app/src/app_init.cpp b/vita3k/app/src/app_init.cpp
+index 7bc0b98..70e1fa1 100644
+--- a/vita3k/app/src/app_init.cpp
++++ b/vita3k/app/src/app_init.cpp
+@@ -54,7 +54,7 @@
+ #include <dwmapi.h>
+ #endif
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #include <SDL3/SDL_hints.h>
+ #include <SDL3/SDL_system.h>
+ #endif
+@@ -288,7 +288,7 @@ void calculate_fps(EmuEnvState &emuenv) {
+ }
+ #else // !BUILD_LIBRETRO
+ void init_paths(Root &root_paths) {
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     fs::path storage_path = fs::path(SDL_GetAndroidExternalStoragePath()) / "";
+     fs::path vita_storage_path = storage_path / "vita/";
+ 
+diff --git a/vita3k/ctrl/src/ctrl.cpp b/vita3k/ctrl/src/ctrl.cpp
+index 3de3d68..1e8300a 100644
+--- a/vita3k/ctrl/src/ctrl.cpp
++++ b/vita3k/ctrl/src/ctrl.cpp
+@@ -217,7 +217,7 @@ void refresh_controllers(CtrlState &state, EmuEnvState &emuenv) {
+             break;
+         }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         // for whatever reasons, fingerprint sensors are detected as controllers, filter them out
+         const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
+         if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
+diff --git a/vita3k/motion/src/motion.cpp b/vita3k/motion/src/motion.cpp
+index 53795eb..750a749 100644
+--- a/vita3k/motion/src/motion.cpp
++++ b/vita3k/motion/src/motion.cpp
+@@ -58,7 +58,7 @@ enum DeviceRotation : int32_t {
+     ROTATION_270
+ };
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ 
+ #include <SDL3/SDL_system.h>
+ 
+diff --git a/vita3k/renderer/src/gl/renderer.cpp b/vita3k/renderer/src/gl/renderer.cpp
+index 014a981..b1e12cd 100644
+--- a/vita3k/renderer/src/gl/renderer.cpp
++++ b/vita3k/renderer/src/gl/renderer.cpp
+@@ -231,7 +231,7 @@ bool create(SDL_Window *window, std::unique_ptr<State> &state, const Config &con
+ 
+     int choosen_minor_version = 0;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+@@ -263,7 +263,7 @@ bool create(SDL_Window *window, std::unique_ptr<State> &state, const Config &con
+     if (!gl_state.context)
+         return false;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress);
+ #else
+     gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+diff --git a/vita3k/renderer/src/texture/replacement.cpp b/vita3k/renderer/src/texture/replacement.cpp
+index fbd3de0..258d094 100644
+--- a/vita3k/renderer/src/texture/replacement.cpp
++++ b/vita3k/renderer/src/texture/replacement.cpp
+@@ -28,7 +28,7 @@
+ #include <stb_image.h>
+ #include <stb_image_write.h>
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ // for message popup
+ #include <SDL3/SDL_system.h>
+ #endif
+@@ -510,7 +510,7 @@ bool TextureCache::import_configure_texture() {
+ 
+         if (gxm::is_bcn_format(base_format) && !support_dxt) {
+             LOG_ERROR_ONCE("BCn textures are not supported by this device");
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+             // this issue is most likely to happen on android
+             SDL_ShowAndroidToast("BCn textures are not supported by this device!", 1, -1, 0, 0);
+ #endif
+diff --git a/vita3k/renderer/src/vulkan/renderer.cpp b/vita3k/renderer/src/vulkan/renderer.cpp
+index cdc295f..0cded04 100644
+--- a/vita3k/renderer/src/vulkan/renderer.cpp
++++ b/vita3k/renderer/src/vulkan/renderer.cpp
+@@ -41,7 +41,7 @@
+ #include <MoltenVK/mvk_vulkan.h>
+ #endif
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #include <SDL3/SDL_system.h>
+ #include <adrenotools/bcenabler.h>
+ #include <adrenotools/driver.h>
+@@ -325,7 +325,7 @@ bool VKState::init() {
+     return true;
+ }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ static void *load_custom_adreno_driver(const std::string &driver_name) {
+     const fs::path driver_path = fs::path(SDL_GetAndroidInternalStoragePath()) / "driver" / driver_name / "/";
+ 
+@@ -929,7 +929,7 @@ bool VKState::create(SDL_Window *window, std::unique_ptr<renderer::State> &state
+         support_memory_mapping = false;
+ #endif
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         support_android_buffer_import &= SDL_GetAndroidSDKVersion() >= 26;
+         support_unix_fd_import &= SDL_GetAndroidSDKVersion() >= 26;
+ #endif
+@@ -1704,7 +1704,7 @@ void VKState::set_async_compilation(bool enable) {
+     pipeline_cache.set_async_compilation(enable);
+ }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ std::vector<std::string> VKState::get_gpu_list() {
+     if (!support_custom_drivers())
+         return { physical_device_properties.deviceName.data() };
+diff --git a/vita3k/renderer/src/vulkan/screen_renderer.cpp b/vita3k/renderer/src/vulkan/screen_renderer.cpp
+index 564b00d..492b80d 100644
+--- a/vita3k/renderer/src/vulkan/screen_renderer.cpp
++++ b/vita3k/renderer/src/vulkan/screen_renderer.cpp
+@@ -25,7 +25,7 @@
+ #include "util/log.h"
+ #include "vkutil/vkutil.h"
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #include <SDL3/SDL.h>
+ #include <jni.h>
+ 
