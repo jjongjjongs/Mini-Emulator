@@ -148,7 +148,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout topBar = createTopBar();
         this.layoutGuards.clear();
         this.layoutGuards.add(topBar);
-        linearLayout.addView(topBar, new LinearLayout.LayoutParams(-1, dp(64)));
+        linearLayout.addView(topBar, new LinearLayout.LayoutParams(-1, dp(TOP_BAR_DP)));
         boolean full = isFullScreenStyle();
         int dp = full ? 0 : dp(4);
         int dp2 = full ? 0 : dp(2);
@@ -420,7 +420,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         float aspect = screenAspect();
         // The 3DS controls are taller: the circle pad sits above the D-pad.
-        int tallest = height - dp(64) - screenTop - dp(20) - dp(isN3ds() || isWiiU() ? 352 : 268) - padding;
+        int tallest = height - dp(TOP_BAR_DP) - screenTop - dp(20) - dp(isN3ds() || isWiiU() ? 352 : 268) - padding;
         int screenWidth = Math.max(dp(200), Math.min(width - minSide * 2, Math.round(tallest * aspect)));
         int side = (width - screenWidth) / 2;
         int screenHeight = Math.round(screenWidth / aspect) + padding;
@@ -450,7 +450,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             int statusId = getResources().getIdentifier("status_bar_height", "dimen", "android");
             int statusBar = statusId > 0 ? getResources().getDimensionPixelSize(statusId) : dp(24);
-            int tallest = metrics.heightPixels - statusBar - dp(64) - dp(18) - dp(36) - dp(isN3ds() || isWiiU() ? 352 : 272) - padding;
+            int tallest = metrics.heightPixels - statusBar - dp(TOP_BAR_DP) - dp(18) - dp(36) - dp(isN3ds() || isWiiU() ? 352 : 272) - padding;
             int widest = Math.max(dp(200), Math.round(tallest * screenAspect()));
             if (screenWidth > widest) {
                 side += (screenWidth - widest) / 2;
@@ -2807,7 +2807,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Touches go through to the game.
             badge.setClickable(false);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-            params.setMargins(0, dp(this.landscapeMode ? 12 : 64), 0, 0);
+            params.setMargins(0, dp(this.landscapeMode ? 12 : TOP_BAR_DP + 4), 0, 0);
             addContentView(badge, params);
             this.micBadge = badge;
             this.micBadgeText = text;
@@ -6224,17 +6224,66 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    // Portrait: the four round buttons with their names above the game screen.
+    // Portrait top bar (0.0.289): four pills in one thin row, each a small round icon and its
+    // name (it was four 40dp circles with names under them, 64dp tall).
+    static final int TOP_BAR_DP = 36;
+
     private LinearLayout createTopBar() {
         LinearLayout linearLayout = new LinearLayout(this);
         linearLayout.setOrientation(0);
         linearLayout.setGravity(16);
-        linearLayout.setPadding(dp(8), dp(4), dp(8), dp(2));
-        linearLayout.addView(createIconButton(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "저장", 40, 11, view -> onSaveClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
-        linearLayout.addView(createIconButton(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", 40, 11, view -> onResetClicked()), new LinearLayout.LayoutParams(0, -2, 1.0f));
-        linearLayout.addView(createIconButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "화면 회전", 40, 11, view -> toggleOrientation()), new LinearLayout.LayoutParams(0, -2, 1.0f));
-        linearLayout.addView(createIconButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", 40, 11, view -> showGameMenu()), new LinearLayout.LayoutParams(0, -2, 1.0f));
+        linearLayout.setPadding(dp(8), dp(4), dp(8), dp(4));
+        String[] names = {"저장", "재시작", "화면 회전", "메뉴"};
+        int[] icons = {RoundIconView.SAVE, RoundIconView.RESET, RoundIconView.ROTATE, RoundIconView.MENU};
+        int[] colors = {RoundIconView.COLOR_SAVE, RoundIconView.COLOR_RESET, RoundIconView.COLOR_ROTATE, RoundIconView.COLOR_MENU};
+        View.OnClickListener[] actions = {view -> onSaveClicked(), view -> onResetClicked(), view -> toggleOrientation(), view -> showGameMenu()};
+        for (int k = 0; k < names.length; k++) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
+            params.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+            linearLayout.addView(createPillButton(icons[k], colors[k], names[k], actions[k]), params);
+        }
         return linearLayout;
+    }
+
+    // A pill on the case: a small round icon and the name beside it.
+    private LinearLayout createPillButton(int icon, int color, String label, View.OnClickListener onClickListener) {
+        LinearLayout pill = new LinearLayout(this);
+        pill.setGravity(Gravity.CENTER);
+        int labelColor = shellTextColor();
+        boolean lightLabel = Color.red(labelColor) + Color.green(labelColor) + Color.blue(labelColor) > 384;
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setCornerRadius(dp(14));
+        bg.setColor(lightLabel ? Color.argb(46, 0, 0, 0) : Color.argb(110, 255, 255, 255));
+        bg.setStroke(Math.max(1, dp(1)), lightLabel ? Color.argb(40, 255, 255, 255) : Color.argb(40, 0, 0, 0));
+        pill.setBackground(bg);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        pill.addView(iconView, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextSize(11.5f);
+        text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        text.setTextColor(labelColor);
+        text.setShadowLayer(dp(2), 0, dp(1), lightLabel ? Color.argb(150, 0, 0, 0) : Color.argb(160, 255, 255, 255));
+        text.setSingleLine(true);
+        text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(dp(5), 0, 0, 0);
+        pill.addView(text, textParams);
+        pill.setClickable(true);
+        pill.setContentDescription(label);
+        pill.setOnClickListener(onClickListener);
+        pill.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+                view.setAlpha(0.75f);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+                view.setAlpha(1f);
+            }
+            return false;
+        });
+        return pill;
     }
 
     // Landscape has no top bar: save/reset sit in the top left corner, rotate/menu in the
