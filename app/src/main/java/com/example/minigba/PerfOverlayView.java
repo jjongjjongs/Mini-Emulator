@@ -15,10 +15,9 @@ import java.io.File;
 import java.io.FileReader;
 
 // "성능 표시": FPS and game speed, temperature and battery, in one line. It covers the whole
-// game window and draws the line on the case just under the game picture, so nothing of the
-// game is hidden; where the picture fills the window (full-screen and controller styles) it
-// draws the bare text along the top edge instead. Touches pass through. GameActivity feeds
-// it frame counts once a second.
+// game window and draws the line along the bottom edge of the game picture (0.0.286): in a
+// small box, or as bare text where the picture fills the window (full-screen and controller
+// styles). Touches pass through. GameActivity feeds it frame counts once a second.
 final class PerfOverlayView extends View {
     // The system's thermal status (GameActivity): 0 보통, 1 약간, 2 뜨거움, 3 심각; -1 unknown.
     static volatile int thermalLevel = -1;
@@ -147,11 +146,15 @@ final class PerfOverlayView extends View {
         if (this.target.getVisibility() != VISIBLE || this.target.getWidth() <= 0 || this.line1.isEmpty()) {
             return;
         }
-        getLocationInWindow(this.mine);
-        this.target.getLocationInWindow(this.theirs);
-        float left = this.theirs[0] - this.mine[0];
-        float top = this.theirs[1] - this.mine[1];
-        float bottom = top + this.target.getHeight();
+        // Where the picture really is on screen: its parents may scale it (a stretched or
+        // zoomed screen), which the view's own height doesn't show.
+        android.graphics.Rect picture = new android.graphics.Rect();
+        android.graphics.Rect own = new android.graphics.Rect();
+        if (!this.target.getGlobalVisibleRect(picture) || !getGlobalVisibleRect(own)) {
+            return;
+        }
+        float left = picture.left - own.left;
+        float bottom = picture.bottom - own.top;
         float pad = 5 * this.density;
         String tail = this.drain.isEmpty() ? this.line2 : this.line2 + " ";
         String head = this.line1 + "   ";
@@ -162,13 +165,13 @@ final class PerfOverlayView extends View {
         float x;
         float y;
         if (this.flat) {
-            // Along the top edge of the picture, bare text with a shadow.
+            // Along the bottom edge of the picture, bare text with a shadow.
             x = left + pad + 2 * this.density;
-            y = top + 2 * this.density + baseline;
+            y = bottom - 4 * this.density - (lineHeight - baseline);
         } else {
-            // On the case just under the picture.
+            // In a small box along the bottom edge of the picture.
             float width = text.measureText(head) + text.measureText(heat) + text.measureText(tail) + text.measureText(this.drain) + 2 * pad;
-            float boxTop = bottom + 3 * this.density;
+            float boxTop = bottom - 3 * this.density - (lineHeight + 2 * this.density);
             float boxLeft = Math.max(2 * this.density, left + 2 * this.density);
             RectF rect = new RectF(boxLeft, boxTop, boxLeft + width, boxTop + lineHeight + 2 * this.density);
             canvas.drawRoundRect(rect, 6 * this.density, 6 * this.density, box);

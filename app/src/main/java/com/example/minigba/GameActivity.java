@@ -113,6 +113,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.gameTitle = titleExtra != null ? titleExtra : (this.romPath == null ? "" : baseNameWithoutExtension(new File(this.romPath).getName()));
         String stringExtra2 = getIntent().getStringExtra("com.example.minigba.SAVE_BASE_NAME");
         this.saveBaseName = stringExtra2;
+        TouchButton.slideEnabled = slidePressOn(this);
         if (stringExtra2 == null || stringExtra2.trim().isEmpty()) {
             this.saveBaseName = baseNameWithoutExtension(new File(this.romPath).getName());
         }
@@ -2168,6 +2169,25 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 parent.addView(new ComboZoneView(this, a, b, this::setButtonPressed), params);
             }
         }
+    }
+
+    // 미끄러져 누르기: a finger slid onto another button presses it (all games).
+    static boolean slidePressOn(android.content.Context context) {
+        return MainActivity.sharedSettings(context).getBoolean("slide_press", true);
+    }
+
+    private LinearLayout createSlideRow(Runnable onChanged) {
+        String[] names = {"켬 (추천)", "끔"};
+        String[] notes = {"손가락을 떼지 않고 옆 버튼으로 미끄러뜨리면 그 버튼이 눌려요 · 실제 패드처럼 굴려 누르기",
+                "버튼마다 손을 떼고 다시 눌러야 해요 (예전 방식)"};
+        return createSettingRow(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "미끄러져 누르기", slidePressOn(this) ? "켬" : "끔",
+                view -> showChoiceDialog(RoundIconView.COMBO, RoundIconView.COLOR_COMBO, "미끄러져 누르기", names, notes,
+                        slidePressOn(this) ? 0 : 1, "모든 게임에 바로 적용돼요. 화면 버튼(동그란 버튼 · L/R · START 등)끼리 옮겨 가요. 빈 곳으로 미끄러지면 누르던 버튼을 그대로 눌러요.",
+                        Color.rgb(255, 247, 232), Color.rgb(138, 90, 0), "적용", choice -> {
+                    MainActivity.sharedSettings(this).edit().putBoolean("slide_press", choice == 0).apply();
+                    TouchButton.slideEnabled = choice == 0;
+                    onChanged.run();
+                }));
     }
 
     private LinearLayout createComboRow(Runnable onChanged) {
@@ -5642,6 +5662,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             LinearLayout.LayoutParams comboParams = new LinearLayout.LayoutParams(-1, dp(52));
             comboParams.setMargins(0, dp(8), 0, 0);
             panel.addView(createComboRow(refresh), comboParams);
+            LinearLayout.LayoutParams slideParams = new LinearLayout.LayoutParams(-1, dp(52));
+            slideParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSlideRow(refresh), slideParams);
             if (isDualShock() || isWiiU() || (isDolphin() && (!isWiiGame() || wiiControl() == 2))) {
                 LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(-1, dp(52));
                 rightParams.setMargins(0, dp(8), 0, 0);

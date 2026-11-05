@@ -346,18 +346,128 @@ final class TouchButton extends View {
         invalidate();
     }
 
+    // ---- 미끄러져 누르기: a finger slid from this button onto another presses that one ----
+    // (a real pad's thumb rolls from button to button without lifting). Android keeps sending
+    // a finger's moves to the view it went down on, so that view follows each of its fingers
+    // and hands the press to the button under it. On by default; 설정 can turn it off.
+    static volatile boolean slideEnabled = true;
+    // Fingers on this button or slid onto it from another.
+    private int holds;
+    // For each finger that went down here: the button it holds now.
+    private final android.util.SparseArray<TouchButton> fingers = new android.util.SparseArray<>();
+    private java.util.List<TouchButton> slideTargets;
+
+    private void addHold(int delta) {
+        this.holds = Math.max(0, this.holds + delta);
+        setPressedState(this.holds > 0);
+    }
+
+    private void assign(int pointerId, TouchButton target) {
+        TouchButton previous = this.fingers.get(pointerId);
+        if (previous == target) {
+            return;
+        }
+        if (previous != null) {
+            previous.addHold(-1);
+        }
+        if (target != null) {
+            target.addHold(1);
+            this.fingers.put(pointerId, target);
+        } else {
+            this.fingers.remove(pointerId);
+        }
+    }
+
+    // The game's buttons on screen now (not the ones that open a panel, bit 0).
+    private java.util.List<TouchButton> findSlideTargets() {
+        java.util.List<TouchButton> list = new java.util.ArrayList<>();
+        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
+        queue.add(getRootView());
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (view instanceof TouchButton) {
+                TouchButton button = (TouchButton) view;
+                if (button.button != 0 && button.isShown() && button.isEnabled()) {
+                    list.add(button);
+                }
+            } else if (view instanceof android.view.ViewGroup && view.isShown()) {
+                android.view.ViewGroup group = (android.view.ViewGroup) view;
+                for (int k = 0; k < group.getChildCount(); k++) {
+                    queue.add(group.getChildAt(k));
+                }
+            }
+        }
+        return list;
+    }
+
+    private TouchButton buttonAt(float screenX, float screenY) {
+        if (this.slideTargets == null) {
+            return null;
+        }
+        int[] where = new int[2];
+        for (TouchButton candidate : this.slideTargets) {
+            candidate.getLocationOnScreen(where);
+            if (screenX >= where[0] && screenX < where[0] + candidate.getWidth() && screenY >= where[1] && screenY < where[1] + candidate.getHeight()) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent motionEvent) {
         int actionMasked = motionEvent.getActionMasked();
-        if (actionMasked == 0 || actionMasked == 5) {
-            setPressedState(true);
+        int index = motionEvent.getActionIndex();
+        if (actionMasked == MotionEvent.ACTION_DOWN || actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+            if (actionMasked == MotionEvent.ACTION_DOWN) {
+                this.slideTargets = slideEnabled && this.button != 0 ? findSlideTargets() : null;
+            }
+            assign(motionEvent.getPointerId(index), this);
             return true;
         }
-        if (actionMasked != 1 && actionMasked != 6 && actionMasked != 3) {
+        if (actionMasked == MotionEvent.ACTION_MOVE) {
+            if (slideEnabled && this.button != 0 && this.slideTargets != null) {
+                int[] origin = new int[2];
+                getLocationOnScreen(origin);
+                for (int k = 0; k < motionEvent.getPointerCount(); k++) {
+                    int id = motionEvent.getPointerId(k);
+                    if (this.fingers.get(id) == null) {
+                        continue;
+                    }
+                    // Over another button: it takes the press. Over empty space the finger
+                    // keeps the button it has, as it always did.
+                    TouchButton under = buttonAt(origin[0] + motionEvent.getX(k), origin[1] + motionEvent.getY(k));
+                    if (under != null) {
+                        assign(id, under);
+                    }
+                }
+            }
             return true;
         }
-        setPressedState(false);
+        if (actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_POINTER_UP) {
+            assign(motionEvent.getPointerId(index), null);
+            if (actionMasked == MotionEvent.ACTION_UP) {
+                releaseFingers();
+            }
+            return true;
+        }
+        if (actionMasked == MotionEvent.ACTION_CANCEL) {
+            releaseFingers();
+        }
         return true;
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        releaseFingers();
+        super.onDetachedFromWindow();
+    }
+
+    private void releaseFingers() {
+        while (this.fingers.size() > 0) {
+            assign(this.fingers.keyAt(0), null);
+        }
+        this.slideTargets = null;
     }
 
     int bit() {
