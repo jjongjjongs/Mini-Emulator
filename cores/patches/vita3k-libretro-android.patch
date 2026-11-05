@@ -71,6 +71,21 @@ index 3de3d68..1e8300a 100644
          // for whatever reasons, fingerprint sensors are detected as controllers, filter them out
          const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
          if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
+diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
+index 90c8184..919e69a 100644
+--- a/vita3k/libretro/libretro_vita3k.cpp
++++ b/vita3k/libretro/libretro_vita3k.cpp
+@@ -810,8 +810,8 @@ static void request_guest_shutdown(EmuEnvState &emuenv, const char *reason) {
+         {
+             std::lock_guard<std::mutex> lock(emuenv.kernel.mutex);
+             for (auto &[id, thread] : emuenv.kernel.threads) {
+-                lr_log(RETRO_LOG_WARN, "Guest shutdown (%s): force-terminating stuck thread '{}' (id={})\n",
+-                    shutdown_reason, thread->name, id);
++                lr_log(RETRO_LOG_WARN, "Guest shutdown (%s): force-terminating stuck thread '%s' (id=%d)\n",
++                    shutdown_reason, thread->name.c_str(), static_cast<int>(id));
+                 thread->exit_delete(false);
+                 forced_count++;
+             }
 diff --git a/vita3k/modules/SceIme/SceIme.cpp b/vita3k/modules/SceIme/SceIme.cpp
 index ac6fdf5..c3ba069 100644
 --- a/vita3k/modules/SceIme/SceIme.cpp
@@ -151,19 +166,20 @@ index fbd3de0..258d094 100644
              SDL_ShowAndroidToast("BCn textures are not supported by this device!", 1, -1, 0, 0);
  #endif
 diff --git a/vita3k/renderer/src/vulkan/renderer.cpp b/vita3k/renderer/src/vulkan/renderer.cpp
-index cdc295f..0cded04 100644
+index cdc295f..65db40b 100644
 --- a/vita3k/renderer/src/vulkan/renderer.cpp
 +++ b/vita3k/renderer/src/vulkan/renderer.cpp
-@@ -41,7 +41,7 @@
- #include <MoltenVK/mvk_vulkan.h>
+@@ -42,7 +42,9 @@
  #endif
  
--#ifdef __ANDROID__
-+#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #ifdef __ANDROID__
++#ifndef BUILD_LIBRETRO
  #include <SDL3/SDL_system.h>
++#endif
  #include <adrenotools/bcenabler.h>
  #include <adrenotools/driver.h>
-@@ -325,7 +325,7 @@ bool VKState::init() {
+ #include <boost/range/iterator_range.hpp>
+@@ -325,7 +327,7 @@ bool VKState::init() {
      return true;
  }
  
@@ -172,7 +188,7 @@ index cdc295f..0cded04 100644
  static void *load_custom_adreno_driver(const std::string &driver_name) {
      const fs::path driver_path = fs::path(SDL_GetAndroidInternalStoragePath()) / "driver" / driver_name / "/";
  
-@@ -929,7 +929,7 @@ bool VKState::create(SDL_Window *window, std::unique_ptr<renderer::State> &state
+@@ -929,7 +931,7 @@ bool VKState::create(SDL_Window *window, std::unique_ptr<renderer::State> &state
          support_memory_mapping = false;
  #endif
  
@@ -181,7 +197,7 @@ index cdc295f..0cded04 100644
          support_android_buffer_import &= SDL_GetAndroidSDKVersion() >= 26;
          support_unix_fd_import &= SDL_GetAndroidSDKVersion() >= 26;
  #endif
-@@ -1704,7 +1704,7 @@ void VKState::set_async_compilation(bool enable) {
+@@ -1704,7 +1706,7 @@ void VKState::set_async_compilation(bool enable) {
      pipeline_cache.set_async_compilation(enable);
  }
  
