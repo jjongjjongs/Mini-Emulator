@@ -39,7 +39,7 @@ final class ClearShellView extends View {
     // 실물 플라스틱 (see normalize), and the choice list leaves it out (CHOICES).
     static final String[] STYLE_NAMES = {"실물 플라스틱", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)"};
     static final String[] STYLE_NOTES = {"게임기 원래 색의 무광 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
-            "몸체 전체 한 장의 유리 · 프로스트 · 오로라 · 젤리", "몸체 전체 카본 + 알루미늄 테 · 화면 테두리에 포인트 색", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
+            "몸체 전체 한 장의 유리 · 프로스트 · 오로라 · 젤리", "몸체 전체 카본 + 알루미늄 테 · 화면 테두리에 포인트 색", "검정 몸체 + 가장자리 · 화면 테두리만 빛남 · 엣지 · 사인 · 레드블루 · 언더", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
             "GBA만 있던 첫 버전의 회베이지 몸체 · POWER 불 · 스피커 · 원조 버튼 색"};
     // Styles shown in the "배경" list, in order.
     static final int[] CHOICES = {STYLE_PLASTIC, STYLE_DARK, STYLE_PASTEL, STYLE_METAL, STYLE_NEON, STYLE_PHOTO, STYLE_RETRO};
@@ -54,6 +54,13 @@ final class ClearShellView extends View {
     static final int GLASS_JELLY = 2;
     static final String[] GLASS_NAMES = {"프로스트", "오로라", "젤리"};
     static final String[] GLASS_NOTES = {"파스텔 빛 번짐 + 젖빛 유리 · 모드마다 색이 달라요", "무지갯빛 홀로그램 + 비눗방울", "모드 색 젤리 + 도트 · 큰 광택 줄"};
+
+    // Kinds of 네온 나이트: the light stays on the edges and round the screen.
+    static final int NEON_EDGE = 0;
+    static final int NEON_SIGN = 1;
+    static final int NEON_DUO = 2;
+    static final int NEON_UNDER = 3;
+    static final String[] NEON_NAMES = {"엣지 글로우", "네온 사인", "레드 · 블루", "언더글로우"};
 
     // 포인트 색 of the metal · carbon case: the line around the game screen.
     static final String[] TRIM_NAMES = {"빨강", "파랑", "금색", "없음"};
@@ -116,6 +123,12 @@ final class ClearShellView extends View {
     private Shader weave;
     private Shader dots;
     private int glass;
+    private int neon;
+
+    void setNeon(int kind) {
+        this.neon = kind >= 0 && kind < NEON_NAMES.length ? kind : NEON_EDGE;
+        invalidate();
+    }
 
     void setGlass(int kind) {
         this.glass = kind >= 0 && kind < GLASS_NAMES.length ? kind : GLASS_FROST;
@@ -124,7 +137,7 @@ final class ClearShellView extends View {
 
     // Metal · carbon and pastel glass have no name strip under the screen.
     static boolean hasNameStrip(int style) {
-        return style != STYLE_METAL && style != STYLE_PASTEL;
+        return style != STYLE_METAL && style != STYLE_PASTEL && style != STYLE_NEON;
     }
 
     void setTrim(int index) {
@@ -397,7 +410,7 @@ final class ClearShellView extends View {
     private RectF frameAround(RectF screen) {
         if (thinBezel || !hasNameStrip(style)) {
             // Metal · carbon / pastel glass: a thin surround, no name strip under the screen.
-            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL ? 10 : 8);
+            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL ? 10 : style == STYLE_NEON ? 6 : 8);
             return new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
         }
         float side = dp(landscape ? 10 : 14);
@@ -805,38 +818,110 @@ final class ClearShellView extends View {
         canvas.drawPath(hex, paint);
     }
 
+    // Neon night: a near-black body; light only along the edges and round the screen, so
+    // nothing busy sits behind the controls.
     private void drawNeon(Canvas canvas, float width, float height, RectF frame) {
-        int edge = hue(accent, 0, 0.75f, 1f);
-        float[] hsv = new float[3];
-        Color.colorToHSV(accent, hsv);
-        // Purple screen frame, or pink when the mode itself is purple.
-        int glow = hsv[0] >= 240 && hsv[0] <= 300 ? Color.rgb(236, 72, 153) : Color.rgb(168, 85, 247);
-        paint.setShader(new RadialGradient(width / 2, height, Math.max(width, height) * 0.9f,
-                Color.rgb(42, 18, 80), Color.rgb(12, 10, 29), Shader.TileMode.CLAMP));
+        paint.setShader(new RadialGradient(width / 2, 0, Math.max(width, height),
+                Color.rgb(21, 23, 34), Color.rgb(8, 9, 13), Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, width, height, paint);
         paint.setShader(null);
-        // A grid floor running into the distance along the bottom.
-        float floor = height * (landscape ? 0.35f : 0.22f);
-        float horizon = height - floor;
-        paint.setStrokeWidth(dp(1));
-        paint.setColor(withAlpha(glow, 80));
-        for (int i = 1; i <= 7; i++) {
-            float t = i / 7f;
-            float y = horizon + floor * t * t;
-            canvas.drawLine(0, y, width, y, paint);
+        int screenLine;
+        if (neon == NEON_SIGN) {
+            // A matt wall with faint joints, and a glass tube with a white-hot core.
+            canvas.drawColor(Color.rgb(21, 22, 26));
+            paint.setStrokeWidth(dp(1));
+            paint.setColor(Color.argb(7, 255, 255, 255));
+            for (float y = dp(26); y < height; y += dp(26)) {
+                canvas.drawLine(0, y, width, y, paint);
+            }
+            for (float x = dp(52); x < width; x += dp(52)) {
+                canvas.drawLine(x, 0, x, height, paint);
+            }
+            int pink = Color.rgb(244, 114, 182);
+            float glow = Math.max(width, height) * 0.5f;
+            paint.setShader(new RadialGradient(width / 2, height * 0.3f, glow, withAlpha(pink, 26), withAlpha(pink, 0), Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(null);
+            RectF tube = new RectF(dp(14), dp(14), width - dp(14), height - dp(14));
+            neonTube(canvas, tube, dp(22), pink);
+            paint.setColor(Color.rgb(63, 63, 70));
+            for (float x : new float[]{dp(60), width - dp(70)}) {
+                canvas.drawRoundRect(new RectF(x, dp(11), x + dp(10), dp(17)), dp(2), dp(2), paint);
+                canvas.drawRoundRect(new RectF(x, height - dp(17), x + dp(10), height - dp(11)), dp(2), dp(2), paint);
+            }
+            screenLine = Color.rgb(56, 189, 248);
+        } else if (neon == NEON_DUO) {
+            int red = Color.rgb(239, 68, 68);
+            int blue = Color.rgb(59, 130, 246);
+            paint.setShader(new LinearGradient(0, 0, width, height,
+                    new int[]{withAlpha(red, 56), withAlpha(red, 0), withAlpha(blue, 0), withAlpha(blue, 62)}, new float[]{0, 0.25f, 0.75f, 1}, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            Shader rimShader = new LinearGradient(0, 0, width, height,
+                    new int[]{red, withAlpha(red, 0), withAlpha(blue, 0), blue}, new float[]{0, 0.4f, 0.6f, 1}, Shader.TileMode.CLAMP);
+            paint.setShader(rimShader);
+            paint.setStyle(Paint.Style.STROKE);
+            for (int i = 3; i >= 0; i--) {
+                paint.setStrokeWidth(dp(2 + i * 4));
+                paint.setAlpha(i == 0 ? 255 : 30);
+                canvas.drawRoundRect(new RectF(0, 0, width, height), dp(22), dp(22), paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+            paint.setShader(null);
+            paint.setAlpha(255);
+            screenLine = 0;
+        } else if (neon == NEON_UNDER) {
+            int purple = Color.rgb(168, 85, 247);
+            float reach = landscape ? dp(200) : dp(260);
+            paint.setShader(new RadialGradient(width / 2, height + dp(40), Math.max(width * 0.6f, reach),
+                    new int[]{withAlpha(purple, 115), Color.argb(38, 236, 72, 153), Color.argb(0, 0, 0, 0)}, new float[]{0, 0.55f, 1}, Shader.TileMode.CLAMP));
+            canvas.drawRect(0, 0, width, height, paint);
+            paint.setShader(null);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            for (int i = 4; i >= 0; i--) {
+                paint.setStrokeWidth(dp(3 + i * 5));
+                paint.setColor(i == 0 ? Color.rgb(233, 213, 255) : withAlpha(i > 2 ? Color.rgb(236, 72, 153) : purple, 26));
+                canvas.drawLine(dp(30), height - dp(3), width - dp(30), height - dp(3), paint);
+            }
+            paint.setStrokeCap(Paint.Cap.BUTT);
+            screenLine = Color.rgb(192, 132, 252);
+        } else {
+            // Edge glow in the mode's colour, inside the body's edge.
+            int edge = hue(accent, 0, 0.75f, 1f);
+            for (int i = 6; i >= 1; i--) {
+                float inset = dp(i * 2.5f);
+                strokeRoundRect(canvas, new RectF(inset, inset, width - inset, height - inset), dp(22), dp(3), withAlpha(edge, 10 + (6 - i) * 6));
+            }
+            strokeRoundRect(canvas, new RectF(dp(1), dp(1), width - dp(1), height - dp(1)), dp(22), dp(1.5f), edge);
+            screenLine = edge;
         }
-        for (int i = -8; i <= 8; i++) {
-            float x = width / 2 + i * dp(34);
-            canvas.drawLine(width / 2 + i * dp(10), horizon, x, height, paint);
-        }
-        RectF rim = new RectF(dp(4), dp(4), width - dp(4), height - dp(4));
-        neonStroke(canvas, rim, dp(20), edge);
         if (frame != null) {
-            paint.setColor(Color.rgb(7, 6, 15));
-            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
-            neonStroke(canvas, frame, frameRadius(), glow);
-            text.setColor(mix(glow, Color.WHITE, 0.55f));
+            float radius = dp(7);
+            paint.setColor(Color.BLACK);
+            canvas.drawRoundRect(frame, radius, radius, paint);
+            RectF line = new RectF(frame.left + dp(1.5f), frame.top + dp(1.5f), frame.right - dp(1.5f), frame.bottom - dp(1.5f));
+            if (screenLine != 0) {
+                neonTube(canvas, line, radius, screenLine);
+            } else {
+                // Red · blue: red light from the upper left, blue from the lower right.
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setShader(new LinearGradient(frame.left, frame.top, frame.right, frame.bottom,
+                        Color.rgb(239, 68, 68), Color.rgb(59, 130, 246), Shader.TileMode.CLAMP));
+                for (int i = 3; i >= 0; i--) {
+                    paint.setStrokeWidth(dp(1.5f + i * 3));
+                    paint.setAlpha(i == 0 ? 255 : 34);
+                    canvas.drawRoundRect(line, radius, radius, paint);
+                }
+                paint.setShader(null);
+                paint.setAlpha(255);
+                paint.setStyle(Paint.Style.FILL);
+            }
         }
+    }
+
+    // A neon tube: wide faint halo, the coloured glass, and a white-hot core.
+    private void neonTube(Canvas canvas, RectF rect, float radius, int color) {
+        neonStroke(canvas, rect, radius, color);
+        strokeRoundRect(canvas, rect, radius, dp(0.8f), Color.argb(200, 255, 255, 255));
     }
 
     // A bright line with a soft glow, drawn as widening faint strokes.
