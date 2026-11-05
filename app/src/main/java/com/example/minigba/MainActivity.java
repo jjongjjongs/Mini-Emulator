@@ -3121,6 +3121,8 @@ public final class MainActivity extends Activity {
             onDosMidiPicked(i, intent);
         } else if (i == REQUEST_DOS_CONF) {
             onDosConfPicked(intent);
+        } else if (i == REQUEST_DOS_PATCH) {
+            onDosPatchPicked(intent);
         } else if (i == REQUEST_IMPORT_WIIU_KEYS) {
             if (data != null) {
                 importWiiuKeys(data);
@@ -5490,6 +5492,11 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams dosParams = new LinearLayout.LayoutParams(-1, -2);
             dosParams.setMargins(0, dp(8), 0, 0);
             panel.addView(dosRow, dosParams);
+            if (DosSetup.isZip(file)) {
+                LinearLayout.LayoutParams hanParams = new LinearLayout.LayoutParams(-1, dp(52));
+                hanParams.setMargins(0, dp(9), 0, 0);
+                panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60), "한글패치 덮어쓰기 (패치 zip의 파일로 바꿔 새 게임으로)", () -> pickDosPatch(file)), hanParams);
+            }
         }
         LinearLayout row2 = new LinearLayout(this);
         row2.addView(createActionTile(dialog, RoundIconView.EXPORT, RoundIconView.COLOR_SAVE, "세이브\n내보내기", null, false, () -> startSaveExport(file)), actionGridParams(0));
@@ -14676,6 +14683,284 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "MIDI 음원을 등록했어요", Toast.LENGTH_SHORT).show();
         }
         showDosMidiSheet(back);
+    }
+
+    // ---- DOS 한글패치 덮어쓰기 (0.0.291): the patch's files over the game folder, as a new game ----
+    private static final int REQUEST_DOS_PATCH = 1074;
+    private static final String PREF_PENDING_DOS_PATCH = "pending_dos_patch";
+
+    private void pickDosPatch(File game) {
+        settingsPrefs().edit().putString(PREF_PENDING_DOS_PATCH, game.getAbsolutePath()).apply();
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_DOS_PATCH);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    private void onDosPatchPicked(Intent data) {
+        String path = settingsPrefs().getString(PREF_PENDING_DOS_PATCH, null);
+        settingsPrefs().edit().remove(PREF_PENDING_DOS_PATCH).apply();
+        if (data == null || data.getData() == null || path == null || !new File(path).isFile()) {
+            return;
+        }
+        final File game = new File(path);
+        final Uri uri = data.getData();
+        final String patchName = displayNameFor(uri);
+        if (patchName != null && !patchName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            showError(patchName + ": zip으로 된 패치만 덮어쓸 수 있어요. (7z · rar는 먼저 zip으로 바꿔 주세요)");
+            return;
+        }
+        Toast.makeText(this, "패치를 살펴보는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            File patch = new File(getCacheDir(), "dos_patch.zip");
+            String error = null;
+            DosPatch.Plan plan = null;
+            try {
+                copyUriToFile(uri, patch);
+                plan = DosPatch.analyze(game, patch);
+            } catch (IOException e) {
+                error = "패치 파일을 읽지 못했어요.";
+            }
+            final String why = error;
+            final DosPatch.Plan made = plan;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (why != null || made == null) {
+                    showError(why == null ? "패치 파일을 읽지 못했어요." : why);
+                } else if (made.error != null) {
+                    showError(made.error);
+                } else {
+                    showDosPatchPlan(game, made, patchName == null ? "패치.zip" : patchName);
+                }
+            });
+        }, "dos-patch").start();
+    }
+
+    private TextView dosPatchText(String text, float size, int color, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(Theme.text(color));
+        if (bold) view.setTypeface(Typeface.DEFAULT_BOLD);
+        return view;
+    }
+
+    private void showDosPatchPlan(File game, DosPatch.Plan plan, String patchName) {
+        final int accent = Color.rgb(190, 18, 60);
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(Theme.bg(Color.WHITE), dp(24)));
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(16);
+        header.addView(new RoundIconView(this, RoundIconView.PATCH, accent), new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        titles.addView(dosPatchText("한글패치 덮어쓰기", 17f, Color.rgb(31, 41, 51), true));
+        TextView sub = dosPatchText(displayGameNameFor(game) + " ← " + patchName, 12f, Color.rgb(122, 130, 140), false);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(sub);
+        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1f);
+        titlesParams.setMargins(dp(10), 0, 0, 0);
+        header.addView(titles, titlesParams);
+        panel.addView(header);
+        // The counts.
+        LinearLayout counts = new LinearLayout(this);
+        Object[][] boxes = {{plan.replaced.size(), "바뀌는 파일", Color.rgb(180, 83, 9)}, {plan.added.size(), "새 파일", Color.rgb(21, 128, 61)},
+                {plan.untouched, "그대로", Color.rgb(71, 85, 105)}};
+        for (int k = 0; k < boxes.length; k++) {
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(1);
+            box.setGravity(android.view.Gravity.CENTER);
+            box.setPadding(0, dp(8), 0, dp(8));
+            box.setBackground(rounded(Theme.bg(Color.rgb(246, 247, 249)), dp(12)));
+            TextView number = dosPatchText(String.valueOf(boxes[k][0]), 20f, (Integer) boxes[k][2], true);
+            number.setGravity(android.view.Gravity.CENTER);
+            box.addView(number);
+            TextView what = dosPatchText((String) boxes[k][1], 11f, Color.rgb(100, 116, 139), false);
+            what.setGravity(android.view.Gravity.CENTER);
+            box.addView(what);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1f);
+            params.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+            counts.addView(box, params);
+        }
+        LinearLayout.LayoutParams countsParams = new LinearLayout.LayoutParams(-1, -2);
+        countsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(counts, countsParams);
+        TextView whereLabel = dosPatchText("덮어쓸 곳", 13f, Color.rgb(51, 65, 85), true);
+        whereLabel.setPadding(0, dp(12), 0, dp(4));
+        panel.addView(whereLabel);
+        TextView where = dosPatchText("C:\\" + DosPatch.shown(plan.gameDir).replace('/', '\\') + (plan.identical > 0 ? "\n(패치 파일 중 " + plan.identical + "개는 원본과 똑같아서 그대로)" : ""),
+                12f, Color.rgb(31, 41, 51), false);
+        where.setTypeface(Typeface.MONOSPACE);
+        where.setPadding(dp(10), dp(8), dp(10), dp(8));
+        where.setBackground(rounded(Theme.bg(Color.rgb(246, 247, 249)), dp(11)));
+        panel.addView(where);
+        TextView listLabel = dosPatchText("바뀌는 파일", 13f, Color.rgb(51, 65, 85), true);
+        listLabel.setPadding(0, dp(12), 0, dp(2));
+        panel.addView(listLabel);
+        List<String[]> lines = new ArrayList<>();
+        for (DosPatch.Change c : plan.replaced) {
+            lines.add(new String[]{DosPatch.shown(c.name.substring(c.name.lastIndexOf('/') + 1)), formatSize(c.oldSize) + " → " + formatSize(c.newSize), "b"});
+        }
+        for (DosPatch.Change c : plan.added) {
+            lines.add(new String[]{DosPatch.shown(c.name.substring(c.name.lastIndexOf('/') + 1)), "새 파일 · " + formatSize(c.newSize), "n"});
+        }
+        for (String[] line : lines) {
+            LinearLayout row = new LinearLayout(this);
+            row.setPadding(dp(10), dp(6), dp(10), dp(6));
+            row.setBackground(rounded(Theme.bg("b".equals(line[2]) ? Color.rgb(255, 251, 235) : Color.rgb(240, 253, 244)), dp(9)));
+            TextView name = dosPatchText(line[0], 11.5f, Color.rgb(31, 41, 51), true);
+            name.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.addView(dosPatchText(line[1], 11f, "b".equals(line[2]) ? Color.rgb(146, 64, 14) : Color.rgb(22, 101, 52), false));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, dp(4), 0, 0);
+            panel.addView(row, params);
+        }
+        final boolean[] useStart = {plan.startName != null};
+        if (plan.startName != null) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(16);
+            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout texts = new LinearLayout(this);
+            texts.setOrientation(1);
+            texts.addView(dosPatchText("시작 파일을 " + DosPatch.shown(plan.startName) + "(으)로", 13.5f, Color.rgb(31, 41, 51), true));
+            texts.addView(dosPatchText("패치에 들어 있는 시작 파일로 켜요 (한글 글꼴 · 옵션을 쓰는 설정이 들어 있는 경우가 많아요)", 11f, Color.rgb(107, 114, 128), false));
+            row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1f));
+            ToggleView toggle = new ToggleView(this, accent);
+            LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(dp(44), dp(26));
+            toggleParams.setMargins(dp(10), 0, 0, 0);
+            row.addView(toggle, toggleParams);
+            Runnable paint = () -> {
+                toggle.setOn(useStart[0]);
+                row.setBackground(rounded(Theme.bg(useStart[0] ? Color.rgb(255, 241, 242) : Color.rgb(246, 247, 249)), dp(13)));
+            };
+            paint.run();
+            row.setOnClickListener(v -> {
+                useStart[0] = !useStart[0];
+                paint.run();
+            });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, dp(10), 0, 0);
+            panel.addView(row, params);
+        }
+        final String newTitle = displayGameNameFor(game) + " (한글)";
+        TextView note = dosPatchText("원본은 그대로 두고 새 게임 \"" + newTitle + "\"(으)로 추가해요 (약 " + formatSize(game.length()) + "). DOS 설정은 원본 것을 이어받고, 세이브는 따로예요.",
+                12f, Color.rgb(30, 58, 138), false);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(rounded(Theme.bg(Color.rgb(239, 246, 255)), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(note, noteParams);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setBaselineAligned(false);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setGravity(android.view.Gravity.CENTER);
+        cancel.setTextSize(15f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+        cancel.setBackground(rounded(Theme.bg(Color.rgb(241, 242, 244)), dp(14)));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        TextView apply = new TextView(this);
+        apply.setText("덮어써서 추가");
+        apply.setGravity(android.view.Gravity.CENTER);
+        apply.setTextSize(15f);
+        apply.setTypeface(Typeface.DEFAULT_BOLD);
+        apply.setTextColor(Color.WHITE);
+        apply.setBackground(rounded(accent, dp(14)));
+        apply.setOnClickListener(v -> {
+            dialog.dismiss();
+            buildDosPatched(game, plan, newTitle, useStart[0]);
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        dialog.show();
+    }
+
+    private void buildDosPatched(File game, DosPatch.Plan plan, String newTitle, boolean useStart) {
+        Toast.makeText(this, "한글판을 만드는 중…", Toast.LENGTH_SHORT).show();
+        final String oldBase = saveBaseNameFor(game);
+        final String oldExe = DosSetup.start(settingsPrefs(), oldBase);
+        new Thread(() -> {
+            File out = uniqueFile(romDirFor(MODE_DOS), sanitizeFileName(newTitle) + ".zip");
+            String error = null;
+            try {
+                DosPatch.build(plan, out);
+            } catch (IOException e) {
+                error = "한글판을 만들지 못했어요: " + e.getMessage();
+                out.delete();
+            }
+            // The start file in the new zip, as the exe picker names it.
+            String start = null;
+            if (error == null) {
+                try {
+                    String wanted = useStart && plan.startName != null ? plan.startName : oldExe == null ? null : oldExe.substring(oldExe.lastIndexOf('/') + 1);
+                    String oldDir = oldExe == null ? null : oldExe.substring(0, oldExe.lastIndexOf('/') + 1);
+                    if (wanted != null) {
+                        for (DosSetup.Exe exe : DosSetup.executables(out)) {
+                            String name = exe.path.substring(exe.path.lastIndexOf('/') + 1);
+                            if (!name.equalsIgnoreCase(DosPatch.shown(wanted)) && !name.equalsIgnoreCase(wanted)) continue;
+                            if (start == null || (oldDir != null && exe.path.startsWith(oldDir))) start = exe.path;
+                        }
+                    }
+                } catch (IOException ignored) {
+                }
+            }
+            final String why = error;
+            final String startPath = start;
+            runOnUiThread(() -> {
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                romPrefs().edit().putString("title:" + out.getName(), newTitle).putString("patched:" + out.getName(), game.getName()).apply();
+                String newBase = saveBaseNameFor(out);
+                // The DOS settings come along (CPU, sound, keys ...); the start file is the patch's.
+                SharedPreferences prefs = settingsPrefs();
+                SharedPreferences.Editor edit = prefs.edit();
+                String suffix = ":" + oldBase;
+                for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+                    String key = entry.getKey();
+                    if (!key.startsWith("dos:") || !key.endsWith(suffix)) continue;
+                    String copy = key.substring(0, key.length() - suffix.length()) + ":" + newBase;
+                    Object value = entry.getValue();
+                    if (value instanceof String) edit.putString(copy, (String) value);
+                    else if (value instanceof Integer) edit.putInt(copy, (Integer) value);
+                    else if (value instanceof Boolean) edit.putBoolean(copy, (Boolean) value);
+                    else if (value instanceof Long) edit.putLong(copy, (Long) value);
+                    else if (value instanceof Float) edit.putFloat(copy, (Float) value);
+                }
+                if (startPath != null) edit.putString(DosSetup.key("exe", newBase), startPath);
+                edit.apply();
+                romPrefs().edit().putString("source:" + out.getName(), game.getName()).apply();
+                recordPatch(out, "한글패치 덮어쓰기", java.util.Arrays.asList("바뀐 파일 " + plan.replaced.size() + "개 · 새 파일 " + plan.added.size() + "개",
+                        startPath == null ? "시작 파일: 처음 실행 때 고름" : "시작 파일: " + startPath));
+                Toast.makeText(this, "\"" + newTitle + "\"을(를) 추가했어요 · 파일 " + plan.replaced.size() + "개를 바꾸고 " + plan.added.size() + "개를 더했어요", Toast.LENGTH_LONG).show();
+                refreshLibrary();
+            });
+        }, "dos-patch-build").start();
     }
 
     // ---- dosbox.conf ----
