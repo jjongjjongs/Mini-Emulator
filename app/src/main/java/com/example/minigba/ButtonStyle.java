@@ -26,7 +26,19 @@ final class ButtonStyle {
     static final int THEME_GLASS = 9;
     // The space case's buttons: dark slate glass, a pink A and a blue B.
     static final int THEME_SPACE = 10;
-    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)", "파스텔 글라스", "우주"};
+    // Colours that suit the material / retro case (ClearShellView.SKIN_*), set in `skin`.
+    static final int THEME_SKIN = 11;
+    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)", "파스텔 글라스", "우주", "배경 맞춤"};
+    // Which material / retro case the 배경 맞춤 colours follow. Not saved.
+    int skin;
+    // pill, pad, A, B for walnut, leather, ink, CRT, pixel
+    private static final int[][] SKIN_COLORS = {
+            {Color.rgb(232, 222, 200), Color.rgb(58, 40, 28), Color.rgb(240, 228, 204), Color.rgb(240, 228, 204)},
+            {Color.rgb(196, 160, 116), Color.rgb(48, 30, 20), Color.rgb(192, 139, 82), Color.rgb(192, 139, 82)},
+            {Color.rgb(238, 229, 210), Color.rgb(44, 43, 40), Color.rgb(179, 38, 30), Color.rgb(60, 59, 55)},
+            {Color.rgb(214, 206, 190), Color.rgb(40, 36, 30), Color.rgb(226, 83, 45), Color.rgb(240, 138, 36)},
+            {Color.rgb(214, 192, 240), Color.rgb(70, 44, 110), Color.rgb(244, 162, 122), Color.rgb(222, 127, 126)},
+    };
     // Which pastel glass the case is (ClearShellView.GLASS_*): it tints A · B. Not saved.
     int glass;
 
@@ -140,6 +152,16 @@ final class ButtonStyle {
                 case ROLE_C: return Color.rgb(168, 154, 226);
                 case ROLE_A: case ROLE_B: return candy;
                 default: return lighter(candy, 0.3f);
+            }
+        }
+        if (theme == THEME_SKIN) {
+            int[] c = SKIN_COLORS[Math.max(0, Math.min(SKIN_COLORS.length - 1, skin))];
+            switch (role) {
+                case ROLE_PILL: return c[0];
+                case ROLE_DPAD: return c[1];
+                case ROLE_A: case ROLE_X: return c[2];
+                case ROLE_B: case ROLE_Y: return c[3];
+                default: return c[0];
             }
         }
         if (theme == THEME_SPACE) {

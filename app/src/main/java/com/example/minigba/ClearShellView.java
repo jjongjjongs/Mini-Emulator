@@ -37,15 +37,20 @@ final class ClearShellView extends View {
     static final int STYLE_RETRO = 7;
     // Space: pictures drawn ahead of time (assets/space), decoration kept to the corners.
     static final int STYLE_SPACE = 8;
+    // Materials (walnut, leather, ink wash) and retro (CRT TV, 8-bit pixels): pictures in assets/skin.
+    static final int STYLE_MATERIAL = 9;
+    static final int STYLE_VINTAGE = 10;
     // The clear case (STYLE_CLEAR) is no longer offered (0.0.270): a stored 0 reads as
     // 실물 플라스틱 (see normalize), and the choice list leaves it out (CHOICES).
-    static final String[] STYLE_NAMES = {"실물 플라스틱", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)", "우주"};
+    static final String[] STYLE_NAMES = {"실물 플라스틱", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)", "우주", "재질", "레트로"};
     static final String[] STYLE_NOTES = {"게임기 원래 색의 무광 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
             "몸체 전체 한 장의 유리 · 프로스트 · 오로라 · 젤리", "몸체 전체 카본 + 알루미늄 테 · 화면 테두리에 포인트 색", "검정 몸체 + 가장자리 · 화면 테두리만 빛남 · 엣지 · 사인 · 레드블루 · 언더", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
             "GBA만 있던 첫 버전의 회베이지 몸체 · POWER 불 · 스피커 · 원조 버튼 색",
-            "실사 느낌의 우주 · 링 행성 · 성운 · 어스라이즈 · 딥 필드"};
+            "실사 느낌의 우주 · 링 행성 · 성운 · 어스라이즈 · 딥 필드",
+            "실제 재질 느낌 · 월넛 우드 · 가죽 · 수묵화",
+            "80 · 90년대 느낌 · 브라운관 TV · 8비트 픽셀"};
     // Styles shown in the "배경" list, in order.
-    static final int[] CHOICES = {STYLE_PLASTIC, STYLE_DARK, STYLE_PASTEL, STYLE_METAL, STYLE_NEON, STYLE_SPACE, STYLE_PHOTO, STYLE_RETRO};
+    static final int[] CHOICES = {STYLE_PLASTIC, STYLE_DARK, STYLE_PASTEL, STYLE_METAL, STYLE_NEON, STYLE_SPACE, STYLE_MATERIAL, STYLE_VINTAGE, STYLE_PHOTO, STYLE_RETRO};
 
     static int normalize(int style) {
         return style > STYLE_CLEAR && style < STYLE_NAMES.length ? style : STYLE_PLASTIC;
@@ -70,6 +75,22 @@ final class ClearShellView extends View {
     private static final String[] SPACE_FILES = {"ring", "nebula", "earthrise", "deep"};
     // The line round the screen in each kind.
     private static final int[] SPACE_LINES = {Color.rgb(254, 243, 199), Color.rgb(233, 213, 255), Color.rgb(226, 232, 240), Color.rgb(255, 240, 215)};
+
+    static final String[] MATERIAL_NAMES = {"월넛 우드", "가죽", "수묵화"};
+    static final String[] VINTAGE_NAMES = {"브라운관 TV", "8비트 픽셀"};
+    // Skins for 버튼 꾸미기 "배경 맞춤" (ButtonStyle.THEME_SKIN): walnut, leather, ink, CRT, pixel.
+    static final int SKIN_WOOD = 0;
+    static final int SKIN_LEATHER = 1;
+    static final int SKIN_INK = 2;
+    static final int SKIN_CRT = 3;
+    static final int SKIN_PIXEL = 4;
+    private static final String[] SKIN_FILES = {"wood_%s.jpg", "leather_%s.jpg", "ink_%s.jpg", "crt_%s.jpg", "pixel_%s.png"};
+
+    static int skinOf(int style, int material, int vintage) {
+        if (style == STYLE_MATERIAL) return Math.max(0, Math.min(2, material));
+        if (style == STYLE_VINTAGE) return vintage == 1 ? SKIN_PIXEL : SKIN_CRT;
+        return -1;
+    }
 
     // 포인트 색 of the metal · carbon case: the line around the game screen.
     static final String[] TRIM_NAMES = {"빨강", "파랑", "금색", "없음"};
@@ -134,9 +155,15 @@ final class ClearShellView extends View {
     private int glass;
     private int neon;
     private int space;
-    // One space picture kept decoded between redraws (the case is rebuilt on every change).
+    private int skin = -1;
+    // One picture kept decoded between redraws (the case is rebuilt on every change).
     private static String spaceKey;
     private static android.graphics.Bitmap spaceBitmap;
+
+    void setSkin(int skin) {
+        this.skin = skin;
+        invalidate();
+    }
 
     void setSpace(int kind) {
         this.space = kind >= 0 && kind < SPACE_NAMES.length ? kind : 0;
@@ -144,11 +171,14 @@ final class ClearShellView extends View {
     }
 
     private android.graphics.Bitmap spacePicture() {
-        String key = SPACE_FILES[space] + (landscape ? "_l" : "_p");
+        return picture("space/" + SPACE_FILES[space] + (landscape ? "_l" : "_p") + ".jpg");
+    }
+
+    private android.graphics.Bitmap picture(String key) {
         if (key.equals(spaceKey) && spaceBitmap != null && !spaceBitmap.isRecycled()) {
             return spaceBitmap;
         }
-        try (java.io.InputStream in = getContext().getAssets().open("space/" + key + ".jpg")) {
+        try (java.io.InputStream in = getContext().getAssets().open(key)) {
             android.graphics.Bitmap decoded = android.graphics.BitmapFactory.decodeStream(in);
             if (decoded != null) {
                 spaceKey = key;
@@ -172,7 +202,8 @@ final class ClearShellView extends View {
 
     // Metal · carbon and pastel glass have no name strip under the screen.
     static boolean hasNameStrip(int style) {
-        return style != STYLE_METAL && style != STYLE_PASTEL && style != STYLE_NEON && style != STYLE_SPACE;
+        return style != STYLE_METAL && style != STYLE_PASTEL && style != STYLE_NEON && style != STYLE_SPACE
+                && style != STYLE_MATERIAL && style != STYLE_VINTAGE;
     }
 
     void setTrim(int index) {
@@ -446,7 +477,8 @@ final class ClearShellView extends View {
     private RectF frameAround(RectF screen) {
         if (thinBezel || !hasNameStrip(style)) {
             // Metal · carbon / pastel glass: a thin surround, no name strip under the screen.
-            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL ? 10 : style == STYLE_NEON || style == STYLE_SPACE ? 6 : 8);
+            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL || style == STYLE_MATERIAL || style == STYLE_VINTAGE ? 10
+                    : style == STYLE_NEON || style == STYLE_SPACE ? 6 : 8);
             return new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
         }
         float side = dp(landscape ? 10 : 14);
@@ -479,6 +511,10 @@ final class ClearShellView extends View {
                 break;
             case STYLE_SPACE:
                 drawSpace(canvas, width, height, frame);
+                break;
+            case STYLE_MATERIAL:
+            case STYLE_VINTAGE:
+                drawSkin(canvas, width, height, frame);
                 break;
             case STYLE_RETRO:
                 drawRetro(canvas, width, height, plate, frame, screen);
@@ -745,6 +781,98 @@ final class ClearShellView extends View {
             canvas.drawRoundRect(frame, radius, radius, paint);
             strokeRoundRect(canvas, frame, radius, dp(1.5f), withAlpha(line, 170));
         }
+    }
+
+    // Materials and retro: the picture covers the case; the screen's surround is drawn
+    // here to fit whatever size the layout gives the screen.
+    private void drawSkin(Canvas canvas, float width, float height, RectF frame) {
+        int kind = Math.max(0, Math.min(SKIN_FILES.length - 1, skin));
+        canvas.drawColor(Color.rgb(40, 28, 20));
+        android.graphics.Bitmap picture = picture("skin/" + String.format(java.util.Locale.ROOT, SKIN_FILES[kind], landscape ? "l" : "p"));
+        if (picture != null) {
+            float scale = Math.max(width / picture.getWidth(), height / picture.getHeight());
+            android.graphics.Matrix matrix = new android.graphics.Matrix();
+            matrix.postScale(scale, scale);
+            matrix.postTranslate((width - picture.getWidth() * scale) / 2f, (height - picture.getHeight() * scale) / 2f);
+            // Pixel art stays crisp.
+            canvas.drawBitmap(picture, matrix, kind == SKIN_PIXEL ? null : new Paint(Paint.FILTER_BITMAP_FLAG));
+        }
+        if (frame == null) {
+            return;
+        }
+        float e = dp(thinBezel ? 5 : 10);
+        RectF screen = new RectF(frame.left + e, frame.top + e, frame.right - e, frame.bottom - e);
+        switch (kind) {
+            case SKIN_WOOD: {
+                // A dark recess cut into the wood.
+                RectF recess = inset(screen, -dp(6));
+                paint.setColor(Color.argb(90, 0, 0, 0));
+                canvas.drawRoundRect(inset(recess, -dp(2)), dp(12), dp(12), paint);
+                paint.setColor(Color.rgb(11, 7, 5));
+                canvas.drawRoundRect(recess, dp(10), dp(10), paint);
+                strokeRoundRect(canvas, inset(recess, -dp(2.5f)), dp(12), dp(1), Color.argb(34, 255, 220, 170));
+                break;
+            }
+            case SKIN_LEATHER: {
+                RectF recess = inset(screen, -dp(6));
+                paint.setColor(Color.rgb(10, 7, 6));
+                canvas.drawRoundRect(recess, dp(10), dp(10), paint);
+                Paint stitch = new Paint(Paint.ANTI_ALIAS_FLAG);
+                stitch.setStyle(Paint.Style.STROKE);
+                stitch.setStrokeWidth(dp(1.5f));
+                stitch.setStrokeCap(Paint.Cap.ROUND);
+                stitch.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(5), dp(4)}, 0));
+                stitch.setColor(Color.argb(110, 0, 0, 0));
+                RectF seam = inset(screen, -dp(10));
+                canvas.drawRoundRect(new RectF(seam.left, seam.top + dp(1.2f), seam.right, seam.bottom + dp(1.2f)), dp(13), dp(13), stitch);
+                stitch.setColor(Color.argb(217, 232, 196, 140));
+                canvas.drawRoundRect(seam, dp(13), dp(13), stitch);
+                break;
+            }
+            case SKIN_INK: {
+                RectF edge = inset(screen, -dp(4));
+                paint.setColor(Color.rgb(17, 17, 17));
+                canvas.drawRoundRect(edge, dp(6), dp(6), paint);
+                strokeRoundRect(canvas, inset(edge, -dp(1)), dp(7), dp(2), Color.argb(217, 30, 28, 26));
+                strokeRoundRect(canvas, inset(edge, -dp(3)), dp(8), dp(2), Color.rgb(239, 230, 212));
+                strokeRoundRect(canvas, inset(edge, -dp(4.5f)), dp(9), dp(1), Color.argb(90, 30, 28, 26));
+                break;
+            }
+            case SKIN_CRT: {
+                // Beige plastic bezel and the rounded tube inside it.
+                RectF bezel = inset(screen, -dp(10));
+                paint.setColor(Color.argb(110, 0, 0, 0));
+                canvas.drawRoundRect(new RectF(bezel.left, bezel.top + dp(3), bezel.right, bezel.bottom + dp(4)), dp(16), dp(16), paint);
+                paint.setShader(new LinearGradient(0, bezel.top, 0, bezel.bottom, Color.rgb(217, 210, 195), Color.rgb(184, 176, 160), Shader.TileMode.CLAMP));
+                canvas.drawRoundRect(bezel, dp(16), dp(16), paint);
+                paint.setShader(null);
+                strokeRoundRect(canvas, inset(bezel, dp(0.75f)), dp(16), dp(1.5f), Color.argb(150, 255, 255, 255));
+                RectF tube = inset(screen, -dp(5));
+                paint.setColor(Color.rgb(13, 15, 14));
+                canvas.drawRoundRect(tube, dp(18), dp(20), paint);
+                strokeRoundRect(canvas, tube, dp(18), dp(2), Color.rgb(143, 135, 120));
+                break;
+            }
+            default: {
+                // Pixel frame: dark, peach, dark, square.
+                paint.setColor(Color.rgb(12, 8, 22));
+                canvas.drawRect(inset(screen, -dp(2)), paint);
+                float step = dp(3);
+                int[] rings = {Color.rgb(26, 19, 48), Color.rgb(244, 162, 122), Color.rgb(26, 19, 48)};
+                for (int i = 0; i < rings.length; i++) {
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(step);
+                    paint.setColor(rings[i]);
+                    canvas.drawRect(inset(screen, -dp(2) - step * (i + 0.5f)), paint);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+                break;
+            }
+        }
+    }
+
+    private static RectF inset(RectF rect, float by) {
+        return new RectF(rect.left + by, rect.top + by, rect.right - by, rect.bottom - by);
     }
 
     // A soap bubble: a clear disc with a bright corner.

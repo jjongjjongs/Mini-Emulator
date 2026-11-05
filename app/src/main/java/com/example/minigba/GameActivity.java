@@ -511,6 +511,21 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return value >= 0 && value < ClearShellView.SPACE_NAMES.length ? value : 0;
     }
 
+    // Kinds of 재질 and 레트로 (ClearShellView.MATERIAL_NAMES / VINTAGE_NAMES).
+    private int shellMaterial() {
+        int value = shellPref("shell_material", 0);
+        return value >= 0 && value < ClearShellView.MATERIAL_NAMES.length ? value : 0;
+    }
+
+    private int shellVintage() {
+        int value = shellPref("shell_vintage", 0);
+        return value >= 0 && value < ClearShellView.VINTAGE_NAMES.length ? value : 0;
+    }
+
+    private int shellSkin() {
+        return ClearShellView.skinOf(shellStyle(), shellMaterial(), shellVintage());
+    }
+
     // The background's name with its kind or 포인트 색, as the settings row shows it.
     private String shellStyleName() {
         int style = shellStyle();
@@ -519,6 +534,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (style == ClearShellView.STYLE_NEON) return name + " · " + ClearShellView.NEON_NAMES[shellNeon()];
         if (style == ClearShellView.STYLE_METAL) return name + " · " + ClearShellView.TRIM_NAMES[shellTrim()];
         if (style == ClearShellView.STYLE_SPACE) return name + " · " + ClearShellView.SPACE_NAMES[shellSpace()];
+        if (style == ClearShellView.STYLE_MATERIAL) return name + " · " + ClearShellView.MATERIAL_NAMES[shellMaterial()];
+        if (style == ClearShellView.STYLE_VINTAGE) return name + " · " + ClearShellView.VINTAGE_NAMES[shellVintage()];
         return name;
     }
 
@@ -560,6 +577,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (shellStyle() == ClearShellView.STYLE_PASTEL) {
             return Color.rgb(76, 69, 119);
+        }
+        int skin = shellSkin();
+        if (skin == ClearShellView.SKIN_INK) {
+            return Color.rgb(43, 42, 40);
+        }
+        if (skin >= 0) {
+            return Color.rgb(246, 236, 220);
         }
         return ClearShellView.darkBackground(shellStyle(), shellColors()[1]) ? Color.rgb(236, 238, 242) : Color.rgb(44, 48, 58);
     }
@@ -623,6 +647,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shell.setGlass(shellGlass());
         shell.setNeon(shellNeon());
         shell.setSpace(shellSpace());
+        shell.setSkin(shellSkin());
         if (shellStyle() == ClearShellView.STYLE_PHOTO) {
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             shell.setPhoto(PhotoBackground.load(PhotoBackground.rendered(this, this.gameMode, landscape), metrics.widthPixels, metrics.heightPixels));
@@ -3458,6 +3483,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (shellStyle() == ClearShellView.STYLE_SPACE && this.buttonStyle.theme == ButtonStyle.THEME_DEFAULT) {
             this.buttonStyle.theme = ButtonStyle.THEME_SPACE;
         }
+        // And the material / retro cases their matching colours.
+        if (shellSkin() >= 0 && this.buttonStyle.theme == ButtonStyle.THEME_DEFAULT) {
+            this.buttonStyle.theme = ButtonStyle.THEME_SKIN;
+        }
+        this.buttonStyle.skin = Math.max(0, shellSkin());
         this.buttonStyle.glass = shellGlass();
     }
 
@@ -9055,8 +9085,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         header.addView(titles, titlesParams);
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
-        // state[0] scope (0 all modes, 1 this mode), [1] style (-1: follow all modes), [2] glass, [3] trim, [4] neon, [5] space
-        final int[] state = new int[6];
+        // state[0] scope (0 all modes, 1 this mode), [1] style (-1: follow all modes), [2] glass, [3] trim, [4] neon, [5] space,
+        // [6] material, [7] retro
+        final int[] state = new int[8];
+        final int[] kindCounts = {0, 0, ClearShellView.GLASS_NAMES.length, ClearShellView.TRIM_NAMES.length, ClearShellView.NEON_NAMES.length,
+                ClearShellView.SPACE_NAMES.length, ClearShellView.MATERIAL_NAMES.length, ClearShellView.VINTAGE_NAMES.length};
         final String styleOwn = modeShellKey("shell_style", mode);
         java.util.function.IntConsumer load = scope -> {
             state[0] = scope;
@@ -9066,12 +9099,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 state[3] = prefs.getInt(modeShellKey("shell_trim", mode), prefs.getInt("shell_trim", 0));
                 state[4] = prefs.getInt(modeShellKey("shell_neon", mode), prefs.getInt("shell_neon", 0));
                 state[5] = prefs.getInt(modeShellKey("shell_space", mode), prefs.getInt("shell_space", 0));
+                state[6] = prefs.getInt(modeShellKey("shell_material", mode), prefs.getInt("shell_material", 0));
+                state[7] = prefs.getInt(modeShellKey("shell_vintage", mode), prefs.getInt("shell_vintage", 0));
             } else {
                 state[1] = ClearShellView.normalize(prefs.getInt("shell_style", ClearShellView.STYLE_PLASTIC));
                 state[2] = prefs.getInt("shell_glass", 0);
                 state[3] = prefs.getInt("shell_trim", 0);
                 state[4] = prefs.getInt("shell_neon", 0);
                 state[5] = prefs.getInt("shell_space", 0);
+                state[6] = prefs.getInt("shell_material", 0);
+                state[7] = prefs.getInt("shell_vintage", 0);
+            }
+            for (int k = 6; k < 8; k++) {
+                state[k] = Math.max(0, Math.min(kindCounts[k] - 1, state[k]));
             }
             state[5] = Math.max(0, Math.min(ClearShellView.SPACE_NAMES.length - 1, state[5]));
             state[4] = Math.max(0, Math.min(ClearShellView.NEON_NAMES.length - 1, state[4]));
@@ -9143,6 +9183,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         state[4] = k;
                         render[0].run();
                     }), optionParams());
+                } else if (state[1] == style && style == ClearShellView.STYLE_MATERIAL) {
+                    list.addView(backgroundChips("재질 종류", ClearShellView.MATERIAL_NAMES, state[6], color, k -> {
+                        state[6] = k;
+                        render[0].run();
+                    }), optionParams());
+                } else if (state[1] == style && style == ClearShellView.STYLE_VINTAGE) {
+                    list.addView(backgroundChips("레트로 종류", ClearShellView.VINTAGE_NAMES, state[7], color, k -> {
+                        state[7] = k;
+                        render[0].run();
+                    }), optionParams());
                 } else if (state[1] == style && style == ClearShellView.STYLE_SPACE) {
                     list.addView(backgroundChips("우주 종류", ClearShellView.SPACE_NAMES, state[5], color, k -> {
                         state[5] = k;
@@ -9194,7 +9244,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (own && state[1] == -1) {
                 // Back to the setting for all modes.
                 edit.remove(styleOwn).remove(modeShellKey("shell_glass", mode)).remove(modeShellKey("shell_trim", mode))
-                        .remove(modeShellKey("shell_neon", mode)).remove(modeShellKey("shell_space", mode)).apply();
+                        .remove(modeShellKey("shell_neon", mode)).remove(modeShellKey("shell_space", mode))
+                        .remove(modeShellKey("shell_material", mode)).remove(modeShellKey("shell_vintage", mode)).apply();
             } else if (state[1] == ClearShellView.STYLE_PHOTO) {
                 // The editor records the style once a photo is applied.
                 edit.apply();
@@ -9206,6 +9257,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 edit.putInt(own ? modeShellKey("shell_trim", mode) : "shell_trim", state[3]);
                 edit.putInt(own ? modeShellKey("shell_neon", mode) : "shell_neon", state[4]);
                 edit.putInt(own ? modeShellKey("shell_space", mode) : "shell_space", state[5]);
+                edit.putInt(own ? modeShellKey("shell_material", mode) : "shell_material", state[6]);
+                edit.putInt(own ? modeShellKey("shell_vintage", mode) : "shell_vintage", state[7]);
                 edit.apply();
             }
             rebuildContent();
