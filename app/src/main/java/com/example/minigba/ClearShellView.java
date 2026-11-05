@@ -457,16 +457,15 @@ final class ClearShellView extends View {
             canvas.drawRoundRect(frame, dp(4), dp(4), paint);
             text.setColor(Color.rgb(154, 160, 180));
         }
-        // The black band along the top of the button board (portrait) or the whole top (landscape).
-        float bandTop = !landscape && screen != null ? screen.bottom + (frame != null ? frame.bottom - screen.bottom : 0) + dp(6) : 0;
-        if (!landscape && plate != null) {
-            bandTop = Math.max(bandTop, plate.top - dp(2));
+        // The black band: along the very top in landscape. In portrait it sat across the
+        // L / R buttons of today's layout, so it is left out there.
+        if (landscape) {
+            paint.setColor(Color.rgb(31, 31, 35));
+            canvas.drawRect(0, 0, width, dp(4), paint);
         }
-        paint.setColor(Color.rgb(31, 31, 35));
-        canvas.drawRect(0, bandTop, width, bandTop + dp(4), paint);
-        // POWER: top right of the board in portrait, bottom right in landscape.
-        float ledX = width - dp(64);
-        float ledY = landscape ? height - dp(16) : bandTop + dp(16);
+        // POWER: bottom right in landscape; bottom left in portrait (clear of L / R and the speaker).
+        float ledX = landscape ? width - dp(64) : dp(22);
+        float ledY = height - dp(landscape ? 16 : 20);
         paint.setColor(Color.argb(90, 25, 238, 86));
         canvas.drawCircle(ledX, ledY, dp(7), paint);
         paint.setColor(Color.rgb(25, 238, 86));
