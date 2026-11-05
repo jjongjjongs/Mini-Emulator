@@ -170,6 +170,11 @@ final class CrashReports {
         create(context, "갑작스러운 종료", cause, "", sessionStart, exitText, tombstone, System.currentTimeMillis());
     }
 
+    /** Saved from the game menu: a game stuck on a screen, with the engine's last log lines. */
+    static void saveManual(Context context, long sessionStart) {
+        create(context, "직접 저장한 기록", "게임이 멈췄을 때 직접 저장", "", sessionStart, null, null, System.currentTimeMillis());
+    }
+
     private static String nativeCrashCause(String text) {
         java.util.regex.Matcher signal = java.util.regex.Pattern.compile("signal (\\d+)").matcher(text);
         String name = "엔진 오류";

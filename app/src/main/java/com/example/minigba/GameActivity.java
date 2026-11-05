@@ -5537,6 +5537,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return row;
     }
 
+    // A game stuck on a screen (no crash) leaves no report: this saves the engine's last log
+    // lines as one, for 설정 → 오류 보고.
+    private LinearLayout createLogSaveRow() {
+        LinearLayout row = createSettingRow(RoundIconView.WARN, Color.rgb(100, 116, 139), "멈춤 기록 저장", "저장  ›", null);
+        row.setOnClickListener(view -> {
+            long start = MainActivity.sharedSettings(this).getLong(SESSION_START, 0);
+            CrashReports.saveManual(this, start);
+            Toast.makeText(this, "지금까지의 엔진 기록을 저장했어요 · 설정 → 오류 보고에서 보낼 수 있어요", Toast.LENGTH_LONG).show();
+        });
+        return row;
+    }
+
     private LinearLayout createPowerRow(android.app.Dialog menu) {
         String[] names = POWER_NAMES.clone();
         names[defaultPowerMode()] += " · " + consoleName() + " 기본";
@@ -8031,6 +8043,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         panel.addView(createPowerRow(dialog), tabRowParams(panel));
         panel.addView(createPerfRow(), tabRowParams(panel));
+        panel.addView(createLogSaveRow(), tabRowParams(panel));
         if (isPsp()) {
             panel.addView(createScaleRow(dialog), tabRowParams(panel));
         } else if (isN3ds()) {

@@ -1313,10 +1313,17 @@ void appendContext(const char* text) {
 }
 
 void install(const std::string& systemDir, const std::string& coreId, const std::string& romPath) {
+    // The app's files folder: systemDir is <files>/system, or deeper for a core with a folder
+    // of its own there (PS Vita: <files>/system/vita3k).
     std::string filesDir = systemDir;
-    size_t slash = filesDir.find_last_of('/');
-    if (slash != std::string::npos) {
-        filesDir.resize(slash);
+    size_t files = filesDir.find("/files/system");
+    if (files != std::string::npos) {
+        filesDir.resize(files + 6);
+    } else {
+        size_t slash = filesDir.find_last_of('/');
+        if (slash != std::string::npos) {
+            filesDir.resize(slash);
+        }
     }
     snprintf(gPath, sizeof(gPath), "%s/last_crash.txt", filesDir.c_str());
     size_t nameStart = romPath.find_last_of('/');
