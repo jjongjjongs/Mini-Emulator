@@ -72,20 +72,21 @@ index 3de3d68..1e8300a 100644
          const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
          if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
 diff --git a/vita3k/libretro/libretro_installer.cpp b/vita3k/libretro/libretro_installer.cpp
-index a0ca512..83d4cb2 100644
+index a0ca512..e6f74b9 100644
 --- a/vita3k/libretro/libretro_installer.cpp
 +++ b/vita3k/libretro/libretro_installer.cpp
-@@ -18,7 +18,9 @@
+@@ -18,7 +18,10 @@
  #include "libretro_installer.h"
  #include "libretro_state.h"
  
++#include <config/state.h>
 +#include <emuenv/state.h>
  #include <packages/functions.h>
 +#include <packages/pkg.h>
  #include <packages/sfo.h>
  #include <util/fs.h>
  #include <util/log.h>
-@@ -726,6 +728,76 @@ static GameInstallResult handle_folder_game(const fs::path &game_path, const fs:
+@@ -726,6 +729,76 @@ static GameInstallResult handle_folder_game(const fs::path &game_path, const fs:
      return result;
  }
  
@@ -162,7 +163,7 @@ index a0ca512..83d4cb2 100644
  GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
      GameInstallResult result;
  
-@@ -748,6 +820,9 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
+@@ -748,6 +821,9 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
      // Validate extension for archive files
      const auto extension = string_utils::tolower(game_path.extension().string());
      lr_log(RETRO_LOG_DEBUG, "Game file extension: %s\n", extension.c_str());
