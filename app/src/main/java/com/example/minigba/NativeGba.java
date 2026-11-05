@@ -86,6 +86,10 @@ final class NativeGba {
     // cycle skipping, on top of setSpeedFirst(true).
     static native void setSpeedFirstStrong(boolean strong);
 
+    // "속도 우선 · 그림만 가볍게" for the next PS2 (PCSX2) game created: the drawing shortcuts of
+    // setSpeedFirst(true) with the EE left at full speed.
+    static native void setSpeedFirstLight(boolean light);
+
     // "FSR 업스케일" screen filter: 3D engines enlarge the picture with AMD FSR 1.0. Takes effect
     // at once.
     static native void setFsr(boolean on);

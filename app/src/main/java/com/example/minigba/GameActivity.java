@@ -6059,7 +6059,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setDsNet(ds == 2 && dsNetHost() == null ? 0 : ds, ds == 2 ? dsNetHost() : null);
                     }
                     NativeGba.setSpeedFirst(speedFirstSupported() && speedFirst());
-                    NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 2);
+                    NativeGba.setSpeedFirstStrong("pcee2".equals(this.coreId) && speedFirstLevel() == 3);
+                    NativeGba.setSpeedFirstLight("pcee2".equals(this.coreId) && speedFirstLevel() == 1);
                     NativeGba.setPowerMode(powerMode());
                     NativeGba.setNoAutoState(stvBoard());
                     NativeGba.setMotionEnabled(motionActive());
@@ -8216,18 +8217,25 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // off by default.
     private static final String[] FAST_NAMES = {"끔 · 정확하게", "켬 · 빠르게"};
     private static final String[] FAST_NOTES = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. 프레임마다 하는 일을 줄여요"};
-    // PS2 has a third level.
-    private static final String[] FAST_NAMES_PS2 = {"끔 · 정확하게", "켬 · 빠르게", "강하게"};
-    private static final String[] FAST_NOTES_PS2 = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)", "끊기는 게임용. PS2 CPU 75%",
+    // PS2 has four levels: off, drawing only (0.0.287), on, strong.
+    private static final String[] FAST_NAMES_PS2 = {"끔 · 정확하게", "그림만 가볍게", "켬 · 빠르게", "강하게"};
+    private static final String[] FAST_NOTES_PS2 = {"지금처럼. 화면 효과를 모두 그대로 그려요 (기본)",
+            "기술 이펙트 같은 효과에서 끊기는 게임용. 그리기만 가볍게 · PS2 CPU는 100% 그대로라 게임이 느려지지 않아요",
+            "끊기는 게임용. 그리기 가볍게 + PS2 CPU 75% · CPU를 많이 쓰는 게임(철권 등)은 오히려 느려질 수 있어요",
             "켬으로도 속도가 출렁이는 게임용. PS2 CPU 60% · 게임 속도가 고르지 않아질 수 있어요"};
     private static final String[] FAST_SHORT = {"꺼짐", "켜짐", "강하게"};
+    private static final String[] FAST_SHORT_PS2 = {"꺼짐", "그림만", "켜짐", "강하게"};
 
-    // 0 off, 1 on, 2 strong (PS2 only).
+    // 0 off, 1 on (PSP, N64, ...). PS2: 0 off, 1 drawing only, 2 on, 3 strong.
     private int speedFirstLevel() {
         if (!speedFirst()) {
             return 0;
         }
-        return "pcee2".equals(this.coreId) && MainActivity.sharedSettings(this).getBoolean("fast_strong:" + this.saveBaseName, false) ? 2 : 1;
+        if (!"pcee2".equals(this.coreId)) {
+            return 1;
+        }
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        return prefs.getBoolean("fast_light:" + this.saveBaseName, false) ? 1 : prefs.getBoolean("fast_strong:" + this.saveBaseName, false) ? 3 : 2;
     }
 
     private boolean speedFirstSupported() {
@@ -9104,10 +9112,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 ? "· 게임기 CPU를 80%로 낮춰 계산을 줄여요\n· 텍스처 변경 검사를 가장 가볍게 해요\n· 디스크 읽기를 기다리지 않아요 (로딩이 빨라져요)\n게임에 따라 게임 속도가 느려지거나 텍스처가 잠깐 깨질 수 있어요."
                 : isDreamcast()
                 ? "· 사운드 DSP(울림 · 에코 효과) 흉내를 꺼요\n· 늦어질 때만 화면을 한 장씩 건너뛰어 그려요\n게임에 따라 소리 울림이 빠질 수 있어요."
-                : "· PS2 CPU를 75%(강하게는 60%)로 낮추고 일부 계산을 건너뛰어요\n· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n게임에 따라 일부 효과가 빠지거나, 드물게 게임이 멈출 수 있어요.";
+                : "· 반투명 효과를 가장 단순하게 그려요\n· 디더링과 밉맵을 꺼요\n· (켬 · 강하게만) PS2 CPU를 75% · 60%로 낮추고 일부 계산을 건너뛰어요\n그림만 가볍게는 게임 속도에 손대지 않아요. 게임에 따라 일부 반투명 효과가 달라 보이거나, 켬 · 강하게에서는 게임이 느려지거나 드물게 멈출 수 있어요.";
         boolean ps2 = "pcee2".equals(this.coreId);
         int level = speedFirstLevel();
-        LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", FAST_SHORT[level],
+        LinearLayout row = createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", (ps2 ? FAST_SHORT_PS2 : FAST_SHORT)[level],
                 view -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", ps2 ? FAST_NAMES_PS2 : FAST_NAMES, ps2 ? FAST_NOTES_PS2 : FAST_NOTES,
                         level, "켜면 이렇게 바뀌어요\n" + changes + "\n이 게임에만 적용 · 저장하고 그 장면에서 이어져요 (2~3초).",
                         Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용하고 이어하기", choice -> {
@@ -9115,7 +9123,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         return;
                     }
                     MainActivity.sharedSettings(this).edit().putBoolean(speedFirstKey(), choice >= 1)
-                            .putBoolean("fast_strong:" + this.saveBaseName, choice == 2).commit();
+                            .putBoolean("fast_light:" + this.saveBaseName, ps2 && choice == 1)
+                            .putBoolean("fast_strong:" + this.saveBaseName, ps2 && choice == 3).commit();
                     menu.dismiss();
                     relaunchGame();
                 }));

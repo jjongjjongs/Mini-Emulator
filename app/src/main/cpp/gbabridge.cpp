@@ -1485,6 +1485,8 @@ std::string gPspAdhocServer = "127.0.0.1";
 std::atomic<bool> gSpeedFirst{false};
 // "속도 우선 · 강하게" (PS2 only): the EE down to 60% with moderate cycle skipping.
 std::atomic<bool> gSpeedFirstStrong{false};
+// "속도 우선 · 그림만 가볍게" (PS2): only the drawing side, the EE left at full speed.
+std::atomic<bool> gSpeedFirstLight{false};
 // "전원 모드" per game: 0 성능 (fast cores and performance hints), 1 균형 (the system picks
 // clocks and cores), 2 절전 (as 균형, and every other software-drawn picture is left out;
 // PPSSPP's own frame skipping is not used, as it halves the speed under the bridge's pacing).
@@ -1675,8 +1677,10 @@ const char* fixedVariable(const char* key) {
         // PS2: the EE at 75% with mild cycle skipping, and the cheapest blending. GPU
         // read-backs stay accurate: quick saves read the picture back.
         bool strong = gSpeedFirstStrong.load();
-        if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return strong ? "-2" : "-1";
-        if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return strong ? "2" : "1";
+        if (!gSpeedFirstLight.load()) {
+            if (strcmp(key, "pcsx2_ee_cycle_rate") == 0) return strong ? "-2" : "-1";
+            if (strcmp(key, "pcsx2_ee_cycle_skip") == 0) return strong ? "2" : "1";
+        }
         if (strcmp(key, "pcsx2_blending_accuracy") == 0) return "minimum";
         // No dithering or hardware mipmapping (anisotropic filtering is already off).
         if (strcmp(key, "pcsx2_dithering") == 0) return "0";
@@ -4480,6 +4484,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspAdhoc(JNIEnv* en
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirst(JNIEnv* /*env*/, jclass /*cls*/, jboolean fast) {
     gSpeedFirst.store(fast == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirstLight(JNIEnv* /*env*/, jclass /*cls*/, jboolean light) {
+    gSpeedFirstLight.store(light == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirstStrong(JNIEnv* /*env*/, jclass /*cls*/, jboolean strong) {
