@@ -382,6 +382,10 @@ struct Core {
     // million, so the game follows the speaker's clock; the audio sink asks for it.
     std::atomic<int> audioPacePpm{0};
     std::atomic<int> inputMask{0};
+    // Buttons pressed since the last frame began (a tap shorter than a frame would otherwise
+    // come and go between two of the core's reads), and the ones the running frame sees.
+    std::atomic<int> pressLatch{0};
+    std::atomic<int> frameLatch{0};
     // Players 2-4 (ports 1-3): the extra pads' buttons and sticks (left x/y, right x/y).
     std::atomic<int> playerMask[4] = {};
     std::atomic<int> playerAxes[4][4] = {};
@@ -2747,7 +2751,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
         }
         return buttons;
     }
-    return joypadPressed(core, core->inputMask.load(), id);
+    return joypadPressed(core, core->inputMask.load() | core->frameLatch.load(), id);
 }
 
 // Whether a joypad id is down for a player's button bits.
@@ -3483,6 +3487,8 @@ void runLoop(Core* core) {
             if (core->coreId == "melonds") dsnet::tick();
             if (core->coreId == "dosbox_pure") dos::deliver();
             disk::tick();
+            // Every press is seen for at least this one frame, however short the tap.
+            core->frameLatch.store(core->pressLatch.exchange(0));
             core->retroRun();
             applyMemoryCheats(core);
             core->framesRun++;
@@ -3970,7 +3976,8 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setInput(
         JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint mask) {
     Core* core = fromHandle(handle);
     if (core != nullptr) {
-        core->inputMask.store(mask);
+        int old = core->inputMask.exchange(mask);
+        core->pressLatch.fetch_or(mask & ~old);
     }
 }
 
