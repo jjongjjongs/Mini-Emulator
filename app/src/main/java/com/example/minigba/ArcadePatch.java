@@ -34,7 +34,10 @@ final class ArcadePatch {
         final List<Line> lines = new ArrayList<>();
         final List<String> files = new ArrayList<>();   // patch zip entries to copy (the .dat and its .ips)
         String datDir = "";                              // the .dat's folder in the patch zip
+        String generatedDat;                             // a .dat made here for a bundle without one
+        File source;                                     // the zip the files come from (an inner zip, maybe)
         String error;
+        String innerZip;                                 // a .zip inside the picked zip
 
         int matching() {
             int n = 0;
@@ -100,7 +103,27 @@ final class ArcadePatch {
     }
 
     static Plan analyze(File game, File patch) {
+        Plan plan = analyzeOne(game, patch);
+        if (plan.error == null || plan.innerZip == null) return plan;
+        // The bundle is a zip inside the zip: look in that one.
+        File inner = new File(patch.getParentFile(), "arc_patch_inner.zip");
+        try (ZipFile p = open(patch)) {
+            ZipEntry e = p.getEntry(plan.innerZip);
+            try (InputStream in = p.getInputStream(e); FileOutputStream out = new FileOutputStream(inner)) {
+                byte[] buffer = new byte[1 << 16];
+                int n;
+                while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            }
+        } catch (IOException | RuntimeException e) {
+            return plan;
+        }
+        Plan nested = analyzeOne(game, inner);
+        return nested.error == null ? nested : plan;
+    }
+
+    private static Plan analyzeOne(File game, File patch) {
         Plan plan = new Plan();
+        plan.source = patch;
         try (ZipFile p = open(patch); ZipFile g = open(game)) {
             Map<String, ZipEntry> chips = new HashMap<>();
             Enumeration<? extends ZipEntry> ge = g.entries();
@@ -112,21 +135,60 @@ final class ArcadePatch {
             }
             Map<String, ZipEntry> patchFiles = new HashMap<>();
             ZipEntry dat = null;
+            List<ZipEntry> ipses = new ArrayList<>();
+            int sameAsGame = 0;
             Enumeration<? extends ZipEntry> pe = p.entries();
             while (pe.hasMoreElements()) {
                 ZipEntry e = pe.nextElement();
                 if (e.isDirectory()) continue;
-                patchFiles.put(e.getName().toLowerCase(Locale.ROOT), e);
-                if (dat == null && e.getName().toLowerCase(Locale.ROOT).endsWith(".dat") && e.getSize() < (1 << 20)) dat = e;
+                String lower = e.getName().toLowerCase(Locale.ROOT);
+                patchFiles.put(lower, e);
+                if (dat == null && lower.endsWith(".dat") && e.getSize() < (1 << 20)) dat = e;
+                if (lower.endsWith(".ips")) ipses.add(e);
+                if (lower.endsWith(".zip") && plan.innerZip == null) plan.innerZip = e.getName();
+                ZipEntry chip = chips.get(lower.substring(lower.lastIndexOf('/') + 1));
+                if (chip != null && chip.getCrc() == e.getCrc()) sameAsGame++;
             }
-            if (dat == null) {
-                plan.error = "패치 zip에 .dat(어느 칩에 어느 .ips를 붙일지 적은 목록)가 없어요. FBNeo용 IPS 패치 묶음만 넣을 수 있어요.";
+            if (dat == null && !ipses.isEmpty()) {
+                // .ips files without the list: each one goes on the chip of the same name
+                // ("004-c1.ips" on "004-c1.c1"), without original CRCs to check against.
+                String dir = ipses.get(0).getName().substring(0, ipses.get(0).getName().lastIndexOf('/') + 1);
+                StringBuilder made = new StringBuilder();
+                for (ZipEntry ips : ipses) {
+                    String name = ips.getName();
+                    if (!name.startsWith(dir) || name.substring(dir.length()).indexOf('/') >= 0) continue;
+                    String base = name.substring(dir.length(), name.length() - 4).toLowerCase(Locale.ROOT);
+                    for (Map.Entry<String, ZipEntry> chip : chips.entrySet()) {
+                        String chipName = chip.getKey();
+                        int dot = chipName.lastIndexOf('.');
+                        if ((dot > 0 ? chipName.substring(0, dot) : chipName).equals(base) || chipName.equals(base)) {
+                            String rom = chip.getValue().getName().substring(chip.getValue().getName().lastIndexOf('/') + 1);
+                            made.append('"').append(rom).append("\" \"").append(name.substring(dir.length(), name.length() - 4)).append("\"\r\n");
+                        }
+                    }
+                }
+                if (made.length() == 0) {
+                    plan.error = "패치 zip의 .ips 파일 이름이 이 롬의 칩 이름과 맞지 않아서 어디에 붙일지 모르겠어요. 같은 게임의 패치인지 확인해 주세요.";
+                    return plan;
+                }
+                plan.generatedDat = made.toString();
+                plan.datDir = dir;
+            } else if (dat == null) {
+                plan.error = plan.innerZip != null ? "패치 zip 안에 또 다른 zip이 있는데, 그 안에서도 패치(.dat · .ips)를 찾지 못했어요."
+                        : sameAsGame > 0 ? "고른 zip은 패치가 아니라 롬 같아요 (게임 롬과 같은 파일이 들어 있어요). 한글패치 zip(.dat · .ips가 든 것)을 골라 주세요."
+                        : "패치 zip에 .dat(어느 칩에 어느 .ips를 붙일지 적은 목록)도 .ips도 없어요. FBNeo용 IPS 패치 묶음만 넣을 수 있어요.";
                 return plan;
             }
-            String datName = dat.getName();
-            plan.datDir = datName.substring(0, datName.lastIndexOf('/') + 1);
-            plan.files.add(datName);
-            String text = readText(p, dat);
+            String datName = dat != null ? dat.getName() : plan.datDir + "Korean_Translation.dat";
+            String text;
+            if (dat != null) {
+                plan.datDir = datName.substring(0, datName.lastIndexOf('/') + 1);
+                plan.files.add(datName);
+                text = readText(p, dat);
+            } else {
+                text = plan.generatedDat + "\r\n[ko_KR]\r\n" + patch.getName() + " (.ips " + ipses.size() + "개)\r\n";
+                plan.generatedDat = text;
+            }
             String section = null;
             Map<String, StringBuilder> sections = new HashMap<>();
             List<String> order = new ArrayList<>();
@@ -184,7 +246,12 @@ final class ArcadePatch {
         File temp = new File(dir.getParentFile(), dir.getName() + ".part");
         deleteTree(temp);
         if (!temp.mkdirs()) throw new IOException("폴더를 만들 수 없어요");
-        try (ZipFile p = open(patch)) {
+        if (plan.generatedDat != null) {
+            try (FileOutputStream o = new FileOutputStream(new File(temp, "Korean_Translation.dat"))) {
+                o.write(("\uFEFF" + plan.generatedDat).getBytes(StandardCharsets.UTF_8));
+            }
+        }
+        try (ZipFile p = open(plan.source != null ? plan.source : patch)) {
             byte[] buffer = new byte[1 << 16];
             for (String name : plan.files) {
                 ZipEntry e = p.getEntry(name);
