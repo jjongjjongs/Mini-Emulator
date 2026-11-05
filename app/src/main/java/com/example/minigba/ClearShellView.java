@@ -765,11 +765,7 @@ final class ClearShellView extends View {
         canvas.drawColor(Color.rgb(3, 3, 8));
         android.graphics.Bitmap picture = spacePicture();
         if (picture != null) {
-            float scale = Math.max(width / picture.getWidth(), height / picture.getHeight());
-            android.graphics.Matrix matrix = new android.graphics.Matrix();
-            matrix.postScale(scale, scale);
-            matrix.postTranslate((width - picture.getWidth() * scale) / 2f, (height - picture.getHeight() * scale) / 2f);
-            canvas.drawBitmap(picture, matrix, new Paint(Paint.FILTER_BITMAP_FLAG));
+            canvas.drawBitmap(picture, fitPicture(picture, width, height), new Paint(Paint.FILTER_BITMAP_FLAG));
         }
         if (frame != null) {
             float radius = dp(7);
@@ -790,10 +786,7 @@ final class ClearShellView extends View {
         canvas.drawColor(Color.rgb(40, 28, 20));
         android.graphics.Bitmap picture = picture("skin/" + String.format(java.util.Locale.ROOT, SKIN_FILES[kind], landscape ? "l" : "p"));
         if (picture != null) {
-            float scale = Math.max(width / picture.getWidth(), height / picture.getHeight());
-            android.graphics.Matrix matrix = new android.graphics.Matrix();
-            matrix.postScale(scale, scale);
-            matrix.postTranslate((width - picture.getWidth() * scale) / 2f, (height - picture.getHeight() * scale) / 2f);
+            android.graphics.Matrix matrix = fitPicture(picture, width, height);
             // Pixel art stays crisp.
             canvas.drawBitmap(picture, matrix, kind == SKIN_PIXEL ? null : new Paint(Paint.FILTER_BITMAP_FLAG));
         }
@@ -847,10 +840,12 @@ final class ClearShellView extends View {
                 canvas.drawRoundRect(bezel, dp(16), dp(16), paint);
                 paint.setShader(null);
                 strokeRoundRect(canvas, inset(bezel, dp(0.75f)), dp(16), dp(1.5f), Color.argb(150, 255, 255, 255));
-                RectF tube = inset(screen, -dp(5));
+                // The picture is square-cornered, so the tube's corners stay small enough to
+                // cover it (a corner radius over about 3.4 × the margin would let it show).
+                RectF tube = inset(screen, -dp(6));
                 paint.setColor(Color.rgb(13, 15, 14));
-                canvas.drawRoundRect(tube, dp(18), dp(20), paint);
-                strokeRoundRect(canvas, tube, dp(18), dp(2), Color.rgb(143, 135, 120));
+                canvas.drawRoundRect(tube, dp(14), dp(14), paint);
+                strokeRoundRect(canvas, tube, dp(14), dp(2), Color.rgb(143, 135, 120));
                 break;
             }
             default: {
@@ -869,6 +864,23 @@ final class ClearShellView extends View {
                 break;
             }
         }
+    }
+
+    // Stretched to the case when its shape is close to the picture's, so the decorations at
+    // the edges (screws, stitching, dials, the moon's ground, a planet) all stay in view; a
+    // case of a very different shape is covered instead, keeping the bottom edge.
+    private static android.graphics.Matrix fitPicture(android.graphics.Bitmap picture, float width, float height) {
+        float sx = width / picture.getWidth();
+        float sy = height / picture.getHeight();
+        android.graphics.Matrix matrix = new android.graphics.Matrix();
+        if (Math.max(sx, sy) / Math.min(sx, sy) <= 1.15f) {
+            matrix.postScale(sx, sy);
+        } else {
+            float scale = Math.max(sx, sy);
+            matrix.postScale(scale, scale);
+            matrix.postTranslate((width - picture.getWidth() * scale) / 2f, height - picture.getHeight() * scale);
+        }
+        return matrix;
     }
 
     private static RectF inset(RectF rect, float by) {
