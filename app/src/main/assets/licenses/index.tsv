@@ -34,3 +34,4 @@ libarchive	libarchive	BSD-2-Clause	RAR(RAR4 · RAR5) 압축 풀기	https://www.l
 fsr	AMD FidelityFX FSR 1.0	MIT	화면 확대 (FSR)	https://github.com/GPUOpen-Effects/FidelityFX-FSR
 bluemsx	blueMSX (libretro)	BSD-style + GPL-2.0 (openMSX 부분)	MSX · 재믹스 엔진	https://github.com/libretro/blueMSX-libretro
 cbios	C-BIOS	BSD-2-Clause	MSX 대체 바이오스 (앱에 들어 있음)	http://cbios.sourceforge.net
+xbios	XBIOS 1.0	CC BY-NC-ND 4.0 (© 2026 GHOST)	MSX 대체 바이오스 · 디스크 · 한글 · 파이썬(XPY) (앱에 그대로 들어 있음)	https://creativecommons.org/licenses/by-nc-nd/4.0/

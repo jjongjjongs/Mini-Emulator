@@ -715,7 +715,7 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <p>1983년 일본에서 만든 8비트 가정용 컴퓨터 공통 규격 <b>MSX</b>(MSX1 · MSX2 · MSX2+ · turbo R)와 대우 <b>재믹스</b> 같은 호환기의 게임을 돌립니다. 엔진은 <b>blueMSX</b>입니다.</p>
 <ul>
 <li><b>파일</b>: 롬팩 .rom · .mx1 · .mx2, 디스크 .dsk (여러 장이면 .m3u), 테이프 .cas, 그리고 이것들이 든 .zip.</li>
-<li><b>바이오스</b>: 오픈소스 대체 바이오스 <b>C-BIOS</b>가 앱에 들어 있어 롬팩 게임 대부분은 바로 됩니다. 디스크 게임 · 테이프 일부 · 한글 MSX · turbo R은 원래 바이오스가 필요합니다 — 게임 중 메뉴 → 기본 → <b>MSX 바이오스</b>에서 직접 가진 기계에서 뽑은 파일을 이름 그대로(MSX2P.rom · MSX2PEXT.rom · PHILIPSDISK.rom 등) 넣습니다. 앱은 원래 바이오스를 담지 않습니다.</li>
+<li><b>바이오스</b>: 오픈소스 대체 바이오스 <b>C-BIOS</b>가 앱에 들어 있어 롬팩 게임 대부분은 바로 됩니다 (0.0.281부터 디스크용 <b>XBIOS</b>도 — 아래). 디스크 게임 · 테이프 일부 · 한글 MSX · turbo R은 원래 바이오스가 필요합니다 — 게임 중 메뉴 → 기본 → <b>MSX 바이오스</b>에서 직접 가진 기계에서 뽑은 파일을 이름 그대로(MSX2P.rom · MSX2PEXT.rom · PHILIPSDISK.rom 등) 넣습니다. 앱은 원래 바이오스를 담지 않습니다.</li>
 <li><b>기종</b>: 메뉴 → MSX 기종에서 자동(추천) · MSX1 · MSX2 · MSX2+ · turbo R (게임마다). 자동은 MSX2+로 시작하고, 원래 바이오스가 없으면 C-BIOS로 돌아갑니다.</li>
 <li><b>버튼 (세로)</b>: 위에 ESC · F1~F5 · ⌨, 가운데 방향키와 트리거 A(대부분 게임에서 스페이스와 같음) · B, 아래에 SPACE · 엔터 · Y · N, 맨 아래 STOP · GRAPH. <b>가로</b>: 방향키와 ESC · F1 · F2 · STOP · SPACE는 왼쪽, A · B와 F3~F5 · ⌨ · 엔터 · GRAPH는 오른쪽.</li>
 <li><b>⌨ 전체 키보드</b>: 실제 MSX 배열(F1~F5 · STOP · SELECT · HOME · INS · DEL · 숫자 · 글자 · CTRL · SHIFT · CAPS · GRAPH · 방향키). SHIFT · CTRL · GRAPH는 톡 = 다음 키에, 길게 = 고정. "패드로"로 닫습니다. 실물 키보드를 연결하면 그대로 입력됩니다.</li>
@@ -732,6 +732,16 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>테이프 명령을 입력할 때 쓰는 자판 배열은 자동 · MSX2+ · turbo R은 일본식, MSX1 · MSX2는 국제식으로 보고 따옴표 · 콜론을 입력합니다. 명령이 틀리게 찍히면 "직접 입력"이나 ⌨ 키보드로 입력하세요.</li>
 </ul>
 <figure><img src="img/msx2.jpg" alt="MSX 추가 기능 시안"><figcaption>테이프 시작 · 조작 방식 · 키 줄 고르기 · 화면과 소리 시안.</figcaption></figure>
+<h4>XBIOS · 무료 대체 바이오스 (0.0.281)</h4>
+<p><b>XBIOS</b>(© 2026 GHOST · CC BY-NC-ND 4.0)는 MSX1 · MSX2 · MSX2+ · turbo R용 시스템 ROM으로, MSX-BASIC 대신 파이썬(<b>XPY</b>)이 들어 있습니다. 라이선스에 따라 파일을 고치지 않고 그대로 앱에 넣었습니다 (blueMSX용 기계 구성 3종 · 예제 디스크). 비상업 조건이라 앱을 유료로 팔거나 광고를 붙이면 빼야 합니다.</p>
+<ul>
+<li><b>MSX 바이오스</b> (게임 중 메뉴 → 기본, 게임마다): <b>자동(추천)</b> · 원래 바이오스 · C-BIOS · XBIOS 중에서 고릅니다. 자동은 원래 바이오스가 있으면 그것을, 없으면 롬팩은 C-BIOS, <b>디스크(.dsk · .m3u)는 XBIOS</b>로 켜고 한 번 알려 줍니다. 바꾸면 게임을 다시 시작합니다. 원래 바이오스 파일은 "원래 바이오스 넣기 · 예제 디스크"에서 넣습니다.</li>
+<li><b>XBIOS로 되는 것</b>: 롬팩, 디스크 부팅(MSX-DOS 1), SCREEN 9 한글, 파이썬(XPY). <b>안 되는 것</b>: BASIC이 없어서 테이프 게임과 BASIC으로 시작하는 디스크 게임은 원래 바이오스가 있어야 합니다. blueMSX용 구성이 MSX1 · MSX2 · MSX2+뿐이라 turbo R을 고르면 MSX2+ 구성을 씁니다. 제작자도 MSX2 이후는 에뮬레이터로만 시험했다고 밝힙니다.</li>
+<li><b>XBIOS 예제 디스크</b>: 앱을 처음 켤 때 MSX 게임 목록에 "XBIOS 예제 디스크"를 한 번 넣어 둡니다(이 디스크는 기본이 XBIOS). 지웠다면 메뉴 → 원래 바이오스 넣기 · 예제 디스크 → "XBIOS 예제 디스크 다시 넣기". 화면 키 줄의 <b>▶ 예제</b>를 누르면 XMAZE(3D 미로) · XSHOT · MZEBI(슈팅) · XROAD · XCLAIM · LIFE · SUNGJUK(한글 성적표) · SHEET(한글 계산표) 등을 톡 한 번으로 실행합니다 (<code>fs.load("이름.PY")</code>를 대신 입력). 끝내려면 재시작.</li>
+<li>XBIOS의 자판은 국제 배열이라, 명령을 대신 입력할 때도 국제 배열로 입력합니다.</li>
+<li>시안의 "게임 목록에 바이오스 표시"는 이번에 넣지 않았습니다. 대신 메뉴의 MSX 바이오스 줄에 "자동 → XBIOS"처럼 지금 켜진 바이오스가 나옵니다.</li>
+</ul>
+<figure><img src="img/xbios.jpg" alt="XBIOS 시안"><figcaption>XBIOS 넣기 시안 (게임 화면은 가상의 예시).</figcaption></figure>
 <figure><img src="img/bgopt.jpg" alt="배경 시안"><figcaption>배경 시안. (시안의 "레트로 그레이"는 이후 뺐습니다.)</figcaption></figure>
 <h3>내 사진 · 그림 배경 (0.0.177 ~ 0.0.180)</h3>
 <p>게임 중 메뉴 › 설정 › 배경에 "내 사진 · 그림"이 7번째 항목으로 추가됐습니다. 고르면 갤러리에서 사진을 고른 뒤 편집 화면이 열립니다. 0.0.204부터는 가로 화면으로 게임하다가 편집기를 열면 가로 편집부터 시작하고, 0.0.205부터는 열리는 순간 세로로 잠깐 도는 일도 없습니다.</p>

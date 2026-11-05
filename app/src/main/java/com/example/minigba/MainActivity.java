@@ -356,6 +356,7 @@ public final class MainActivity extends Activity {
         importPresetIfOpened(getIntent());
         ensureDownloadFolder();
         moveMasterSystemRoms();
+        new Thread(() -> copyXbiosExamples(getApplicationContext(), false), "xbios-examples").start();
         // Keep the open mode across rotation and other activity recreation.
         String restoredMode = bundle == null ? null : bundle.getString(STATE_MODE);
         this.pendingBiosSource = bundle == null ? null : bundle.getString(STATE_BIOS_SOURCE);
@@ -14833,7 +14834,41 @@ public final class MainActivity extends Activity {
     private boolean prepareMsxSystemFiles() {
         File system = systemDir();
         new File(new File(system, "Machines"), "Shared Roms").mkdirs();
-        return unpackSystemAsset("msx_system.zip", system, new File(new File(system, "Machines"), ".mini_emulator_version"));
+        return unpackSystemAsset("msx_system.zip", system, new File(new File(system, "Machines"), ".mini_emulator_version"))
+                // XBIOS (CC BY-NC-ND, unchanged): its blueMSX machines, licence and example disk.
+                && unpackSystemAsset("msx_xbios.zip", system, new File(new File(system, "XBIOS"), ".mini_emulator_version"));
+    }
+
+    static final String XBIOS_EXAMPLES_NAME = "XBIOS 예제 디스크.dsk";
+
+    // Puts XBIOS's example disk into the MSX games (once; again when asked from the game menu).
+    static boolean copyXbiosExamples(android.content.Context context, boolean force) {
+        android.content.SharedPreferences prefs = sharedSettings(context);
+        if (!force && prefs.getBoolean("msx_xbios_examples_added", false)) return true;
+        File dir = new File(context.getFilesDir(), "roms_msx");
+        File target = new File(dir, XBIOS_EXAMPLES_NAME);
+        if (!dir.isDirectory() && !dir.mkdirs()) return false;
+        try (ZipInputStream zip = new ZipInputStream(context.getAssets().open("msx_xbios.zip"))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (!"XBIOS/examples.dsk".equals(entry.getName())) continue;
+                File part = new File(dir, XBIOS_EXAMPLES_NAME + ".part");
+                try (FileOutputStream out = new FileOutputStream(part)) {
+                    byte[] buffer = new byte[65536];
+                    int n;
+                    while ((n = zip.read(buffer)) > 0) out.write(buffer, 0, n);
+                }
+                if (!part.renameTo(target)) {
+                    part.delete();
+                    return false;
+                }
+                prefs.edit().putBoolean("msx_xbios_examples_added", true).apply();
+                return true;
+            }
+        } catch (IOException e) {
+            return false;
+        }
+        return false;
     }
 
     // Unpacks a zip from the assets into a system folder, again whenever the app version changes.

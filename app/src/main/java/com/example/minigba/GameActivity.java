@@ -6075,10 +6075,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isMsx()) {
                         // The machine type and screen / sound the player picked for this game.
                         this.msxResumed = autoStateFile().isFile();
+                        this.msxMachine = msxPickMachine();
                         int hz = msxInt("hz", 0);
                         NativeGba.setDosOptions(new String[]{"bluemsx_msxtype", "bluemsx_nospritelimits", "bluemsx_ym2413_enable",
                                         "bluemsx_overscan", "bluemsx_vdp_synctype", "bluemsx_auto_rewind_cas"},
-                                new String[]{MSX_TYPE_VALUES[msxType()], msxBool("sprites", true) ? "ON" : "OFF",
+                                new String[]{this.msxMachine, msxBool("sprites", true) ? "ON" : "OFF",
                                         msxBool("fm", true) ? "enabled" : "disabled", msxBool("overscan", false) ? "disabled" : "enabled",
                                         hz == 1 ? "60Hz" : hz == 2 ? "50Hz" : "Auto", "ON"}, "");
                     }
@@ -6128,6 +6129,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         NativeGba.setSpeedPercent(handle, this.speedPercent);
         if (isMsxTape() && !this.msxResumed) {
             msxAutoStartTape(false);
+        }
+        if (this.msxAutoXbios && !this.msxResumed) {
+            Toast.makeText(this, "💾 원래 바이오스가 없어 디스크 게임을 XBIOS로 켰어요. 안 켜지면 메뉴 → MSX 바이오스에서 원래 바이오스를 넣어 주세요.", Toast.LENGTH_LONG).show();
         }
         NativeGba.setRewindEnabled(handle, rewindOn());
         applyCheats();
@@ -11315,8 +11319,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final int REQUEST_MSX_BIOS = 3110;
     private static final String[] MSX_TYPE_NAMES = {"자동", "MSX1", "MSX2", "MSX2+", "turbo R"};
     private static final String[] MSX_TYPE_VALUES = {"Auto", "MSX", "MSX2", "MSX2+", "MSXturboR"};
-    private static final String[] MSX_TYPE_NOTES = {"파일을 보고 골라요 (추천) · 원래 바이오스가 없으면 C-BIOS로",
+    private static final String[] MSX_TYPE_NOTES = {"파일을 보고 골라요 (추천) · 원래 바이오스가 없으면 롬팩은 C-BIOS, 디스크는 XBIOS로",
             "1983년 첫 MSX", "1985년 · 그래픽이 좋아진 2세대", "1988년", "1990년 마지막 세대 · 원래 바이오스 필요"};
+    private static final String[] MSX_BIOS_NAMES = {"자동 (추천)", "원래 바이오스", "C-BIOS", "XBIOS"};
+    private static final String[] MSX_BIOS_NOTES = {"원래 바이오스가 있으면 그것 · 없으면 롬팩은 C-BIOS, 디스크는 XBIOS",
+            "직접 가진 기계에서 뽑은 파일 · 모든 게임 · 테이프 · BASIC", "앱에 포함 · 롬팩만",
+            "앱에 포함 · 롬팩 · 디스크(MSX-DOS 1) · SCREEN 9 한글 · 파이썬(XPY) · BASIC 없음"};
+    // The blueMSX machine this run started (a machine name or "Auto"), and whether 자동 put
+    // a disk game on XBIOS because the original BIOS is missing.
+    private volatile String msxMachine = "Auto";
+    private volatile boolean msxAutoXbios;
+    private View msxRunView;
     private MsxKeys msxKeys;
     private View msxKeyboardView;
     // The game picked up from its automatic save (then the tape is already loaded).
@@ -11387,10 +11400,100 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return out.toArray(new String[0][]);
     }
 
-    private static String[][] withKeyboardKey(String[][] keys) {
-        String[][] out = java.util.Arrays.copyOf(keys, keys.length + 1);
+    private String[][] withKeyboardKey(String[][] keys) {
+        boolean run = isXbiosExamples();
+        String[][] out = java.util.Arrays.copyOf(keys, keys.length + (run ? 2 : 1));
         out[keys.length] = new String[]{"⌨", "⌨"};
+        if (run) out[keys.length + 1] = new String[]{"▶", "▶ 예제", "1.6"};
         return out;
+    }
+
+    // ---- XBIOS example disk: run its XPY programs with a tap ----
+    private static final String[][] XBIOS_PROGRAMS = {
+            {"XMAZE", "3D 미로"}, {"XSHOT", "가로 슈팅"}, {"MZEBI", "세로 슈팅"}, {"XROAD", "차 피하기"}, {"XCLAIM", "땅따먹기"},
+            {"XWAVE", "그래픽 데모"}, {"XROTO", "회전 데모"}, {"XPOLY", "3D 도형"}, {"MANDEL", "만델브로"}, {"BALLS", "스프라이트"},
+            {"LIFE", "라이프 게임"}, {"SUNGJUK", "한글 성적표"}, {"SHEET", "한글 계산표"},
+    };
+
+    private TouchButton msxRunButton() {
+        return new TouchButton(this, "▶ 예제", 0, (bit, down) -> {
+            if (!down && this.msxRunView != null) {
+                showMsxKeyboard(false);
+                this.msxRunView.setVisibility(this.msxRunView.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            }
+        }, TouchButton.STYLE_PINK);
+    }
+
+    private void addMsxRunPanel(FrameLayout frameLayout, boolean landscape) {
+        if (!isXbiosExamples()) return;
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(10), dp(8), dp(10), dp(8));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(Color.rgb(31, 33, 40));
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(2), Color.rgb(15, 118, 110));
+        panel.setBackground(bg);
+        panel.setClickable(true);
+        TextView title = new TextView(this);
+        title.setText("빠른 실행 · 톡 하면 fs.load(\"이름.PY\")를 대신 입력 · 끝내려면 재시작");
+        title.setTextColor(Color.rgb(204, 251, 241));
+        title.setTextSize(11f);
+        title.setPadding(dp(2), 0, 0, dp(6));
+        panel.addView(title);
+        int perRow = landscape ? 7 : 4;
+        LinearLayout row = null;
+        for (int k = 0; k <= XBIOS_PROGRAMS.length; k++) {
+            if (k % perRow == 0) {
+                row = new LinearLayout(this);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(landscape ? 34 : 40));
+                rowParams.setMargins(0, k == 0 ? 0 : dp(5), 0, 0);
+                panel.addView(row, rowParams);
+            }
+            TextView chip = new TextView(this);
+            chip.setGravity(Gravity.CENTER);
+            chip.setSingleLine(false);
+            chip.setTextColor(Color.WHITE);
+            android.graphics.drawable.GradientDrawable chipBg = new android.graphics.drawable.GradientDrawable();
+            chipBg.setCornerRadius(dp(9));
+            if (k == XBIOS_PROGRAMS.length) {
+                chip.setText("닫기");
+                chip.setTextSize(12f);
+                chipBg.setColor(Color.rgb(15, 118, 110));
+                chip.setOnClickListener(v -> panel.setVisibility(View.GONE));
+            } else {
+                final String name = XBIOS_PROGRAMS[k][0];
+                chip.setText(name + "\n" + XBIOS_PROGRAMS[k][1]);
+                chip.setTextSize(10.5f);
+                chipBg.setColor(Color.rgb(47, 51, 64));
+                chip.setOnClickListener(v -> {
+                    panel.setVisibility(View.GONE);
+                    msxTyper.removeCallbacksAndMessages(null);
+                    msxTypeText("fs.load(\"" + name + ".PY\")", true);
+                });
+            }
+            chip.setBackground(chipBg);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1f);
+            params.setMargins(k % perRow == 0 ? 0 : dp(5), 0, 0, 0);
+            row.addView(chip, params);
+        }
+        int rest = (XBIOS_PROGRAMS.length + 1) % perRow;
+        if (rest != 0) {
+            for (int k = rest; k < perRow; k++) {
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, 1, 1f);
+                params.setMargins(dp(5), 0, 0, 0);
+                row.addView(new View(this), params);
+            }
+        }
+        FrameLayout.LayoutParams params = landscape ? new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM) : new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        if (landscape) {
+            params.setMargins(dp(96), 0, dp(96), dp(2));
+        } else {
+            params.setMargins(dp(6), dp(34), dp(6), 0);
+        }
+        panel.setVisibility(View.GONE);
+        frameLayout.addView(panel, params);
+        this.msxRunView = panel;
     }
 
     // ---- 조작 방식: the pad as the joystick, or as keyboard keys (cursor keys and two keys) ----
@@ -11451,11 +11554,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Japanese-layout machines (MSX2+, turbo R: the default 자동 starts an MSX2+) type " as
     // SHIFT+2 and have their own : key; the international ones put " and : on SHIFT.
     private boolean msxJapaneseLayout() {
+        if (this.msxMachine.startsWith("XBIOS")) return false;
         int type = msxType();
         return type == 0 || type == 3 || type == 4;
     }
 
     private void msxTypeText(String text) {
+        msxTypeText(text, false);
+    }
+
+    // exactCase: capitals with SHIFT (XPY's file names); BASIC takes either.
+    private void msxTypeText(String text, boolean exactCase) {
         long delay = 0;
         boolean jis = msxJapaneseLayout();
         for (char c : text.toCharArray()) {
@@ -11469,8 +11578,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             } else if (c == ':') {
                 code = jis ? 39 : 59;
                 shift = !jis;
-            } else if (Character.isLetter(c)) {
+            } else if (c == '(' || c == ')') {
+                code = jis ? (c == '(' ? '8' : '9') : (c == '(' ? '9' : '0');
+                shift = true;
+            } else if (c < 128 && Character.isLetter(c)) {
                 code = Character.toLowerCase(c);
+                shift = exactCase && Character.isUpperCase(c);
             } else if (c == ' ' || c == ',' || c == '.' || c == '/' || Character.isDigit(c)) {
                 code = c;
             } else {
@@ -11498,7 +11611,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // After the machine has booted to BASIC's "Ok", type the tape's command.
     private void msxAutoStartTape(boolean afterReset) {
         if (!isMsxTape()) return;
-        if (msxBiosCount() == 0) {
+        if (msxBiosCount() == 0 || this.msxMachine.startsWith("XBIOS") || this.msxMachine.contains("C-BIOS")) {
             Toast.makeText(this, "테이프 게임은 원래 바이오스가 있어야 해요 (C-BIOS는 롬팩만). 메뉴 → MSX 바이오스", Toast.LENGTH_LONG).show();
             return;
         }
@@ -11513,6 +11626,71 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private int msxType() {
         int value = MainActivity.sharedSettings(this).getInt("msx_type:" + this.saveBaseName, 0);
         return value >= 0 && value < MSX_TYPE_VALUES.length ? value : 0;
+    }
+
+    private int msxBiosChoice() {
+        int value = msxInt("bios", isXbiosExamples() ? 3 : 0);
+        return value >= 0 && value < MSX_BIOS_NAMES.length ? value : 0;
+    }
+
+    private boolean isXbiosExamples() {
+        return this.romPath != null && new File(this.romPath).getName().equals(MainActivity.XBIOS_EXAMPLES_NAME);
+    }
+
+    private boolean isMsxDisk() {
+        String name = this.romPath == null ? "" : this.romPath.toLowerCase(java.util.Locale.ROOT);
+        return name.endsWith(".dsk") || name.endsWith(".m3u");
+    }
+
+    // XBIOS ships machines for MSX1, MSX2 and MSX2+ (자동 and turbo R take the MSX2+ one).
+    private String msxXbiosMachine() {
+        int type = msxType();
+        return type == 1 ? "XBIOS 1 XPY" : type == 2 ? "XBIOS 2 XPY" : "XBIOS 2+ XPY";
+    }
+
+    private String msxCbiosMachine() {
+        int type = msxType();
+        return type == 1 ? "MSX - C-BIOS" : type == 2 ? "MSX2 - C-BIOS" : "MSX2+ - C-BIOS";
+    }
+
+    // Whether every ROM a blueMSX machine names is on disk ("Machines/..." paths).
+    private boolean msxMachineValid(String name) {
+        File machines = new File(new File(getFilesDir(), "system"), "Machines");
+        File config = new File(new File(machines, name), "config.ini");
+        if (!config.isFile()) return false;
+        try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.FileReader(config))) {
+            String line;
+            while ((line = in.readLine()) != null) {
+                int open = line.indexOf('"');
+                int close = open < 0 ? -1 : line.indexOf('"', open + 1);
+                if (close <= open + 1) continue;
+                String path = line.substring(open + 1, close).replace('\\', '/');
+                if (!path.regionMatches(true, 0, "Machines/", 0, 9)) continue;
+                if (!new File(machines, path.substring(9)).isFile()) return false;
+            }
+        } catch (java.io.IOException e) {
+            return false;
+        }
+        return true;
+    }
+
+    private String msxPickMachine() {
+        this.msxAutoXbios = false;
+        String chosen = MSX_TYPE_VALUES[msxType()];
+        switch (msxBiosChoice()) {
+            case 1:
+                return chosen;
+            case 2:
+                return msxCbiosMachine();
+            case 3:
+                return msxXbiosMachine();
+            default:
+                if (isMsxDisk() && !msxMachineValid("Auto".equals(chosen) ? "MSX2+" : chosen)) {
+                    this.msxAutoXbios = true;
+                    return msxXbiosMachine();
+                }
+                return chosen;
+        }
     }
 
     private File msxSharedRoms() {
@@ -11569,6 +11747,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void showMsxKeyboard(boolean show) {
+        if (show && this.msxRunView != null) this.msxRunView.setVisibility(View.GONE);
         if (this.msxKeyboardView != null) {
             this.msxKeyboardView.setVisibility(show ? View.VISIBLE : View.GONE);
         }
@@ -11582,7 +11761,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         for (String[] k : keys) {
-            View view = k[0].equals("⌨") ? msxKeyboardButton() : msxKeyButton(k[1], k[0]);
+            View view = k[0].equals("⌨") ? msxKeyboardButton() : k[0].equals("▶") ? msxRunButton() : msxKeyButton(k[1], k[0]);
             float weight = k.length > 2 ? Float.parseFloat(k[2]) : 1f;
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, weight);
             params.setMargins(dp(2), 0, dp(2), 0);
@@ -11628,6 +11807,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addMsxRow(frameLayout, new String[][]{{"STOP", "STOP"}}, Gravity.BOTTOM | Gravity.START, 22, 0, 0, 10, 96, 32);
         addMsxRow(frameLayout, new String[][]{{"GRAPH", "GRAPH"}}, Gravity.BOTTOM | Gravity.END, 0, 22, 0, 10, 96, 32);
         addMsxKeyboard(frameLayout, false);
+        addMsxRunPanel(frameLayout, false);
     }
 
     // Pause menu (기본): machine type, the player's own BIOS ROMs, the next disk.
@@ -11647,8 +11827,21 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int bios = msxBiosCount();
         LinearLayout.LayoutParams biosParams = new LinearLayout.LayoutParams(-1, dp(52));
         biosParams.setMargins(0, dp(8), 0, 0);
-        panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "MSX 바이오스", bios > 0 ? "넣은 파일 " + bios + "개" : "C-BIOS (기본)",
-                view -> showMsxBiosDialog()), biosParams);
+        String biosShown = MSX_BIOS_NAMES[msxBiosChoice()] + (this.msxMachine.startsWith("XBIOS") ? " → XBIOS"
+                : this.msxMachine.contains("C-BIOS") ? " → C-BIOS" : "");
+        panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "MSX 바이오스", biosShown,
+                view -> showChoiceDialog(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "MSX 바이오스 · 이 게임만", MSX_BIOS_NAMES, MSX_BIOS_NOTES, msxBiosChoice(),
+                        "넣은 원래 바이오스: " + (bios > 0 ? bios + "개" : "없음") + "\n테이프 게임과 BASIC으로 시작하는 디스크 게임은 원래 바이오스가 있어야 해요. XBIOS는 MSX1 · MSX2 · MSX2+ 구성이 있어요 (turbo R은 MSX2+로).\n\n"
+                                + "XBIOS © 2026 GHOST · CC BY-NC-ND 4.0 · 고치지 않고 그대로 포함",
+                        Color.rgb(255, 241, 242), Color.rgb(159, 18, 57), "적용 (다시 시작)", choice -> {
+                            MainActivity.sharedSettings(this).edit().putInt(msxKey("bios"), choice).apply();
+                            dialog.dismiss();
+                            relaunchGame();
+                        })), biosParams);
+        LinearLayout.LayoutParams importParams = new LinearLayout.LayoutParams(-1, dp(52));
+        importParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "원래 바이오스 넣기 · 예제 디스크", bios > 0 ? "넣은 파일 " + bios + "개" : "없음",
+                view -> showMsxBiosDialog()), importParams);
         if (isMsxTape()) {
             LinearLayout.LayoutParams tapeParams = new LinearLayout.LayoutParams(-1, dp(52));
             tapeParams.setMargins(0, dp(8), 0, 0);
@@ -12008,6 +12201,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         Toast.makeText(this, "파일을 고를 앱이 없어요.", Toast.LENGTH_SHORT).show();
                     }
                 })
+                .setNeutralButton("XBIOS 예제 디스크 다시 넣기", (d, w) -> Toast.makeText(this,
+                        MainActivity.copyXbiosExamples(this, true) ? "게임 목록에 \"XBIOS 예제 디스크\"를 넣었어요" : "예제 디스크를 넣지 못했어요", Toast.LENGTH_LONG).show())
                 .setNegativeButton("닫기", null)
                 .show();
     }
@@ -12058,6 +12253,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         right.add(new String[]{"GRAPH", "GRAPH", "1.4"});
         addMsxRow(frameLayout, right.toArray(new String[0][]), Gravity.BOTTOM | Gravity.END, 0, 12, 0, 16, 176, 32);
         addMsxKeyboard(frameLayout, true);
+        addMsxRunPanel(frameLayout, true);
     }
 
     private void addDosControls(FrameLayout frame, boolean landscape) {
