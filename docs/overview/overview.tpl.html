@@ -184,6 +184,16 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>시안에서 바뀐 점: 설치 진행 막대 대신 시작 안내(엔진이 진행 상황을 앱에 알려 주지 않음), 라이선스가 틀리면 엔진의 오류 메시지로 알려 줍니다.</li>
 </ul>
 <figure><img src="img/vitapkg.jpg" alt="PS Vita PKG 라이선스 시안"><figcaption>PS Vita .pkg 라이선스 시안 (이름은 가상의 예시).</figcaption></figure>
+<h4>PS Vita 한글패치 · 업데이트 · DLC PKG (0.0.297)</h4>
+<p>게임을 길게 누르면 세 가지가 있습니다.</p>
+<ul>
+<li><b>한글패치 넣기</b>: xdelta 패치 zip(예: <code>data_rom.apk.xdelta</code> 등과 <code>checksums.txt</code>)을 고르면, 설치된 게임 파일(ux0/app/타이틀ID/)에서 같은 이름의 파일을 찾고 패치에 적힌 <b>원본 SHA-256</b>과 맞는지 먼저 확인해 파일마다 “원본 맞음 / 이미 적용 / 건너뜀 / 없음”을 보여 줍니다. 적용은 파일 옆에 새 파일을 만들어 <b>결과 해시까지 확인한 뒤</b> 바꿔 넣으므로, 실패하면 원래 파일이 그대로 남습니다. 원본이 다른 파일만 건너뜁니다(예: PC Vita3K로 복호한 eboot.bin을 원본으로 하는 패치 — 실행 파일 속 문구만 일본어로 남음). 게임을 한 번 켜서 설치한 뒤에 넣을 수 있고, 가장 큰 파일만큼 공간이 잠깐 더 필요합니다. 목록에는 “한글패치 ✓”가 표시됩니다.</li>
+<li><b>업데이트 · DLC PKG 넣기</b>: 같은 타이틀 ID의 업데이트 · DLC .pkg를 넣어 두면, <b>다음에 게임을 켤 때</b> 엔진(Vita3K)의 PKG 설치 기능이 라이선스로 풀어 설치합니다(업데이트는 게임 폴더에 합쳐짐 — Vita3K 방식). 업데이트는 게임의 라이선스(zRIF · work.bin)를 자동으로 같이 쓰고, DLC는 그 DLC의 라이선스를 넣습니다. 창에 본편 · 설치된 업데이트(버전) · DLC · 설치 대기 · 실패가 표시되고, 대기 중인 PKG를 눌러 라이선스를 바꾸거나 뺄 수 있습니다. 한글패치는 업데이트를 먼저 설치한 뒤에 넣으세요.</li>
+<li><b>게임 다시 설치</b>: 설치된 게임(과 업데이트 · 한글패치)을 지우고, 다음에 켤 때 원본 .vpk / .pkg에서 새로 설치합니다. 세이브와 DLC는 그대로입니다.</li>
+<li>본인이 가진 게임과 그 게임의 패치 파일만 쓰세요. 패치 적용 결과(게임 파일)는 재배포하면 안 됩니다.</li>
+<li>시안에서 바뀐 점: 업데이트 · DLC는 바로 설치하지 않고 <b>다음 실행 때</b> 설치(엔진이 게임을 켤 때만 동작), DLC는 게임과 다른 자기 라이선스를 씀.</li>
+</ul>
+<figure><img src="img/vitako.jpg" alt="PS Vita 한글패치 · 업데이트 PKG 시안"><figcaption>PS Vita 한글패치 · 업데이트 PKG 시안 (게임 이름은 가상의 예시).</figcaption></figure>
 <figure><img src="img/vita.jpg" alt="PS Vita 모드 시안"><figcaption>PS Vita 모드 시안 (게임 화면과 이름은 가상의 예시).</figcaption></figure>
 <h3>Wii U (실험적 · 0.0.210)</h3>
 <p>엔진은 Cemu(libretro 판, 안드로이드 arm64 빌드)입니다. 직접 덤프한 게임만 넣을 수 있고, 앱에는 키가 들어 있지 않습니다.</p>

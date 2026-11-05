@@ -72,7 +72,7 @@ index 3de3d68..1e8300a 100644
          const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
          if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
 diff --git a/vita3k/libretro/libretro_installer.cpp b/vita3k/libretro/libretro_installer.cpp
-index a0ca512..e6f74b9 100644
+index a0ca512..d1e8976 100644
 --- a/vita3k/libretro/libretro_installer.cpp
 +++ b/vita3k/libretro/libretro_installer.cpp
 @@ -18,7 +18,10 @@
@@ -86,10 +86,19 @@ index a0ca512..e6f74b9 100644
  #include <packages/sfo.h>
  #include <util/fs.h>
  #include <util/log.h>
-@@ -726,6 +729,76 @@ static GameInstallResult handle_folder_game(const fs::path &game_path, const fs:
+@@ -30,6 +33,7 @@
+ 
+ #include <miniz.h>
+ 
++#include <algorithm>
+ #include <cstring>
+ #include <fstream>
+ 
+@@ -726,7 +730,83 @@ static GameInstallResult handle_folder_game(const fs::path &game_path, const fs:
      return result;
  }
  
+-GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
 +// Mini Emulator: an official .pkg, installed with Vita3K's own install_pkg() and the game's
 +// license the player put beside it: "<file>.pkg.zrif" (the zRIF text) or
 +// "<file>.pkg.work.bin" (the license file from their own console). Installed once; a marker in
@@ -109,6 +118,22 @@ index a0ca512..e6f74b9 100644
 +    return true;
 +}
 +
++// The license beside a .pkg: "<file>.zrif" (the zRIF text) or "<file>.work.bin".
++static std::string read_pkg_license(const fs::path &pkg_path) {
++    std::string zrif;
++    const fs::path zrif_path = fs::path(pkg_path.string() + ".zrif");
++    const fs::path bin_path = fs::path(pkg_path.string() + ".work.bin");
++    if (fs::exists(zrif_path)) {
++        std::ifstream in(zrif_path.native());
++        std::getline(in, zrif);
++        while (!zrif.empty() && (zrif.back() == '\r' || zrif.back() == ' ' || zrif.back() == '\n')) zrif.pop_back();
++    } else if (fs::exists(bin_path)) {
++        fs::ifstream bin(bin_path, std::ios::in | std::ios::binary | std::ios::ate);
++        zrif = rif2zrif(bin);
++    }
++    return zrif;
++}
++
 +static GameInstallResult handle_pkg_game(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
 +    GameInstallResult result;
 +    const fs::path marker = pref_path / "pkg_installed" / (game_path.filename().string() + ".txt");
@@ -121,17 +146,7 @@ index a0ca512..e6f74b9 100644
 +            return result;
 +        }
 +    }
-+    std::string zrif;
-+    const fs::path zrif_path = fs::path(game_path.string() + ".zrif");
-+    const fs::path bin_path = fs::path(game_path.string() + ".work.bin");
-+    if (fs::exists(zrif_path)) {
-+        std::ifstream in(zrif_path.native());
-+        std::getline(in, zrif);
-+        while (!zrif.empty() && (zrif.back() == '\r' || zrif.back() == ' ' || zrif.back() == '\n')) zrif.pop_back();
-+    } else if (fs::exists(bin_path)) {
-+        fs::ifstream bin(bin_path, std::ios::in | std::ios::binary | std::ios::ate);
-+        zrif = rif2zrif(bin);
-+    }
++    std::string zrif = read_pkg_license(game_path);
 +    if (zrif.empty()) {
 +        lr_log(RETRO_LOG_ERROR, "PKG without a license (%s.zrif or .work.bin)\n", game_path.filename().string().c_str());
 +        lr_msg("PKG needs its license (zRIF or work.bin)", 600);
@@ -160,10 +175,11 @@ index a0ca512..e6f74b9 100644
 +    return result;
 +}
 +
- GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
++static GameInstallResult ensure_game_installed_base(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
      GameInstallResult result;
  
-@@ -748,6 +821,9 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
+     lr_log(RETRO_LOG_INFO, "=== Checking game installation ===\n");
+@@ -748,6 +828,9 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
      // Validate extension for archive files
      const auto extension = string_utils::tolower(game_path.extension().string());
      lr_log(RETRO_LOG_DEBUG, "Game file extension: %s\n", extension.c_str());
@@ -173,6 +189,65 @@ index a0ca512..e6f74b9 100644
      if (extension != ".vpk" && extension != ".zip") {
          // Maybe it's an eboot.bin directly - check parent folder
          if (game_path.filename() == "eboot.bin") {
+@@ -975,3 +1058,58 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
+ 
+     return result;
+ }
++
++// Mini Emulator: update / DLC .pkg files the app queued for this game in
++// <pref>/pkg_queue/<TITLE ID>/ (each with "<file>.zrif" or "<file>.work.bin" beside it),
++// installed with install_pkg() before the game starts (an update goes into ux0/app, as Vita3K
++// does). Each result is a line in <pref>/pkg_installed/addons/<TITLE ID>.txt:
++// "ok <category> <version> <file>" or "fail - - <file>". A .pkg without a license stays queued.
++static void install_queued_pkgs(const fs::path &pref_path, const std::string &title_id, int sys_lang) {
++    const fs::path queue = pref_path / "pkg_queue" / title_id;
++    if (title_id.empty() || !fs::is_directory(queue))
++        return;
++    std::vector<fs::path> pkgs;
++    for (const auto &entry : fs::directory_iterator(queue)) {
++        if (fs::is_regular_file(entry.path()) && string_utils::tolower(entry.path().extension().string()) == ".pkg")
++            pkgs.push_back(entry.path());
++    }
++    std::sort(pkgs.begin(), pkgs.end());
++    const fs::path log_path = pref_path / "pkg_installed" / "addons" / (title_id + ".txt");
++    fs::create_directories(log_path.parent_path());
++    for (const auto &pkg : pkgs) {
++        const std::string name = pkg.filename().string();
++        std::string zrif = read_pkg_license(pkg);
++        if (zrif.empty()) {
++            lr_log(RETRO_LOG_WARN, "Queued PKG %s has no license; left queued\n", name.c_str());
++            continue;
++        }
++        auto emuenv = std::make_unique<EmuEnvState>();
++        emuenv->pref_path = pref_path;
++        emuenv->cache_path = pref_path / "cache";
++        emuenv->cfg.sys_lang = sys_lang;
++        fs::create_directories(emuenv->cache_path);
++        lr_msg("Installing update / DLC PKG...", 600);
++        const bool ok = install_pkg(pkg, *emuenv, zrif, [](float) {});
++        {
++            std::ofstream log(log_path.native(), std::ios::app);
++            if (ok)
++                log << "ok " << (emuenv->app_info.app_category.empty() ? "-" : emuenv->app_info.app_category) << " "
++                    << (emuenv->app_info.app_version.empty() ? "-" : emuenv->app_info.app_version) << " " << name << "\n";
++            else
++                log << "fail - - " << name << "\n";
++        }
++        lr_log(ok ? RETRO_LOG_INFO : RETRO_LOG_ERROR, "Queued PKG %s: %s\n", name.c_str(), ok ? "installed" : "failed");
++        if (!ok)
++            lr_msg("Update / DLC PKG failed: wrong license or broken file", 600);
++        fs::remove(pkg);
++        fs::remove(fs::path(pkg.string() + ".zrif"));
++        fs::remove(fs::path(pkg.string() + ".work.bin"));
++    }
++}
++
++GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
++    GameInstallResult result = ensure_game_installed_base(game_path, pref_path, sys_lang);
++    if (result.success)
++        install_queued_pkgs(pref_path, result.title_id, sys_lang);
++    return result;
++}
 diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
 index 90c8184..919e69a 100644
 --- a/vita3k/libretro/libretro_vita3k.cpp
