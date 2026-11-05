@@ -35,14 +35,17 @@ final class ClearShellView extends View {
     static final int STYLE_PHOTO = 6;
     // The first Mini GBA (0.0.2 – 0.0.3): warm grey body, black band, green POWER, speaker.
     static final int STYLE_RETRO = 7;
+    // Space: pictures drawn ahead of time (assets/space), decoration kept to the corners.
+    static final int STYLE_SPACE = 8;
     // The clear case (STYLE_CLEAR) is no longer offered (0.0.270): a stored 0 reads as
     // 실물 플라스틱 (see normalize), and the choice list leaves it out (CHOICES).
-    static final String[] STYLE_NAMES = {"실물 플라스틱", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)"};
+    static final String[] STYLE_NAMES = {"실물 플라스틱", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)", "우주"};
     static final String[] STYLE_NOTES = {"게임기 원래 색의 무광 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
             "몸체 전체 한 장의 유리 · 프로스트 · 오로라 · 젤리", "몸체 전체 카본 + 알루미늄 테 · 화면 테두리에 포인트 색", "검정 몸체 + 가장자리 · 화면 테두리만 빛남 · 엣지 · 사인 · 레드블루 · 언더", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
-            "GBA만 있던 첫 버전의 회베이지 몸체 · POWER 불 · 스피커 · 원조 버튼 색"};
+            "GBA만 있던 첫 버전의 회베이지 몸체 · POWER 불 · 스피커 · 원조 버튼 색",
+            "실사 느낌의 우주 · 링 행성 · 성운 · 어스라이즈 · 딥 필드"};
     // Styles shown in the "배경" list, in order.
-    static final int[] CHOICES = {STYLE_PLASTIC, STYLE_DARK, STYLE_PASTEL, STYLE_METAL, STYLE_NEON, STYLE_PHOTO, STYLE_RETRO};
+    static final int[] CHOICES = {STYLE_PLASTIC, STYLE_DARK, STYLE_PASTEL, STYLE_METAL, STYLE_NEON, STYLE_SPACE, STYLE_PHOTO, STYLE_RETRO};
 
     static int normalize(int style) {
         return style > STYLE_CLEAR && style < STYLE_NAMES.length ? style : STYLE_PLASTIC;
@@ -61,6 +64,12 @@ final class ClearShellView extends View {
     static final int NEON_DUO = 2;
     static final int NEON_UNDER = 3;
     static final String[] NEON_NAMES = {"엣지 글로우", "네온 사인", "레드 · 블루", "언더글로우"};
+
+    // Kinds of 우주, and their pictures (assets/space/<file>_p.jpg / _l.jpg).
+    static final String[] SPACE_NAMES = {"링 행성", "성운", "어스라이즈", "딥 필드"};
+    private static final String[] SPACE_FILES = {"ring", "nebula", "earthrise", "deep"};
+    // The line round the screen in each kind.
+    private static final int[] SPACE_LINES = {Color.rgb(254, 243, 199), Color.rgb(233, 213, 255), Color.rgb(226, 232, 240), Color.rgb(255, 240, 215)};
 
     // 포인트 색 of the metal · carbon case: the line around the game screen.
     static final String[] TRIM_NAMES = {"빨강", "파랑", "금색", "없음"};
@@ -124,6 +133,32 @@ final class ClearShellView extends View {
     private Shader dots;
     private int glass;
     private int neon;
+    private int space;
+    // One space picture kept decoded between redraws (the case is rebuilt on every change).
+    private static String spaceKey;
+    private static android.graphics.Bitmap spaceBitmap;
+
+    void setSpace(int kind) {
+        this.space = kind >= 0 && kind < SPACE_NAMES.length ? kind : 0;
+        invalidate();
+    }
+
+    private android.graphics.Bitmap spacePicture() {
+        String key = SPACE_FILES[space] + (landscape ? "_l" : "_p");
+        if (key.equals(spaceKey) && spaceBitmap != null && !spaceBitmap.isRecycled()) {
+            return spaceBitmap;
+        }
+        try (java.io.InputStream in = getContext().getAssets().open("space/" + key + ".jpg")) {
+            android.graphics.Bitmap decoded = android.graphics.BitmapFactory.decodeStream(in);
+            if (decoded != null) {
+                spaceKey = key;
+                spaceBitmap = decoded;
+            }
+            return decoded;
+        } catch (java.io.IOException | OutOfMemoryError e) {
+            return null;
+        }
+    }
 
     void setNeon(int kind) {
         this.neon = kind >= 0 && kind < NEON_NAMES.length ? kind : NEON_EDGE;
@@ -137,7 +172,7 @@ final class ClearShellView extends View {
 
     // Metal · carbon and pastel glass have no name strip under the screen.
     static boolean hasNameStrip(int style) {
-        return style != STYLE_METAL && style != STYLE_PASTEL && style != STYLE_NEON;
+        return style != STYLE_METAL && style != STYLE_PASTEL && style != STYLE_NEON && style != STYLE_SPACE;
     }
 
     void setTrim(int index) {
@@ -203,6 +238,7 @@ final class ClearShellView extends View {
             case STYLE_NEON:
             case STYLE_PHOTO:
             case STYLE_METAL:
+            case STYLE_SPACE:
                 return true;
             case STYLE_PLASTIC:
                 return luminance(body) < 0.5f;
@@ -410,7 +446,7 @@ final class ClearShellView extends View {
     private RectF frameAround(RectF screen) {
         if (thinBezel || !hasNameStrip(style)) {
             // Metal · carbon / pastel glass: a thin surround, no name strip under the screen.
-            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL ? 10 : style == STYLE_NEON ? 6 : 8);
+            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL ? 10 : style == STYLE_NEON || style == STYLE_SPACE ? 6 : 8);
             return new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
         }
         float side = dp(landscape ? 10 : 14);
@@ -440,6 +476,9 @@ final class ClearShellView extends View {
                 break;
             case STYLE_PHOTO:
                 drawPhoto(canvas, width, height, plate, frame);
+                break;
+            case STYLE_SPACE:
+                drawSpace(canvas, width, height, frame);
                 break;
             case STYLE_RETRO:
                 drawRetro(canvas, width, height, plate, frame, screen);
@@ -681,6 +720,30 @@ final class ClearShellView extends View {
             strokeRoundRect(canvas, white, dp(5), dp(2), Color.WHITE);
             paint.setColor(Color.rgb(17, 17, 20));
             canvas.drawRect(frame.left + e, frame.top + e, frame.right - e, frame.bottom - e, paint);
+        }
+    }
+
+    // Space: the picture covers the case (cropped, centred); the screen sits in black
+    // with a thin light line and a soft glow.
+    private void drawSpace(Canvas canvas, float width, float height, RectF frame) {
+        canvas.drawColor(Color.rgb(3, 3, 8));
+        android.graphics.Bitmap picture = spacePicture();
+        if (picture != null) {
+            float scale = Math.max(width / picture.getWidth(), height / picture.getHeight());
+            android.graphics.Matrix matrix = new android.graphics.Matrix();
+            matrix.postScale(scale, scale);
+            matrix.postTranslate((width - picture.getWidth() * scale) / 2f, (height - picture.getHeight() * scale) / 2f);
+            canvas.drawBitmap(picture, matrix, new Paint(Paint.FILTER_BITMAP_FLAG));
+        }
+        if (frame != null) {
+            float radius = dp(7);
+            int line = SPACE_LINES[space];
+            for (int i = 3; i >= 1; i--) {
+                strokeRoundRect(canvas, frame, radius, dp(1.5f + i * 4), withAlpha(line, 14));
+            }
+            paint.setColor(Color.BLACK);
+            canvas.drawRoundRect(frame, radius, radius, paint);
+            strokeRoundRect(canvas, frame, radius, dp(1.5f), withAlpha(line, 170));
         }
     }
 

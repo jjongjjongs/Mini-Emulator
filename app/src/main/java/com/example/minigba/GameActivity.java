@@ -505,6 +505,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return value >= 0 && value < ClearShellView.NEON_NAMES.length ? value : 0;
     }
 
+    // Kind of 우주 (ClearShellView.SPACE_NAMES).
+    private int shellSpace() {
+        int value = shellPref("shell_space", 0);
+        return value >= 0 && value < ClearShellView.SPACE_NAMES.length ? value : 0;
+    }
+
     // The background's name with its kind or 포인트 색, as the settings row shows it.
     private String shellStyleName() {
         int style = shellStyle();
@@ -512,6 +518,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (style == ClearShellView.STYLE_PASTEL) return name + " · " + ClearShellView.GLASS_NAMES[shellGlass()];
         if (style == ClearShellView.STYLE_NEON) return name + " · " + ClearShellView.NEON_NAMES[shellNeon()];
         if (style == ClearShellView.STYLE_METAL) return name + " · " + ClearShellView.TRIM_NAMES[shellTrim()];
+        if (style == ClearShellView.STYLE_SPACE) return name + " · " + ClearShellView.SPACE_NAMES[shellSpace()];
         return name;
     }
 
@@ -615,6 +622,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shell.setTrim(shellTrim());
         shell.setGlass(shellGlass());
         shell.setNeon(shellNeon());
+        shell.setSpace(shellSpace());
         if (shellStyle() == ClearShellView.STYLE_PHOTO) {
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             shell.setPhoto(PhotoBackground.load(PhotoBackground.rendered(this, this.gameMode, landscape), metrics.widthPixels, metrics.heightPixels));
@@ -3445,6 +3453,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // And the neon night case its neon buttons, so the pad shows on the black body.
         if (shellStyle() == ClearShellView.STYLE_NEON && this.buttonStyle.theme == ButtonStyle.THEME_DEFAULT) {
             this.buttonStyle.theme = ButtonStyle.THEME_NEON;
+        }
+        // And the space case its slate glass buttons.
+        if (shellStyle() == ClearShellView.STYLE_SPACE && this.buttonStyle.theme == ButtonStyle.THEME_DEFAULT) {
+            this.buttonStyle.theme = ButtonStyle.THEME_SPACE;
         }
         this.buttonStyle.glass = shellGlass();
     }
@@ -9043,8 +9055,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         header.addView(titles, titlesParams);
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
-        // state[0] scope (0 all modes, 1 this mode), [1] style (-1: follow all modes), [2] glass, [3] trim, [4] neon
-        final int[] state = new int[5];
+        // state[0] scope (0 all modes, 1 this mode), [1] style (-1: follow all modes), [2] glass, [3] trim, [4] neon, [5] space
+        final int[] state = new int[6];
         final String styleOwn = modeShellKey("shell_style", mode);
         java.util.function.IntConsumer load = scope -> {
             state[0] = scope;
@@ -9053,12 +9065,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 state[2] = prefs.getInt(modeShellKey("shell_glass", mode), prefs.getInt("shell_glass", 0));
                 state[3] = prefs.getInt(modeShellKey("shell_trim", mode), prefs.getInt("shell_trim", 0));
                 state[4] = prefs.getInt(modeShellKey("shell_neon", mode), prefs.getInt("shell_neon", 0));
+                state[5] = prefs.getInt(modeShellKey("shell_space", mode), prefs.getInt("shell_space", 0));
             } else {
                 state[1] = ClearShellView.normalize(prefs.getInt("shell_style", ClearShellView.STYLE_PLASTIC));
                 state[2] = prefs.getInt("shell_glass", 0);
                 state[3] = prefs.getInt("shell_trim", 0);
                 state[4] = prefs.getInt("shell_neon", 0);
+                state[5] = prefs.getInt("shell_space", 0);
             }
+            state[5] = Math.max(0, Math.min(ClearShellView.SPACE_NAMES.length - 1, state[5]));
             state[4] = Math.max(0, Math.min(ClearShellView.NEON_NAMES.length - 1, state[4]));
             state[2] = Math.max(0, Math.min(ClearShellView.GLASS_NAMES.length - 1, state[2]));
             state[3] = Math.max(0, Math.min(ClearShellView.TRIM_NAMES.length - 1, state[3]));
@@ -9128,6 +9143,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         state[4] = k;
                         render[0].run();
                     }), optionParams());
+                } else if (state[1] == style && style == ClearShellView.STYLE_SPACE) {
+                    list.addView(backgroundChips("우주 종류", ClearShellView.SPACE_NAMES, state[5], color, k -> {
+                        state[5] = k;
+                        render[0].run();
+                    }), optionParams());
                 } else if (state[1] == style && style == ClearShellView.STYLE_METAL) {
                     list.addView(backgroundChips("포인트 색", ClearShellView.TRIM_NAMES, state[3], color, k -> {
                         state[3] = k;
@@ -9174,7 +9194,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (own && state[1] == -1) {
                 // Back to the setting for all modes.
                 edit.remove(styleOwn).remove(modeShellKey("shell_glass", mode)).remove(modeShellKey("shell_trim", mode))
-                        .remove(modeShellKey("shell_neon", mode)).apply();
+                        .remove(modeShellKey("shell_neon", mode)).remove(modeShellKey("shell_space", mode)).apply();
             } else if (state[1] == ClearShellView.STYLE_PHOTO) {
                 // The editor records the style once a photo is applied.
                 edit.apply();
@@ -9185,6 +9205,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 edit.putInt(own ? modeShellKey("shell_glass", mode) : "shell_glass", state[2]);
                 edit.putInt(own ? modeShellKey("shell_trim", mode) : "shell_trim", state[3]);
                 edit.putInt(own ? modeShellKey("shell_neon", mode) : "shell_neon", state[4]);
+                edit.putInt(own ? modeShellKey("shell_space", mode) : "shell_space", state[5]);
                 edit.apply();
             }
             rebuildContent();
@@ -9270,7 +9291,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             boolean on = k == selected;
             TextView chip = new TextView(this);
             chip.setText(names[k]);
-            chip.setTextSize(13.0f);
+            chip.setTextSize(names.length > 3 ? 12.0f : 13.0f);
+            chip.setSingleLine(true);
+            chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
             chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             chip.setGravity(17);
             chip.setPadding(0, dp(8), 0, dp(8));

@@ -24,7 +24,9 @@ final class ButtonStyle {
     static final int THEME_RETRO = 8;
     // The pastel glass case's buttons: white glass pills, a lavender pad, candy A · B.
     static final int THEME_GLASS = 9;
-    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)", "파스텔 글라스"};
+    // The space case's buttons: dark slate glass, a pink A and a blue B.
+    static final int THEME_SPACE = 10;
+    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)", "파스텔 글라스", "우주"};
     // Which pastel glass the case is (ClearShellView.GLASS_*): it tints A · B. Not saved.
     int glass;
 
@@ -138,6 +140,17 @@ final class ButtonStyle {
                 case ROLE_C: return Color.rgb(168, 154, 226);
                 case ROLE_A: case ROLE_B: return candy;
                 default: return lighter(candy, 0.3f);
+            }
+        }
+        if (theme == THEME_SPACE) {
+            switch (role) {
+                case ROLE_A: return Color.rgb(219, 39, 119);
+                case ROLE_B: return Color.rgb(59, 130, 246);
+                case ROLE_X: return Color.rgb(168, 85, 247);
+                case ROLE_Y: return Color.rgb(20, 184, 166);
+                case ROLE_DPAD: return Color.rgb(74, 82, 104);
+                case ROLE_PILL: return Color.rgb(62, 68, 88);
+                default: return Color.rgb(84, 92, 116);
             }
         }
         if (role == ROLE_C) {
