@@ -477,7 +477,7 @@ final class ClearShellView extends View {
     // Landscape frames are drawn at about half the portrait thickness (0.0.276), with no
     // name strip, so the screen keeps as much of the height as it can.
     private float frameScale() {
-        return landscape && !thinBezel ? 0.55f : 1f;
+        return landscape ? 0.55f : 1f;
     }
 
     // How far the frame reaches past the screen on each side, when it is the same all round.

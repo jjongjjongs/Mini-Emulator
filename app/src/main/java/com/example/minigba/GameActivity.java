@@ -241,8 +241,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
         shell.setCompactBezel(!full && (isDualShock() || isDualScreen()));
-        // The DS screens get a thin frame too (0.0.276), except in full-screen style.
-        shell.track(isDualScreen() && full ? null : frameLayout2, frameLayout);
+        // The DS screens get a thin frame too, in either screen style (0.0.277).
+        shell.track(frameLayout2, frameLayout);
         // No case under the picture in full-screen style or the DS's edge-to-edge screens.
         addPerfOverlay(root, full || isDualScreen());
         setContentView(root);
@@ -710,8 +710,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int maxHeight;
         if (isDualScreen()) {
             // Stacked DS screens take the full height, less a thin frame above and below
-            // (edge to edge in full-screen style).
-            maxHeight = Math.max(dp(150), height - (full ? 0 : dp(8) * 2));
+            // (in either screen style, 0.0.277).
+            maxHeight = Math.max(dp(150), height - dsFrameMargin(full) * 2);
         } else if (full) {
             // Room for the thin glass bezel (dp(5) each side) included.
             maxHeight = Math.max(dp(150), height - (isGba ? dp(13) + dp(5) + dp(46) : dp(12) + dp(10)));
@@ -724,7 +724,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
         int screenHeight = Math.round(screenWidth / aspect);
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-        int topMargin = isDualScreen() ? 0 : isGba ? dp(full ? 13 : 18) : 0;
+        // The DS screens sit below their thin frame (the pad layout pins the screen to the top).
+        int topMargin = isDualScreen() ? dsFrameMargin(full) : isGba ? dp(full ? 13 : 18) : 0;
         // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
         int bottomMargin = isGba || full || noNameStrip() ? 0 : dp(16);
         if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
@@ -735,6 +736,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             layoutParams.bottomMargin = bottomMargin;
             frameLayout.setLayoutParams(layoutParams);
         }
+    }
+
+    // Room above and below the stacked DS screens in landscape for their frame.
+    private int dsFrameMargin(boolean full) {
+        return dp(full ? 6 : 8);
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
@@ -10995,7 +11001,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             addStickAt(frameLayout, false, 86, 110, 90, false);
             addStickAt(frameLayout, true, 100, 110, 90, true);
             addFastForwardButton(frameLayout);
-            addWiiSystemKeys(frameLayout, 0, 18, true);
+            // Clear of the decorations along the case's bottom edge (dials, speaker, seal).
+            addWiiSystemKeys(frameLayout, 0, 40, true);
             return;
         }
         // Remote + nunchuk: Z | speed | B on top, nunchuk stick beside the remote's D-pad,
@@ -11010,7 +11017,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addRoundButton(frameLayout, "2", 4, true, 70, 152, 46, TouchButton.STYLE_DARK);
         addPill(frameLayout, "흔들기", kR2, Gravity.BOTTOM | Gravity.START, 46, 0, 136, 80, 32);
         addFastForwardButton(frameLayout);
-        addWiiSystemKeys(frameLayout, 0, 18, false);
+        // Clear of the decorations along the case's bottom edge (dials, speaker, seal).
+        addWiiSystemKeys(frameLayout, 0, 46, false);
     }
 
     // Landscape: the same groups in the columns beside the screen (centres 94dp in).
