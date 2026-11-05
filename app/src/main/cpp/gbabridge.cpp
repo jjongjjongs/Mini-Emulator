@@ -2028,6 +2028,10 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             core->pixelFormat = format;
             return true;
         }
+        // FBNeo turns an IPS patch's option back off once it has taken the patch; it gives up
+        // when the frontend refuses. The app's own setting stays (fixedVariable answers it).
+        case RETRO_ENVIRONMENT_SET_VARIABLE:
+            return core != nullptr && core->coreId == "fbneo";
         case RETRO_ENVIRONMENT_GET_VARIABLE: {
             auto* var = static_cast<retro_variable*>(data);
             if (var == nullptr || var->key == nullptr) return false;
@@ -3869,6 +3873,15 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         return 0;
     }
     core->gameLoaded = true;
+    // FBNeo starts every game with its IPS patches off and lays them on only at a reset
+    // (it then loads the game again with them): with the app's Korean patch on, reset once
+    // now, before anything else (an automatic save is restored after this).
+    if (core->coreId == "fbneo" && core->retroReset != nullptr) {
+        const char* ips = dos::option("fbneo-ips");
+        if (ips != nullptr && strcmp(ips, "enabled") == 0) {
+            core->retroReset();
+        }
+    }
     core->retroCheatReset = reinterpret_cast<void (*)()>(dlsym(core->library, "retro_cheat_reset"));
     core->retroCheatSet = reinterpret_cast<void (*)(unsigned, bool, const char*)>(dlsym(core->library, "retro_cheat_set"));
     // PCSX ReARMed starts with a digital pad; the app shows a DualShock.
