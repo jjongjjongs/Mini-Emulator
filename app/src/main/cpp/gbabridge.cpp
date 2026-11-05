@@ -386,6 +386,9 @@ struct Core {
     // come and go between two of the core's reads), and the ones the running frame sees.
     std::atomic<int> pressLatch{0};
     std::atomic<int> frameLatch{0};
+    // The same for players 2-4 (index 1-3).
+    std::atomic<int> playerPressLatch[4] = {};
+    std::atomic<int> playerFrameLatch[4] = {};
     // Players 2-4 (ports 1-3): the extra pads' buttons and sticks (left x/y, right x/y).
     std::atomic<int> playerMask[4] = {};
     std::atomic<int> playerAxes[4][4] = {};
@@ -2720,7 +2723,7 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
             }
             return buttons;
         }
-        return joypadPressed(core, core->playerMask[port].load(), id);
+        return joypadPressed(core, core->playerMask[port].load() | core->playerFrameLatch[port].load(), id);
     }
     if (port == 0 && device == RETRO_DEVICE_ANALOG && core != nullptr && index == RETRO_DEVICE_INDEX_ANALOG_LEFT) {
         return static_cast<int16_t>(id == RETRO_DEVICE_ID_ANALOG_X ? core->analogX.load() : core->analogY.load());
@@ -3489,6 +3492,9 @@ void runLoop(Core* core) {
             disk::tick();
             // Every press is seen for at least this one frame, however short the tap.
             core->frameLatch.store(core->pressLatch.exchange(0));
+            for (int p = 1; p < 4; ++p) {
+                core->playerFrameLatch[p].store(core->playerPressLatch[p].exchange(0));
+            }
             core->retroRun();
             applyMemoryCheats(core);
             core->framesRun++;
@@ -4619,7 +4625,8 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPlayerInput(
         JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint player, jint mask) {
     Core* core = fromHandle(handle);
     if (core != nullptr && player > 0 && player < 4) {
-        core->playerMask[player].store(mask);
+        int old = core->playerMask[player].exchange(mask);
+        core->playerPressLatch[player].fetch_or(mask & ~old);
     }
 }
 
@@ -4689,6 +4696,8 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPlayers(
     for (int player = count; player < 4; ++player) {
         if (player > 0) {
             core->playerMask[player].store(0);
+            core->playerPressLatch[player].store(0);
+            core->playerFrameLatch[player].store(0);
             for (auto& axis : core->playerAxes[player]) axis.store(0);
         }
     }
