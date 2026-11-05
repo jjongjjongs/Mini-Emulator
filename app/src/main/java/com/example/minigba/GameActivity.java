@@ -6134,6 +6134,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isNds()) {
                         NativeGba.setDsMic(dsMicInput(), dsMicButton());
                     }
+                    if ("fbneo".equals(this.coreId)) {
+                        NativeGba.setDosOptions(new String[]{"fbneo-ips"}, new String[]{arcadePatchOn() ? "enabled" : "disabled"}, "");
+                    }
+                    // Turning the Korean patch on or off starts the game afresh: a scene saved
+                    // with the other ROM contents would come back broken.
+                    if (MainActivity.sharedSettings(this).getBoolean("fresh_start:" + this.saveBaseName, false)) {
+                        MainActivity.sharedSettings(this).edit().remove("fresh_start:" + this.saveBaseName).apply();
+                        autoStateFile().delete();
+                    }
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
                     NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
@@ -7972,6 +7981,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.addView(cheatRow, cheatParams);
         if (isMsx()) {
             addMsxMenuRows(panel, dialog);
+        }
+        if ("fbneo".equals(this.coreId) && arcadePatchDir().isDirectory()) {
+            addArcadePatchRows(panel, dialog);
         }
         if (!isMame139()) {
             TextView status = new TextView(this);
@@ -11925,6 +11937,35 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // Pause menu (기본): machine type, the player's own BIOS ROMs, the next disk.
+    // ---- 아케이드 한글패치 (FBNeo IPS): <system>/fbneo/ips/<set>, on or off per game ----
+    private File arcadePatchDir() {
+        String name = new File(this.romPath).getName();
+        int dot = name.lastIndexOf('.');
+        return new File(new File(new File(new File(getFilesDir(), "system"), "fbneo"), "ips"), dot > 0 ? name.substring(0, dot) : name);
+    }
+
+    private boolean arcadePatchOn() {
+        return arcadePatchDir().isDirectory() && MainActivity.sharedSettings(this).getBoolean("arcips:" + new File(this.romPath).getName(), true);
+    }
+
+    private void addArcadePatchRows(LinearLayout panel, android.app.Dialog dialog) {
+        final String key = "arcips:" + new File(this.romPath).getName();
+        boolean on = arcadePatchOn();
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+        params.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.PATCH, RoundIconView.COLOR_PATCH, "한글패치", on ? "켜짐" : "꺼짐", view ->
+                showChoiceDialog(RoundIconView.PATCH, RoundIconView.COLOR_PATCH, "한글패치", new String[]{"켜기", "끄기"},
+                        new String[]{"넣은 한글패치를 덧입혀 켜요", "원본 그대로 켜요"}, on ? 0 : 1,
+                        "켜거나 끄면 게임이 다시 켜지고, 이어하기 대신 처음부터 시작해요 (롬 내용이 달라서). 빠른 저장은 그대로 남아요.",
+                        Color.rgb(245, 243, 255), Color.rgb(76, 29, 149), "적용 (다시 시작)", choice -> {
+                            if ((choice == 0) == on) return;
+                            MainActivity.sharedSettings(this).edit().putBoolean(key, choice == 0)
+                                    .putBoolean("fresh_start:" + this.saveBaseName, true).apply();
+                            dialog.dismiss();
+                            relaunchGame();
+                        })), params);
+    }
+
     private void addMsxMenuRows(LinearLayout panel, android.app.Dialog dialog) {
         LinearLayout.LayoutParams typeParams = new LinearLayout.LayoutParams(-1, dp(52));
         typeParams.setMargins(0, dp(8), 0, 0);

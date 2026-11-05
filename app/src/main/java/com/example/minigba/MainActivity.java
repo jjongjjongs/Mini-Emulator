@@ -3132,6 +3132,8 @@ public final class MainActivity extends Activity {
             onDosPatchPicked(intent);
         } else if (i == REQUEST_VITA_FIRMWARE) {
             onVitaFirmwarePicked(intent);
+        } else if (i == REQUEST_ARC_PATCH) {
+            onArcadePatchPicked(intent);
         } else if (i == REQUEST_IMPORT_WIIU_KEYS) {
             if (data != null) {
                 importWiiuKeys(data);
@@ -4793,6 +4795,9 @@ public final class MainActivity extends Activity {
         if (romPrefs().getBoolean("unpacked:" + file.getName(), false)) {
             sb.append("  |  CHD에서 풂");
         }
+        if ("fbneo".equals(coreFor(file)) && arcadePatchDir(file).isDirectory()) {
+            sb.append("  |  한글패치 ").append(sharedSettings(this).getBoolean("arcips:" + file.getName(), true) ? "켜짐" : "꺼짐");
+        }
         if (patchedFrom != null) {
             sb.append("  |  원본: ").append(patchedFrom);
             String patchedTracks = romPrefs().getString("patched_tracks:" + file.getName(), "");
@@ -5506,6 +5511,19 @@ public final class MainActivity extends Activity {
                 hanParams.setMargins(0, dp(9), 0, 0);
                 panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60), "한글패치 덮어쓰기 (패치 zip의 파일로 바꿔 새 게임으로)", () -> pickDosPatch(file)), hanParams);
             }
+        }
+        if ("fbneo".equals(coreFor(file)) && file.getName().toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            LinearLayout.LayoutParams arcParams = new LinearLayout.LayoutParams(-1, dp(52));
+            arcParams.setMargins(0, dp(8), 0, 0);
+            boolean installed = arcadePatchDir(file).isDirectory();
+            panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(124, 58, 237),
+                    installed ? "한글패치 바꾸기 · 지우기 (IPS 묶음)" : "한글패치 넣기 (IPS 묶음 zip)", () -> {
+                        if (installed) {
+                            showArcadePatchManage(file);
+                        } else {
+                            pickArcadePatch(file);
+                        }
+                    }), arcParams);
         }
         LinearLayout row2 = new LinearLayout(this);
         row2.addView(createActionTile(dialog, RoundIconView.EXPORT, RoundIconView.COLOR_SAVE, "세이브\n내보내기", null, false, () -> startSaveExport(file)), actionGridParams(0));
@@ -19237,6 +19255,166 @@ public final class MainActivity extends Activity {
         String name = disc.getName();
         int dot = name.lastIndexOf('.');
         return new File(disc.getParentFile(), (dot > 0 ? name.substring(0, dot) : name) + ".key");
+    }
+
+    // ---- 아케이드 한글패치 (FBNeo IPS 묶음, 0.0.293) ----
+    private static final int REQUEST_ARC_PATCH = 1077;
+    private static final String PREF_PENDING_ARC_PATCH = "pending_arc_patch";
+
+    private File arcadePatchDir(File game) {
+        String name = game.getName();
+        int dot = name.lastIndexOf('.');
+        return new File(new File(new File(systemDir(), "fbneo"), "ips"), dot > 0 ? name.substring(0, dot) : name);
+    }
+
+    private void pickArcadePatch(File game) {
+        settingsPrefs().edit().putString(PREF_PENDING_ARC_PATCH, game.getAbsolutePath()).apply();
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_ARC_PATCH);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    private void showArcadePatchManage(File game) {
+        boolean on = sharedSettings(this).getBoolean("arcips:" + game.getName(), true);
+        new AppDialog.Builder(this).setTitle("한글패치 · " + displayGameNameFor(game))
+                .setMessage("넣은 한글패치: " + (on ? "켜짐" : "꺼짐") + "\n켜기 · 끄기는 게임 중 메뉴(기본)에서 해요.\n\n다른 패치로 바꾸거나 지울 수 있어요. 원본 롬은 그대로예요.")
+                .setPositiveButton("다른 패치로 바꾸기", (d, w) -> pickArcadePatch(game))
+                .setNegativeButton("지우기", (d, w) -> {
+                    ArcadePatch.deleteTree(arcadePatchDir(game));
+                    sharedSettings(this).edit().remove("arcips:" + game.getName()).apply();
+                    Toast.makeText(this, "한글패치를 지웠어요 · 원본으로 켜져요", Toast.LENGTH_SHORT).show();
+                    refreshLibrary();
+                })
+                .setNeutralButton("닫기", null).show();
+    }
+
+    private void onArcadePatchPicked(Intent data) {
+        String path = settingsPrefs().getString(PREF_PENDING_ARC_PATCH, null);
+        settingsPrefs().edit().remove(PREF_PENDING_ARC_PATCH).apply();
+        if (data == null || data.getData() == null || path == null || !new File(path).isFile()) {
+            return;
+        }
+        final File game = new File(path);
+        final Uri uri = data.getData();
+        final String patchName = displayNameFor(uri);
+        if (patchName != null && !patchName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            showError(patchName + ": zip으로 된 패치 묶음만 넣을 수 있어요. (7z · rar는 먼저 zip으로 바꿔 주세요)");
+            return;
+        }
+        Toast.makeText(this, "패치를 살펴보는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            File patch = new File(getCacheDir(), "arc_patch.zip");
+            ArcadePatch.Plan plan = null;
+            try {
+                copyUriToFile(uri, patch);
+                plan = ArcadePatch.analyze(game, patch);
+            } catch (IOException ignored) {
+            }
+            final ArcadePatch.Plan made = plan;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (made == null) {
+                    showError("패치 파일을 읽지 못했어요.");
+                } else if (made.error != null) {
+                    showError(made.error);
+                } else {
+                    showArcadePatchPlan(game, made, patch);
+                }
+            });
+        }, "arc-patch").start();
+    }
+
+    private void showArcadePatchPlan(File game, ArcadePatch.Plan plan, File patch) {
+        final int accent = Color.rgb(124, 58, 237);
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(Theme.bg(Color.WHITE), dp(24)));
+        panel.addView(dosPatchText("한글패치 넣기", 17f, Color.rgb(31, 41, 51), true));
+        panel.addView(dosPatchText(displayGameNameFor(game) + " · FBNeo IPS 패치", 12f, Color.rgb(122, 130, 140), false));
+        TextView about = dosPatchText(plan.title + (plan.description.isEmpty() ? "" : "\n" + plan.description), 12f, Color.rgb(76, 29, 149), false);
+        about.setPadding(dp(12), dp(10), dp(12), dp(10));
+        about.setBackground(rounded(Theme.bg(Color.rgb(245, 243, 255)), dp(12)));
+        LinearLayout.LayoutParams aboutParams = new LinearLayout.LayoutParams(-1, -2);
+        aboutParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(about, aboutParams);
+        TextView label = dosPatchText("패치가 붙는 칩 · 원본 확인 (" + plan.matching() + "/" + plan.lines.size() + " 맞음)", 13f, Color.rgb(51, 65, 85), true);
+        label.setPadding(0, dp(12), 0, dp(2));
+        panel.addView(label);
+        for (ArcadePatch.Line l : plan.lines) {
+            boolean ok = l.ipsFound && l.have != -1 && (l.crc == -1 || l.crc == l.have);
+            String state = !l.ipsFound ? ".ips 없음 ✗" : l.have == -1 ? "롬에 없음 ✗"
+                    : l.crc == -1 ? "CRC 표시 없음" : l.crc == l.have ? String.format(Locale.ROOT, "%08X ✓", l.have) : String.format(Locale.ROOT, "%08X ≠ %08X ✗", l.have, l.crc);
+            LinearLayout row = new LinearLayout(this);
+            row.setPadding(dp(10), dp(6), dp(10), dp(6));
+            row.setBackground(rounded(Theme.bg(ok ? Color.rgb(240, 253, 244) : Color.rgb(254, 242, 242)), dp(9)));
+            TextView name = dosPatchText(l.ips + " → " + l.rom, 11f, Color.rgb(31, 41, 51), true);
+            name.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView st = dosPatchText(state, 10.5f, ok ? Color.rgb(22, 101, 52) : Color.rgb(185, 28, 28), true);
+            st.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            row.addView(st);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, dp(4), 0, 0);
+            panel.addView(row, params);
+        }
+        boolean allOk = plan.matching() == plan.lines.size();
+        TextView note = dosPatchText((allOk ? "" : "✗ 표시된 칩은 이 롬과 달라서 패치가 붙지 않거나 화면이 깨질 수 있어요. 같은 판의 롬인지 확인해 주세요.\n")
+                + "원본 롬은 그대로 두고, 게임을 켤 때마다 엔진이 패치를 덧입혀요. 게임 중 메뉴(기본)에서 켜고 끌 수 있어요. 오버레이 그림 · 영상 · 박스 그림은 쓰지 않아요.",
+                12f, allOk ? Color.rgb(30, 58, 138) : Color.rgb(146, 64, 14), false);
+        note.setPadding(dp(12), dp(10), dp(12), dp(10));
+        note.setBackground(rounded(Theme.bg(allOk ? Color.rgb(239, 246, 255) : Color.rgb(255, 251, 235)), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(note, noteParams);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setBaselineAligned(false);
+        TextView cancel = dosPatchText("취소", 15f, Color.rgb(75, 85, 99), true);
+        cancel.setGravity(android.view.Gravity.CENTER);
+        cancel.setBackground(rounded(Theme.bg(Color.rgb(241, 242, 244)), dp(14)));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        TextView apply = new TextView(this);
+        apply.setText("넣고 켜기");
+        apply.setGravity(android.view.Gravity.CENTER);
+        apply.setTextSize(15f);
+        apply.setTypeface(Typeface.DEFAULT_BOLD);
+        apply.setTextColor(Color.WHITE);
+        apply.setBackground(rounded(accent, dp(14)));
+        apply.setOnClickListener(v -> {
+            dialog.dismiss();
+            try {
+                ArcadePatch.install(plan, patch, arcadePatchDir(game));
+                sharedSettings(this).edit().putBoolean("arcips:" + game.getName(), true)
+                        .putBoolean("fresh_start:" + saveBaseNameFor(game), true).apply();
+                Toast.makeText(this, "한글패치를 넣었어요 · 다음에 켤 때부터 적용돼요", Toast.LENGTH_LONG).show();
+                refreshLibrary();
+            } catch (IOException e) {
+                showError("한글패치를 넣지 못했어요: " + e.getMessage());
+            }
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        dialog.show();
     }
 
     // ---- PS Vita firmware (Vita3K installs it from the PUP files on the first start) ----

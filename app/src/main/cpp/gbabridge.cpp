@@ -1625,6 +1625,11 @@ const char* fixedVariable(const char* key) {
     if (strncmp(key, "bluemsx_", 8) == 0) {
         return dos::option(key);
     }
+    // FBNeo IPS patches (아케이드 한글패치): every patch the game has in <system>/fbneo/ips/<set>
+    // on or off together, as the app set it for this game.
+    if (strncmp(key, "fbneo-ips-", 10) == 0) {
+        return dos::option("fbneo-ips");
+    }
     // PS Vita (Vita3K): renderer, resolution and the rest, set by the app per game.
     if (strncmp(key, "vita3k_", 7) == 0) {
         return dos::option(key);
