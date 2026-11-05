@@ -35,10 +35,23 @@ final class ClearShellView extends View {
     static final int STYLE_PHOTO = 6;
     // The first Mini GBA (0.0.2 – 0.0.3): warm grey body, black band, green POWER, speaker.
     static final int STYLE_RETRO = 7;
-    static final String[] STYLE_NAMES = {"투명 케이스", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)"};
-    static final String[] STYLE_NOTES = {"지금 디자인 · 속이 비치는 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
-            "부드러운 그라데이션 + 반투명 유리판", "은색 금속 + 카본 무늬", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
+    // The clear case (STYLE_CLEAR) is no longer offered (0.0.270): a stored 0 reads as
+    // 실물 플라스틱 (see normalize), and the choice list leaves it out (CHOICES).
+    static final String[] STYLE_NAMES = {"실물 플라스틱", "실물 플라스틱", "다크 매트", "파스텔 글라스", "메탈 · 카본", "네온 나이트", "내 사진 · 그림", "원조 (Mini GBA)"};
+    static final String[] STYLE_NOTES = {"게임기 원래 색의 무광 플라스틱", "게임기 원래 색의 무광 플라스틱", "어두운 무광 · 게임 화면이 돋보여요",
+            "부드러운 그라데이션 + 반투명 유리판", "몸체 전체 카본 + 알루미늄 테 · 화면 테두리에 포인트 색", "빛나는 네온 테두리 · 오락실 분위기", "갤러리에서 고른 사진을 게임기 몸체로 · 위치 · 확대 · 어둡게 조절",
             "GBA만 있던 첫 버전의 회베이지 몸체 · POWER 불 · 스피커 · 원조 버튼 색"};
+    // Styles shown in the "배경" list, in order.
+    static final int[] CHOICES = {STYLE_PLASTIC, STYLE_DARK, STYLE_PASTEL, STYLE_METAL, STYLE_NEON, STYLE_PHOTO, STYLE_RETRO};
+
+    static int normalize(int style) {
+        return style > STYLE_CLEAR && style < STYLE_NAMES.length ? style : STYLE_PLASTIC;
+    }
+
+    // 포인트 색 of the metal · carbon case: the line around the game screen.
+    static final String[] TRIM_NAMES = {"빨강", "파랑", "금색", "없음"};
+    static final String[] TRIM_NOTES = {"화면 테두리에 빨간 선", "화면 테두리에 파란 선", "화면 테두리에 금색 선", "검은 선과 은색 테만"};
+    private static final int[] TRIM_COLORS = {Color.rgb(239, 68, 68), Color.rgb(59, 130, 246), Color.rgb(212, 175, 55), 0};
 
     private static final int[][] TINTS = {
             // case colour, rim highlight, plate colour
@@ -80,7 +93,7 @@ final class ClearShellView extends View {
     ClearShellView(Context context, int tint, String label, boolean landscape, int style, int accent, int body) {
         super(context);
         this.tint = tint;
-        this.style = style >= 0 && style < STYLE_NAMES.length ? style : STYLE_CLEAR;
+        this.style = style >= 0 && style < STYLE_NAMES.length ? style : STYLE_PLASTIC;
         this.accent = accent;
         this.body = body;
         this.label = label;
@@ -90,6 +103,14 @@ final class ClearShellView extends View {
         text.setFakeBoldText(true);
         text.setColor(Color.rgb(93, 101, 108));
         text.setLetterSpacing(0.22f);
+    }
+
+    private int trim = TRIM_COLORS[0];
+    private Shader weave;
+
+    void setTrim(int index) {
+        this.trim = TRIM_COLORS[index >= 0 && index < TRIM_COLORS.length ? index : 0];
+        invalidate();
     }
 
     void setPhoto(android.graphics.Bitmap bitmap) {
@@ -149,6 +170,7 @@ final class ClearShellView extends View {
             case STYLE_DARK:
             case STYLE_NEON:
             case STYLE_PHOTO:
+            case STYLE_METAL:
                 return true;
             case STYLE_PLASTIC:
                 return luminance(body) < 0.5f;
@@ -354,8 +376,9 @@ final class ClearShellView extends View {
 
     // The frame around the game screen, the same size as the clear case's bezel.
     private RectF frameAround(RectF screen) {
-        if (thinBezel) {
-            float edge = dp(5);
+        if (thinBezel || style == STYLE_METAL) {
+            // Metal · carbon: a thin aluminium surround, no name strip under the screen.
+            float edge = dp(thinBezel ? 5 : 8);
             return new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
         }
         float side = dp(landscape ? 10 : 14);
@@ -393,7 +416,7 @@ final class ClearShellView extends View {
                 drawNeon(canvas, width, height, frame);
                 break;
         }
-        if (frame != null && label != null && !thinBezel && !compactBezel) {
+        if (frame != null && label != null && !thinBezel && !compactBezel && style != STYLE_METAL) {
             text.setTextSize(dp(landscape ? 8 : 9));
             canvas.drawText(label, frame.centerX(), screen.bottom + (frame.bottom - screen.bottom) * 0.62f, text);
         }
@@ -562,47 +585,129 @@ final class ClearShellView extends View {
         }
     }
 
+    // Carbon fibre over the whole body, an aluminium rim round the edge, a thin brushed
+    // aluminium surround at the screen with the 포인트 색 line, hex screws and a speaker.
     private void drawMetal(Canvas canvas, float width, float height, RectF plate, RectF frame) {
-        paint.setShader(new LinearGradient(0, 0, width, height,
-                new int[]{Color.rgb(201, 206, 212), Color.rgb(238, 241, 244), Color.rgb(184, 190, 197), Color.rgb(223, 227, 231)},
-                new float[]{0, 0.4f, 0.7f, 1}, Shader.TileMode.CLAMP));
+        paint.setShader(new LinearGradient(0, 0, 0, height, Color.rgb(34, 36, 40), Color.rgb(20, 21, 24), Shader.TileMode.CLAMP));
         canvas.drawRect(0, 0, width, height, paint);
         paint.setShader(null);
-        // Brushed grain.
-        paint.setColor(Color.argb(22, 255, 255, 255));
-        for (float x = 0; x < width; x += dp(2)) {
-            canvas.drawRect(x, 0, x + dp(0.6f), height, paint);
-        }
-        if (plate != null) {
-            float radius = dp(22);
-            Path clip = new Path();
-            clip.addRoundRect(plate, radius, radius, Path.Direction.CW);
-            canvas.save();
-            canvas.clipPath(clip);
-            paint.setColor(Color.rgb(30, 32, 35));
-            canvas.drawRect(plate, paint);
-            // Carbon weave: diagonal bands.
-            paint.setColor(Color.rgb(42, 44, 48));
-            paint.setStrokeWidth(dp(4));
-            float span = plate.width() + plate.height();
-            for (float d = -plate.height(); d < span; d += dp(8)) {
-                canvas.drawLine(plate.left + d, plate.bottom, plate.left + d + plate.height(), plate.top, paint);
+        // Twill weave: short diagonal tiles alternating direction, drawn once as a tile.
+        if (weave == null) {
+            int cell = Math.max(4, Math.round(dp(6)));
+            android.graphics.Bitmap tile = android.graphics.Bitmap.createBitmap(cell * 2, cell * 2, android.graphics.Bitmap.Config.ARGB_8888);
+            Canvas t = new Canvas(tile);
+            Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+            line.setStrokeWidth(dp(2.2f));
+            for (int r = 0; r < 2; r++) {
+                for (int c = 0; c < 2; c++) {
+                    float x = c * cell;
+                    float y = r * cell;
+                    t.save();
+                    t.clipRect(x, y, x + cell, y + cell);
+                    if (((r + c) & 1) == 0) {
+                        line.setColor(Color.argb(46, 255, 255, 255));
+                        t.drawLine(x - 1, y + cell + 1, x + cell + 1, y - 1, line);
+                    } else {
+                        line.setColor(Color.argb(70, 0, 0, 0));
+                        t.drawLine(x - 1, y - 1, x + cell + 1, y + cell + 1, line);
+                    }
+                    t.restore();
+                }
             }
-            canvas.restore();
-            strokeRoundRect(canvas, plate, radius, dp(1.5f), Color.argb(30, 255, 255, 255));
-            for (float x : new float[]{plate.left + dp(18), plate.right - dp(18)}) {
-                float y = plate.bottom - dp(16);
-                paint.setShader(new RadialGradient(x - dp(1.5f), y - dp(2), dp(7), Color.rgb(244, 246, 248), Color.rgb(141, 149, 156), Shader.TileMode.CLAMP));
-                canvas.drawCircle(x, y, dp(6), paint);
-                paint.setShader(null);
+            weave = new android.graphics.BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
+        }
+        paint.setShader(weave);
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        // A soft sheen across the weave.
+        paint.setShader(new LinearGradient(0, 0, width, height,
+                new int[]{Color.argb(0, 255, 255, 255), Color.argb(26, 255, 255, 255), Color.argb(0, 255, 255, 255)},
+                new float[]{0.2f, 0.45f, 0.7f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+        // Aluminium rim round the whole case.
+        RectF rim = new RectF(dp(2.5f), dp(2.5f), width - dp(2.5f), height - dp(2.5f));
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(4));
+        paint.setShader(brushed(0, 0, width, height));
+        canvas.drawRoundRect(rim, dp(20), dp(20), paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        strokeRoundRect(canvas, new RectF(dp(5), dp(5), width - dp(5), height - dp(5)), dp(18), dp(1), Color.argb(120, 0, 0, 0));
+        float m = dp(15);
+        hexScrew(canvas, m, m);
+        hexScrew(canvas, width - m, m);
+        hexScrew(canvas, m, height - m);
+        hexScrew(canvas, width - m, height - m);
+        // Speaker holes in the lower-right corner.
+        paint.setColor(Color.argb(200, 8, 8, 10));
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 6; c++) {
+                canvas.drawCircle(width - dp(36) - c * dp(7) + (r & 1) * dp(3.5f), height - dp(16) - r * dp(7), dp(1.8f), paint);
             }
         }
         if (frame != null) {
-            paint.setColor(Color.rgb(21, 23, 26));
-            canvas.drawRoundRect(frame, frameRadius(), frameRadius(), paint);
-            strokeRoundRect(canvas, frame, frameRadius(), dp(2), Color.rgb(154, 162, 169));
-            text.setColor(Color.rgb(142, 150, 157));
+            float radius = dp(10);
+            paint.setColor(Color.argb(110, 0, 0, 0));
+            canvas.drawRoundRect(new RectF(frame.left, frame.top + dp(3), frame.right, frame.bottom + dp(5)), radius, radius, paint);
+            paint.setShader(brushed(frame.left, frame.top, frame.right, frame.bottom));
+            canvas.drawRoundRect(frame, radius, radius, paint);
+            paint.setShader(null);
+            // Brushed grain.
+            canvas.save();
+            Path clip = new Path();
+            clip.addRoundRect(frame, radius, radius, Path.Direction.CW);
+            canvas.clipPath(clip);
+            paint.setStrokeWidth(dp(0.5f));
+            Random grain = new Random(7);
+            for (float y = frame.top; y < frame.bottom; y += dp(1.5f)) {
+                paint.setColor(grain.nextBoolean() ? Color.argb(28, 255, 255, 255) : Color.argb(18, 0, 0, 0));
+                canvas.drawLine(frame.left, y, frame.right, y, paint);
+            }
+            canvas.restore();
+            strokeRoundRect(canvas, frame, radius, dp(1), Color.argb(150, 255, 255, 255));
+            // The screen's black edge and, outside it, the 포인트 색 line.
+            float e = dp(5);
+            RectF edge = new RectF(frame.left + e, frame.top + e, frame.right - e, frame.bottom - e);
+            if (trim != 0) {
+                strokeRoundRect(canvas, edge, dp(4), dp(3), trim);
+            }
+            RectF black = new RectF(edge.left + dp(1.5f), edge.top + dp(1.5f), edge.right - dp(1.5f), edge.bottom - dp(1.5f));
+            paint.setColor(Color.rgb(12, 12, 14));
+            canvas.drawRoundRect(black, dp(3), dp(3), paint);
         }
+    }
+
+    private Shader brushed(float left, float top, float right, float bottom) {
+        return new LinearGradient(left, top, right, bottom,
+                new int[]{Color.rgb(176, 182, 189), Color.rgb(236, 239, 242), Color.rgb(160, 167, 175), Color.rgb(222, 226, 230), Color.rgb(184, 190, 197)},
+                new float[]{0, 0.3f, 0.55f, 0.8f, 1}, Shader.TileMode.CLAMP);
+    }
+
+    // A recessed hex socket screw.
+    private void hexScrew(Canvas canvas, float x, float y) {
+        float r = dp(5.5f);
+        paint.setColor(Color.argb(140, 0, 0, 0));
+        canvas.drawCircle(x, y + dp(0.8f), r + dp(1), paint);
+        paint.setShader(new RadialGradient(x - r * 0.3f, y - r * 0.35f, r * 1.5f,
+                new int[]{Color.rgb(240, 242, 244), Color.rgb(176, 183, 190), Color.rgb(120, 128, 136)}, new float[]{0, 0.55f, 1}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(x, y, r, paint);
+        paint.setShader(null);
+        Path hex = new Path();
+        float h = r * 0.48f;
+        for (int i = 0; i < 6; i++) {
+            double a = Math.PI / 3 * i;
+            float px = x + (float) Math.cos(a) * h;
+            float py = y + (float) Math.sin(a) * h;
+            if (i == 0) {
+                hex.moveTo(px, py);
+            } else {
+                hex.lineTo(px, py);
+            }
+        }
+        hex.close();
+        paint.setColor(Color.rgb(40, 43, 47));
+        canvas.drawPath(hex, paint);
     }
 
     private void drawNeon(Canvas canvas, float width, float height, RectF frame) {

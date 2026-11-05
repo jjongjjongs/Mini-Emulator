@@ -70,7 +70,7 @@ final class Presets {
             JSONObject any = p != null && p.length() > 0 ? p : l;
             if (has(ITEM_SHELL)) {
                 int style = data.optInt(itemKey(ITEM_SHELL), 0);
-                parts.add(style >= 0 && style < ClearShellView.STYLE_NAMES.length ? ClearShellView.STYLE_NAMES[style] : "케이스");
+                parts.add(ClearShellView.STYLE_NAMES[ClearShellView.normalize(style)]);
             }
             if (any != null && any.has("photo")) {
                 JSONObject photo = any.optJSONObject("photo");
@@ -231,7 +231,7 @@ final class Presets {
         try {
             JSONObject data = new JSONObject();
             if (items[ITEM_SHELL]) {
-                data.put("shell", prefs.getInt("shell_style", ClearShellView.STYLE_CLEAR));
+                data.put("shell", ClearShellView.normalize(prefs.getInt("shell_style", ClearShellView.STYLE_PLASTIC)));
             }
             if (items[ITEM_FILTER]) {
                 data.put("filter", prefs.getInt("screen_filter", 0));
@@ -548,8 +548,8 @@ final class Presets {
 
     static List<Preset> builtIn() {
         List<Preset> out = new ArrayList<>();
-        out.add(builtIn("b_purple", "아톰 퍼플", "GBA 한정판 색 · 투명 케이스 · 보라 버튼",
-                ClearShellView.STYLE_CLEAR, custom(Color.rgb(132, 110, 206), Color.rgb(124, 58, 237), Color.rgb(76, 29, 149))));
+        out.add(builtIn("b_purple", "아톰 퍼플", "GBA 한정판 색 · 실물 플라스틱 · 보라 버튼",
+                ClearShellView.STYLE_PLASTIC, custom(Color.rgb(132, 110, 206), Color.rgb(124, 58, 237), Color.rgb(76, 29, 149))));
         out.add(builtIn("b_snes", "클래식 SNES", "실물 플라스틱 · 원색 4색 버튼",
                 ClearShellView.STYLE_PLASTIC, theme(ButtonStyle.THEME_PRIMARY)));
         out.add(builtIn("b_neon", "네온 야간", "네온 나이트 케이스 · 네온 버튼 · 눌림 빛남",

@@ -176,7 +176,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         applyButtonAlpha(frameLayout2, null);
         LinearLayout.LayoutParams controlsParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
         // The controls start where the frame style puts them, whatever the style.
-        controlsParams.topMargin = full ? Math.max(dp(10), dp(18) + frame[1] + dp(36) - dp(6) - screen[1]) : dp(36);
+        controlsParams.topMargin = full ? Math.max(dp(10), dp(18) + frame[1] + dp(36) - dp(6) - screen[1]) : dp(noNameStrip() ? 14 : 36);
         if (isDualScreen()) {
             // The DS screens grow into whatever the controls leave, so the bezel under them is short.
             controlsParams.topMargin = dp(20);
@@ -460,8 +460,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Background picked in the game settings (ClearShellView.STYLE_*), for all games.
     private int shellStyle() {
-        int value = MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_CLEAR);
-        return value >= 0 && value < ClearShellView.STYLE_NAMES.length ? value : ClearShellView.STYLE_CLEAR;
+        // The clear case is gone (0.0.270): it, and no choice at all, read as 실물 플라스틱.
+        return ClearShellView.normalize(MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_PLASTIC));
+    }
+
+    // Metal · carbon has no name strip under the screen, so the layout gives that room back.
+    private boolean noNameStrip() {
+        return shellStyle() == ClearShellView.STYLE_METAL;
+    }
+
+    // 포인트 색 of the metal · carbon case (ClearShellView.TRIM_NAMES).
+    private int shellTrim() {
+        int value = MainActivity.sharedSettings(this).getInt("shell_trim", 0);
+        return value >= 0 && value < ClearShellView.TRIM_NAMES.length ? value : 0;
     }
 
     // The mode's colour on the mode picker, and the colour of the console's own plastic.
@@ -489,8 +500,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // Labels drawn straight on the background turn light on the dark styles.
+    // The case keeps its own colours in dark mode, so these are not run through Theme.
     private int shellTextColor() {
-        return ClearShellView.darkBackground(shellStyle(), shellColors()[1]) ? Color.rgb(230, 232, 238) : Color.rgb(58, 63, 75);
+        if (shellStyle() == ClearShellView.STYLE_RETRO) {
+            return Color.rgb(48, 46, 112);
+        }
+        return ClearShellView.darkBackground(shellStyle(), shellColors()[1]) ? Color.rgb(236, 238, 242) : Color.rgb(44, 48, 58);
     }
 
     // Clear case behind the controls, tinted per game kind.
@@ -548,6 +563,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         int[] colors = shellColors();
         ClearShellView shell = new ClearShellView(this, tint, "MINI EMULATOR · " + name, landscape, shellStyle(), colors[0], colors[1]);
+        shell.setTrim(shellTrim());
         if (shellStyle() == ClearShellView.STYLE_PHOTO) {
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             shell.setPhoto(PhotoBackground.load(PhotoBackground.rendered(this, this.gameMode, landscape), metrics.widthPixels, metrics.heightPixels));
@@ -607,7 +623,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // Room for the thin glass bezel (dp(5) each side) included.
             maxHeight = Math.max(dp(150), height - (isGba ? dp(13) + dp(5) + dp(46) : dp(12) + dp(10)));
         } else {
-            maxHeight = Math.max(dp(150), height - (isGba ? dp(18) + dp(26) + dp(46) : dp(12) + dp(36)));
+            // Metal · carbon: only its thin surround below the screen, no name strip.
+            boolean strip = !noNameStrip();
+            maxHeight = Math.max(dp(150), height - (isGba ? dp(18) + dp(strip ? 26 : 10) + dp(46) : dp(12) + dp(strip ? 36 : 20)));
         }
         float aspect = screenAspect();
         int screenWidth = Math.min(maxWidth, Math.round(maxHeight * aspect));
@@ -615,7 +633,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
         int topMargin = isDualScreen() ? 0 : isGba ? dp(full ? 13 : 18) : 0;
         // Arcade screens sit centred, nudged up so the taller lower bezel stays balanced.
-        int bottomMargin = isGba || full ? 0 : dp(16);
+        int bottomMargin = isGba || full || noNameStrip() ? 0 : dp(16);
         if (layoutParams.width != screenWidth || layoutParams.height != screenHeight || layoutParams.topMargin != topMargin || layoutParams.bottomMargin != bottomMargin) {
             layoutParams.width = screenWidth;
             layoutParams.height = screenHeight;
@@ -5436,10 +5454,23 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // The controller-only screen has no case behind it.
             LinearLayout.LayoutParams styleParams = new LinearLayout.LayoutParams(-1, dp(52));
             styleParams.setMargins(0, dp(8), 0, 0);
+            int[] styles = ClearShellView.CHOICES;
+            String[] styleNames = new String[styles.length];
+            String[] styleNotes = new String[styles.length];
+            int currentStyle = 0;
+            for (int k = 0; k < styles.length; k++) {
+                styleNames[k] = ClearShellView.STYLE_NAMES[styles[k]];
+                styleNotes[k] = ClearShellView.STYLE_NOTES[styles[k]];
+                if (styles[k] == shellStyle()) {
+                    currentStyle = k;
+                }
+            }
+            final int currentIndex = currentStyle;
             panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES[shellStyle()],
-                    view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES, ClearShellView.STYLE_NOTES,
-                            shellStyle(), "모든 게임에 바로 적용돼요. 버튼과 화면 크기는 그대로예요.\n실물 플라스틱·다크 매트·파스텔·네온은 모드마다 색이 달라요.",
-                            Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
+                    view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", styleNames, styleNotes,
+                            currentIndex, "모든 게임에 바로 적용돼요. 버튼 배치는 그대로예요.\n실물 플라스틱·다크 매트·파스텔·네온은 모드마다 색이 달라요.",
+                            Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", picked -> {
+                        int choice = styles[picked];
                         if (choice == ClearShellView.STYLE_PHOTO) {
                             // The editor picks the photo and saves the style when it is applied.
                             openBackgroundEditor();
@@ -5449,6 +5480,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         rebuildContent();
                         refresh.run();
                     })), styleParams);
+            if (shellStyle() == ClearShellView.STYLE_METAL) {
+                LinearLayout.LayoutParams trimParams = new LinearLayout.LayoutParams(-1, dp(52));
+                trimParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(createSettingRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "포인트 색", ClearShellView.TRIM_NAMES[shellTrim()],
+                        view -> showChoiceDialog(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "포인트 색", ClearShellView.TRIM_NAMES, ClearShellView.TRIM_NOTES,
+                                shellTrim(), "메탈 · 카본 배경에서 게임 화면 테두리 선의 색이에요. 모든 게임에 같이 적용돼요.",
+                                Color.rgb(255, 241, 244), Color.rgb(159, 18, 57), "적용", choice -> {
+                            MainActivity.sharedSettings(this).edit().putInt("shell_trim", choice).apply();
+                            rebuildContent();
+                            refresh.run();
+                        })), trimParams);
+            }
         }
         if (!isPadScreen()) {
             LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -6124,7 +6167,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         text.setText(label);
         text.setTextSize(textSp);
         text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        text.setTextColor(Theme.text(shellTextColor()));
+        // The label sits on the case, not on an app surface: its colour follows the case,
+        // with a faint shadow so it reads over any part of it.
+        int labelColor = shellTextColor();
+        text.setTextColor(labelColor);
+        boolean lightLabel = Color.red(labelColor) + Color.green(labelColor) + Color.blue(labelColor) > 384;
+        text.setShadowLayer(dp(2), 0, dp(1), lightLabel ? Color.argb(170, 0, 0, 0) : Color.argb(180, 255, 255, 255));
         text.setGravity(1);
         text.setSingleLine(true);
         box.addView(text, new LinearLayout.LayoutParams(-2, -2));
