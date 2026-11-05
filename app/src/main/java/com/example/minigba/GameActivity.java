@@ -5720,6 +5720,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (this.dosControls != null) {
             this.dosControls.releaseAll();
         }
+        if (isMsx()) {
+            msxTyper.removeCallbacksAndMessages(null);
+            MsxKeys.send(this.nativeHandle, 13, false);
+            if (this.msxKeys != null) this.msxKeys.releaseAll();
+            releaseMsxPadKeys();
+        }
         if (this.motionInput != null) {
             this.motionInput.stop();
         }
@@ -6067,8 +6073,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setDosOptions(options[0], options[1], start);
                     }
                     if (isMsx()) {
-                        // The machine type the player picked for this game (자동 by default).
-                        NativeGba.setDosOptions(new String[]{"bluemsx_msxtype"}, new String[]{MSX_TYPE_VALUES[msxType()]}, "");
+                        // The machine type and screen / sound the player picked for this game.
+                        this.msxResumed = autoStateFile().isFile();
+                        int hz = msxInt("hz", 0);
+                        NativeGba.setDosOptions(new String[]{"bluemsx_msxtype", "bluemsx_nospritelimits", "bluemsx_ym2413_enable",
+                                        "bluemsx_overscan", "bluemsx_vdp_synctype", "bluemsx_auto_rewind_cas"},
+                                new String[]{MSX_TYPE_VALUES[msxType()], msxBool("sprites", true) ? "ON" : "OFF",
+                                        msxBool("fm", true) ? "enabled" : "disabled", msxBool("overscan", false) ? "disabled" : "enabled",
+                                        hz == 1 ? "60Hz" : hz == 2 ? "50Hz" : "Auto", "ON"}, "");
                     }
                     NativeGba.setN64Scale(isN64() ? n64Scale() : 2);
                     if (isNds()) {
@@ -6112,8 +6124,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         startAdhocBeaconIfHosting();
         shareVpnInviteIfPending();
         startMotionIfOn();
-        NativeGba.setInput(handle, this.buttonMask);
+        NativeGba.setInput(handle, isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask);
         NativeGba.setSpeedPercent(handle, this.speedPercent);
+        if (isMsxTape() && !this.msxResumed) {
+            msxAutoStartTape(false);
+        }
         NativeGba.setRewindEnabled(handle, rewindOn());
         applyCheats();
         // The surface or the activity state may have changed while the game was loading.
@@ -7600,7 +7615,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         long j = this.nativeHandle;
         if (j != 0) {
-            NativeGba.setInput(j, this.buttonMask);
+            NativeGba.setInput(j, isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask);
         }
     }
 
@@ -11304,10 +11319,196 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             "1983년 첫 MSX", "1985년 · 그래픽이 좋아진 2세대", "1988년", "1990년 마지막 세대 · 원래 바이오스 필요"};
     private MsxKeys msxKeys;
     private View msxKeyboardView;
+    // The game picked up from its automatic save (then the tape is already loaded).
+    private volatile boolean msxResumed;
 
     private boolean isMsx() {
         return "bluemsx".equals(this.coreId);
     }
+
+    private String msxKey(String name) {
+        return "msx_" + name + ":" + this.saveBaseName;
+    }
+
+    private int msxInt(String name, int fallback) {
+        return MainActivity.sharedSettings(this).getInt(msxKey(name), fallback);
+    }
+
+    private boolean msxBool(String name, boolean fallback) {
+        return MainActivity.sharedSettings(this).getBoolean(msxKey(name), fallback);
+    }
+
+    private String msxString(String name, String fallback) {
+        return MainActivity.sharedSettings(this).getString(msxKey(name), fallback);
+    }
+
+    // The keys on the screen's key rows: "KEY" or "KEY=label", comma separated.
+    private static final String MSX_DEFAULT_KEYS = "ESC,F1,F2,F3,F4,F5,SPACE,RETURN=↵ 엔터,Y,N";
+    private static final String[] MSX_PRESET_NAMES = {"기본", "코나미 (F1 일시정지)", "RPG (숫자 키)", "어드벤처 (Y/N · 엔터)"};
+    private static final String[] MSX_PRESETS = {MSX_DEFAULT_KEYS,
+            "ESC,F1=일시정지,F2,F3,F4,F5,SPACE,M,N,RETURN=↵",
+            "ESC,1,2,3,4,5,SPACE,RETURN=↵ 엔터,Y,N",
+            "ESC,F1,F2,F3,Y,N,RETURN=↵ 엔터,SPACE,BS,STOP"};
+    private static final String[] MSX_ADDABLE = {"ESC", "F1", "F2", "F3", "F4", "F5", "STOP", "SELECT", "HOME", "INS", "DEL", "BS", "TAB",
+            "RETURN", "SPACE", "Y", "N", "M", "Z", "X", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "GRAPH", "CTRL", "SHIFT", "↑", "↓", "←", "→"};
+
+    private String[][] msxRowKeys() {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        for (String part : msxString("keys", MSX_DEFAULT_KEYS).split(",")) {
+            String item = part.trim();
+            if (item.isEmpty()) continue;
+            int eq = item.indexOf('=');
+            String key = (eq > 0 ? item.substring(0, eq) : item).trim();
+            String label = eq > 0 ? item.substring(eq + 1).trim() : key;
+            if (MsxKeys.code(key) != 0) {
+                out.add(new String[]{key, label.isEmpty() ? key : label});
+            }
+        }
+        return out.toArray(new String[0][]);
+    }
+
+    private static String joinMsxKeys(java.util.List<String[]> keys) {
+        StringBuilder text = new StringBuilder();
+        for (String[] k : keys) {
+            if (text.length() > 0) text.append(',');
+            text.append(k[0]);
+            if (!k[1].equals(k[0])) text.append('=').append(k[1].replace(",", " ").replace("=", " "));
+        }
+        return text.toString();
+    }
+
+    private String[][] msxSlice(String[][] keys, int from, int to) {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        for (int k = from; k < Math.min(to, keys.length); k++) {
+            String[] key = keys[k];
+            String weight = key[0].equals("SPACE") ? "2.2" : key[1].length() > 3 ? "1.4" : "1";
+            out.add(new String[]{key[0], key[1], weight});
+        }
+        return out.toArray(new String[0][]);
+    }
+
+    private static String[][] withKeyboardKey(String[][] keys) {
+        String[][] out = java.util.Arrays.copyOf(keys, keys.length + 1);
+        out[keys.length] = new String[]{"⌨", "⌨"};
+        return out;
+    }
+
+    // ---- 조작 방식: the pad as the joystick, or as keyboard keys (cursor keys and two keys) ----
+    private int msxSentBits;
+
+    private boolean msxKeyboardControl() {
+        return isMsx() && msxInt("control", 0) == 1;
+    }
+
+    // Keyboard mode: the D-pad and A / B become keys; the joystick port sees nothing.
+    private int msxFilterInput(int mask) {
+        if (!msxKeyboardControl()) {
+            return mask;
+        }
+        int[] bits = {16, 32, 64, 128, 1, 2};
+        int[] codes = {275, 276, 273, 274, MsxKeys.code(msxString("key_a", "SPACE")), MsxKeys.code(msxString("key_b", "M"))};
+        int keyBits = 16 | 32 | 64 | 128 | 1 | 2;
+        int now = mask & keyBits;
+        int changed = now ^ this.msxSentBits;
+        for (int k = 0; k < bits.length; k++) {
+            if ((changed & bits[k]) != 0) {
+                MsxKeys.send(this.nativeHandle, codes[k], (now & bits[k]) != 0);
+            }
+        }
+        this.msxSentBits = now;
+        return mask & ~keyBits;
+    }
+
+    // ---- 테이프 자동 실행 ----
+    private static final String[] MSX_TAPE_NAMES = {"자동 (추천)", "RUN\"CAS:\"", "BLOAD\"CAS:\",R", "CLOAD → RUN", "직접 입력"};
+    private static final String[] MSX_TAPE_NOTES = {"테이프 첫 블록(BASIC · 기계어 · 텍스트)을 보고 골라요", "텍스트(ASCII)로 저장된 BASIC 게임",
+            "기계어 게임 (가장 흔함)", "BASIC으로 저장된 게임", "명령을 직접 적어요"};
+    private final android.os.Handler msxTyper = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private boolean isMsxTape() {
+        return isMsx() && this.romPath != null && this.romPath.toLowerCase(java.util.Locale.ROOT).endsWith(".cas");
+    }
+
+    // The command for this tape: CAS files start their first block with 1F A6 DE BA CC 13 7D 74,
+    // then ten bytes of D3 (BASIC), EA (ASCII text) or D0 (machine code).
+    private String msxTapeCommand() {
+        int mode = msxInt("tape", 0);
+        if (mode == 1) return "RUN\"CAS:\"";
+        if (mode == 2) return "BLOAD\"CAS:\",R";
+        if (mode == 3) return "CLOAD\nRUN";
+        if (mode == 4) return msxString("tape_custom", "RUN\"CAS:\"");
+        int kind = 0;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(this.romPath)) {
+            byte[] head = new byte[18];
+            if (in.read(head) == 18 && (head[0] & 0xFF) == 0x1F && (head[1] & 0xFF) == 0xA6) {
+                kind = head[8] & 0xFF;
+            }
+        } catch (java.io.IOException ignored) {
+        }
+        return kind == 0xD3 ? "CLOAD\nRUN" : kind == 0xD0 ? "BLOAD\"CAS:\",R" : "RUN\"CAS:\"";
+    }
+
+    // Japanese-layout machines (MSX2+, turbo R: the default 자동 starts an MSX2+) type " as
+    // SHIFT+2 and have their own : key; the international ones put " and : on SHIFT.
+    private boolean msxJapaneseLayout() {
+        int type = msxType();
+        return type == 0 || type == 3 || type == 4;
+    }
+
+    private void msxTypeText(String text) {
+        long delay = 0;
+        boolean jis = msxJapaneseLayout();
+        for (char c : text.toCharArray()) {
+            int code;
+            boolean shift = false;
+            if (c == '\n') {
+                code = 13;
+            } else if (c == '"') {
+                code = jis ? '2' : 39;
+                shift = true;
+            } else if (c == ':') {
+                code = jis ? 39 : 59;
+                shift = !jis;
+            } else if (Character.isLetter(c)) {
+                code = Character.toLowerCase(c);
+            } else if (c == ' ' || c == ',' || c == '.' || c == '/' || Character.isDigit(c)) {
+                code = c;
+            } else {
+                continue;
+            }
+            final int key = code;
+            final boolean withShift = shift;
+            msxTyper.postDelayed(() -> {
+                if (withShift) MsxKeys.send(this.nativeHandle, 304, true);
+                MsxKeys.send(this.nativeHandle, key, true);
+            }, delay);
+            msxTyper.postDelayed(() -> {
+                MsxKeys.send(this.nativeHandle, key, false);
+                if (withShift) MsxKeys.send(this.nativeHandle, 304, false);
+            }, delay + 70);
+            delay += 150;
+            if (c == '\n') delay += 1200;
+        }
+        // RETURN after the last line.
+        final long end = delay;
+        msxTyper.postDelayed(() -> MsxKeys.send(this.nativeHandle, 13, true), end);
+        msxTyper.postDelayed(() -> MsxKeys.send(this.nativeHandle, 13, false), end + 80);
+    }
+
+    // After the machine has booted to BASIC's "Ok", type the tape's command.
+    private void msxAutoStartTape(boolean afterReset) {
+        if (!isMsxTape()) return;
+        if (msxBiosCount() == 0) {
+            Toast.makeText(this, "테이프 게임은 원래 바이오스가 있어야 해요 (C-BIOS는 롬팩만). 메뉴 → MSX 바이오스", Toast.LENGTH_LONG).show();
+            return;
+        }
+        msxTyper.removeCallbacksAndMessages(null);
+        String command = msxTapeCommand();
+        long boot = msxJapaneseLayout() ? 9000 : 6000;
+        Toast.makeText(this, "📼 테이프 불러오기: " + command.replace("\n", " → ") + " 자동 입력", Toast.LENGTH_LONG).show();
+        msxTyper.postDelayed(() -> msxTypeText(command), boot);
+    }
+
 
     private int msxType() {
         int value = MainActivity.sharedSettings(this).getInt("msx_type:" + this.saveBaseName, 0);
@@ -11415,14 +11616,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Portrait: often used keys on top, the MSX joystick (D-pad, triggers A and B), SPACE ·
     // RETURN · Y · N, and STOP / GRAPH at the bottom with the speed button in between.
     private void addMsxControls(FrameLayout frameLayout) {
-        addMsxRow(frameLayout, new String[][]{{"ESC", "ESC"}, {"F1", "F1"}, {"F2", "F2"}, {"F3", "F3"}, {"F4", "F4"}, {"F5", "F5"}, {"⌨", "⌨"}},
-                Gravity.TOP, 10, 10, 0, 0, 0, 30);
+        String[][] keys = msxRowKeys();
+        addMsxRow(frameLayout, withKeyboardKey(msxSlice(keys, 0, 6)), Gravity.TOP, 10, 10, 0, 0, 0, 30);
         addFastForwardButton(frameLayout);
         addDPadAt(frameLayout, 22, 100, 136);
         addRoundButton(frameLayout, "A", 1, true, 128, 150, 60, TouchButton.STYLE_ARCADE_RED);
         addRoundButton(frameLayout, "B", 2, true, 58, 206, 60, TouchButton.STYLE_ARCADE_RED);
-        addMsxRow(frameLayout, new String[][]{{"SPACE", "SPACE", "2.4"}, {"RETURN", "↵ 엔터", "1.4"}, {"Y", "Y"}, {"N", "N"}},
-                Gravity.BOTTOM, 22, 22, 0, 52, 0, 34);
+        if (keys.length > 6) {
+            addMsxRow(frameLayout, msxSlice(keys, 6, 10), Gravity.BOTTOM, 22, 22, 0, 52, 0, 34);
+        }
         addMsxRow(frameLayout, new String[][]{{"STOP", "STOP"}}, Gravity.BOTTOM | Gravity.START, 22, 0, 0, 10, 96, 32);
         addMsxRow(frameLayout, new String[][]{{"GRAPH", "GRAPH"}}, Gravity.BOTTOM | Gravity.END, 0, 22, 0, 10, 96, 32);
         addMsxKeyboard(frameLayout, false);
@@ -11447,6 +11649,25 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         biosParams.setMargins(0, dp(8), 0, 0);
         panel.addView(createSettingRow(RoundIconView.IMPORT, RoundIconView.COLOR_CARD, "MSX 바이오스", bios > 0 ? "넣은 파일 " + bios + "개" : "C-BIOS (기본)",
                 view -> showMsxBiosDialog()), biosParams);
+        if (isMsxTape()) {
+            LinearLayout.LayoutParams tapeParams = new LinearLayout.LayoutParams(-1, dp(52));
+            tapeParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.PLAY, RoundIconView.COLOR_LOAD, "테이프 시작", MSX_TAPE_NAMES[Math.max(0, Math.min(4, msxInt("tape", 0)))],
+                    view -> showMsxTapeDialog(dialog)), tapeParams);
+        }
+        LinearLayout.LayoutParams controlParams = new LinearLayout.LayoutParams(-1, dp(52));
+        controlParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_PAD, "조작 방식",
+                msxKeyboardControl() ? "키보드 (A=" + msxString("key_a", "SPACE") + " · B=" + msxString("key_b", "M") + ")" : "조이스틱",
+                view -> showMsxControlDialog()), controlParams);
+        LinearLayout.LayoutParams keysParams = new LinearLayout.LayoutParams(-1, dp(52));
+        keysParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.EDIT, RoundIconView.COLOR_EDIT, "키 줄 고르기",
+                msxString("keys", MSX_DEFAULT_KEYS).equals(MSX_DEFAULT_KEYS) ? "기본" : "바꾼 키 줄", view -> showMsxKeyEditor()), keysParams);
+        LinearLayout.LayoutParams screenParams = new LinearLayout.LayoutParams(-1, dp(52));
+        screenParams.setMargins(0, dp(8), 0, 0);
+        String screenShown = (msxBool("sprites", true) ? "깜빡임 줄임" : "깜빡임 그대로") + (msxBool("fm", true) ? " · FM" : "");
+        panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "MSX 화면 · 소리", screenShown, view -> showMsxScreenDialog(dialog)), screenParams);
         int[] disk = NativeGba.diskInfo(this.nativeHandle);
         if (disk != null && disk.length == 2 && disk[1] > 1) {
             LinearLayout.LayoutParams diskParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -11457,6 +11678,309 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 dialog.dismiss();
             }), diskParams);
         }
+    }
+
+    // 테이프 시작: which command, typed after the machine boots (and again on demand).
+    private void showMsxTapeDialog(android.app.Dialog menu) {
+        showChoiceDialog(RoundIconView.PLAY, RoundIconView.COLOR_LOAD, "테이프 시작", MSX_TAPE_NAMES, MSX_TAPE_NOTES, Math.max(0, Math.min(4, msxInt("tape", 0))),
+                "켤 때 테이프를 처음으로 감고, 기계가 BASIC(\"Ok\")까지 켜지면 명령을 대신 입력해요. 빠른 저장으로 이어서 켤 때는 입력하지 않아요.\n"
+                        + "blueMSX는 테이프를 거의 바로 읽어서 따로 빨리 감지 않아도 돼요. 원래 바이오스가 있어야 해요 (C-BIOS는 롬팩만).",
+                Color.rgb(239, 246, 255), Color.rgb(30, 64, 175), "적용 후 다시 불러오기", choice -> {
+                    android.content.SharedPreferences.Editor edit = MainActivity.sharedSettings(this).edit();
+                    edit.putInt(msxKey("tape"), choice).apply();
+                    Runnable reload = () -> {
+                        if (menu != null) menu.dismiss();
+                        long handle = this.nativeHandle;
+                        if (handle != 0) NativeGba.reset(handle);
+                        msxAutoStartTape(true);
+                    };
+                    if (choice != 4) {
+                        reload.run();
+                        return;
+                    }
+                    android.widget.EditText input = new android.widget.EditText(this);
+                    input.setSingleLine(true);
+                    input.setText(msxString("tape_custom", "RUN\"CAS:\""));
+                    input.setTypeface(android.graphics.Typeface.MONOSPACE);
+                    new android.app.AlertDialog.Builder(this)
+                            .setTitle("테이프 시작 명령")
+                            .setMessage("예: RUN\"CAS:\" · BLOAD\"CAS:\",R · CLOAD (영문 · 숫자 · \" : , . / 만)")
+                            .setView(input)
+                            .setPositiveButton("적용", (d, w) -> {
+                                MainActivity.sharedSettings(this).edit().putString(msxKey("tape_custom"), input.getText().toString().trim()).apply();
+                                reload.run();
+                            })
+                            .setNegativeButton("취소", null)
+                            .show();
+                });
+    }
+
+    private static final String[] MSX_AB_KEYS = {"SPACE", "M", "N", "Z", "X", "RETURN", "SHIFT", "CTRL", "GRAPH", "ESC"};
+
+    // 조작 방식: joystick or keyboard, and (keyboard) the keys A and B press.
+    private void showMsxControlDialog() {
+        showChoiceDialog(RoundIconView.PAD, RoundIconView.COLOR_PAD, "조작 방식", new String[]{"조이스틱", "키보드"},
+                new String[]{"방향키 · A · B를 조이스틱 포트로 (기본)", "방향키 = 커서 키 · A · B = 고른 키"}, msxInt("control", 0),
+                "조이스틱을 안 읽고 키보드만 읽는 게임이 있어요. 방향키를 눌러도 안 움직이면 \"키보드\"로 바꿔 보세요. 이 게임에만 적용돼요.",
+                Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "적용", choice -> {
+                    MsxKeys.send(this.nativeHandle, 0, false);
+                    releaseMsxPadKeys();
+                    MainActivity.sharedSettings(this).edit().putInt(msxKey("control"), choice).apply();
+                    if (choice == 1) {
+                        pickMsxPadKey("A", "key_a", "SPACE", () -> pickMsxPadKey("B", "key_b", "M", this::updateInput));
+                    } else {
+                        updateInput();
+                    }
+                });
+    }
+
+    private void pickMsxPadKey(String button, String pref, String fallback, Runnable then) {
+        String current = msxString(pref, fallback);
+        int index = java.util.Arrays.asList(MSX_AB_KEYS).indexOf(current);
+        String[] notes = new String[MSX_AB_KEYS.length];
+        java.util.Arrays.fill(notes, "");
+        showChoiceDialog(RoundIconView.PAD, RoundIconView.COLOR_PAD, button + " 버튼 = 어느 키", MSX_AB_KEYS, notes, Math.max(0, index),
+                "키보드 방식일 때 " + button + " 버튼이 누르는 키예요.", Color.rgb(255, 247, 237), Color.rgb(154, 52, 18), "다음", choice -> {
+                    MainActivity.sharedSettings(this).edit().putString(msxKey(pref), MSX_AB_KEYS[choice]).apply();
+                    then.run();
+                });
+    }
+
+    // Lets go of the keys the pad held in keyboard mode.
+    private void releaseMsxPadKeys() {
+        int held = this.msxSentBits;
+        this.msxSentBits = 0;
+        int[] bits = {16, 32, 64, 128, 1, 2};
+        int[] codes = {275, 276, 273, 274, MsxKeys.code(msxString("key_a", "SPACE")), MsxKeys.code(msxString("key_b", "M"))};
+        for (int k = 0; k < bits.length; k++) {
+            if ((held & bits[k]) != 0) MsxKeys.send(this.nativeHandle, codes[k], false);
+        }
+    }
+
+    private TextView msxChip(String text, boolean on, int color) {
+        TextView chip = new TextView(this);
+        chip.setText(text);
+        chip.setTextSize(12f);
+        chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        chip.setTextColor(on ? Color.WHITE : Theme.text(Color.rgb(71, 85, 105)));
+        chip.setPadding(dp(10), dp(7), dp(10), dp(7));
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(on ? color : Theme.bg(Color.rgb(241, 245, 249)));
+        bg.setCornerRadius(dp(10));
+        chip.setBackground(bg);
+        return chip;
+    }
+
+    // 키 줄 고르기: the keys on the rows, their order and names, for this game.
+    private void showMsxKeyEditor() {
+        final java.util.List<String[]> keys = new java.util.ArrayList<>(java.util.Arrays.asList(msxRowKeys()));
+        final android.app.Dialog editor = new android.app.Dialog(this);
+        editor.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(24));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("키 줄 고르기 · 이 게임만");
+        title.setTextSize(17f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        final LinearLayout body = new LinearLayout(this);
+        body.setOrientation(1);
+        panel.addView(body);
+        final int accent = Color.rgb(159, 18, 57);
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            body.removeAllViews();
+            TextView now = new TextView(this);
+            now.setText("지금 키 줄 (" + keys.size() + "개 · 세로 위 6개 · 아래 4개) · 톡 = 이름 · 순서 · 빼기");
+            now.setTextSize(11.5f);
+            now.setTextColor(Theme.text(Color.rgb(71, 85, 105)));
+            now.setPadding(0, dp(10), 0, dp(4));
+            body.addView(now);
+            body.addView(msxChipFlow(keys.size(), k -> {
+                String[] key = keys.get(k);
+                TextView chip = msxChip(key[1].equals(key[0]) ? key[1] + "  ✎" : key[1] + " (" + key[0] + ")  ✎", true, Color.rgb(58, 61, 69));
+                chip.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+                        .setTitle(key[0] + (key[1].equals(key[0]) ? "" : " · " + key[1]))
+                        .setItems(new String[]{"이름 바꾸기", "앞으로", "뒤로", "빼기"}, (d, which) -> {
+                            if (which == 0) {
+                                android.widget.EditText input = new android.widget.EditText(this);
+                                input.setSingleLine(true);
+                                input.setText(key[1]);
+                                new android.app.AlertDialog.Builder(this).setTitle(key[0] + " 이름").setView(input)
+                                        .setPositiveButton("적용", (d2, w2) -> {
+                                            String name = input.getText().toString().trim();
+                                            keys.set(k, new String[]{key[0], name.isEmpty() ? key[0] : name});
+                                            render[0].run();
+                                        }).setNegativeButton("취소", null).show();
+                            } else if (which == 1 && k > 0) {
+                                java.util.Collections.swap(keys, k, k - 1);
+                            } else if (which == 2 && k < keys.size() - 1) {
+                                java.util.Collections.swap(keys, k, k + 1);
+                            } else if (which == 3) {
+                                keys.remove(k);
+                            }
+                            render[0].run();
+                        }).show());
+                return chip;
+            }));
+            TextView add = new TextView(this);
+            add.setText("추가할 키 (최대 10개)");
+            add.setTextSize(11.5f);
+            add.setTextColor(Theme.text(Color.rgb(71, 85, 105)));
+            add.setPadding(0, dp(12), 0, dp(4));
+            body.addView(add);
+            body.addView(msxChipFlow(MSX_ADDABLE.length, k -> {
+                TextView chip = msxChip(MSX_ADDABLE[k], false, accent);
+                chip.setOnClickListener(v -> {
+                    if (keys.size() >= 10) {
+                        Toast.makeText(this, "키 줄은 10개까지예요", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    keys.add(new String[]{MSX_ADDABLE[k], MSX_ADDABLE[k]});
+                    render[0].run();
+                });
+                return chip;
+            }));
+            TextView quick = new TextView(this);
+            quick.setText("빠른 설정");
+            quick.setTextSize(11.5f);
+            quick.setTextColor(Theme.text(Color.rgb(71, 85, 105)));
+            quick.setPadding(0, dp(12), 0, dp(4));
+            body.addView(quick);
+            body.addView(msxChipFlow(MSX_PRESET_NAMES.length, k -> {
+                TextView chip = msxChip(MSX_PRESET_NAMES[k], false, accent);
+                chip.setOnClickListener(v -> {
+                    String saved = msxString("keys", MSX_DEFAULT_KEYS);
+                    MainActivity.sharedSettings(this).edit().putString(msxKey("keys"), MSX_PRESETS[k]).commit();
+                    keys.clear();
+                    keys.addAll(java.util.Arrays.asList(msxRowKeys()));
+                    MainActivity.sharedSettings(this).edit().putString(msxKey("keys"), saved).commit();
+                    render[0].run();
+                });
+                return chip;
+            }));
+        };
+        render[0].run();
+        LinearLayout buttons = new LinearLayout(this);
+        TextView reset = dialogButton("기본으로", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        reset.setOnClickListener(v -> {
+            MainActivity.sharedSettings(this).edit().remove(msxKey("keys")).apply();
+            editor.dismiss();
+            rebuildContent();
+        });
+        buttons.addView(reset, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        TextView apply = dialogButton("적용", accent, Color.WHITE);
+        apply.setOnClickListener(v -> {
+            MainActivity.sharedSettings(this).edit().putString(msxKey("keys"), joinMsxKeys(keys)).apply();
+            editor.dismiss();
+            rebuildContent();
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(46), 1.5f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        editor.setContentView(scroll);
+        android.view.Window window = editor.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400)), -2);
+        }
+        editor.show();
+    }
+
+    private interface MsxChipMaker {
+        TextView make(int index);
+    }
+
+    // Chips wrapped onto rows of four.
+    private LinearLayout msxChipFlow(int count, MsxChipMaker maker) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(1);
+        LinearLayout row = null;
+        for (int k = 0; k < count; k++) {
+            if (k % 4 == 0) {
+                row = new LinearLayout(this);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, k == 0 ? 0 : dp(5), 0, 0);
+                column.addView(row, rowParams);
+            }
+            TextView chip = maker.make(k);
+            chip.setSingleLine(true);
+            chip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            chip.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1f);
+            params.setMargins(k % 4 == 0 ? 0 : dp(5), 0, 0, 0);
+            row.addView(chip, params);
+        }
+        if (count % 4 != 0 && row != null) {
+            for (int k = count % 4; k < 4; k++) {
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, 1, 1f);
+                params.setMargins(dp(5), 0, 0, 0);
+                row.addView(new View(this), params);
+            }
+        }
+        return column;
+    }
+
+    // MSX 화면 · 소리: sprite limit, FM sound, overscan, refresh rate (restarts the game).
+    private void showMsxScreenDialog(android.app.Dialog menu) {
+        final boolean[] on = {msxBool("sprites", true), msxBool("fm", true), msxBool("overscan", false)};
+        final int[] hz = {msxInt("hz", 0)};
+        String[] names = {"스프라이트 깜빡임 줄이기", "FM 음원 (MSX-MUSIC)", "화면 테두리 보이기 (오버스캔)"};
+        String[] notes = {"한 줄 스프라이트 수 제한을 풀어 깜빡임을 줄여요 · 일부 게임은 숨겨 둔 물체가 보일 수 있어요",
+                "지원하는 게임에서 더 풍성한 음악 (MSX2+ 이상)", "실기처럼 화면 둘레 테두리 색까지"};
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(6), dp(4), dp(6), 0);
+        for (int k = 0; k < 3; k++) {
+            final int index = k;
+            android.widget.Switch row = new android.widget.Switch(this);
+            row.setText(names[k] + "\n" + notes[k]);
+            row.setTextSize(12.5f);
+            row.setChecked(on[k]);
+            row.setPadding(dp(4), dp(8), dp(4), dp(8));
+            row.setOnCheckedChangeListener((b, checked) -> on[index] = checked);
+            panel.addView(row);
+        }
+        TextView hzLabel = new TextView(this);
+        hzLabel.setText("화면 주사율");
+        hzLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        hzLabel.setPadding(dp(4), dp(10), 0, dp(4));
+        panel.addView(hzLabel);
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        String[] hzNames = {"자동", "60Hz (일본 · 한국)", "50Hz (유럽)"};
+        for (int k = 0; k < 3; k++) {
+            android.widget.RadioButton radio = new android.widget.RadioButton(this);
+            radio.setText(hzNames[k]);
+            radio.setId(100 + k);
+            group.addView(radio);
+        }
+        group.check(100 + hz[0]);
+        group.setOnCheckedChangeListener((g, id) -> hz[0] = id - 100);
+        panel.addView(group);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("MSX 화면 · 소리 · 이 게임만")
+                .setView(scroll)
+                .setPositiveButton("적용 (다시 시작)", (d, w) -> {
+                    MainActivity.sharedSettings(this).edit().putBoolean(msxKey("sprites"), on[0]).putBoolean(msxKey("fm"), on[1])
+                            .putBoolean(msxKey("overscan"), on[2]).putInt(msxKey("hz"), hz[0]).apply();
+                    if (menu != null) menu.dismiss();
+                    relaunchGame();
+                })
+                .setNegativeButton("닫기", null)
+                .show();
     }
 
     // What the original BIOS is for, which file names blueMSX looks for, and the picker.
@@ -11524,10 +12048,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addDPadAt(frameLayout, 28, 104, 124);
         addRoundButton(frameLayout, "A", 1, true, 130, 168, 56, TouchButton.STYLE_ARCADE_RED);
         addRoundButton(frameLayout, "B", 2, true, 62, 214, 56, TouchButton.STYLE_ARCADE_RED);
-        addMsxRow(frameLayout, new String[][]{{"ESC", "ESC"}, {"F1", "F1"}, {"F2", "F2"}}, Gravity.BOTTOM | Gravity.START, 12, 0, 0, 58, 168, 30);
-        addMsxRow(frameLayout, new String[][]{{"STOP", "STOP"}, {"SPACE", "SPACE", "1.6"}}, Gravity.BOTTOM | Gravity.START, 12, 0, 0, 16, 168, 32);
-        addMsxRow(frameLayout, new String[][]{{"F3", "F3"}, {"F4", "F4"}, {"F5", "F5"}, {"⌨", "⌨"}}, Gravity.BOTTOM | Gravity.END, 0, 12, 0, 58, 176, 30);
-        addMsxRow(frameLayout, new String[][]{{"RETURN", "↵"}, {"GRAPH", "GRAPH", "1.4"}}, Gravity.BOTTOM | Gravity.END, 0, 12, 0, 16, 176, 32);
+        String[][] keys = msxRowKeys();
+        if (keys.length > 0) addMsxRow(frameLayout, msxSlice(keys, 0, 3), Gravity.BOTTOM | Gravity.START, 12, 0, 0, 58, 168, 30);
+        java.util.List<String[]> left = new java.util.ArrayList<>(java.util.Arrays.asList(new String[][]{{"STOP", "STOP"}}));
+        left.addAll(java.util.Arrays.asList(msxSlice(keys, 6, 8)));
+        addMsxRow(frameLayout, left.toArray(new String[0][]), Gravity.BOTTOM | Gravity.START, 12, 0, 0, 16, 168, 32);
+        addMsxRow(frameLayout, withKeyboardKey(msxSlice(keys, 3, 6)), Gravity.BOTTOM | Gravity.END, 0, 12, 0, 58, 176, 30);
+        java.util.List<String[]> right = new java.util.ArrayList<>(java.util.Arrays.asList(msxSlice(keys, 8, 10)));
+        right.add(new String[]{"GRAPH", "GRAPH", "1.4"});
+        addMsxRow(frameLayout, right.toArray(new String[0][]), Gravity.BOTTOM | Gravity.END, 0, 12, 0, 16, 176, 32);
         addMsxKeyboard(frameLayout, true);
     }
 
