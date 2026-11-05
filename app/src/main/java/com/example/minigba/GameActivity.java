@@ -12304,10 +12304,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         top.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
-        int[] colors = "ok".equals(state) ? new int[]{Color.rgb(220, 252, 231), Color.rgb(22, 101, 52)}
-                : "part".equals(state) ? new int[]{Color.rgb(254, 243, 199), Color.rgb(146, 64, 14)}
-                : "alt".equals(state) ? new int[]{Color.rgb(224, 242, 254), Color.rgb(7, 89, 133)}
-                : new int[]{Color.rgb(241, 245, 249), Color.rgb(100, 116, 139)};
+        // Solid badges with white text read the same in the light and dark themes.
+        int badgeColor = "ok".equals(state) ? Color.rgb(22, 163, 74) : "part".equals(state) ? Color.rgb(217, 119, 6)
+                : "alt".equals(state) ? Color.rgb(2, 132, 199) : Color.rgb(100, 116, 139);
+        int[] colors = {badgeColor, Color.WHITE};
         TextView badge = new TextView(this);
         badge.setText(stateText);
         badge.setTextSize(10.5f);
@@ -12500,18 +12500,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         header.addView(titles, titlesParams);
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
         panel.addView(body, marginTop(-1, -2, 14));
-        LinearLayout buttons = new LinearLayout(this);
         if (extraText != null) {
+            // A third action gets its own full-width row above the two buttons.
             TextView extra = dialogButton(extraText, Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
-            extra.setTextSize(13f);
+            extra.setTextSize(14f);
+            extra.setSingleLine(true);
             extra.setOnClickListener(v -> {
                 dialog.dismiss();
                 onExtra.run();
             });
-            LinearLayout.LayoutParams extraParams = new LinearLayout.LayoutParams(0, dp(48), 1.3f);
-            extraParams.setMargins(0, 0, dp(8), 0);
-            buttons.addView(extra, extraParams);
+            panel.addView(extra, marginTop(-1, dp(46), 14));
         }
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setBaselineAligned(false);
         TextView close = dialogButton(applyText == null ? "닫기" : "취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
         close.setOnClickListener(v -> dialog.dismiss());
         buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1f));
@@ -12525,7 +12526,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             applyParams.setMargins(dp(8), 0, 0, 0);
             buttons.addView(apply, applyParams);
         }
-        panel.addView(buttons, marginTop(-1, -2, 14));
+        panel.addView(buttons, marginTop(-1, -2, extraText != null ? 8 : 14));
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(panel);
         dialog.setContentView(scroll);

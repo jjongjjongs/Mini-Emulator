@@ -4630,6 +4630,9 @@ public final class MainActivity extends Activity {
         }
         linearLayout.removeAllViews();
         this.coverViews.clear();
+        if (MODE_MSX.equals(this.currentMode)) {
+            groupMsxDisks();
+        }
         File[] listFiles = currentRomDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
             this.emptyView.setText(emptyLibraryText());
@@ -4667,6 +4670,9 @@ public final class MainActivity extends Activity {
 
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
+        if (romDirFor(MODE_MSX).equals(dir) && isGroupedMsxDisk(file)) {
+            return false;
+        }
         if (romDirFor(MODE_NAOMI).equals(dir) && !file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
             return false;
         }
@@ -14841,6 +14847,90 @@ public final class MainActivity extends Activity {
 
     static final String XBIOS_EXAMPLES_NAME = "XBIOS 예제 디스크.dsk";
 
+    // ---- MSX games split over several disks ("Name (Disk 1 of 5).dsk" ...): one game ----
+    // The disks are listed in an .m3u the app writes next to them; the list shows only it,
+    // and the game's menu (디스크 바꾸기) moves to the next disk.
+    private static final String MSX_PLAYLIST_MARK = "# Mini Emulator: split disks";
+    private static final java.util.regex.Pattern MSX_SPLIT_DISK = java.util.regex.Pattern.compile(
+            "^(.*?)\\s*[(\\[]\\s*(?:disk|disc|디스크)\\s*(\\d+)(?:\\s*(?:of|/)\\s*\\d+)?\\s*[)\\]](.*)\\.dsk$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    // The game's name a split disk belongs to, or null.
+    private static String msxSplitGameName(String fileName) {
+        java.util.regex.Matcher m = MSX_SPLIT_DISK.matcher(fileName);
+        if (!m.matches()) return null;
+        String name = (m.group(1).trim() + " " + m.group(3).trim()).trim().replaceAll("\\s+", " ");
+        return name.isEmpty() ? null : name;
+    }
+
+    private static int msxSplitNumber(String fileName) {
+        java.util.regex.Matcher m = MSX_SPLIT_DISK.matcher(fileName);
+        return m.matches() ? Integer.parseInt(m.group(2)) : 0;
+    }
+
+    private boolean isGroupedMsxDisk(File file) {
+        String game = msxSplitGameName(file.getName());
+        return game != null && !msxPlaylistDisks(new File(file.getParentFile(), game + ".m3u")).isEmpty();
+    }
+
+    // The disks of a playlist the app wrote (empty for anything else).
+    static List<File> msxPlaylistDisks(File file) {
+        List<File> disks = new ArrayList<>();
+        if (!file.getName().toLowerCase(Locale.ROOT).endsWith(".m3u") || !file.isFile() || file.length() > 16384) return disks;
+        try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String first = in.readLine();
+            if (first == null || !first.startsWith(MSX_PLAYLIST_MARK)) return disks;
+            String line;
+            while ((line = in.readLine()) != null) {
+                line = line.trim();
+                if (!line.isEmpty() && !line.startsWith("#")) disks.add(new File(file.getParentFile(), line));
+            }
+        } catch (IOException e) {
+            disks.clear();
+        }
+        return disks;
+    }
+
+    // Writes (or brings up to date) the playlists for the split disks in the MSX folder.
+    private void groupMsxDisks() {
+        File dir = romDirFor(MODE_MSX);
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        Map<String, List<File>> games = new java.util.TreeMap<>();
+        for (File file : files) {
+            String game = file.isFile() ? msxSplitGameName(file.getName()) : null;
+            if (game != null) {
+                List<File> list = games.get(game);
+                if (list == null) games.put(game, list = new ArrayList<>());
+                list.add(file);
+            }
+        }
+        for (Map.Entry<String, List<File>> entry : games.entrySet()) {
+            List<File> disks = entry.getValue();
+            File playlist = new File(dir, entry.getKey() + ".m3u");
+            if (disks.size() < 2 || disks.size() > 10 || (playlist.exists() && msxPlaylistDisks(playlist).isEmpty())) {
+                continue;  // one disk, more than blueMSX takes, or the player's own playlist
+            }
+            disks.sort((a, b) -> msxSplitNumber(a.getName()) != msxSplitNumber(b.getName())
+                    ? Integer.compare(msxSplitNumber(a.getName()), msxSplitNumber(b.getName())) : a.getName().compareToIgnoreCase(b.getName()));
+            StringBuilder text = new StringBuilder(MSX_PLAYLIST_MARK).append(" (").append(disks.size()).append(")\n");
+            for (File disk : disks) text.append(disk.getName()).append('\n');
+            if (playlist.isFile() && text.toString().equals(readSmallTextFull(playlist))) continue;
+            try (FileOutputStream out = new FileOutputStream(playlist)) {
+                out.write(text.toString().getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static String readSmallTextFull(File file) {
+        try {
+            return new String(java.nio.file.Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
     // Puts XBIOS's example disk into the MSX games (once; again when asked from the game menu).
     static boolean copyXbiosExamples(android.content.Context context, boolean force) {
         android.content.SharedPreferences prefs = sharedSettings(context);
@@ -15717,6 +15807,9 @@ public final class MainActivity extends Activity {
     // A game's size on disk, with a sheet's tracks.
     private static long romBytes(File file) {
         long bytes = file.length();
+        for (File disk : msxPlaylistDisks(file)) {
+            bytes += disk.length();
+        }
         if (isDiscSheet(file)) {
             for (String track : cueTracks(file)) {
                 bytes += new File(file.getParentFile(), track).length();
@@ -16552,6 +16645,20 @@ public final class MainActivity extends Activity {
 
     // Deletes a game's file, and for a .cue sheet the tracks no other sheet uses.
     private boolean deleteRomFiles(File file) {
+        List<File> disks = msxPlaylistDisks(file);
+        if (!disks.isEmpty()) {
+            // A playlist the app made for split disks: the disks go with it.
+            if (!file.delete()) {
+                return false;
+            }
+            for (File disk : disks) {
+                try {
+                    java.nio.file.Files.deleteIfExists(disk.toPath());
+                } catch (IOException | RuntimeException ignored) {
+                }
+            }
+            return true;
+        }
         List<File> tracks = new ArrayList<>();
         if (isDiscSheet(file)) {
             for (String track : cueTracks(file)) {
@@ -16817,6 +16924,8 @@ public final class MainActivity extends Activity {
             bios = "Neo Geo BIOS: " + neoGeoBiosStatusText();
         } else if ("arcade".equals(this.currentMode)) {
             bios = "MAME BIOS: " + mameBiosStatus() + " · 게임을 길게 누르면 실행 엔진을 바꿀 수 있습니다.";
+        } else if (MODE_MSX.equals(this.currentMode)) {
+            bios = "MSX: 롬팩은 C-BIOS, 디스크는 XBIOS로 바이오스 없이도 켜져요 (일부 게임은 원래 바이오스 필요 · 게임 중 메뉴 → 바이오스 상태). 여러 장으로 나뉜 디스크는 한 게임으로 묶여요.";
         } else if (isConsoleMode(this.currentMode)) {
             bios = MODE_NAMES[modeIndex(this.currentMode)] + " 게임은 BIOS 없이 실행됩니다.";
         } else {
