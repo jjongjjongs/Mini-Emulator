@@ -259,6 +259,24 @@ final class CrashReports {
         if (exitText != null && !exitText.isEmpty()) {
             writeTextQuietly(new File(folder, "exit.txt"), exitText);
         }
+        // PS Vita's whole engine log (the bridge writes it for that engine): its last 1 MB,
+        // when it is from this game session.
+        File engineLog = new File(context.getFilesDir(), "engine_log.txt");
+        if (engineLog.isFile() && engineLog.length() > 0 && (sessionStart <= 0 || engineLog.lastModified() >= sessionStart - 60_000L)) {
+            long keep = 1024L * 1024;
+            try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(engineLog, "r");
+                 FileOutputStream out = new FileOutputStream(new File(folder, "engine_log.txt"))) {
+                long start = Math.max(0, in.length() - keep);
+                in.seek(start);
+                byte[] buffer = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, n);
+                }
+            } catch (IOException ignored) {
+                // The ring in log.txt is still there.
+            }
+        }
         if (tombstone != null) {
             try (InputStream in = tombstone; FileOutputStream out = new FileOutputStream(new File(folder, "tombstone.txt"))) {
                 byte[] buffer = new byte[16 * 1024];
@@ -392,7 +410,7 @@ final class CrashReports {
     /** The whole report as one text, for the detail view and the clipboard. */
     static String fullText(Report report) {
         StringBuilder sb = new StringBuilder();
-        for (String name : new String[]{"summary.txt", "crash.txt", "exit.txt", "log.txt", "tombstone.txt", "settings.txt"}) {
+        for (String name : new String[]{"summary.txt", "crash.txt", "exit.txt", "log.txt", "engine_log.txt", "tombstone.txt", "settings.txt"}) {
             File file = new File(report.dir, name);
             if (!file.isFile()) continue;
             sb.append("===== ").append(name).append(" =====\n").append(readText(file, 64 * 1024)).append('\n');

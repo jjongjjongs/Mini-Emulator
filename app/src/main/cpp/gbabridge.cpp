@@ -999,6 +999,7 @@ char gLines[kLines][kLineLength];
 std::atomic<unsigned> gNextLine{0};
 char gPath[512];
 char gContext[512];
+char gFilesDir[512];
 bool gInstalled = false;
 struct sigaction gPrevious[NSIG];
 const int kSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP, SIGSYS};
@@ -1326,6 +1327,7 @@ void install(const std::string& systemDir, const std::string& coreId, const std:
         }
     }
     snprintf(gPath, sizeof(gPath), "%s/last_crash.txt", filesDir.c_str());
+    snprintf(gFilesDir, sizeof(gFilesDir), "%s", filesDir.c_str());
     size_t nameStart = romPath.find_last_of('/');
     snprintf(gContext, sizeof(gContext), "core %s, rom %s", coreId.c_str(),
              nameStart == std::string::npos ? romPath.c_str() : romPath.c_str() + nameStart + 1);
@@ -1361,6 +1363,26 @@ void install(const std::string& systemDir, const std::string& coreId, const std:
 std::string gLastCoreProblem;
 std::mutex gLastCoreProblemMutex;
 
+// PS Vita: the engine's whole log in files/engine_log.txt (a crash report carries its end),
+// as its 160-line ring is soon past what led to a stuck screen.
+FILE* gEngineLog = nullptr;
+size_t gEngineLogBytes = 0;
+std::mutex gEngineLogMutex;
+
+void openEngineLog(const std::string& coreId) {
+    std::lock_guard<std::mutex> lock(gEngineLogMutex);
+    if (gEngineLog != nullptr) {
+        fclose(gEngineLog);
+        gEngineLog = nullptr;
+    }
+    gEngineLogBytes = 0;
+    if (coreId != "vita3k" || crash::gFilesDir[0] == '\0') {
+        return;
+    }
+    std::string path = std::string(crash::gFilesDir) + "/engine_log.txt";
+    gEngineLog = fopen(path.c_str(), "w");
+}
+
 void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...) {
     if (fmt == nullptr) {
         return;
@@ -1377,7 +1399,24 @@ void RETRO_CALLCONV logCallback(enum retro_log_level level, const char* fmt, ...
     va_start(args, fmt);
     vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
+    // The Vita3K port traces every frame ("[TRACE n] retro_run.tick ..."): left out, or they
+    // are all the ring and the log file would hold.
+    if (strstr(message, "] retro_run.") != nullptr && strstr(message, "[TRACE ") != nullptr) {
+        return;
+    }
     crash::remember(message);
+    {
+        std::lock_guard<std::mutex> lock(gEngineLogMutex);
+        if (gEngineLog != nullptr && gEngineLogBytes < (48u << 20)) {
+            size_t length = strlen(message);
+            fwrite(message, 1, length, gEngineLog);
+            if (length == 0 || message[length - 1] != '\n') {
+                fputc('\n', gEngineLog);
+            }
+            fflush(gEngineLog);
+            gEngineLogBytes += length + 1;
+        }
+    }
     if (level >= RETRO_LOG_WARN) {
         // The last two warnings: the line naming the failure is often followed by a generic one.
         std::string line = message;
@@ -3748,6 +3787,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     core->coreId = jstringToString(env, coreId);
     core->noAutoState = gNoAutoState.load();
     crash::install(core->systemDir, core->coreId, core->romPath);
+    openEngineLog(core->coreId);
     gN64NativeTiles = core->coreId == "mupen64plus_next" &&
                       n64RomName(core->romPath).find("STARCRAFT") != std::string::npos;
     std::string requestedName = jstringToString(env, saveName);
