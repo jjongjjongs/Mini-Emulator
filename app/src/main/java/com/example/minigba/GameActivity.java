@@ -5881,13 +5881,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         });
         coreWorker.shutdown();
         if (finishing) {
-            // An engine stuck inside a frame never returns; leave anyway.
+            // An engine stuck inside a frame never returns; leave anyway. The player left on
+            // purpose, so this is a closed session, not a crash to report (PS Vita's engine
+            // waits up to 5 s for the game's threads when it stops, which reached here).
             Thread watchdog = new Thread(() -> {
                 try {
                     Thread.sleep(5000);
                 } catch (InterruptedException ignored) {
                     // Exit now.
                 }
+                MainActivity.sharedSettings(this).edit().putBoolean(SESSION_CLOSED, true).commit();
                 android.os.Process.killProcess(android.os.Process.myPid());
             }, "exit-watchdog");
             watchdog.setDaemon(true);
