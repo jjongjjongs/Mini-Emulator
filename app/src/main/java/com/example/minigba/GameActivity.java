@@ -241,7 +241,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         root.addView(linearLayout, new FrameLayout.LayoutParams(-1, -1));
         shell.setThinBezel(full);
         shell.setCompactBezel(!full && (isDualShock() || isDualScreen()));
-        shell.track(isDualScreen() ? null : frameLayout2, frameLayout);
+        // The DS screens get a thin frame too (0.0.276), except in full-screen style.
+        shell.track(isDualScreen() && full ? null : frameLayout2, frameLayout);
         // No case under the picture in full-screen style or the DS's edge-to-edge screens.
         addPerfOverlay(root, full || isDualScreen());
         setContentView(root);
@@ -489,8 +490,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // Metal · carbon and pastel glass have no name strip under the screen, so the layout gives that room back.
+    // Landscape has none for any style (its frames are thin, 0.0.276).
     private boolean noNameStrip() {
-        return !ClearShellView.hasNameStrip(shellStyle());
+        return this.landscapeMode || !ClearShellView.hasNameStrip(shellStyle());
     }
 
     // 포인트 색 of the metal · carbon case (ClearShellView.TRIM_NAMES).
@@ -707,8 +709,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // The bezel takes dp(10) above the screen and dp(26) below it; full style has none.
         int maxHeight;
         if (isDualScreen()) {
-            // Stacked DS screens take the full height, edge to edge.
-            maxHeight = Math.max(dp(150), height);
+            // Stacked DS screens take the full height, less a thin frame above and below
+            // (edge to edge in full-screen style).
+            maxHeight = Math.max(dp(150), height - (full ? 0 : dp(8) * 2));
         } else if (full) {
             // Room for the thin glass bezel (dp(5) each side) included.
             maxHeight = Math.max(dp(150), height - (isGba ? dp(13) + dp(5) + dp(46) : dp(12) + dp(10)));

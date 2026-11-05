@@ -474,11 +474,26 @@ final class ClearShellView extends View {
     }
 
     // The frame around the game screen, the same size as the clear case's bezel.
+    // Landscape frames are drawn at about half the portrait thickness (0.0.276), with no
+    // name strip, so the screen keeps as much of the height as it can.
+    private float frameScale() {
+        return landscape && !thinBezel ? 0.55f : 1f;
+    }
+
+    // How far the frame reaches past the screen on each side, when it is the same all round.
+    private float frameEdge() {
+        if (thinBezel) {
+            return dp(5);
+        }
+        float base = style == STYLE_PASTEL || style == STYLE_MATERIAL || style == STYLE_VINTAGE ? 10
+                : style == STYLE_NEON || style == STYLE_SPACE ? 6 : style == STYLE_METAL ? 8 : 10;
+        return dp(base) * frameScale();
+    }
+
     private RectF frameAround(RectF screen) {
-        if (thinBezel || !hasNameStrip(style)) {
-            // Metal · carbon / pastel glass: a thin surround, no name strip under the screen.
-            float edge = dp(thinBezel ? 5 : style == STYLE_PASTEL || style == STYLE_MATERIAL || style == STYLE_VINTAGE ? 10
-                    : style == STYLE_NEON || style == STYLE_SPACE ? 6 : 8);
+        if (thinBezel || !hasNameStrip(style) || landscape) {
+            // A surround of the same width all round; no name strip under the screen.
+            float edge = frameEdge();
             return new RectF(screen.left - edge, screen.top - edge, screen.right + edge, screen.bottom + edge);
         }
         float side = dp(landscape ? 10 : 14);
@@ -523,7 +538,7 @@ final class ClearShellView extends View {
                 drawNeon(canvas, width, height, frame);
                 break;
         }
-        if (frame != null && label != null && !thinBezel && !compactBezel && hasNameStrip(style)) {
+        if (frame != null && label != null && !thinBezel && !compactBezel && hasNameStrip(style) && !landscape) {
             text.setTextSize(dp(landscape ? 8 : 9));
             canvas.drawText(label, frame.centerX(), screen.bottom + (frame.bottom - screen.bottom) * 0.62f, text);
         }
@@ -749,8 +764,9 @@ final class ClearShellView extends View {
             paint.setShader(null);
             strokeRoundRect(canvas, frame, radius, dp(glass == GLASS_JELLY ? 2 : 1), Color.argb(235, 255, 255, 255));
             // White, then the coloured line, just outside the picture.
-            float e = dp(thinBezel ? 5 : 10);
-            RectF edge = new RectF(frame.left + e - dp(3), frame.top + e - dp(3), frame.right - e + dp(3), frame.bottom - e + dp(3));
+            float e = frameEdge();
+            float out = dp(3) * frameScale();
+            RectF edge = new RectF(frame.left + e - out, frame.top + e - out, frame.right - e + out, frame.bottom - e + out);
             strokeRoundRect(canvas, edge, dp(6), dp(2), line);
             RectF white = new RectF(edge.left + dp(2), edge.top + dp(2), edge.right - dp(2), edge.bottom - dp(2));
             strokeRoundRect(canvas, white, dp(5), dp(2), Color.WHITE);
@@ -793,72 +809,74 @@ final class ClearShellView extends View {
         if (frame == null) {
             return;
         }
-        float e = dp(thinBezel ? 5 : 10);
+        float e = frameEdge();
         RectF screen = new RectF(frame.left + e, frame.top + e, frame.right - e, frame.bottom - e);
+        // Margins and corners below shrink together in landscape, keeping the corners covered.
+        final float k = frameScale();
         switch (kind) {
             case SKIN_WOOD: {
                 // A dark recess cut into the wood.
-                RectF recess = inset(screen, -dp(6));
+                RectF recess = inset(screen, -dp(6) * k);
                 paint.setColor(Color.argb(90, 0, 0, 0));
-                canvas.drawRoundRect(inset(recess, -dp(2)), dp(12), dp(12), paint);
+                canvas.drawRoundRect(inset(recess, -dp(2) * k), dp(12) * k, dp(12) * k, paint);
                 paint.setColor(Color.rgb(11, 7, 5));
-                canvas.drawRoundRect(recess, dp(10), dp(10), paint);
-                strokeRoundRect(canvas, inset(recess, -dp(2.5f)), dp(12), dp(1), Color.argb(34, 255, 220, 170));
+                canvas.drawRoundRect(recess, dp(10) * k, dp(10) * k, paint);
+                strokeRoundRect(canvas, inset(recess, -dp(2.5f) * k), dp(12) * k, dp(1) * k, Color.argb(34, 255, 220, 170));
                 break;
             }
             case SKIN_LEATHER: {
-                RectF recess = inset(screen, -dp(6));
+                RectF recess = inset(screen, -dp(6) * k);
                 paint.setColor(Color.rgb(10, 7, 6));
-                canvas.drawRoundRect(recess, dp(10), dp(10), paint);
+                canvas.drawRoundRect(recess, dp(10) * k, dp(10) * k, paint);
                 Paint stitch = new Paint(Paint.ANTI_ALIAS_FLAG);
                 stitch.setStyle(Paint.Style.STROKE);
-                stitch.setStrokeWidth(dp(1.5f));
+                stitch.setStrokeWidth(dp(1.5f) * k);
                 stitch.setStrokeCap(Paint.Cap.ROUND);
-                stitch.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(5), dp(4)}, 0));
+                stitch.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(5) * k, dp(4) * k}, 0));
                 stitch.setColor(Color.argb(110, 0, 0, 0));
-                RectF seam = inset(screen, -dp(10));
-                canvas.drawRoundRect(new RectF(seam.left, seam.top + dp(1.2f), seam.right, seam.bottom + dp(1.2f)), dp(13), dp(13), stitch);
+                RectF seam = inset(screen, -dp(10) * k);
+                canvas.drawRoundRect(new RectF(seam.left, seam.top + dp(1.2f) * k, seam.right, seam.bottom + dp(1.2f) * k), dp(13) * k, dp(13) * k, stitch);
                 stitch.setColor(Color.argb(217, 232, 196, 140));
-                canvas.drawRoundRect(seam, dp(13), dp(13), stitch);
+                canvas.drawRoundRect(seam, dp(13) * k, dp(13) * k, stitch);
                 break;
             }
             case SKIN_INK: {
-                RectF edge = inset(screen, -dp(4));
+                RectF edge = inset(screen, -dp(4) * k);
                 paint.setColor(Color.rgb(17, 17, 17));
-                canvas.drawRoundRect(edge, dp(6), dp(6), paint);
-                strokeRoundRect(canvas, inset(edge, -dp(1)), dp(7), dp(2), Color.argb(217, 30, 28, 26));
-                strokeRoundRect(canvas, inset(edge, -dp(3)), dp(8), dp(2), Color.rgb(239, 230, 212));
-                strokeRoundRect(canvas, inset(edge, -dp(4.5f)), dp(9), dp(1), Color.argb(90, 30, 28, 26));
+                canvas.drawRoundRect(edge, dp(6) * k, dp(6) * k, paint);
+                strokeRoundRect(canvas, inset(edge, -dp(1) * k), dp(7) * k, dp(2) * k, Color.argb(217, 30, 28, 26));
+                strokeRoundRect(canvas, inset(edge, -dp(3) * k), dp(8) * k, dp(2) * k, Color.rgb(239, 230, 212));
+                strokeRoundRect(canvas, inset(edge, -dp(4.5f) * k), dp(9) * k, dp(1) * k, Color.argb(90, 30, 28, 26));
                 break;
             }
             case SKIN_CRT: {
                 // Beige plastic bezel and the rounded tube inside it.
-                RectF bezel = inset(screen, -dp(10));
+                RectF bezel = inset(screen, -dp(10) * k);
                 paint.setColor(Color.argb(110, 0, 0, 0));
-                canvas.drawRoundRect(new RectF(bezel.left, bezel.top + dp(3), bezel.right, bezel.bottom + dp(4)), dp(16), dp(16), paint);
+                canvas.drawRoundRect(new RectF(bezel.left, bezel.top + dp(3) * k, bezel.right, bezel.bottom + dp(4) * k), dp(16) * k, dp(16) * k, paint);
                 paint.setShader(new LinearGradient(0, bezel.top, 0, bezel.bottom, Color.rgb(217, 210, 195), Color.rgb(184, 176, 160), Shader.TileMode.CLAMP));
-                canvas.drawRoundRect(bezel, dp(16), dp(16), paint);
+                canvas.drawRoundRect(bezel, dp(16) * k, dp(16) * k, paint);
                 paint.setShader(null);
-                strokeRoundRect(canvas, inset(bezel, dp(0.75f)), dp(16), dp(1.5f), Color.argb(150, 255, 255, 255));
+                strokeRoundRect(canvas, inset(bezel, dp(0.75f) * k), dp(16) * k, dp(1.5f) * k, Color.argb(150, 255, 255, 255));
                 // The picture is square-cornered, so the tube's corners stay small enough to
                 // cover it (a corner radius over about 3.4 × the margin would let it show).
-                RectF tube = inset(screen, -dp(6));
+                RectF tube = inset(screen, -dp(6) * k);
                 paint.setColor(Color.rgb(13, 15, 14));
-                canvas.drawRoundRect(tube, dp(14), dp(14), paint);
-                strokeRoundRect(canvas, tube, dp(14), dp(2), Color.rgb(143, 135, 120));
+                canvas.drawRoundRect(tube, dp(14) * k, dp(14) * k, paint);
+                strokeRoundRect(canvas, tube, dp(14) * k, dp(2) * k, Color.rgb(143, 135, 120));
                 break;
             }
             default: {
                 // Pixel frame: dark, peach, dark, square.
                 paint.setColor(Color.rgb(12, 8, 22));
-                canvas.drawRect(inset(screen, -dp(2)), paint);
-                float step = dp(3);
+                canvas.drawRect(inset(screen, -dp(2) * k), paint);
+                float step = dp(3) * k;
                 int[] rings = {Color.rgb(26, 19, 48), Color.rgb(244, 162, 122), Color.rgb(26, 19, 48)};
                 for (int i = 0; i < rings.length; i++) {
                     paint.setStyle(Paint.Style.STROKE);
                     paint.setStrokeWidth(step);
                     paint.setColor(rings[i]);
-                    canvas.drawRect(inset(screen, -dp(2) - step * (i + 0.5f)), paint);
+                    canvas.drawRect(inset(screen, -dp(2) * k - step * (i + 0.5f)), paint);
                     paint.setStyle(Paint.Style.FILL);
                 }
                 break;
@@ -978,7 +996,7 @@ final class ClearShellView extends View {
             canvas.restore();
             strokeRoundRect(canvas, frame, radius, dp(1), Color.argb(150, 255, 255, 255));
             // The screen's black edge and, outside it, the 포인트 색 line.
-            float e = dp(5);
+            float e = frameEdge() * 0.62f;
             RectF edge = new RectF(frame.left + e, frame.top + e, frame.right - e, frame.bottom - e);
             if (trim != 0) {
                 strokeRoundRect(canvas, edge, dp(4), dp(3), trim);
