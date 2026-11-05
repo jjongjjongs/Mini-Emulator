@@ -193,6 +193,11 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>본인이 가진 게임과 그 게임의 패치 파일만 쓰세요. 패치 적용 결과(게임 파일)는 재배포하면 안 됩니다.</li>
 <li>시안에서 바뀐 점: 업데이트 · DLC는 바로 설치하지 않고 <b>다음 실행 때</b> 설치(엔진이 게임을 켤 때만 동작), DLC는 게임과 다른 자기 라이선스를 씀.</li>
 </ul>
+<h4>PS Vita 고침 (0.0.300)</h4>
+<ul>
+<li><b>시스템 대화상자 자동 응답</b>: 이 엔진(libretro 판)에는 게임이 띄우는 시스템 대화상자(트로피 준비 · 메시지 · 세이브 데이터 · 글자 입력)를 그리는 화면이 없어서, 게임이 대답을 기다리며 멈췄습니다(예: 드래곤볼 Z 배틀 오브 Z의 NOW LOADING). 이제 매 화면 엔진이 사람이 누를 법한 답을 대신 고릅니다: 트로피 준비는 바로 끝, 메시지는 첫 단추(OK · 예), 세이브 데이터는 예 · OK 또는 첫 칸, 글자 입력은 게임이 넣어 둔 그대로 확인. 단추 없는 대화상자(진행 막대 · 저장 중)는 게임이 스스로 닫습니다. 그래서 세이브 칸을 직접 고를 수 없고 늘 첫 칸을 씁니다.</li>
+<li><b>엔진 폴더 맞춤</b>: 엔진은 받은 시스템 폴더 안에 자기 이름(vita3k) 폴더를 하나 더 만들어 씁니다(<code>files/system/vita3k/vita3k</code>). 앱이 한 단계 위를 보고 있어서 PREINST · FONT 펌웨어가 설치되지 않았고, 한글패치 · 업데이트 대기 · PKG 설치 표시가 설치된 게임을 찾지 못했습니다. 이제 앱도 엔진 폴더를 쓰고, 전에 넣은 펌웨어 파일과 대기 중인 PKG는 처음 한 번 옮깁니다.</li>
+</ul>
 <figure><img src="img/vitako.jpg" alt="PS Vita 한글패치 · 업데이트 PKG 시안"><figcaption>PS Vita 한글패치 · 업데이트 PKG 시안 (게임 이름은 가상의 예시).</figcaption></figure>
 <figure><img src="img/vita.jpg" alt="PS Vita 모드 시안"><figcaption>PS Vita 모드 시안 (게임 화면과 이름은 가상의 예시).</figcaption></figure>
 <h3>Wii U (실험적 · 0.0.210)</h3>

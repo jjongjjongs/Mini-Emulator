@@ -71,6 +71,18 @@ index 3de3d68..1e8300a 100644
          // for whatever reasons, fingerprint sensors are detected as controllers, filter them out
          const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
          if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
+diff --git a/vita3k/libretro/CMakeLists.txt b/vita3k/libretro/CMakeLists.txt
+index 0fb4e5c..a797bcf 100644
+--- a/vita3k/libretro/CMakeLists.txt
++++ b/vita3k/libretro/CMakeLists.txt
+@@ -19,6 +19,7 @@ target_link_libraries(vita3k_libretro PRIVATE
+ 	config
+ 	cppcommon
+ 	ctrl
++	dialog
+ 	display
+ 	glad
+ 	gxm
 diff --git a/vita3k/libretro/libretro_installer.cpp b/vita3k/libretro/libretro_installer.cpp
 index a0ca512..d1e8976 100644
 --- a/vita3k/libretro/libretro_installer.cpp
@@ -249,10 +261,19 @@ index a0ca512..d1e8976 100644
 +    return result;
 +}
 diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
-index 90c8184..919e69a 100644
+index 90c8184..fb69501 100644
 --- a/vita3k/libretro/libretro_vita3k.cpp
 +++ b/vita3k/libretro/libretro_vita3k.cpp
-@@ -810,8 +810,8 @@ static void request_guest_shutdown(EmuEnvState &emuenv, const char *reason) {
+@@ -28,6 +28,8 @@
+ #include <config/state.h>
+ #include <config/version.h>
+ #include <display/functions.h>
++#include <dialog/state.h>
++#include <dialog/types.h>
+ #include <display/state.h>
+ #include <emuenv/state.h>
+ #include <gxm/state.h>
+@@ -810,8 +812,8 @@ static void request_guest_shutdown(EmuEnvState &emuenv, const char *reason) {
          {
              std::lock_guard<std::mutex> lock(emuenv.kernel.mutex);
              for (auto &[id, thread] : emuenv.kernel.threads) {
@@ -263,6 +284,79 @@ index 90c8184..919e69a 100644
                  thread->exit_delete(false);
                  forced_count++;
              }
+@@ -1273,6 +1275,63 @@ RETRO_API void retro_unload_game(void) {
+     libretro.installed_title.clear();
+ }
+ 
++// Mini Emulator: this build has no on-screen layer for the system dialogs a game opens
++// (the desktop build draws them with its GUI and the player answers), so a game waiting on
++// one waited forever (e.g. the trophy setup dialog at boot). They are answered here, each
++// frame, as a player most likely would: trophy setup done, a message's first button
++// (OK / YES), save data YES / OK or the first slot, text input as the game filled it in.
++// Dialogs without buttons (progress, "saving...") are left for the game to close.
++static void answer_common_dialogs(EmuEnvState &emuenv) {
++    auto &d = emuenv.common_dialog;
++    switch (d.type) {
++    case TROPHY_SETUP_DIALOG:
++        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
++            d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            lr_log(RETRO_LOG_INFO, "Dialog: trophy setup finished\n");
++        }
++        break;
++    case MESSAGE_DIALOG:
++        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING && d.msg.btn_num > 0) {
++            d.msg.status = d.msg.btn_val[0];
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: message \"%s\" answered with button %u\n", d.msg.message.c_str(), d.msg.btn_val[0]);
++        }
++        break;
++    case IME_DIALOG:
++        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
++            d.ime.status = SCE_IME_DIALOG_BUTTON_ENTER;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: text input entered as given\n");
++        }
++        break;
++    case SAVEDATA_DIALOG:
++        if (d.substatus != SCE_COMMON_DIALOG_STATUS_RUNNING)
++            break;
++        if (d.savedata.mode_to_display == SCE_SAVEDATA_DIALOG_MODE_LIST) {
++            d.savedata.selected_save = 0;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.substatus = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: save data list, first slot chosen\n");
++        } else if (d.savedata.btn_num > 0) {
++            uint32_t chosen = d.savedata.btn_val[0];
++            for (int i = 0; i < d.savedata.btn_num && i < 2; i++) {
++                if (d.savedata.btn_val[i] == SCE_SAVEDATA_DIALOG_BUTTON_ID_YES || d.savedata.btn_val[i] == SCE_SAVEDATA_DIALOG_BUTTON_ID_OK)
++                    chosen = d.savedata.btn_val[i];
++            }
++            d.savedata.button_id = chosen;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.substatus = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: save data \"%s\" answered with button %u\n", d.savedata.msg.c_str(), chosen);
++        }
++        break;
++    default:
++        break;
++    }
++}
++
+ RETRO_API void retro_run(void) {
+     if (!libretro.game_loaded || !libretro.emuenv)
+         return;
+@@ -1290,6 +1349,8 @@ RETRO_API void retro_run(void) {
+             libretro.render_thread ? 1 : 0);
+     }
+ 
++    answer_common_dialogs(*libretro.emuenv);
++
+     if (libretro.reset_requested.exchange(false)) {
+         lr_log(RETRO_LOG_INFO, "retro_run: processing deferred reset request\n");
+         if (!perform_core_reset()) {
 diff --git a/vita3k/modules/SceIme/SceIme.cpp b/vita3k/modules/SceIme/SceIme.cpp
 index ac6fdf5..c3ba069 100644
 --- a/vita3k/modules/SceIme/SceIme.cpp

@@ -19475,10 +19475,48 @@ public final class MainActivity extends Activity {
         return new File(systemDir(), "vita3k");
     }
 
+    // The engine's own folder (its pref path): the core adds "vita3k" to the system folder it
+    // is given, so ux0 (installed games), pkg_installed, pkg_queue and the installed firmware
+    // are in files/system/vita3k/vita3k. Firmware files and a queue put one level up by
+    // 0.0.292–0.0.299 are moved in once.
+    private static boolean vitaPrefMoved;
+
+    private File vitaPrefDir() {
+        File pref = new File(vitaSystemDir(), "vita3k");
+        if (!vitaPrefMoved) {
+            vitaPrefMoved = true;
+            pref.mkdirs();
+            for (String[] part : VITA_FIRMWARE) {
+                File old = new File(vitaSystemDir(), part[0]);
+                File now = new File(pref, part[0]);
+                if (old.isFile() && !now.exists() && !old.renameTo(now)) {
+                    old.delete();
+                }
+            }
+            File oldQueue = new File(vitaSystemDir(), "pkg_queue");
+            File[] titles = oldQueue.listFiles();
+            if (titles != null) {
+                for (File title : titles) {
+                    File target = new File(new File(pref, "pkg_queue"), title.getName());
+                    target.mkdirs();
+                    File[] files = title.listFiles();
+                    if (files != null) {
+                        for (File f : files) {
+                            f.renameTo(new File(target, f.getName()));
+                        }
+                    }
+                    title.delete();
+                }
+                oldQueue.delete();
+            }
+        }
+        return pref;
+    }
+
     private boolean vitaFirmwarePart(int k) {
-        File installed = new File(vitaSystemDir(), VITA_FIRMWARE[k][1]);
+        File installed = new File(vitaPrefDir(), VITA_FIRMWARE[k][1]);
         String[] names = installed.list();
-        return new File(vitaSystemDir(), VITA_FIRMWARE[k][0]).isFile() || (names != null && names.length > 0);
+        return new File(vitaPrefDir(), VITA_FIRMWARE[k][0]).isFile() || (names != null && names.length > 0);
     }
 
     private boolean vitaFirmwareReady() {
@@ -19578,7 +19616,7 @@ public final class MainActivity extends Activity {
     }
 
     private boolean vitaPkgInstalled(File game) {
-        return new File(new File(vitaSystemDir(), "pkg_installed"), game.getName() + ".txt").isFile();
+        return new File(new File(vitaPrefDir(), "pkg_installed"), game.getName() + ".txt").isFile();
     }
 
     private void showVitaLicenseSheet(File game) {
@@ -19751,7 +19789,7 @@ public final class MainActivity extends Activity {
     }
 
     private File vitaAppDir(String titleId) {
-        return new File(vitaSystemDir(), "ux0/app/" + titleId);
+        return new File(vitaPrefDir(), "ux0/app/" + titleId);
     }
 
     private boolean vitaGameInstalled(String titleId) {
@@ -19763,11 +19801,11 @@ public final class MainActivity extends Activity {
     }
 
     private File vitaQueueDir(String titleId) {
-        return new File(vitaSystemDir(), "pkg_queue/" + titleId);
+        return new File(vitaPrefDir(), "pkg_queue/" + titleId);
     }
 
     private File vitaAddonLog(String titleId) {
-        return new File(vitaSystemDir(), "pkg_installed/addons/" + titleId + ".txt");
+        return new File(vitaPrefDir(), "pkg_installed/addons/" + titleId + ".txt");
     }
 
     private static String readVitaText(File file) {
@@ -20273,9 +20311,9 @@ public final class MainActivity extends Activity {
             final Dialog busy = progressCard(RoundIconView.RESET, Color.rgb(100, 116, 139), "지우는 중", id);
             new Thread(() -> {
                 deleteTree(vitaAppDir(id));
-                deleteTree(new File(vitaSystemDir(), "ux0/patch/" + id));
+                deleteTree(new File(vitaPrefDir(), "ux0/patch/" + id));
                 vitaKoRecord(id).delete();
-                new File(new File(vitaSystemDir(), "pkg_installed"), game.getName() + ".txt").delete();
+                new File(new File(vitaPrefDir(), "pkg_installed"), game.getName() + ".txt").delete();
                 StringBuilder keep = new StringBuilder();
                 for (String[] line : vitaAddonLines(id)) {
                     if ("ok".equals(line[0]) && !line[1].startsWith("gp")) {
@@ -20303,7 +20341,7 @@ public final class MainActivity extends Activity {
             return;
         }
         final Uri uri = data.getData();
-        final File target = new File(vitaSystemDir(), VITA_FIRMWARE[k][0]);
+        final File target = new File(vitaPrefDir(), VITA_FIRMWARE[k][0]);
         Toast.makeText(this, "펌웨어 파일을 넣는 중…", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             String error = null;
