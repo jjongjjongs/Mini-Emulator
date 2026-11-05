@@ -501,7 +501,12 @@ final class DosSetup {
 
     // Puts MINIRUN.BAT into the save overlay (a zip), keeping everything else in it.
     static void writeStartFile(File save, String batch) throws IOException {
-        byte[] data = batch.getBytes(StandardCharsets.ISO_8859_1);
+        writeOverlayFile(save, START_FILE, batch.getBytes(StandardCharsets.ISO_8859_1));
+    }
+
+    // Puts one file (a C: path, "/" between folders) into the save overlay, replacing any
+    // file of that name and keeping everything else.
+    static void writeOverlayFile(File save, String name, byte[] data) throws IOException {
         File temp = new File(save.getParentFile(), save.getName() + ".tmp");
         try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(temp), StandardCharsets.ISO_8859_1)) {
             if (save.isFile() && save.length() > 0) {
@@ -510,7 +515,7 @@ final class DosSetup {
                     byte[] buffer = new byte[1 << 16];
                     while (entries.hasMoreElements()) {
                         ZipEntry e = entries.nextElement();
-                        if (e.getName().equalsIgnoreCase(START_FILE)) {
+                        if (e.getName().equalsIgnoreCase(name)) {
                             continue;
                         }
                         ZipEntry copy = new ZipEntry(e.getName());
@@ -535,7 +540,7 @@ final class DosSetup {
                     throw new IOException("세이브 파일 형식을 몰라서 시작 파일을 넣지 못했어요");
                 }
             }
-            ZipEntry entry = new ZipEntry(START_FILE);
+            ZipEntry entry = new ZipEntry(name);
             entry.setMethod(ZipEntry.STORED);
             entry.setSize(data.length);
             entry.setCompressedSize(data.length);
@@ -608,7 +613,84 @@ final class DosSetup {
                 return "";
             }
         }
+        if (!CONF.equals(exe)) {
+            giveDoomSound(prefs, save, game, exe, dosNameOf(game, exe), saveBaseName);
+        }
         return START_FILE;
+    }
+
+    // ---- DOOM without its setup: no DEFAULT.CFG means no sound card (0.0.290) ----
+    // DOOM / DOOM II read the sound card from DEFAULT.CFG beside the game, which SETUP.EXE
+    // writes; a copy of just the game and its WAD has none, and the game then plays without
+    // sound or music. The app writes one into the overlay: Sound Blaster at DOSBox Pure's
+    // 220 / IRQ 7 / DMA 1 for the effects, and General MIDI on 330 for the music when MIDI is
+    // on (else the Sound Blaster's FM). One the player or the game wrote with a card in it
+    // is left alone; one that still says "no card" is replaced.
+    static void giveDoomSound(SharedPreferences prefs, File save, File game, String exe, String exeDos, String saveBaseName) {
+        if (exe == null || exeDos == null) {
+            return;
+        }
+        String base = baseName(exe.toLowerCase(Locale.ROOT));
+        if (!base.equals("doom") && !base.equals("doom2")) {
+            return;
+        }
+        if (clamp(choice(prefs, "sound", saveBaseName), SOUND_NAMES.length) != 0) {
+            return;   // no Sound Blaster in this game's settings: nothing for DOOM to find
+        }
+        int slash = Math.max(exe.lastIndexOf('/'), exe.lastIndexOf('\\'));
+        String gameDir = slash >= 0 ? exe.substring(0, slash + 1) : "";
+        int dosSlash = exeDos.lastIndexOf('\\');
+        String overlayName = (dosSlash > 0 ? exeDos.substring(0, dosSlash).replace('\\', '/') + "/" : "") + "DEFAULT.CFG";
+        try (ZipFile zip = new ZipFile(game, StandardCharsets.ISO_8859_1)) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                if (entries.nextElement().getName().replace('\\', '/').equalsIgnoreCase(gameDir.replace('\\', '/') + "default.cfg")) {
+                    return;   // the game brought its own
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            return;
+        }
+        String existing = readOverlayFile(save, overlayName);
+        if (existing != null && !java.util.regex.Pattern.compile("(?m)^\\s*snd_sfxdevice\\s+0\\s*$").matcher(existing).find()) {
+            return;   // set up already
+        }
+        boolean midi = midiChoice(prefs, saveBaseName) != 0;
+        String cfg = "mouse_sensitivity\t\t5\r\nsfx_volume\t\t8\r\nmusic_volume\t\t8\r\nshow_messages\t\t1\r\n"
+                + "snd_channels\t\t8\r\nsnd_musicdevice\t\t" + (midi ? 8 : 3) + "\r\nsnd_sfxdevice\t\t3\r\n"
+                + "snd_sbport\t\t544\r\nsnd_sbirq\t\t7\r\nsnd_sbdma\t\t1\r\nsnd_mport\t\t816\r\n";
+        try {
+            writeOverlayFile(save, overlayName, cfg.getBytes(StandardCharsets.ISO_8859_1));
+        } catch (IOException ignored) {
+            // Without it the game still runs, silent as before.
+        }
+    }
+
+    private static String readOverlayFile(File save, String name) {
+        if (!save.isFile()) {
+            return null;
+        }
+        try (ZipFile zip = new ZipFile(save, StandardCharsets.ISO_8859_1)) {
+            Enumeration<? extends ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry e = entries.nextElement();
+                if (!e.getName().equalsIgnoreCase(name)) {
+                    continue;
+                }
+                try (InputStream in = zip.getInputStream(e)) {
+                    java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                    byte[] buffer = new byte[4096];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        bytes.write(buffer, 0, n);
+                    }
+                    return new String(bytes.toByteArray(), StandardCharsets.ISO_8859_1);
+                }
+            }
+        } catch (IOException e) {
+            return null;
+        }
+        return null;
     }
 
     // ---- dosbox.conf (eXoDOS-style or hand-made) ----
