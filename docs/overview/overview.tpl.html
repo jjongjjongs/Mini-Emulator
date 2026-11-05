@@ -175,6 +175,15 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li><b>성능 탭 · 해상도 배율</b>: 1배(960×544, 추천) · 2배 · 3배, 게임마다. 바꾸면 다시 켜집니다(타이틀부터).</li>
 <li>시안에서 바뀐 점: 렌더러는 Vulkan으로 고정(이식판의 OpenGL은 데스크톱 GL용), 뒷면 터치는 따로 버튼 대신 L2를 누른 채 터치(엔진 방식), .zip · 게임 폴더는 받지 않고 .vpk만.</li>
 </ul>
+<h4>PS Vita .pkg 가져오기 (0.0.296)</h4>
+<ul>
+<li><b>.pkg</b>(소니의 암호화된 공식 설치 파일)도 게임으로 넣을 수 있습니다. 풀려면 그 게임의 <b>라이선스</b>가 필요합니다 — <b>zRIF 문자열</b>(KO5i…로 시작)을 붙여넣거나, 본인 PS Vita의 ux0:license/app/타이틀ID/ 에 있는 <b>work.bin</b> 파일을 고릅니다. 둘 중 하나면 됩니다.</li>
+<li>라이선스는 게임 파일 옆에 <code>이름.pkg.zrif</code> / <code>이름.pkg.work.bin</code>으로 저장되고, 엔진(Vita3K) 자체의 PKG 설치 기능이 그것으로 처음 실행 때 한 번 설치합니다(몇 분, 진행 막대 없음 — 화면이 멈춰 있어도 기다려 주세요). 설치가 끝나면 다음부터는 바로 켜집니다.</li>
+<li>라이선스 없이 .pkg를 켜면 라이선스 창이 뜹니다. 게임을 길게 눌러 <b>PKG 라이선스 넣기 / 바꾸기</b>로 언제든 바꿀 수 있고, 목록에는 “PKG · 라이선스 ✓ / 설치됨 / 라이선스가 필요해요”가 표시됩니다. 게임을 지우면 라이선스 파일도 같이 지워집니다.</li>
+<li><b>본인이 산 게임의 라이선스만</b> 써 주세요. 남의 라이선스로 푸는 것은 불법 복제입니다.</li>
+<li>시안에서 바뀐 점: 설치 진행 막대 대신 시작 안내(엔진이 진행 상황을 앱에 알려 주지 않음), 라이선스가 틀리면 엔진의 오류 메시지로 알려 줍니다.</li>
+</ul>
+<figure><img src="img/vitapkg.jpg" alt="PS Vita PKG 라이선스 시안"><figcaption>PS Vita .pkg 라이선스 시안 (이름은 가상의 예시).</figcaption></figure>
 <figure><img src="img/vita.jpg" alt="PS Vita 모드 시안"><figcaption>PS Vita 모드 시안 (게임 화면과 이름은 가상의 예시).</figcaption></figure>
 <h3>Wii U (실험적 · 0.0.210)</h3>
 <p>엔진은 Cemu(libretro 판, 안드로이드 arm64 빌드)입니다. 직접 덤프한 게임만 넣을 수 있고, 앱에는 키가 들어 있지 않습니다.</p>

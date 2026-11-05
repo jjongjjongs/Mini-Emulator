@@ -71,6 +71,107 @@ index 3de3d68..1e8300a 100644
          // for whatever reasons, fingerprint sensors are detected as controllers, filter them out
          const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
          if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
+diff --git a/vita3k/libretro/libretro_installer.cpp b/vita3k/libretro/libretro_installer.cpp
+index a0ca512..83d4cb2 100644
+--- a/vita3k/libretro/libretro_installer.cpp
++++ b/vita3k/libretro/libretro_installer.cpp
+@@ -18,7 +18,9 @@
+ #include "libretro_installer.h"
+ #include "libretro_state.h"
+ 
++#include <emuenv/state.h>
+ #include <packages/functions.h>
++#include <packages/pkg.h>
+ #include <packages/sfo.h>
+ #include <util/fs.h>
+ #include <util/log.h>
+@@ -726,6 +728,76 @@ static GameInstallResult handle_folder_game(const fs::path &game_path, const fs:
+     return result;
+ }
+ 
++// Mini Emulator: an official .pkg, installed with Vita3K's own install_pkg() and the game's
++// license the player put beside it: "<file>.pkg.zrif" (the zRIF text) or
++// "<file>.pkg.work.bin" (the license file from their own console). Installed once; a marker in
++// <pref>/pkg_installed names the title it became.
++static bool read_installed_title(const fs::path &dir, int sys_lang, GameInstallResult &result) {
++    std::ifstream sfo_file((dir / "sce_sys" / "param.sfo").native(), std::ios::binary);
++    if (!sfo_file) return false;
++    std::vector<uint8_t> sfo_data((std::istreambuf_iterator<char>(sfo_file)), std::istreambuf_iterator<char>());
++    sfo::SfoAppInfo app_info;
++    sfo::get_param_info(app_info, sfo_data, sys_lang);
++    if (app_info.app_title_id.empty()) return false;
++    result.title_id = app_info.app_title_id;
++    result.title = app_info.app_title;
++    result.category = app_info.app_category;
++    result.content_id = app_info.app_content_id;
++    result.success = true;
++    return true;
++}
++
++static GameInstallResult handle_pkg_game(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
++    GameInstallResult result;
++    const fs::path marker = pref_path / "pkg_installed" / (game_path.filename().string() + ".txt");
++    if (fs::exists(marker)) {
++        std::ifstream in(marker.native());
++        std::string title_id;
++        std::getline(in, title_id);
++        if (!title_id.empty() && read_installed_title(pref_path / "ux0" / "app" / title_id, sys_lang, result)) {
++            lr_log(RETRO_LOG_INFO, "PKG already installed as %s\n", title_id.c_str());
++            return result;
++        }
++    }
++    std::string zrif;
++    const fs::path zrif_path = fs::path(game_path.string() + ".zrif");
++    const fs::path bin_path = fs::path(game_path.string() + ".work.bin");
++    if (fs::exists(zrif_path)) {
++        std::ifstream in(zrif_path.native());
++        std::getline(in, zrif);
++        while (!zrif.empty() && (zrif.back() == '\r' || zrif.back() == ' ' || zrif.back() == '\n')) zrif.pop_back();
++    } else if (fs::exists(bin_path)) {
++        fs::ifstream bin(bin_path, std::ios::in | std::ios::binary | std::ios::ate);
++        zrif = rif2zrif(bin);
++    }
++    if (zrif.empty()) {
++        lr_log(RETRO_LOG_ERROR, "PKG without a license (%s.zrif or .work.bin)\n", game_path.filename().string().c_str());
++        lr_msg("PKG needs its license (zRIF or work.bin)", 600);
++        return result;
++    }
++    auto emuenv = std::make_unique<EmuEnvState>();
++    emuenv->pref_path = pref_path;
++    emuenv->cache_path = pref_path / "cache";
++    emuenv->cfg.sys_lang = sys_lang;
++    fs::create_directories(emuenv->cache_path);
++    lr_msg("Installing PKG (first start only)...", 600);
++    if (!install_pkg(game_path, *emuenv, zrif, [](float) {})) {
++        lr_log(RETRO_LOG_ERROR, "install_pkg failed for %s\n", game_path.generic_string().c_str());
++        lr_msg("PKG install failed: wrong license or broken file", 600);
++        return result;
++    }
++    const std::string title_id = emuenv->app_info.app_title_id;
++    if (title_id.empty() || !read_installed_title(pref_path / "ux0" / "app" / title_id, sys_lang, result)) {
++        lr_log(RETRO_LOG_ERROR, "PKG installed but no game found (title %s)\n", title_id.c_str());
++        lr_msg("PKG installed, but it is not a game (DLC / update?)", 600);
++        return result;
++    }
++    fs::create_directories(marker.parent_path());
++    std::ofstream(marker.native()) << title_id << "\n";
++    lr_log(RETRO_LOG_INFO, "PKG installed as %s\n", title_id.c_str());
++    return result;
++}
++
+ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
+     GameInstallResult result;
+ 
+@@ -748,6 +820,9 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
+     // Validate extension for archive files
+     const auto extension = string_utils::tolower(game_path.extension().string());
+     lr_log(RETRO_LOG_DEBUG, "Game file extension: %s\n", extension.c_str());
++    if (extension == ".pkg") {
++        return handle_pkg_game(game_path, pref_path, sys_lang);
++    }
+     if (extension != ".vpk" && extension != ".zip") {
+         // Maybe it's an eboot.bin directly - check parent folder
+         if (game_path.filename() == "eboot.bin") {
 diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
 index 90c8184..919e69a 100644
 --- a/vita3k/libretro/libretro_vita3k.cpp

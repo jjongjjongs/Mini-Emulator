@@ -131,7 +131,7 @@ public final class MainActivity extends Activity {
             // player adds go to <system>/Machines/Shared Roms.
             // PS Vita on Vita3K (libretro port): .vpk packages, installed on first start into
             // <system>/vita3k; the player adds the system software (firmware) themselves.
-            {MODE_VITA, "vita3k", ".vpk", ".vpk", "roms_vita", "1075"},
+            {MODE_VITA, "vita3k", ".vpk,.pkg", ".vpk / .pkg", "roms_vita", "1075"},
             {MODE_MSX, "bluemsx", ".rom,.mx1,.mx2,.ri,.dsk,.cas,.m3u", ".rom / .dsk / .cas / .zip", "roms_msx", "1071"},
             // MS-DOS games on DOSBox Pure: the game's folder as a zip (kept whole, never
             // unpacked), CD images, floppy/hard disk images.
@@ -189,7 +189,7 @@ public final class MainActivity extends Activity {
     private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_DOS, "neogeo", "arcade"};
     private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "DOS (고전 PC)", "Neo Geo", "아케이드"};
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
     private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
@@ -3134,6 +3134,8 @@ public final class MainActivity extends Activity {
             onVitaFirmwarePicked(intent);
         } else if (i == REQUEST_ARC_PATCH) {
             onArcadePatchPicked(intent);
+        } else if (i == REQUEST_VITA_LICENSE) {
+            onVitaLicensePicked(intent);
         } else if (i == REQUEST_IMPORT_WIIU_KEYS) {
             if (data != null) {
                 importWiiuKeys(data);
@@ -4795,6 +4797,9 @@ public final class MainActivity extends Activity {
         if (romPrefs().getBoolean("unpacked:" + file.getName(), false)) {
             sb.append("  |  CHD에서 풂");
         }
+        if (isVitaPkg(file) && MODE_VITA.equals(modeForFile(file))) {
+            sb.append("  |  PKG · ").append(vitaLicensePresent(file) ? (vitaPkgInstalled(file) ? "설치됨" : "라이선스 ✓ · 처음 실행 때 설치") : "라이선스가 필요해요");
+        }
         if ("fbneo".equals(coreFor(file)) && arcadePatchDir(file).isDirectory()) {
             sb.append("  |  한글패치 ").append(sharedSettings(this).getBoolean("arcips:" + file.getName(), true) ? "켜짐" : "꺼짐");
         }
@@ -5511,6 +5516,12 @@ public final class MainActivity extends Activity {
                 hanParams.setMargins(0, dp(9), 0, 0);
                 panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60), "한글패치 덮어쓰기 (패치 zip의 파일로 바꿔 새 게임으로)", () -> pickDosPatch(file)), hanParams);
             }
+        }
+        if (MODE_VITA.equals(modeForFile(file)) && isVitaPkg(file)) {
+            LinearLayout.LayoutParams licParams = new LinearLayout.LayoutParams(-1, dp(52));
+            licParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.DLC, Color.rgb(29, 78, 216),
+                    vitaLicensePresent(file) ? "PKG 라이선스 바꾸기 (있음 ✓)" : "PKG 라이선스 넣기 (없음)", () -> showVitaLicenseSheet(file)), licParams);
         }
         if ("fbneo".equals(coreFor(file)) && file.getName().toLowerCase(Locale.ROOT).endsWith(".zip")) {
             LinearLayout.LayoutParams arcParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -14146,6 +14157,13 @@ public final class MainActivity extends Activity {
                 showVitaFirmwareSheet();
                 return;
             }
+            if (isVitaPkg(file) && !vitaLicensePresent(file)) {
+                showVitaLicenseSheet(file);
+                return;
+            }
+            if (isVitaPkg(file) && !vitaPkgInstalled(file)) {
+                Toast.makeText(this, "PKG를 처음 설치하는 중이에요 (암호 풀기 · 몇 분). 화면이 잠시 멈춰 있어도 기다려 주세요.", Toast.LENGTH_LONG).show();
+            }
         }
         if (MODE_WIIU.equals(mode)) {
             if (!cemuShipped()) {
@@ -16968,6 +16986,10 @@ public final class MainActivity extends Activity {
 
     // Deletes a game's file, and for a .cue sheet the tracks no other sheet uses.
     private boolean deleteRomFiles(File file) {
+        if (isVitaPkg(file)) {
+            vitaZrifFile(file).delete();
+            vitaWorkBinFile(file).delete();
+        }
         List<File> disks = msxPlaylistDisks(file);
         if (!disks.isEmpty()) {
             // A playlist the app made for split disks: the disks go with it.
@@ -19509,6 +19531,168 @@ public final class MainActivity extends Activity {
             window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
         }
         dialog.show();
+    }
+
+    // ---- PS Vita .pkg: the game's license beside it ("<file>.pkg.zrif" or "<file>.pkg.work.bin"),
+    // which the engine's own install_pkg() takes on the first start (cores/patches) ----
+    private static final int REQUEST_VITA_LICENSE = 1078;
+    private File pendingVitaLicenseGame;
+
+    private static boolean isVitaPkg(File file) {
+        return file.getName().toLowerCase(Locale.ROOT).endsWith(".pkg");
+    }
+
+    private static File vitaZrifFile(File game) {
+        return new File(game.getParentFile(), game.getName() + ".zrif");
+    }
+
+    private static File vitaWorkBinFile(File game) {
+        return new File(game.getParentFile(), game.getName() + ".work.bin");
+    }
+
+    private static boolean vitaLicensePresent(File game) {
+        return vitaZrifFile(game).isFile() || vitaWorkBinFile(game).isFile();
+    }
+
+    private boolean vitaPkgInstalled(File game) {
+        return new File(new File(vitaSystemDir(), "pkg_installed"), game.getName() + ".txt").isFile();
+    }
+
+    private void showVitaLicenseSheet(File game) {
+        final int color = Color.rgb(29, 78, 216);
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(Theme.bg(Color.WHITE), dp(24)));
+        panel.addView(dosPatchText("PKG 라이선스", 17f, Color.rgb(31, 41, 51), true));
+        TextView sub = dosPatchText(game.getName() + (vitaLicensePresent(game) ? " · 라이선스 있음 ✓" : ""), 12f, Color.rgb(122, 130, 140), false);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        panel.addView(sub);
+        TextView about = dosPatchText("PKG는 암호화된 공식 설치 파일이라, 이 게임의 라이선스가 있어야 설치할 수 있어요. 둘 중 하나만 넣으면 돼요.", 12f, Color.rgb(30, 58, 138), false);
+        about.setPadding(dp(12), dp(10), dp(12), dp(10));
+        about.setBackground(rounded(Theme.bg(Color.rgb(239, 246, 255)), dp(12)));
+        LinearLayout.LayoutParams aboutParams = new LinearLayout.LayoutParams(-1, -2);
+        aboutParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(about, aboutParams);
+        TextView zLabel = dosPatchText("zRIF 문자열 붙여넣기", 13f, Color.rgb(51, 65, 85), true);
+        zLabel.setPadding(0, dp(12), 0, dp(4));
+        panel.addView(zLabel);
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("KO5ifR1dQ… 로 시작하는 긴 문자열");
+        input.setTypeface(Typeface.MONOSPACE);
+        input.setTextSize(12f);
+        input.setMaxLines(3);
+        input.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        GradientDrawable inputBg = rounded(Theme.bg(Color.rgb(246, 247, 249)), dp(12));
+        inputBg.setStroke(dp(2), Color.rgb(203, 213, 225));
+        input.setBackground(inputBg);
+        input.setPadding(dp(12), dp(10), dp(12), dp(10));
+        panel.addView(input, new LinearLayout.LayoutParams(-1, -2));
+        TextView binRow = dosPatchText("📄  work.bin 파일 고르기 (본인 PS Vita의 ux0:license/app/타이틀ID/)", 12.5f, Color.rgb(31, 41, 51), true);
+        binRow.setPadding(dp(12), dp(12), dp(12), dp(12));
+        binRow.setBackground(rounded(Theme.bg(Color.rgb(246, 247, 249)), dp(12)));
+        binRow.setOnClickListener(v -> {
+            dialog.dismiss();
+            this.pendingVitaLicenseGame = game;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            try {
+                startActivityForResult(intent, REQUEST_VITA_LICENSE);
+            } catch (Exception e) {
+                showError("파일을 고르는 화면을 열 수 없어요.");
+            }
+        });
+        LinearLayout.LayoutParams binParams = new LinearLayout.LayoutParams(-1, -2);
+        binParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(binRow, binParams);
+        TextView warn = dosPatchText("본인이 산 게임의 라이선스만 써 주세요. 남의 라이선스로 푸는 건 불법 복제예요.", 12f, Color.rgb(154, 52, 18), false);
+        warn.setPadding(dp(12), dp(10), dp(12), dp(10));
+        warn.setBackground(rounded(Theme.bg(Color.rgb(255, 247, 237)), dp(12)));
+        LinearLayout.LayoutParams warnParams = new LinearLayout.LayoutParams(-1, -2);
+        warnParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(warn, warnParams);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setBaselineAligned(false);
+        TextView later = dosPatchText("나중에", 15f, Color.rgb(75, 85, 99), true);
+        later.setGravity(android.view.Gravity.CENTER);
+        later.setBackground(rounded(Theme.bg(Color.rgb(241, 242, 244)), dp(14)));
+        later.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(later, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        TextView save = new TextView(this);
+        save.setText("확인하고 넣기");
+        save.setGravity(android.view.Gravity.CENTER);
+        save.setTextSize(15f);
+        save.setTypeface(Typeface.DEFAULT_BOLD);
+        save.setTextColor(Color.WHITE);
+        save.setBackground(rounded(color, dp(14)));
+        save.setOnClickListener(v -> {
+            String zrif = input.getText().toString().replaceAll("\\s+", "");
+            if (!zrif.matches("[A-Za-z0-9+/=]{40,}")) {
+                Toast.makeText(this, "zRIF 문자열이 아닌 것 같아요 (영문 · 숫자 · + / = 로 된 긴 문자열)", Toast.LENGTH_LONG).show();
+                return;
+            }
+            try (FileOutputStream out = new FileOutputStream(vitaZrifFile(game))) {
+                out.write((zrif + "\n").getBytes(StandardCharsets.US_ASCII));
+            } catch (IOException e) {
+                showError("라이선스를 저장하지 못했어요.");
+                return;
+            }
+            vitaWorkBinFile(game).delete();
+            dialog.dismiss();
+            Toast.makeText(this, "라이선스를 넣었어요 · 처음 실행할 때 설치해요", Toast.LENGTH_LONG).show();
+            refreshLibrary();
+        });
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        saveParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(save, saveParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        dialog.show();
+    }
+
+    private void onVitaLicensePicked(Intent data) {
+        File game = this.pendingVitaLicenseGame;
+        this.pendingVitaLicenseGame = null;
+        if (data == null || data.getData() == null || game == null) {
+            return;
+        }
+        File target = vitaWorkBinFile(game);
+        File part = new File(target.getParentFile(), target.getName() + ".part");
+        try {
+            copyUriToFile(data.getData(), part);
+            long size = part.length();
+            // A PS Vita license (.rif / work.bin) is 512 bytes (1024 for some).
+            if (size != 512 && size != 1024) {
+                part.delete();
+                showError("work.bin 파일이 아닌 것 같아요 (크기 " + size + "바이트, 보통 512바이트).");
+                return;
+            }
+            if (!part.renameTo(target)) {
+                part.delete();
+                showError("라이선스를 넣지 못했어요.");
+                return;
+            }
+        } catch (IOException e) {
+            part.delete();
+            showError("라이선스를 넣지 못했어요.");
+            return;
+        }
+        vitaZrifFile(game).delete();
+        Toast.makeText(this, "work.bin을 넣었어요 · 처음 실행할 때 설치해요", Toast.LENGTH_LONG).show();
+        refreshLibrary();
     }
 
     private void onVitaFirmwarePicked(Intent data) {
