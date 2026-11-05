@@ -389,6 +389,10 @@ struct Core {
     // The same for players 2-4 (index 1-3).
     std::atomic<int> playerPressLatch[4] = {};
     std::atomic<int> playerFrameLatch[4] = {};
+    // Until which frame each pressed button stays down at least (players 1-4, 32 bits each):
+    // a tap on the glass is often shorter than a press of a real pad's button, and some
+    // games (Tekken 3) don't read the pad on every frame.
+    long long holdUntil[4][32] = {};
     // Players 2-4 (ports 1-3): the extra pads' buttons and sticks (left x/y, right x/y).
     std::atomic<int> playerMask[4] = {};
     std::atomic<int> playerAxes[4][4] = {};
@@ -2757,6 +2761,10 @@ int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsign
     return joypadPressed(core, core->inputMask.load() | core->frameLatch.load(), id);
 }
 
+// Every press reaches the game as held for at least this many frames (about 67 ms at 60 fps,
+// a quick press of a real pad's button), however short the tap.
+constexpr int kMinHoldFrames = 4;
+
 // Whether a joypad id is down for a player's button bits.
 int16_t joypadPressed(Core* core, int mask, unsigned id) {
     int bit;
@@ -3491,9 +3499,14 @@ void runLoop(Core* core) {
             if (core->coreId == "dosbox_pure") dos::deliver();
             disk::tick();
             // Every press is seen for at least this one frame, however short the tap.
-            core->frameLatch.store(core->pressLatch.exchange(0));
-            for (int p = 1; p < 4; ++p) {
-                core->playerFrameLatch[p].store(core->playerPressLatch[p].exchange(0));
+            for (int p = 0; p < 4; ++p) {
+                unsigned pressed = static_cast<unsigned>((p == 0 ? core->pressLatch : core->playerPressLatch[p]).exchange(0));
+                unsigned held = 0;
+                for (int bit = 0; bit < 32; ++bit) {
+                    if (pressed & (1u << bit)) core->holdUntil[p][bit] = static_cast<long long>(core->framesRun) + kMinHoldFrames;
+                    if (core->holdUntil[p][bit] > static_cast<long long>(core->framesRun)) held |= 1u << bit;
+                }
+                (p == 0 ? core->frameLatch : core->playerFrameLatch[p]).store(static_cast<int>(held));
             }
             core->retroRun();
             applyMemoryCheats(core);
