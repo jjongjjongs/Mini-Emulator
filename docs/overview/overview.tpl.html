@@ -375,6 +375,12 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>대상은 암호가 풀린 <code>.3ds</code> · <code>.cci</code> · <code>.cxi</code>입니다. CIA로 설치한 게임은 파일이 없어 해당하지 않고, romfs 폴더 · code.ips로 된 패치는 지금처럼 "덧씌우는 한글 패치"(LayeredFS)로 넣습니다.</li>
 <li>패치가 만들어진 덤프(트림 여부 등)와 다르면 "원본이 맞지 않아요"가 뜹니다.</li>
 </ul>
+<h3>게임큐브 · Wii · MSX 파일 패치 (0.0.313)</h3>
+<ul>
+<li><b>게임큐브 · Wii</b>: 압축 안 된 <code>.iso</code> · <code>.gcm</code>에 IPS · BPS · xdelta 패치를 씁니다. RVZ · WIA · GCZ · CISO · WBFS는 압축 형식이라 ISO로 풀어 넣어야 합니다(안내가 뜸). Riivolution 덧씌우기는 그대로입니다.</li>
+<li><b>MSX</b>: 롬팩(.rom · .mx1 · .mx2 · .ri) · 디스크(.dsk) · 테이프(.cas)에 패치를 씁니다. 분할 디스크 묶음(.m3u)은 디스크를 각각 패치하세요.</li>
+<li>이로써 xdelta를 쓸 수 없는 모드는 Wii U(묶인 형식) · DOS(덮어쓰기 방식) · 아케이드(롬셋 · IPS) 정도이고, PS Vita는 설치된 게임 파일에 바로 적용하는 전용 방식이 있습니다.</li>
+</ul>
 <h3>덧씌우는 한글 패치 · 3DS LayeredFS · PS2 .pnach (0.0.256)</h3>
 <ul>
 <li>게임 메뉴(3DS · PS2)에 <b>🧩 덧씌우는 한글 패치</b> 줄이 생겼습니다. 원본 롬은 그대로 두고, 켜 둔 패치만 게임을 켤 때 엔진이 덧씌워 읽습니다. 게임마다 패치를 여러 개 넣고 켜기 · 끄기 · 순서(아래쪽이 우선) · 지우기를 할 수 있고, 목록에 "🧩 한글 패치"로 표시됩니다.</li>

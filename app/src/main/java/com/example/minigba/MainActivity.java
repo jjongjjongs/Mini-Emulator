@@ -5630,7 +5630,7 @@ public final class MainActivity extends Activity {
     private File patchRom;
 
     private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP,
-            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS};
+            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS, MODE_GC, MODE_MSX};
 
     // Cartridge games, and PS1 (BIN/CUE, ISO), PSP and PS2 (ISO) discs. Compressed images
     // (CHD, CSO, PBP) would have to be unpacked first; arcade sets are not patched here.
@@ -5658,6 +5658,14 @@ public final class MainActivity extends Activity {
             // is not a game file to patch.
             return name.endsWith(".3ds") || name.endsWith(".cci") || name.endsWith(".cxi");
         }
+        if (MODE_GC.equals(mode)) {
+            // A plain disc image (0.0.313); RVZ, WIA, GCZ, CISO and WBFS are compressed.
+            return name.endsWith(".iso") || name.endsWith(".gcm");
+        }
+        if (MODE_MSX.equals(mode)) {
+            // A ROM cartridge, a disk or a tape (0.0.313); not the app's list of split disks.
+            return !name.endsWith(".m3u");
+        }
         return !(name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp") || name.endsWith(".m3u") || name.endsWith(".7z")
                 || name.endsWith(".ccd") || name.endsWith(".mds"));
     }
@@ -5671,6 +5679,10 @@ public final class MainActivity extends Activity {
         if (name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp")) {
             return "압축된 디스크(" + name.substring(name.lastIndexOf('.') + 1).toUpperCase(Locale.ROOT)
                     + ")는 패치할 수 없어요. 패치는 보통 BIN/CUE나 ISO용이라, 그 형식의 원본이 필요해요.";
+        }
+        if (MODE_GC.equals(modeForFile(file)) && !(name.endsWith(".iso") || name.endsWith(".gcm"))) {
+            return "압축된 디스크(" + name.substring(name.lastIndexOf('.') + 1).toUpperCase(Locale.ROOT)
+                    + ")는 패치할 수 없어요. 패치는 보통 압축 안 된 .iso용이라, Dolphin 같은 프로그램으로 ISO로 풀어 넣어 주세요.";
         }
         return null;
     }
