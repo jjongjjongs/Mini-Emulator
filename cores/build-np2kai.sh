@@ -34,8 +34,13 @@ if [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)" != "$COMMIT" ]; then
     git -C "$SRC" checkout -q --force FETCH_HEAD
 fi
 
+# jni/Android.mk at this commit has "INCFLAGS += (NP21_INCFLAGS)" (no $), which puts a bare
+# "(NP21_INCFLAGS)" on every compile line; and it asks git for a tag the shallow fetch lacks.
+sed -i 's/+= (NP21_INCFLAGS)/+= $(NP21_INCFLAGS)/' "$SRC/jni/Android.mk"
+
 echo "== building np2kai"
 "$NDK/ndk-build" -C "$SRC/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
+    NP2KAI_VERSION=rev.22 NP2KAI_HASH="${COMMIT:0:7}" \
     "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -j"$JOBS" > "$WORK/np2kai.log" 2>&1 || {
     tail -n 80 "$WORK/np2kai.log"
     exit 1
