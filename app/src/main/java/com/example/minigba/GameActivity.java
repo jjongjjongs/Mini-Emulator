@@ -11838,14 +11838,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         String[] notes = new String[disks.size()];
         for (int k = 0; k < names.length; k++) {
             int other = pc98Drive(1 - drive, disks.size());
-            names[k] = pc98DiskLabel(disks, k) + (k == now ? " · 지금 이 드라이브" : k == other ? " · FDD" + (2 - drive) + "에 있음" : "");
+            names[k] = pc98DiskLabel(disks, k) + (k == now ? " · 지금 이 드라이브 (다시 넣기)" : k == other ? " · FDD" + (2 - drive) + "에 있음" : "");
             notes[k] = disks.get(k).getName();
         }
         showChoiceDialog(RoundIconView.SWAP, Color.rgb(15, 118, 110), "FDD" + (drive + 1) + "에 넣을 디스크", names, notes, Math.max(0, now),
-                "같은 디스크를 두 드라이브에 함께 넣지는 않아요. 다른 드라이브에 있던 디스크를 고르면 그쪽은 비워져요.",
+                "같은 디스크를 두 드라이브에 함께 넣지는 않아요. 다른 드라이브에 있던 디스크를 고르면 그쪽은 비워져요.\n"
+                        + "지금 든 디스크를 고르면 꺼냈다가 다시 넣어요 (게임이 디스크를 못 알아볼 때).",
                 Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "넣기", choice -> {
                     long handle = this.nativeHandle;
-                    if (handle == 0 || choice == now) {
+                    if (handle == 0) {
                         return;
                     }
                     String drives = drive == 0 ? "FDD1" : "FDD2";
@@ -11857,7 +11858,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         edit.putInt(pc98Key("fdd" + (2 - drive)), -1);
                     }
                     edit.apply();
-                    Toast.makeText(this, drives + "에 " + pc98DiskLabel(disks, choice) + "를 넣었어요", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, drives + "에 " + pc98DiskLabel(disks, choice) + (choice == now ? "를 다시 넣었어요" : "를 넣었어요") + " · 게임에서 키를 눌러 주세요", Toast.LENGTH_SHORT).show();
                     if (menu != null) {
                         menu.dismiss();
                     }

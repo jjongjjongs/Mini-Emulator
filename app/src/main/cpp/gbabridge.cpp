@@ -1647,6 +1647,9 @@ std::atomic<int> count{0};
 // (set before the game starts, taken at its first frame, before its scene is restored).
 std::atomic<int> target{-1};
 std::atomic<int> initial{-1};
+// The game menu asked for that disk: put it in even when the core says it is the current one
+// (PC-98 has two drives; NP2kai's count follows one, and a disk can be put back in).
+std::atomic<bool> force{false};
 
 void reset() {
     callbacks = retro_disk_control_callback{};
@@ -1662,10 +1665,11 @@ void tick() {
     if (!available || callbacks.get_num_images == nullptr || callbacks.get_image_index == nullptr) return;
     unsigned n = callbacks.get_num_images();
     int wanted = target.exchange(-1);
+    bool again = force.exchange(false) && wanted >= 0;
     if (nextRequested.exchange(0) != 0 && n > 1) {
         wanted = static_cast<int>((callbacks.get_image_index() + 1) % n);
     }
-    if (wanted >= 0 && static_cast<unsigned>(wanted) < n && static_cast<unsigned>(wanted) != callbacks.get_image_index() &&
+    if (wanted >= 0 && static_cast<unsigned>(wanted) < n && (again || static_cast<unsigned>(wanted) != callbacks.get_image_index()) &&
         callbacks.set_eject_state != nullptr && callbacks.set_image_index != nullptr) {
         callbacks.set_eject_state(true);
         callbacks.set_image_index(static_cast<unsigned>(wanted));
@@ -5015,6 +5019,7 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_diskNext(JNIEnv* /*env
 
 // A disk by number (from 0), at the next frame.
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_diskSet(JNIEnv* /*env*/, jclass /*cls*/, jlong /*handle*/, jint which) {
+    disk::force.store(true);
     disk::target.store(which);
 }
 
