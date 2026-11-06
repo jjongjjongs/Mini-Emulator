@@ -3137,6 +3137,8 @@ public final class MainActivity extends Activity {
             onDosConfPicked(intent);
         } else if (i == REQUEST_DOS_PATCH) {
             onDosPatchPicked(intent);
+        } else if (i == REQUEST_PC98_FILE_PATCH) {
+            onPc98FilePatchPicked(intent);
         } else if (i == REQUEST_VITA_FIRMWARE) {
             onVitaFirmwarePicked(intent);
         } else if (i == REQUEST_ARC_PATCH) {
@@ -5555,9 +5557,22 @@ public final class MainActivity extends Activity {
             int sound = settingsPrefs().getInt("pc98_sound:" + saveBaseNameFor(file), 0);
             pc98Row.addView(createActionTile(dialog, RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "사운드 보드", PC98_SOUND_SHORT[sound < 0 || sound >= PC98_SOUND_SHORT.length ? 0 : sound], false,
                     () -> showPc98SoundPicker(file)), actionGridParams(1));
+            pc98Row.addView(createActionTile(dialog, RoundIconView.HD, RoundIconView.COLOR_HD, "빈 하드\n디스크", "설치형 게임", false,
+                    () -> showPc98BlankHddDialog(file)), actionGridParams(2));
             LinearLayout.LayoutParams pc98Params = new LinearLayout.LayoutParams(-1, -2);
             pc98Params.setMargins(0, dp(8), 0, 0);
             panel.addView(pc98Row, pc98Params);
+            LinearLayout.LayoutParams hanParams = new LinearLayout.LayoutParams(-1, dp(52));
+            hanParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60), "한글패치 덮어쓰기 (패치 zip의 파일을 디스크 안에)",
+                    () -> pickPc98FilePatch(file)), hanParams);
+            File hdd = pc98Hdd(disks);
+            if (hdd != null) {
+                LinearLayout.LayoutParams hddParams = new LinearLayout.LayoutParams(-1, dp(52));
+                hddParams.setMargins(0, dp(9), 0, 0);
+                panel.addView(createMenuActionRow(dialog, RoundIconView.PLAY, MODE_COLORS[modeIndex(MODE_PC98)], "하드디스크로만 켜기 (" + hdd.getName() + ")",
+                        () -> launchGame(hdd)), hddParams);
+            }
         }
         if (MODE_VITA.equals(modeForFile(file)) && isVitaPkg(file)) {
             LinearLayout.LayoutParams licParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -15818,10 +15833,28 @@ public final class MainActivity extends Activity {
     private java.util.Set<String> pc98GroupedNames(File dir) {
         if (this.pc98Grouped == null) {
             java.util.Set<String> names = new java.util.HashSet<>();
+            java.util.Set<String> games = new java.util.HashSet<>();
             File[] files = dir.listFiles();
             for (File file : files == null ? new File[0] : files) {
                 if (file.getName().toLowerCase(Locale.ROOT).endsWith(".cmd")) {
-                    for (File disk : pc98CmdDisks(file)) names.add(disk.getName());
+                    for (File disk : pc98CmdDisks(file)) {
+                        names.add(disk.getName());
+                        // The disk a patched one stands in for stays out of the list too.
+                        String from = romPrefs().getString("patched_from:" + disk.getName(), null);
+                        for (int k = 0; from != null && k < 16 && names.add(from); k++) {
+                            from = romPrefs().getString("patched_from:" + from, null);
+                        }
+                    }
+                    if (!pc98CmdDisks(file).isEmpty() && !pc98CmdAdded(file)) {
+                        games.add(file.getName().substring(0, file.getName().length() - 4));
+                    }
+                }
+            }
+            // Every disk of a game the app grouped (its other versions: originals of patched ones).
+            for (File file : files == null ? new File[0] : files) {
+                java.util.regex.Matcher m = PC98_SPLIT_DISK.matcher(splitSourceName(file));
+                if (m.matches() && games.contains((m.group(1).trim() + " " + m.group(3).trim()).trim().replaceAll("\\s+", " "))) {
+                    names.add(file.getName());
                 }
             }
             this.pc98Grouped = names;
@@ -15908,6 +15941,299 @@ public final class MainActivity extends Activity {
             d.dismiss();
             showMessage("사운드 보드: " + PC98_SOUND_SHORT[which] + " · 다음에 켤 때부터 적용돼요.");
         }).setNegativeButton("닫기", null).show();
+    }
+
+    // ---- PC-98 phase 2 (0.0.318): blank hard disk, file overwrite patches ----
+    private static final int REQUEST_PC98_FILE_PATCH = 1083;
+    private static final String PREF_PENDING_PC98_PATCH = "pending_pc98_patch";
+    private static final int[] PC98_HDD_SIZES = {20, 40, 80, 120};
+
+    private static boolean pc98IsHdd(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        return name.endsWith(".hdi") || name.endsWith(".thd") || name.endsWith(".nhd") || name.endsWith(".vhd") || name.endsWith(".hdn");
+    }
+
+    private static File pc98Hdd(List<File> disks) {
+        for (File disk : disks) {
+            if (pc98IsHdd(disk)) return disk;
+        }
+        return null;
+    }
+
+    // 빈 하드디스크: an .hdi of NP2kai's own IDE geometry (8 heads, 17 sectors of 512 bytes,
+    // 15 cylinders a megabyte), all zero; the game's installer (or MS-DOS FORMAT) prepares it.
+    // It goes into a group with the game's floppies.
+    private void showPc98BlankHddDialog(File file) {
+        List<File> disks = file.getName().toLowerCase(Locale.ROOT).endsWith(".cmd") ? pc98CmdDisks(file) : new ArrayList<>(java.util.Collections.singletonList(file));
+        if (pc98Hdd(disks) != null || pc98IsHdd(file)) {
+            showError("이 게임에는 이미 하드디스크가 있어요.");
+            return;
+        }
+        CharSequence[] sizes = {"20MB", "40MB (추천)", "80MB", "120MB"};
+        new AppDialog.Builder(this).setTitle("빈 하드디스크 만들기")
+                .setMessage("하드디스크에 설치해서 하는 게임용이에요. 만든 하드디스크와 이 게임의 플로피를 한 묶음으로 켜면 설치 프로그램이 하드디스크에 깔아요. "
+                        + "설치가 끝나면 길게 누르기 → \"하드디스크로만 켜기\".\n하드디스크는 포맷 전 상태예요 (설치 프로그램이나 MS-DOS FORMAT이 포맷).")
+                .setItems(sizes, (d, which) -> createPc98BlankHdd(file, disks, PC98_HDD_SIZES[which])).setNegativeButton("취소", null).show();
+    }
+
+    private void createPc98BlankHdd(File file, List<File> disks, int megabytes) {
+        File dir = file.getParentFile();
+        String base = file.getName().replaceAll("\\.[^.]+$", "");
+        File hdd = uniqueFile(dir, sanitizeFileName(base + " HDD") + ".hdi");
+        int heads = 8;
+        int sectors = 17;
+        int sectorSize = 512;
+        long cylinders = (long) megabytes * 15;
+        long size = cylinders * heads * sectors * sectorSize;
+        byte[] header = new byte[4096];
+        int[] fields = {0, 0, 4096, (int) size, sectorSize, sectors, heads, (int) cylinders};
+        for (int k = 0; k < fields.length; k++) {
+            int v = fields[k];
+            header[k * 4] = (byte) v;
+            header[k * 4 + 1] = (byte) (v >> 8);
+            header[k * 4 + 2] = (byte) (v >> 16);
+            header[k * 4 + 3] = (byte) (v >> 24);
+        }
+        try (java.io.RandomAccessFile out = new java.io.RandomAccessFile(hdd, "rw")) {
+            out.write(header);
+            out.setLength(4096 + size);
+        } catch (IOException e) {
+            hdd.delete();
+            showError("하드디스크를 만들지 못했어요: " + e.getMessage());
+            return;
+        }
+        List<File> all = new ArrayList<>();
+        all.add(hdd);
+        all.addAll(disks);
+        boolean group = file.getName().toLowerCase(Locale.ROOT).endsWith(".cmd");
+        File cmd = group ? file : new File(dir, base + ".cmd");
+        if (!group && cmd.exists()) {
+            hdd.delete();
+            showError("같은 이름의 .cmd 파일이 이미 있어요: " + cmd.getName());
+            return;
+        }
+        String text = pc98CmdText(all, true);
+        if (text == null) {
+            hdd.delete();
+            showError("디스크가 너무 많거나 이름이 길어서 묶을 수 없어요.");
+            return;
+        }
+        try (FileOutputStream out = new FileOutputStream(cmd)) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            hdd.delete();
+            showError("디스크 묶음을 쓰지 못했어요: " + e.getMessage());
+            return;
+        }
+        refreshLibrary();
+        showMessage(megabytes + "MB 하드디스크 " + hdd.getName() + "을(를) 만들어 이 게임과 묶었어요.\n켜서 설치 프로그램을 실행하세요. 설치가 끝나면 길게 누르기 → 하드디스크로만 켜기.");
+    }
+
+    private void pickPc98FilePatch(File game) {
+        settingsPrefs().edit().putString(PREF_PENDING_PC98_PATCH, game.getAbsolutePath()).apply();
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_PC98_FILE_PATCH);
+        } catch (Exception e) {
+            showError("파일을 고르는 화면을 열 수 없어요.");
+        }
+    }
+
+    private static final class Pc98PatchFile {
+        String name;
+        byte[] data;
+    }
+
+    private static final class Pc98PatchHit {
+        File disk;
+        String inside;
+        Pc98PatchFile file;
+    }
+
+    // The files of a patch .zip (names in UTF-8, else Shift-JIS as Japanese tools wrote them).
+    private List<Pc98PatchFile> readPc98PatchZip(Uri uri) throws IOException {
+        for (Charset charset : new Charset[]{StandardCharsets.UTF_8, Pc98Fat.SJIS}) {
+            List<Pc98PatchFile> files = new ArrayList<>();
+            long total = 0;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) throw new IOException("파일을 열 수 없어요");
+                try (ZipInputStream zip = new ZipInputStream(new java.io.BufferedInputStream(in), charset)) {
+                    ZipEntry entry;
+                    while ((entry = zip.getNextEntry()) != null) {
+                        if (entry.isDirectory()) continue;
+                        Pc98PatchFile f = new Pc98PatchFile();
+                        f.name = entry.getName();
+                        f.data = readLimited(zip, 32 * 1024 * 1024);
+                        total += f.data.length;
+                        if (total > 256L * 1024 * 1024) throw new IOException("패치가 너무 커요");
+                        files.add(f);
+                    }
+                }
+                return files;
+            } catch (IllegalArgumentException e) {
+                // a name that is not UTF-8: read again as Shift-JIS
+            }
+        }
+        throw new IOException("zip 안의 파일 이름을 읽지 못했어요");
+    }
+
+    private void onPc98FilePatchPicked(Intent data) {
+        String path = settingsPrefs().getString(PREF_PENDING_PC98_PATCH, null);
+        settingsPrefs().edit().remove(PREF_PENDING_PC98_PATCH).apply();
+        if (data == null || data.getData() == null || path == null || !new File(path).isFile()) {
+            return;
+        }
+        final File game = new File(path);
+        final Uri uri = data.getData();
+        final String patchName = displayNameFor(uri);
+        if (!patchName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            showError("패치 파일을 담은 .zip을 골라 주세요. (xdelta · IPS 패치는 \"한글 패치 적용\"으로)");
+            return;
+        }
+        Toast.makeText(this, "디스크 안의 파일을 찾는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String error = null;
+            List<Pc98PatchHit> hits = new ArrayList<>();
+            List<String> lines = new ArrayList<>();
+            try {
+                List<Pc98PatchFile> files = readPc98PatchZip(uri);
+                List<File> disks = game.getName().toLowerCase(Locale.ROOT).endsWith(".cmd") ? pc98CmdDisks(game) : java.util.Collections.singletonList(game);
+                boolean[] used = new boolean[files.size()];
+                for (File disk : disks) {
+                    try (Pc98Fat fs = Pc98Fat.open(disk, false)) {
+                        List<Pc98Fat.Entry> entries = fs.files();
+                        for (int k = 0; k < files.size(); k++) {
+                            Pc98Fat.Entry e = Pc98Fat.match(entries, files.get(k).name);
+                            if (e == null) continue;
+                            Pc98PatchHit hit = new Pc98PatchHit();
+                            hit.disk = disk;
+                            hit.inside = e.path;
+                            hit.file = files.get(k);
+                            hits.add(hit);
+                            used[k] = true;
+                            lines.add("✓ " + e.path + " — " + pc98DiskShort(disk) + (e.size == hit.file.data.length ? " · 같은 크기" : " · " + formatSize(e.size) + " → " + formatSize(hit.file.data.length)));
+                        }
+                    } catch (IOException e) {
+                        lines.add("· " + pc98DiskShort(disk) + ": " + e.getMessage());
+                    }
+                }
+                for (int k = 0; k < files.size(); k++) {
+                    if (!used[k]) lines.add("– " + files.get(k).name + " — 디스크에 없음 · 건너뜀");
+                }
+            } catch (IOException e) {
+                error = "패치를 읽지 못했어요: " + e.getMessage();
+            }
+            final String why = error;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                showPc98FilePatchPlan(game, patchName, hits, lines);
+            });
+        }, "pc98-patch-scan").start();
+    }
+
+    private static String pc98DiskShort(File disk) {
+        java.util.regex.Matcher m = PC98_SPLIT_DISK.matcher(disk.getName());
+        return m.matches() ? "Disk " + m.group(2).toUpperCase(Locale.ROOT) : pc98IsHdd(disk) ? "하드디스크" : disk.getName();
+    }
+
+    private void showPc98FilePatchPlan(File game, String patchName, List<Pc98PatchHit> hits, List<String> lines) {
+        StringBuilder text = new StringBuilder("패치: " + patchName + "\n\n");
+        for (String line : lines) text.append(line).append('\n');
+        if (hits.isEmpty()) {
+            text.append("\n디스크 안에서 바꿀 파일을 찾지 못했어요. 패치 설명서가 이 방식(파일 덮어쓰기)인지, 디스크가 MS-DOS 형식인지 확인해 주세요.");
+            new AppDialog.Builder(this).setTitle("한글패치 덮어쓰기").setMessage(text.toString()).setPositiveButton("닫기", null).show();
+            return;
+        }
+        text.append("\n원래 디스크는 그대로 두고, 바뀐 디스크를 새로 만들어 묶음에서 그 디스크 자리를 바꿔요 (한 장짜리 게임은 새 게임으로 추가).");
+        new AppDialog.Builder(this).setTitle("한글패치 덮어쓰기 · " + hits.size() + "개").setMessage(text.toString()).setNegativeButton("취소", null)
+                .setPositiveButton(hits.size() + "개 덮어쓰기", (d, w) -> applyPc98FilePatch(game, patchName, hits)).show();
+    }
+
+    private void applyPc98FilePatch(File game, String patchName, List<Pc98PatchHit> hits) {
+        Toast.makeText(this, "디스크에 덮어쓰는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            Map<File, List<Pc98PatchHit>> byDisk = new java.util.LinkedHashMap<>();
+            for (Pc98PatchHit hit : hits) {
+                List<Pc98PatchHit> list = byDisk.get(hit.disk);
+                if (list == null) byDisk.put(hit.disk, list = new ArrayList<>());
+                list.add(hit);
+            }
+            Map<File, File> made = new java.util.LinkedHashMap<>();
+            String error = null;
+            for (Map.Entry<File, List<Pc98PatchHit>> entry : byDisk.entrySet()) {
+                File disk = entry.getKey();
+                String name = disk.getName();
+                int dot = name.lastIndexOf('.');
+                File out = uniqueFile(disk.getParentFile(), name.substring(0, dot) + " (한글)" + name.substring(dot));
+                try {
+                    if (!copyFile(disk, out)) throw new IOException("디스크를 복사하지 못했어요 (저장 공간 확인)");
+                    try (Pc98Fat fs = Pc98Fat.open(out, true)) {
+                        Map<String, Pc98Fat.Entry> files = Pc98Fat.byPath(fs.files());
+                        for (Pc98PatchHit hit : entry.getValue()) {
+                            Pc98Fat.Entry e = files.get(hit.inside);
+                            if (e == null) throw new IOException(hit.inside + "을(를) 다시 찾지 못했어요");
+                            fs.replace(e, hit.file.data);
+                        }
+                    }
+                    made.put(disk, out);
+                } catch (IOException e) {
+                    out.delete();
+                    error = pc98DiskShort(disk) + ": " + e.getMessage();
+                    break;
+                }
+            }
+            if (error != null) {
+                for (File f : made.values()) f.delete();
+                made.clear();
+            }
+            final String why = error;
+            runOnUiThread(() -> {
+                if (why != null) {
+                    showError("덮어쓰지 못했어요 — " + why);
+                    return;
+                }
+                SharedPreferences.Editor edit = romPrefs().edit();
+                for (Map.Entry<File, File> e : made.entrySet()) {
+                    edit.putString("patched_from:" + e.getValue().getName(), e.getKey().getName())
+                            .putString("patched:" + e.getValue().getName(), e.getKey().getName())
+                            .putString("patched_note:" + e.getValue().getName(), "파일 덮어쓰기 · " + patchName);
+                }
+                boolean group = game.getName().toLowerCase(Locale.ROOT).endsWith(".cmd");
+                if (!group) {
+                    File out = made.get(game);
+                    edit.putString("title:" + out.getName(), displayGameNameFor(game) + " (한글)");
+                }
+                edit.apply();
+                List<String> log = new ArrayList<>();
+                for (Pc98PatchHit hit : hits) log.add(hit.inside + " → " + pc98DiskShort(hit.disk));
+                if (group && pc98CmdAdded(game)) {
+                    // A group the app keeps as made: the patched disks take their places in it.
+                    List<File> disks = pc98CmdDisks(game);
+                    for (int k = 0; k < disks.size(); k++) {
+                        File now = made.get(disks.get(k));
+                        if (now != null) disks.set(k, now);
+                    }
+                    String text = pc98CmdText(disks, true);
+                    if (text != null) {
+                        try (FileOutputStream out = new FileOutputStream(game)) {
+                            out.write(text.getBytes(StandardCharsets.UTF_8));
+                        } catch (IOException ignored) {
+                        }
+                        settingsPrefs().edit().putBoolean("fresh_start:" + saveBaseNameFor(game), true).apply();
+                    }
+                }
+                for (File out : made.values()) recordPatch(out, "파일 덮어쓰기 (" + patchName + ")", log);
+                refreshLibrary();
+                showMessage("파일 " + hits.size() + "개를 디스크 " + made.size() + "장에 덮어썼어요."
+                        + (group ? "\n묶음이 바뀐 디스크로 켜져요 (빠른 저장은 처음부터)." : "\n\"" + displayGameNameFor(game) + " (한글)\"로 추가했어요."));
+            });
+        }, "pc98-patch").start();
     }
 
     private void showPc98BlankDiskDialog(File file) {

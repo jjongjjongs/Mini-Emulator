@@ -6162,6 +6162,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                             MainActivity.sharedSettings(this).edit().remove(pc98Key("fdd1")).remove(pc98Key("fdd2")).apply();
                         }
                         sendPc98Options(null);
+                        preparePc98Midi(new File(systemPath));
                     }
                     if ("fbneo".equals(this.coreId)) {
                         NativeGba.setDosOptions(new String[]{"fbneo-ips"}, new String[]{arcadePatchOn() ? "enabled" : "disabled"}, "");
@@ -11731,8 +11732,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // The joypad is left off: NP2kai's joypad keys share their held state with the
         // keyboard's, so a pad "up" would let go of the on-screen arrow keys every frame. The
         // NP2 menu stays on F12 (not on L2).
-        NativeGba.setCoreOptions(new String[]{"np2kai_SNDboard", "np2kai_joymode", "np2kai_joynp2menu", "np2kai_drive"},
-                new String[]{PC98_SOUND_VALUES[pc98Sound()], "OFF", "OFF", drive == null ? "FDD1" : drive}, false);
+        int model = pc98Pick("model", PC98_MODEL_VALUES.length, 0);
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        NativeGba.setCoreOptions(new String[]{"np2kai_SNDboard", "np2kai_joymode", "np2kai_joynp2menu", "np2kai_drive",
+                        "np2kai_model", "np2kai_clk_base", "np2kai_clk_mult", "np2kai_ExMemory", "np2kai_skipline", "np2kai_realpal"},
+                new String[]{PC98_SOUND_VALUES[pc98Sound()], "OFF", "OFF", drive == null ? "FDD1" : drive,
+                        PC98_MODEL_VALUES[model], model == 1 ? "1.9968 MHz" : "2.4576 MHz", PC98_SPEED_MULT[pc98Pick("speed", PC98_SPEED_MULT.length, 0)],
+                        PC98_MEMORY_VALUES[pc98Pick("memory", PC98_MEMORY_VALUES.length, 1)],
+                        prefs.getBoolean("pc98_scanlines", false) ? "OFF" : "Full 255 lines", prefs.getBoolean("pc98_realpal", false) ? "ON" : "OFF"}, false);
     }
 
     // The floppy images of the app's .cmd (FDD1 = the first, FDD2 = the second), in the
@@ -11782,6 +11789,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         soundParams.setMargins(0, dp(8), 0, 0);
         panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "사운드 보드", PC98_SOUND_NAMES[pc98Sound()],
                 view -> showPc98SoundDialog(dialog)), soundParams);
+        LinearLayout.LayoutParams midiParams = new LinearLayout.LayoutParams(-1, dp(52));
+        midiParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.PLAY, RoundIconView.COLOR_LOAD, "MIDI 음악", PC98_MIDI_NAMES[pc98Midi()],
+                view -> showPc98MidiDialog(dialog)), midiParams);
+        LinearLayout.LayoutParams machineParams = new LinearLayout.LayoutParams(-1, dp(52));
+        machineParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "기종 · CPU 속도",
+                PC98_MODEL_NAMES[pc98Pick("model", PC98_MODEL_NAMES.length, 0)] + " · " + PC98_SPEED_NAMES[pc98Pick("speed", PC98_SPEED_NAMES.length, 0)],
+                view -> showPc98MachineDialog(dialog)), machineParams);
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        LinearLayout.LayoutParams screenParams = new LinearLayout.LayoutParams(-1, dp(52));
+        screenParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.HD, RoundIconView.COLOR_HD, "PC-98 화면", prefs.getBoolean("pc98_pixel", false) ? "픽셀 그대로" : "4:3 (원래 모니터)",
+                view -> showPc98ScreenDialog(dialog)), screenParams);
+        LinearLayout.LayoutParams padParams = new LinearLayout.LayoutParams(-1, dp(52));
+        padParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.PAD, RoundIconView.COLOR_PAD, "게임패드 → 키", pc98PadSummary(),
+                view -> showPc98PadDialog(dialog)), padParams);
     }
 
     private static String pc98DiskLabel(java.util.List<File> disks, int index) {
@@ -11836,6 +11861,292 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (menu != null) {
                         menu.dismiss();
                     }
+                });
+    }
+
+    // ---- PC-98 phase 2 (0.0.318): machine, screen, MIDI, gamepad ----
+    private static final String[] PC98_MODEL_NAMES = {"PC-9801VX (추천)", "PC-9801VM", "PC-286"};
+    private static final String[] PC98_MODEL_VALUES = {"PC-9801VX", "PC-9801VM", "PC-286"};
+    private static final String[] PC98_MODEL_NOTES = {"80286 · 대부분의 게임", "V30 · 80년대 초 게임 (빠르면 너무 빨라지는 게임)", "엡손 호환기 · 일부 게임만"};
+    // CPU clock: the base clock (2.4576 MHz; 1.9968 MHz on the VM) times this.
+    private static final String[] PC98_SPEED_NAMES = {"원래 속도", "빠르게 ×2", "아주 빠르게 ×4", "최고 ×7.5"};
+    private static final String[] PC98_SPEED_MULT = {"4", "8", "16", "30"};
+    private static final String[] PC98_MEMORY_NAMES = {"1MB", "3MB (기본)", "7MB", "13MB"};
+    private static final String[] PC98_MEMORY_VALUES = {"1", "3", "7", "13"};
+    private static final String[] PC98_MIDI_NAMES = {"끔", "General MIDI (앱 사운드폰트)", "내 사운드폰트 (.sf2)"};
+    // The pad's buttons as the app's input bits (arcade layout; L / R either way), and the
+    // keys they press by default.
+    private static final String[] PC98_PAD_NAMES = {"A", "B", "X", "Y", "L", "R", "START", "SELECT"};
+    private static final int[] PC98_PAD_BITS = {1, 2, 1024, 2048, 4096 | 512, 8192 | 256, 8, 4};
+    private static final String[] PC98_PAD_DEFAULTS = {"Z", "X", "Enter", "Space", "F1", "F2", "Esc", "F10"};
+    private static final String[] PC98_PAD_KEYS = {"없음", "Z", "X", "C", "V", "A", "S", "D", "Q", "W", "Y", "N", "Enter", "Space", "Esc", "Shift", "Ctrl", "Tab", "⌫",
+            "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "STOP", "GRPH", "NFER", "XFER", "1", "2", "3", "4", "kp0", "kp5"};
+    private int pc98PadSent;
+
+    private static String[] emptyNotes(int count) {
+        String[] notes = new String[count];
+        java.util.Arrays.fill(notes, "");
+        return notes;
+    }
+
+    private int pc98Pick(String name, int count, int fallback) {
+        int value = MainActivity.sharedSettings(this).getInt(pc98Key(name), fallback);
+        return value >= 0 && value < count ? value : fallback;
+    }
+
+    private int pc98Midi() {
+        return pc98Pick("midi", PC98_MIDI_NAMES.length, 1);
+    }
+
+    private void showPc98MachineDialog(android.app.Dialog menu) {
+        showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "기종", PC98_MODEL_NAMES, PC98_MODEL_NOTES, pc98Pick("model", PC98_MODEL_NAMES.length, 0),
+                "대부분의 게임은 VX 그대로 두면 돼요. 바꾸면 게임이 처음부터 다시 켜져요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "다음: CPU 속도", model -> {
+                    MainActivity.sharedSettings(this).edit().putInt(pc98Key("model_pending"), model).apply();
+                    showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "CPU 속도", PC98_SPEED_NAMES,
+                            new String[]{model == 1 ? "8MHz · 그 시절 그대로" : "10MHz · 그 시절 그대로", "로딩 · 계산이 빨라짐", "폰이 빨라야 해요", "가장 빠름 · 소리가 끊기면 낮추기"},
+                            pc98Pick("speed", PC98_SPEED_NAMES.length, 0),
+                            "빠르게 하면 로딩 · 전투 계산이 빨라지지만, 시간으로 움직이는 옛 게임은 너무 빨라질 수 있어요. 폰이 따라가지 못하면 소리가 끊겨요.",
+                            Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "다음: 메모리", speed -> showChoiceDialog(RoundIconView.BOLT, RoundIconView.COLOR_BOLT,
+                                    "메모리", PC98_MEMORY_NAMES, new String[]{"80년대 게임", "대부분의 게임", "EMS · XMS를 많이 쓰는 게임", "윈도우 시절 게임"},
+                                    pc98Pick("memory", PC98_MEMORY_NAMES.length, 1), "모르면 3MB 그대로 두세요. 적용하면 게임이 처음부터 다시 켜져요.",
+                                    Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용 후 다시 켜기", memory -> {
+                                        MainActivity.sharedSettings(this).edit().putInt(pc98Key("model"), model).putInt(pc98Key("speed"), speed)
+                                                .putInt(pc98Key("memory"), memory).remove(pc98Key("model_pending")).apply();
+                                        pc98Restart(menu);
+                                    }));
+                });
+    }
+
+    // The machine starts over with the options as they are now (NP2kai takes its "Restart"
+    // options when it next reads them, a frame away).
+    private void pc98Restart(android.app.Dialog menu) {
+        MainActivity.sharedSettings(this).edit().remove(pc98Key("fdd1")).remove(pc98Key("fdd2")).apply();
+        sendPc98Options(null);
+        if (menu != null) {
+            menu.dismiss();
+        }
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            long handle = this.nativeHandle;
+            if (handle != 0 && !this.destroyed) {
+                NativeGba.reset(handle);
+            }
+        }, 300);
+    }
+
+    private void showPc98ScreenDialog(android.app.Dialog menu) {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        String[] names = {"4:3 (원래 모니터)", "픽셀 그대로 (16:10)", "주사선 (빈 줄) " + (prefs.getBoolean("pc98_scanlines", false) ? "켜짐" : "꺼짐"),
+                "실제 팔레트 색 " + (prefs.getBoolean("pc98_realpal", false) ? "켜짐" : "꺼짐")};
+        String[] notes = {"640×400을 세로로 늘림 · 추천", "글자가 또렷 · 그림이 조금 납작", "옛날 게임의 줄무늬 그대로 (누르면 바뀜)", "원래 모니터에 가까운 색 (누르면 바뀜)"};
+        int current = prefs.getBoolean("pc98_pixel", false) ? 1 : 0;
+        showChoiceDialog(RoundIconView.HD, RoundIconView.COLOR_HD, "PC-98 화면 (모든 게임)", names, notes, current,
+                "PC-98 모니터는 4:3이라 원래 그림은 조금 세로로 길어요. 동그라미가 납작해 보이면 4:3으로. 부드럽게 · 필터는 메뉴의 화면 설정에서 바꿔요.",
+                Color.rgb(240, 249, 255), Color.rgb(3, 105, 161), "적용", choice -> {
+                    android.content.SharedPreferences.Editor edit = prefs.edit();
+                    if (choice <= 1) {
+                        edit.putBoolean("pc98_pixel", choice == 1);
+                    } else if (choice == 2) {
+                        edit.putBoolean("pc98_scanlines", !prefs.getBoolean("pc98_scanlines", false));
+                    } else {
+                        edit.putBoolean("pc98_realpal", !prefs.getBoolean("pc98_realpal", false));
+                    }
+                    edit.apply();
+                    sendPc98Options(null);
+                    View root = this.contentRoot;
+                    if (root != null) {
+                        root.requestLayout();
+                    }
+                    if (this.screenFrame != null) {
+                        this.screenFrame.requestLayout();
+                    }
+                    applyScreenShape();
+                    if (menu != null) {
+                        menu.dismiss();
+                    }
+                    if (choice >= 2) {
+                        showPc98ScreenDialog(null);
+                    }
+                });
+    }
+
+    private void showPc98MidiDialog(android.app.Dialog menu) {
+        File userSf2 = DosSetup.userSoundfont(new File(getFilesDir(), "system"));
+        showChoiceDialog(RoundIconView.PLAY, RoundIconView.COLOR_LOAD, "MIDI 음악 (이 게임)", PC98_MIDI_NAMES,
+                new String[]{"86 · 26K 보드 음악만", "DOS 모드와 같은 TimGM6mb · 추가 파일 없이",
+                        userSf2.isFile() ? "DOS 모드에서 넣은 user.sf2" : "아직 없음 · DOS 게임 설정 → MIDI에서 넣어요 (없으면 앱 사운드폰트)"}, pc98Midi(),
+                "90년대 중반 이후의 일부 게임은 MIDI 음원(MPU-PC98)으로 음악을 내요. 켜면 PC-98에 MIDI 보드를 꽂고, 나오는 MIDI를 사운드폰트로 연주해요. "
+                        + "게임 설정에서 음원을 MIDI(GM · MPU-401)로 골라야 나오는 게임이 많아요. MT-32 전용 게임은 악기가 다르게 들릴 수 있어요.\n바꾸면 게임을 나갔다가 다시 켤 때부터 적용돼요.",
+                Color.rgb(245, 243, 255), Color.rgb(91, 33, 182), "적용", choice -> {
+                    if (choice == pc98Midi()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt(pc98Key("midi"), choice).apply();
+                    Toast.makeText(this, "게임을 나갔다가 다시 켜면 MIDI 설정이 적용돼요", Toast.LENGTH_LONG).show();
+                    if (menu != null) {
+                        menu.dismiss();
+                    }
+                });
+    }
+
+    // Before the game starts: the SoundFont, and the MIDI board in NP2kai's own settings file
+    // (np2kai.cfg: MPU-PC98II on, MIDI out "direct" to the frontend).
+    private void preparePc98Midi(File systemDir) {
+        int choice = pc98Midi();
+        String sf2 = "";
+        if (choice != 0) {
+            DosSetup.ensureSoundfont(this, systemDir);
+            File user = DosSetup.userSoundfont(systemDir);
+            File file = choice == 2 && user.isFile() ? user : DosSetup.defaultSoundfont(systemDir);
+            sf2 = file.isFile() ? file.getAbsolutePath() : "";
+        }
+        boolean on = !sf2.isEmpty() && NativeGba.setMidiSoundfont(sf2);
+        if (!on) {
+            NativeGba.setMidiSoundfont("");
+        }
+        File cfg = new File(new File(systemDir, "np2kai"), "np2kai.cfg");
+        java.util.Map<String, String> want = new java.util.LinkedHashMap<>();
+        want.put("USEMPU98", on ? "true" : "false");
+        want.put("mpu98port", "5");
+        want.put("mpu98dir", on ? "true" : "false");
+        want.put("mpu98mdl", "GM");
+        writeIniKeys(cfg, "NekoProjectIIkai", want);
+    }
+
+    // Sets keys in one [section] of an .ini file, leaving the rest as it is.
+    private static void writeIniKeys(File file, String section, java.util.Map<String, String> values) {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        try {
+            if (file.isFile()) {
+                lines.addAll(java.nio.file.Files.readAllLines(file.toPath(), java.nio.charset.StandardCharsets.ISO_8859_1));
+            }
+        } catch (IOException | RuntimeException e) {
+            lines.clear();
+        }
+        java.util.Map<String, String> left = new java.util.LinkedHashMap<>(values);
+        int start = -1;
+        int end = lines.size();
+        for (int i = 0; i < lines.size(); i++) {
+            String t = lines.get(i).trim();
+            if (t.startsWith("[") && t.endsWith("]")) {
+                if (start >= 0) {
+                    end = i;
+                    break;
+                }
+                if (t.substring(1, t.length() - 1).equalsIgnoreCase(section)) {
+                    start = i;
+                }
+            }
+        }
+        if (start < 0) {
+            lines.add("[" + section + "]");
+            start = lines.size() - 1;
+            end = lines.size();
+        }
+        for (int i = start + 1; i < end; i++) {
+            String line = lines.get(i);
+            int eq = line.indexOf('=');
+            if (eq <= 0) continue;
+            String key = line.substring(0, eq).trim();
+            for (java.util.Map.Entry<String, String> e : values.entrySet()) {
+                if (e.getKey().equalsIgnoreCase(key)) {
+                    lines.set(i, e.getKey() + "=" + e.getValue());
+                    left.remove(e.getKey());
+                }
+            }
+        }
+        int at = end;
+        for (java.util.Map.Entry<String, String> e : left.entrySet()) {
+            lines.add(at++, e.getKey() + "=" + e.getValue());
+        }
+        file.getParentFile().mkdirs();
+        try (java.io.Writer out = new java.io.OutputStreamWriter(new java.io.FileOutputStream(file), java.nio.charset.StandardCharsets.ISO_8859_1)) {
+            for (String line : lines) {
+                out.write(line);
+                out.write("\n");
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    private String[] pc98PadMap() {
+        String[] map = PC98_PAD_DEFAULTS.clone();
+        String saved = MainActivity.sharedSettings(this).getString(pc98Key("pad"), null);
+        if (saved != null) {
+            for (String part : saved.split(",")) {
+                int eq = part.indexOf('=');
+                if (eq <= 0) continue;
+                String button = part.substring(0, eq);
+                for (int k = 0; k < PC98_PAD_NAMES.length; k++) {
+                    if (PC98_PAD_NAMES[k].equals(button)) {
+                        map[k] = part.substring(eq + 1);
+                    }
+                }
+            }
+        }
+        return map;
+    }
+
+    private String pc98PadSummary() {
+        String[] map = pc98PadMap();
+        return "A " + map[0] + " · B " + map[1] + " · X " + map[2] + " · Y " + map[3];
+    }
+
+    // A connected gamepad as keys: the D-pad on the arrow keys, the buttons on the keys picked
+    // for this game (NP2kai's own pad option is off, see sendPc98Options).
+    private void sendPc98Pad(long handle, int mask) {
+        int changed = mask ^ this.pc98PadSent;
+        if (changed == 0 || handle == 0) {
+            this.pc98PadSent = mask;
+            return;
+        }
+        int[] arrowBits = {16, 32, 64, 128};
+        int[] arrowCodes = {275, 276, 273, 274};
+        for (int k = 0; k < arrowBits.length; k++) {
+            if ((changed & arrowBits[k]) != 0) {
+                NativeGba.dosKey(handle, arrowCodes[k], (mask & arrowBits[k]) != 0, 0);
+            }
+        }
+        String[] map = pc98PadMap();
+        for (int k = 0; k < PC98_PAD_BITS.length; k++) {
+            int bits = PC98_PAD_BITS[k];
+            boolean was = (this.pc98PadSent & bits) != 0;
+            boolean now = (mask & bits) != 0;
+            int code = DosControls.code(map[k]);
+            if (was != now && code != 0) {
+                NativeGba.dosKey(handle, code, now, code < 128 ? code : 0);
+            }
+        }
+        this.pc98PadSent = mask;
+    }
+
+    private void showPc98PadDialog(android.app.Dialog menu) {
+        String[] map = pc98PadMap();
+        String[] names = new String[PC98_PAD_NAMES.length];
+        String[] notes = new String[PC98_PAD_NAMES.length];
+        for (int k = 0; k < names.length; k++) {
+            names[k] = PC98_PAD_NAMES[k] + " → " + map[k];
+            notes[k] = k == 4 || k == 5 ? "L1 / R1" : "";
+        }
+        showChoiceDialog(RoundIconView.PAD, RoundIconView.COLOR_PAD, "게임패드 → 키 (이 게임)", names, notes, 0,
+                "연결한 게임패드의 버튼을 PC-98 키로 바꿔 보내요. 방향 패드는 방향키예요. 바꿀 버튼을 고르세요.",
+                Color.rgb(248, 250, 252), Color.rgb(71, 85, 105), "키 고르기", button -> {
+                    int now = java.util.Arrays.asList(PC98_PAD_KEYS).indexOf(map[button]);
+                    showChoiceDialog(RoundIconView.PAD, RoundIconView.COLOR_PAD, PC98_PAD_NAMES[button] + " 버튼", PC98_PAD_KEYS, emptyNotes(PC98_PAD_KEYS.length),
+                            Math.max(0, now), "기본은 A Z · B X · X Enter · Y Space · L F1 · R F2 · START Esc · SELECT F10이에요.",
+                            Color.rgb(248, 250, 252), Color.rgb(71, 85, 105), "바꾸기", key -> {
+                                long handle = this.nativeHandle;
+                                if (handle != 0) {
+                                    sendPc98Pad(handle, 0);   // let go of what the old key held
+                                }
+                                map[button] = PC98_PAD_KEYS[key];
+                                StringBuilder sb = new StringBuilder();
+                                for (int k = 0; k < map.length; k++) {
+                                    sb.append(k == 0 ? "" : ",").append(PC98_PAD_NAMES[k]).append('=').append(map[k]);
+                                }
+                                MainActivity.sharedSettings(this).edit().putString(pc98Key("pad"), sb.toString()).apply();
+                                showPc98PadDialog(menu);
+                            });
                 });
     }
 
@@ -13240,6 +13551,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // The screen pad (and 1P's pad) to port 1, or to port 2 for games that read only that.
     private void sendMainInput(long handle) {
         int mask = isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask;
+        if (isPc98()) {
+            sendPc98Pad(handle, mask);
+        }
         if (isMsx() && msxPort2() == 2) {
             NativeGba.setInput(handle, 0);
             NativeGba.setPlayerInput(handle, 1, mask);
@@ -14490,6 +14804,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isNeoGeoPocket()) {
             return 160.0f / 152.0f;
+        }
+        if (isPc98() && MainActivity.sharedSettings(this).getBoolean("pc98_pixel", false)) {
+            return 640.0f / 400.0f;   // pixels as they are (the monitor showed 4:3)
         }
         return this.coreId.equals("gba") ? 1.5f : 1.3333334f;
     }

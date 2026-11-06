@@ -37,3 +37,4 @@ bluemsx	blueMSX (libretro)	BSD-style + GPL-2.0 (openMSX 부분)	MSX · 재믹스
 cbios	C-BIOS	BSD-2-Clause	MSX 대체 바이오스 (앱에 들어 있음)	http://cbios.sourceforge.net
 xbios	XBIOS 1.0	CC BY-NC-ND 4.0 (© 2026 GHOST)	MSX 대체 바이오스 · 디스크 · 한글 · 파이썬(XPY) (앱에 그대로 들어 있음)	https://creativecommons.org/licenses/by-nc-nd/4.0/
 np2kai	NP2kai (Neko Project II kai)	MIT (일부 부분 BSD · GPL-2.0 등, 파일 안에 모두)	PC-98 엔진 · 동운(東雲) 글꼴로 만든 font.bmp (퍼블릭 도메인)	https://github.com/AZO234/NP2kai
+tinysoundfont	TinySoundFont	MIT	PC-98 MIDI 음악 (사운드폰트 합성기)	https://github.com/schellingb/TinySoundFont

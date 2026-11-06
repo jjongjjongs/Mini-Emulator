@@ -210,6 +210,9 @@ final class NativeGba {
     // clear drops the earlier ones. FBNeo .ini cheats are options "fbneo-cheat-...".
     static native void setCoreOptions(String[] keys, String[] values, boolean clear);
 
+    // PC-98 MIDI music on this SoundFont (empty: off), before create(); false when it can't be read.
+    static native boolean setMidiSoundfont(String path);
+
     // The running core's options starting with prefix: {key, description, "a|b|c", value}...
     static native String[] coreOptions(long handle, String prefix);
 

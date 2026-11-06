@@ -47,6 +47,7 @@
 #include "dsnet.h"
 #include "gclan.h"
 #include "libretro.h"
+#include "midisynth.h"
 #include "vulkan_hw.h"
 
 #define LOG_TAG "MiniGBA"
@@ -2197,6 +2198,18 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             if (data == nullptr) return true;
             storeDefaultVariables(core, static_cast<const retro_variable*>(data));
             return true;
+        case RETRO_ENVIRONMENT_GET_MIDI_INTERFACE: {
+            // Only when the app loaded a SoundFont for this game (PC-98 MIDI, 0.0.318).
+            if (!midisynth::active()) return false;
+            if (data == nullptr) return true;
+            auto* midi = static_cast<retro_midi_interface*>(data);
+            midi->input_enabled = []() -> bool { return false; };
+            midi->output_enabled = []() -> bool { return midisynth::active(); };
+            midi->read = [](uint8_t*) -> bool { return false; };
+            midi->write = [](uint8_t byte, uint32_t) -> bool { return midisynth::write(byte); };
+            midi->flush = []() -> bool { return true; };
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
             if (data == nullptr) return false;
             *static_cast<bool*>(data) = gVariablesUpdated.exchange(false);
@@ -2783,6 +2796,8 @@ void flushAudio(Core* core) {
     if (core->audioPending.empty()) {
         return;
     }
+    // MIDI music the core sent this frame (PC-98), on the SoundFont, over its own sound.
+    midisynth::mix(core->audioPending.data(), core->audioPending.size() / 2);
     writeAudio(core->audioPending.data(), static_cast<jsize>(core->audioPending.size()));
     core->audioPending.clear();
 }
@@ -4033,6 +4048,7 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     core->sampleRate = info.timing.sample_rate > 1.0 ? static_cast<int>(info.timing.sample_rate)
                                                       : kDefaultSampleRate;
     configureAudio(core, core->sampleRate);
+    midisynth::setRate(core->sampleRate);
 
     // A game on several discs starts with the disc it was left on in the drive, before its
     // scene comes back (that scene was saved with that disc). Dolphin changes discs on its CPU
@@ -4962,6 +4978,12 @@ JNIEXPORT jobjectArray JNICALL Java_com_example_minigba_NativeGba_coreOptions(
         env->DeleteLocalRef(s);
     }
     return array;
+}
+
+// PC-98 MIDI: the SoundFont to play the game's MIDI music on (empty: none), before create().
+JNIEXPORT jboolean JNICALL Java_com_example_minigba_NativeGba_setMidiSoundfont(JNIEnv* env, jclass /*cls*/, jstring path) {
+    std::string file = path == nullptr ? "" : jstringToString(env, path);
+    return midisynth::load(file.c_str()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDosOptions(
