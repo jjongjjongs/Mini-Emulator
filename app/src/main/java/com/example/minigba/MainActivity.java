@@ -6927,24 +6927,53 @@ public final class MainActivity extends Activity {
     // A patch made on a Redump track: pregap + track joined, patched, and the pregap's length
     // cut off again, so the result is the GDI track (the GDI keeps its layout).
     private static void applyWithPregap(DiscPatch item, File track, File out, File dir) throws IOException {
+        // The whole stored pregap first; then only its end, so pregap + track is exactly the
+        // size the patch reads (a Redump track can keep fewer pregap frames than the CHD).
+        long whole = item.pregap.length();
+        long end = RomPatcher.xdeltaSourceEnd(item.patch);
+        long part = end - track.length();
+        IOException first;
+        try {
+            applyWithPregap(item, track, out, dir, whole);
+            return;
+        } catch (IOException e) {
+            first = e;
+        }
+        if (part > 0 && part < whole && part % 2352 == 0) {
+            try {
+                applyWithPregap(item, track, out, dir, part);
+                return;
+            } catch (IOException ignored) {
+                // The first reason is the one to show.
+            }
+        }
+        throw first;
+    }
+
+    private static void applyWithPregap(DiscPatch item, File track, File out, File dir, long prefix) throws IOException {
         File joined = new File(dir, "." + out.getName() + ".joined");
         File patched = new File(dir, "." + out.getName() + ".joined-out");
         try {
             try (OutputStream joinOut = new java.io.BufferedOutputStream(new FileOutputStream(joined), 1 << 20)) {
                 byte[] buffer = new byte[1 << 20];
-                for (File part : new File[]{item.pregap, track}) {
-                    try (InputStream in = new FileInputStream(part)) {
-                        int n;
-                        while ((n = in.read(buffer)) > 0) {
-                            joinOut.write(buffer, 0, n);
-                        }
+                try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(item.pregap, "r")) {
+                    in.seek(item.pregap.length() - prefix);
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        joinOut.write(buffer, 0, n);
+                    }
+                }
+                try (InputStream in = new FileInputStream(track)) {
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        joinOut.write(buffer, 0, n);
                     }
                 }
             }
             RomPatcher.Check check = RomPatcher.check(item.patch, joined);
             RomPatcher.apply(item.patch, joined, check, patched);
             joined.delete();
-            long cut = item.pregap.length();
+            long cut = prefix;
             if (patched.length() < cut) {
                 throw new IOException("패치한 결과의 크기가 맞지 않아요.");
             }
@@ -22059,6 +22088,53 @@ public final class MainActivity extends Activity {
     }
 
     private void showError(String str) {
+        if (str == null) {
+            return;
+        }
+        // A long reason (a patch's check values, ...) in a card that can be read and copied
+        // in full; a toast cuts it after two lines.
+        if (str.length() > 90 || str.contains("\n")) {
+            LinearLayout panel = new LinearLayout(this);
+            final Dialog dialog = cardDialog(panel);
+            cardHeader(panel, RoundIconView.WARN, Color.rgb(220, 38, 38), "안 됐어요", null);
+            TextView text = new TextView(this);
+            text.setText(str);
+            text.setTextSize(13f);
+            text.setTextIsSelectable(true);
+            text.setLineSpacing(0, 1.15f);
+            text.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+            panel.addView(text, spaced(10));
+            LinearLayout buttons = new LinearLayout(this);
+            TextView copy = new TextView(this);
+            copy.setText("복사");
+            copy.setTextSize(15f);
+            copy.setTypeface(Typeface.DEFAULT_BOLD);
+            copy.setGravity(17);
+            copy.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+            copy.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+            copy.setOnClickListener(v -> {
+                android.content.ClipboardManager clip = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (clip != null) {
+                    clip.setPrimaryClip(android.content.ClipData.newPlainText("Mini Emulator", str));
+                    Toast.makeText(this, "복사했어요", Toast.LENGTH_SHORT).show();
+                }
+            });
+            buttons.addView(copy, new LinearLayout.LayoutParams(0, dp(48), 1f));
+            TextView ok = new TextView(this);
+            ok.setText("확인");
+            ok.setTextSize(15f);
+            ok.setTypeface(Typeface.DEFAULT_BOLD);
+            ok.setGravity(17);
+            ok.setTextColor(Color.WHITE);
+            ok.setBackground(rounded(Color.rgb(220, 38, 38), dp(14)));
+            ok.setOnClickListener(v -> dialog.dismiss());
+            LinearLayout.LayoutParams okParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+            okParams.setMargins(dp(10), 0, 0, 0);
+            buttons.addView(ok, okParams);
+            panel.addView(buttons, spaced(12));
+            dialog.show();
+            return;
+        }
         Toast.makeText(this, str, 1).show();
     }
 
