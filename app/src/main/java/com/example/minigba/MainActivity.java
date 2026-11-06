@@ -7720,9 +7720,18 @@ public final class MainActivity extends Activity {
                             // own check values say which one is right.
                             long gap = RomPatcher.xdeltaSourceEnd(item.patch) - current.length();
                             int lba = gdiTrackLba(source, k);
-                            if (source.gdi && gap > 0 && gap % CdSector.SIZE == 0 && gap / CdSector.SIZE <= 300 && lba > 0
+                            if (source.gdi && gap > 0 && gap <= 300L * CdSector.SIZE && lba > 0
                                     && k < source.dataTracks.size() && source.dataTracks.get(k)) {
-                                String used = applyWithBuiltPregap(item, current, temp, dir, lba, (int) (gap / CdSector.SIZE));
+                                // What the patch reads ends at or before the original's end, so the
+                                // gap is at least that many frames: the usual 225 (3 s) first.
+                                int least = (int) ((gap + CdSector.SIZE - 1) / CdSector.SIZE);
+                                String used = null;
+                                java.util.LinkedHashSet<Integer> sizes = new java.util.LinkedHashSet<>(Arrays.asList(225, least, 150, 75, 300));
+                                for (int frames : sizes) {
+                                    if (used == null && frames >= least) {
+                                        used = applyWithBuiltPregap(item, current, temp, dir, lba, frames);
+                                    }
+                                }
                                 if (used != null) {
                                     if (!first) {
                                         current.delete();
@@ -7737,7 +7746,7 @@ public final class MainActivity extends Activity {
                             if (!stored.isFile() && source.gdi
                                     && RomPatcher.xdeltaSourceEnd(item.patch) > current.length()) {
                                 throw new IOException(item.name + " → Track " + String.format(Locale.ROOT, "%02d", k + 1) + ": " + e.getMessage()
-                                        + "\n\n이 패치는 원본 트랙이 지금보다 커요 — Redump 덤프(트랙 앞 공백 포함)용 패치일 수 있어요. CHD에서 푼 게임이면 원본 CHD로 다시 패치해 주세요(0.0.304부터 CHD를 풀 때 그 공백을 함께 보관해 맞춰 줘요).\n\n"
+                                        + "\n\n이 패치는 원본 트랙이 지금보다 커요 — Redump 덤프(트랙 앞 공백 포함)용 패치예요. CHD에 저장된 공백도, 앱이 다시 만들어 본 공백(75 · 150 · 225 · 300섹터)도 맞지 않았어요. 패치 안내문의 원본과 다른 덤프일 수 있어요.\n\n"
                                         + trackDiagnosis(current, null, item));
                             }
                             throw new IOException(item.name + " → Track " + String.format(Locale.ROOT, "%02d", k + 1) + ": " + e.getMessage()
