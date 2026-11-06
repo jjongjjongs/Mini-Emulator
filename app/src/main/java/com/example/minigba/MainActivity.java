@@ -15573,9 +15573,18 @@ public final class MainActivity extends Activity {
     }
 
     // A disc patched in the app stands in for the disc it was made from (patched_from).
+    // Followed back to the first disc, through patches made on patched discs (Track 3, then
+    // Track 6 on that).
     private String splitSourceName(File file) {
-        String from = romPrefs().getString("patched_from:" + file.getName(), null);
-        return from != null && msxSplitGameName(from) != null ? from : file.getName();
+        String name = file.getName();
+        for (int k = 0; k < 16; k++) {
+            String from = romPrefs().getString("patched_from:" + name, null);
+            if (from == null || from.equals(name) || msxSplitGameName(from) == null) {
+                break;
+            }
+            name = from;
+        }
+        return name;
     }
 
     private int discRank(File disc) {
@@ -15615,6 +15624,7 @@ public final class MainActivity extends Activity {
         File[] files = dir.listFiles();
         if (files == null) return;
         boolean dc = MODE_DC.equals(mode);
+        java.util.Set<String> made = new java.util.HashSet<>();
         Map<String, List<File>> games = new java.util.TreeMap<>();
         for (File file : files) {
             String name = file.getName();
@@ -15650,10 +15660,26 @@ public final class MainActivity extends Activity {
                     ? Integer.compare(msxSplitNumber(splitSourceName(a)), msxSplitNumber(splitSourceName(b))) : a.getName().compareToIgnoreCase(b.getName()));
             StringBuilder text = new StringBuilder(MSX_PLAYLIST_MARK).append(" (").append(disks.size()).append(")\n");
             for (File disk : disks) text.append(disk.getName()).append('\n');
+            made.add(playlist.getName());
             if (playlist.isFile() && text.toString().equals(readSmallTextFull(playlist))) continue;
+            if (dc && playlist.isFile()) {
+                // Other discs (a patched one) now: the scene saved with the old ones would come
+                // back with their contents, so this game starts afresh once (in-game saves stay).
+                settingsPrefs().edit().putBoolean("fresh_start:" + saveBaseNameFor(playlist), true).apply();
+            }
             try (FileOutputStream out = new FileOutputStream(playlist)) {
                 out.write(text.toString().getBytes(StandardCharsets.UTF_8));
             } catch (IOException ignored) {
+            }
+        }
+        // Dreamcast: a playlist the app made for discs that now belong to another group (a
+        // patched disc counted as its own game before 0.0.310) goes; its discs stay.
+        if (dc) {
+            for (File file : files) {
+                String name = file.getName();
+                if (name.toLowerCase(Locale.ROOT).endsWith(".m3u") && !made.contains(name) && !msxPlaylistDisks(file).isEmpty()) {
+                    file.delete();
+                }
             }
         }
     }
