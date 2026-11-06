@@ -6884,6 +6884,46 @@ public final class MainActivity extends Activity {
         boolean noMatch;         // the patch says none of the tracks is its original
     }
 
+    // What a refused track is, to compare with the patch's notes (원본 md5 · 크기): the track's
+    // MD5 and size, and the same with its stored pregap in front (the Redump track).
+    private static String trackDiagnosis(File track, File pregap, DiscPatch item) {
+        StringBuilder sb = new StringBuilder("확인용 (패치 안내문의 원본 md5와 비교해 보세요)\n");
+        long expected = RomPatcher.xdeltaSourceEnd(item.patch);
+        if (expected > 0) {
+            sb.append("· 패치가 읽는 원본 크기: ").append(String.format(Locale.ROOT, "%,d", expected)).append(" 바이트 이상\n");
+        }
+        sb.append("· 지금 트랙: ").append(String.format(Locale.ROOT, "%,d", track.length())).append(" 바이트 · md5 ").append(md5Of(new File[]{track})).append('\n');
+        if (pregap != null && pregap.isFile()) {
+            sb.append("· 프리갭(").append(pregap.length() / 2352).append("섹터) + 트랙: ")
+                    .append(String.format(Locale.ROOT, "%,d", pregap.length() + track.length())).append(" 바이트 · md5 ").append(md5Of(new File[]{pregap, track}));
+        } else {
+            sb.append("· 프리갭: 없음 (CHD에 저장되지 않았거나, 0.0.304 전에 푼 GDI)");
+        }
+        return sb.toString();
+    }
+
+    private static String md5Of(File[] parts) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("MD5");
+            byte[] buffer = new byte[1 << 20];
+            for (File part : parts) {
+                try (InputStream in = new FileInputStream(part)) {
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        digest.update(buffer, 0, n);
+                    }
+                }
+            }
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest.digest()) {
+                hex.append(String.format(Locale.ROOT, "%02X", b & 0xFF));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            return "(읽지 못함)";
+        }
+    }
+
     // A patch made on a Redump track: pregap + track joined, patched, and the pregap's length
     // cut off again, so the result is the GDI track (the GDI keeps its layout).
     private static void applyWithPregap(DiscPatch item, File track, File out, File dir) throws IOException {
@@ -7537,7 +7577,12 @@ public final class MainActivity extends Activity {
                         }
                         File temp = new File(dir, "." + target.getName() + ".patching");
                         if (item.pregap != null) {
-                            applyWithPregap(item, current, temp, dir);
+                            try {
+                                applyWithPregap(item, current, temp, dir);
+                            } catch (IOException e) {
+                                throw new IOException(item.name + " → Track " + String.format(Locale.ROOT, "%02d", k + 1) + ": " + e.getMessage()
+                                        + "\n\n" + trackDiagnosis(current, item.pregap, item));
+                            }
                             if (!first) {
                                 current.delete();
                             }
@@ -7574,9 +7619,12 @@ public final class MainActivity extends Activity {
                             }
                             if (!stored.isFile() && source.gdi
                                     && RomPatcher.xdeltaSourceEnd(item.patch) > current.length()) {
-                                throw new IOException(e.getMessage() + "\n\n이 패치는 원본 트랙이 지금보다 커요 — Redump 덤프(트랙 앞 공백 포함)용 패치일 수 있어요. CHD에서 푼 게임이면 원본 CHD로 다시 패치해 주세요(0.0.304부터 CHD를 풀 때 그 공백을 함께 보관해 맞춰 줘요).");
+                                throw new IOException(item.name + " → Track " + String.format(Locale.ROOT, "%02d", k + 1) + ": " + e.getMessage()
+                                        + "\n\n이 패치는 원본 트랙이 지금보다 커요 — Redump 덤프(트랙 앞 공백 포함)용 패치일 수 있어요. CHD에서 푼 게임이면 원본 CHD로 다시 패치해 주세요(0.0.304부터 CHD를 풀 때 그 공백을 함께 보관해 맞춰 줘요).\n\n"
+                                        + trackDiagnosis(current, null, item));
                             }
-                            throw e;
+                            throw new IOException(item.name + " → Track " + String.format(Locale.ROOT, "%02d", k + 1) + ": " + e.getMessage()
+                                    + "\n\n" + trackDiagnosis(current, stored.isFile() ? stored : null, item));
                         }
                         if (!first) {
                             current.delete();
