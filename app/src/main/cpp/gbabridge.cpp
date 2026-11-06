@@ -3999,8 +3999,12 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     configureAudio(core, core->sampleRate);
 
     // A game on several discs starts with the disc it was left on in the drive, before its
-    // scene comes back (that scene was saved with that disc).
-    disk::tick();
+    // scene comes back (that scene was saved with that disc). Dolphin changes discs on its CPU
+    // thread, which isn't running yet: there it happens at the first frame (still before the
+    // scene, which waits for frames).
+    if (core->coreId != "dolphin") {
+        disk::tick();
+    }
 
     // Resume where the player left off: in-game save first, then the quick save.
     loadSram(core);

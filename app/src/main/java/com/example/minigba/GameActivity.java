@@ -8205,7 +8205,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // ---- Dreamcast games on several discs (the app's .m3u, 0.0.303) ----
     private boolean isDiscGroup() {
-        return (isDreamcast() || isPs1() || isSaturn() || isMegaCd() || isPcEngine()) && this.romPath != null
+        return (isDreamcast() || isPs1() || isSaturn() || isMegaCd() || isPcEngine() || isDolphin()) && this.romPath != null
                 && this.romPath.toLowerCase(java.util.Locale.ROOT).endsWith(".m3u");
     }
 
@@ -10846,6 +10846,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Wii or GameCube, from the disc image's header: a Wii magic word at 0x18 of a plain
     // image, the disc type of a WIA/RVZ image (0x48), the sub type of a GCZ image (4); WBFS
     // holds only Wii games.
+    // The disc image to read a header from: a game on several discs (.m3u) is read from its
+    // first disc.
+    private String discImagePath() {
+        if (this.romPath != null && this.romPath.toLowerCase(Locale.US).endsWith(".m3u")) {
+            java.util.List<File> discs = MainActivity.msxPlaylistDisks(new File(this.romPath));
+            if (!discs.isEmpty()) {
+                return discs.get(0).getPath();
+            }
+        }
+        return this.romPath;
+    }
+
     private boolean isWiiGame() {
         if (this.wiiDisc != null) {
             return this.wiiDisc;
@@ -10855,7 +10867,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (lower.endsWith(".wbfs")) {
             wii = true;
         } else if (this.romPath != null) {
-            try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(this.romPath, "r")) {
+            try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(discImagePath(), "r")) {
                 byte[] head = new byte[0x50];
                 file.readFully(head);
                 int magic = ((head[0] & 0xFF) << 24) | ((head[1] & 0xFF) << 16) | ((head[2] & 0xFF) << 8) | (head[3] & 0xFF);
@@ -11018,7 +11030,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (this.romPath == null) {
             return null;
         }
-        try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(this.romPath, "r")) {
+        try (java.io.RandomAccessFile file = new java.io.RandomAccessFile(discImagePath(), "r")) {
             byte[] head = new byte[0x60];
             file.readFully(head);
             int magic = ((head[0] & 0xFF) << 24) | ((head[1] & 0xFF) << 16) | ((head[2] & 0xFF) << 8) | (head[3] & 0xFF);

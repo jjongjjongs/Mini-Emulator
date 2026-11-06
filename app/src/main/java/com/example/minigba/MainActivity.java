@@ -108,7 +108,7 @@ public final class MainActivity extends Activity {
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso,.m3u", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
             // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
-            {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
+            {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs,.m3u", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
             {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds,.m3u", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
@@ -4690,7 +4690,7 @@ public final class MainActivity extends Activity {
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
         if ((romDirFor(MODE_MSX).equals(dir) || romDirFor(MODE_DC).equals(dir) || romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_SS).equals(dir)
-                || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_PCE).equals(dir)) && isGroupedMsxDisk(file)) {
+                || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_GC).equals(dir)) && isGroupedMsxDisk(file)) {
             return false;
         }
         if (romDirFor(MODE_NAOMI).equals(dir) && !file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
@@ -15569,13 +15569,14 @@ public final class MainActivity extends Activity {
     // Dreamcast games on several discs (0.0.303): "Name (Disc 1).gdi" ... (.gdi / .chd / .cdi),
     // grouped the same way; Flycast swaps them through its disk control.
     private static final java.util.regex.Pattern DC_SPLIT_DISK = java.util.regex.Pattern.compile(
-            "^(.*?)\\s*[(\\[]\\s*(?:disk|disc|디스크)\\s*(\\d+)(?:\\s*(?:of|/)\\s*\\d+)?\\s*[)\\]](.*)\\.(?:gdi|chd|cdi|cue|iso|ccd|mds)$",
+            "^(.*?)\\s*[(\\[]\\s*(?:disk|disc|디스크)\\s*(\\d+)(?:\\s*(?:of|/)\\s*\\d+)?\\s*[)\\]](.*)\\.(?:gdi|chd|cdi|cue|iso|ccd|mds|gcm|rvz|wia|gcz|ciso|wbfs)$",
             java.util.regex.Pattern.CASE_INSENSITIVE);
 
     // Consoles whose games on several discs are grouped (0.0.303 Dreamcast; 0.0.314 PS1,
     // 세가 새턴, 메가CD, PC엔진 CD): their engines swap discs through libretro's disk control.
     static boolean discGroupMode(String mode) {
-        return MODE_DC.equals(mode) || MODE_PS1.equals(mode) || MODE_SS.equals(mode) || MODE_MCD.equals(mode) || MODE_PCE.equals(mode);
+        return MODE_DC.equals(mode) || MODE_PS1.equals(mode) || MODE_SS.equals(mode) || MODE_MCD.equals(mode) || MODE_PCE.equals(mode)
+                || MODE_GC.equals(mode);   // 0.0.315: Dolphin's libretro build reads .m3u and swaps discs
     }
 
     private static java.util.regex.Matcher splitDiskMatcher(String fileName) {
