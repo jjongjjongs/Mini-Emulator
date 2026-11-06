@@ -738,7 +738,10 @@ bool loadCoreSymbols(Core* core) {
 bool needsFrameBeforeState(const Core* core) {
     return core->coreId == "mame2010" || core->coreId == "mame2015" || core->coreId == "ppsspp" || core->coreId == "play" ||
            core->coreId == "pcee2" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
-           core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "dolphin";
+           core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "dolphin" ||
+           // NP2kai builds the machine in its first retro_run: a state restored before that
+           // reaches its floppy drives uninitialised (a null call, 0.0.319).
+           core->coreId == "np2kai";
 }
 
 // Play! states saved before 0.0.55 were taken while its VM thread kept running and crash
