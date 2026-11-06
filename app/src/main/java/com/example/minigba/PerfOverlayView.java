@@ -36,10 +36,16 @@ final class PerfOverlayView extends View {
     private String line2 = "";
     private int fpsColor = Color.rgb(74, 222, 128);
     private String drain = "";
-    private double lastFrames = -1;
-    private double lastPictures;
-    private double lastAudio;
-    private long lastTime;
+    // The last few readings (one a second): FPS and speed are over the oldest of them, about
+    // 4 s back. Over 1 s they jumped about (17% then 137%) where an engine hands its sound or
+    // its pictures over in uneven bursts (Dreamcast), though the game ran evenly.
+    private static final int WINDOW = 5;
+    private final double[] pastFrames = new double[WINDOW];
+    private final double[] pastPictures = new double[WINDOW];
+    private final double[] pastAudio = new double[WINDOW];
+    private final long[] pastTime = new long[WINDOW];
+    private int pastCount;
+    private int pastNext;
 
     PerfOverlayView(Context context, View target, boolean flat) {
         super(context);
@@ -68,20 +74,28 @@ final class PerfOverlayView extends View {
         if (stats != null && stats.length >= 3) {
             double audio = stats.length >= 5 ? stats[3] : 0;
             double rate = stats.length >= 5 ? stats[4] : 0;
-            if (this.lastFrames >= 0 && now > this.lastTime && stats[0] >= this.lastFrames) {
-                double seconds = (now - this.lastTime) / 1e9;
-                double fps = (stats[1] - this.lastPictures) / seconds;
-                double speed = (stats[0] - this.lastFrames) / seconds / Math.max(1, stats[2]) * 100;
-                if (rate > 0 && audio > this.lastAudio) {
-                    speed = (audio - this.lastAudio) / seconds / rate * 100;
+            int oldest = this.pastCount < WINDOW ? 0 : this.pastNext;
+            if (this.pastCount > 0 && stats[0] < this.pastFrames[(this.pastNext + WINDOW - 1) % WINDOW]) {
+                this.pastCount = 0;   // the engine's counts started again
+                this.pastNext = 0;
+                oldest = 0;
+            }
+            if (this.pastCount > 0 && now > this.pastTime[oldest]) {
+                double seconds = (now - this.pastTime[oldest]) / 1e9;
+                double fps = (stats[1] - this.pastPictures[oldest]) / seconds;
+                double speed = (stats[0] - this.pastFrames[oldest]) / seconds / Math.max(1, stats[2]) * 100;
+                if (rate > 0 && audio > this.pastAudio[oldest]) {
+                    speed = (audio - this.pastAudio[oldest]) / seconds / rate * 100;
                 }
                 this.line1 = Math.round(fps) + " FPS · 속도 " + Math.round(speed) + "%";
                 this.fpsColor = speed >= 95 ? Color.rgb(74, 222, 128) : speed >= 80 ? Color.rgb(251, 191, 36) : Color.rgb(248, 113, 113);
             }
-            this.lastFrames = stats[0];
-            this.lastPictures = stats[1];
-            this.lastAudio = audio;
-            this.lastTime = now;
+            this.pastFrames[this.pastNext] = stats[0];
+            this.pastPictures[this.pastNext] = stats[1];
+            this.pastAudio[this.pastNext] = audio;
+            this.pastTime[this.pastNext] = now;
+            this.pastNext = (this.pastNext + 1) % WINDOW;
+            this.pastCount = Math.min(this.pastCount + 1, WINDOW);
         }
         if (this.line1.isEmpty()) {
             this.line1 = "FPS 재는 중…";
@@ -92,7 +106,8 @@ final class PerfOverlayView extends View {
 
     // Restarts the FPS count (after a pause, so it doesn't count the paused time).
     void restart() {
-        this.lastFrames = -1;
+        this.pastCount = 0;
+        this.pastNext = 0;
     }
 
     private String temperature() {
