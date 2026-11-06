@@ -24,6 +24,25 @@ final class CdSector {
     private CdSector() {
     }
 
+    static final int SIZE = 2352;
+    // Minutes past 99 (GD-ROM's high-density area): "hex tens" (100 -> 0xA0, as mode1 writes
+    // them) or the BCD of minutes mod 100.
+    static final int MINUTES_HEX_TENS = 0;
+    static final int MINUTES_MOD_100 = 1;
+
+    // An empty Mode 1 sector at lba (the pregap a Redump track starts with, 0.0.308).
+    static byte[] emptyMode1(int lba, int minuteStyle) {
+        byte[] sector = new byte[SIZE];
+        mode1(sector, lba);
+        if (minuteStyle == MINUTES_MOD_100) {
+            int minutes = (lba + 150) / (60 * 75);
+            if (minutes > 99) {
+                mode1(sector, lba - 100 * 60 * 75);   // same seconds and frame, minutes mod 100
+            }
+        }
+        return sector;
+    }
+
     // Fills in everything but the data of sector (2352 bytes) for disc position lba.
     static void mode1(byte[] sector, long lba) {
         sector[0] = 0;

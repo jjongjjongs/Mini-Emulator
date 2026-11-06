@@ -6924,6 +6924,74 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // A GDI track's start (LBA) from its line in the sheet ("number lba type size file offset").
+    private static int gdiTrackLba(PatchSource source, int k) {
+        try {
+            String line = source.cueLines.get(source.cueFileLines.get(k)).trim();
+            String[] parts = line.split("\\s+");
+            return parts.length >= 2 ? Integer.parseInt(parts[1]) : -1;
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
+    // The gap before a data track that a Redump track holds and a CHD may not keep: tried in
+    // turn — empty Mode 1 sectors (minutes past 99 written two ways), silence first then such
+    // sectors, all silence. The patch checks every window, so only the true gap gets through.
+    // Returns what the gap was, or null when none fits.
+    private static String applyWithBuiltPregap(DiscPatch item, File track, File out, File dir, int lba, int frames) throws IOException {
+        String[] names = {"빈 데이터 섹터", "무음 75 + 빈 데이터 섹터", "무음 150 + 빈 데이터 섹터", "빈 데이터 섹터 (분 표기 2)",
+                "무음 75 + 빈 데이터 섹터 (분 표기 2)", "무음"};
+        int[][] plans = {{0, 0}, {75, 0}, {150, 0}, {0, 1}, {75, 1}, {frames, 0}};   // {silent frames first, minute style}
+        File joined = new File(dir, "." + out.getName() + ".built");
+        File patched = new File(dir, "." + out.getName() + ".built-out");
+        long gapBytes = (long) frames * CdSector.SIZE;
+        try {
+            try (OutputStream joinOut = new java.io.BufferedOutputStream(new FileOutputStream(joined), 1 << 20)) {
+                joinOut.write(new byte[(int) gapBytes]);
+                byte[] buffer = new byte[1 << 20];
+                try (InputStream in = new FileInputStream(track)) {
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        joinOut.write(buffer, 0, n);
+                    }
+                }
+            }
+            for (int p = 0; p < plans.length; p++) {
+                if (plans[p][0] > frames || (p == 2 && frames <= 150)) {
+                    continue;
+                }
+                try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(joined, "rw")) {
+                    byte[] silent = new byte[CdSector.SIZE];
+                    for (int i = 0; i < frames; i++) {
+                        raf.write(i < plans[p][0] ? silent : CdSector.emptyMode1(lba - frames + i, plans[p][1]));
+                    }
+                }
+                try {
+                    RomPatcher.Check check = RomPatcher.check(item.patch, joined);
+                    RomPatcher.apply(item.patch, joined, check, patched);
+                } catch (IOException wrongGap) {
+                    patched.delete();
+                    continue;
+                }
+                try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(patched, "r");
+                     OutputStream trackOut = new java.io.BufferedOutputStream(new FileOutputStream(out), 1 << 20)) {
+                    in.seek(gapBytes);
+                    byte[] buffer = new byte[1 << 20];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        trackOut.write(buffer, 0, n);
+                    }
+                }
+                return names[p] + " " + frames + "섹터";
+            }
+            return null;
+        } finally {
+            joined.delete();
+            patched.delete();
+        }
+    }
+
     // A patch made on a Redump track: pregap + track joined, patched, and the pregap's length
     // cut off again, so the result is the GDI track (the GDI keeps its layout).
     private static void applyWithPregap(DiscPatch item, File track, File out, File dir) throws IOException {
@@ -7535,6 +7603,7 @@ public final class MainActivity extends Activity {
             String error = null;
             List<File> written = new ArrayList<>();
             java.util.TreeSet<Integer> patchedTracks = new java.util.TreeSet<>();
+            List<String> builtGaps = new ArrayList<>();
             File[] joinedResult = new File[source.tracks.size()];
             try {
                 // Patches for joined tracks: join them, patch, and split the result back.
@@ -7644,6 +7713,25 @@ public final class MainActivity extends Activity {
                                     continue;
                                 } catch (IOException again) {
                                     item.pregap = null;
+                                }
+                            }
+                            // No pregap kept (the CHD didn't store it): rebuild the gap the patch reads
+                            // in front of the track from what such a gap holds, and let the patch's
+                            // own check values say which one is right.
+                            long gap = RomPatcher.xdeltaSourceEnd(item.patch) - current.length();
+                            int lba = gdiTrackLba(source, k);
+                            if (source.gdi && gap > 0 && gap % CdSector.SIZE == 0 && gap / CdSector.SIZE <= 300 && lba > 0
+                                    && k < source.dataTracks.size() && source.dataTracks.get(k)) {
+                                String used = applyWithBuiltPregap(item, current, temp, dir, lba, (int) (gap / CdSector.SIZE));
+                                if (used != null) {
+                                    if (!first) {
+                                        current.delete();
+                                    }
+                                    current = temp;
+                                    first = false;
+                                    patchedTracks.add(k + 1);
+                                    builtGaps.add("Track " + String.format(Locale.ROOT, "%02d", k + 1) + ": " + used);
+                                    continue;
                                 }
                             }
                             if (!stored.isFile() && source.gdi
