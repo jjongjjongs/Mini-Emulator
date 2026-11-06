@@ -410,6 +410,14 @@ final class DosSetup {
         return prefs.getString(key("keys", saveBaseName), DEFAULT_KEYS);
     }
 
+    static String keyRow(SharedPreferences prefs, String saveBaseName, String fallback) {
+        return prefs.getString(key("keys", saveBaseName), fallback);
+    }
+
+    static String buttonRow(SharedPreferences prefs, String saveBaseName, String fallback) {
+        return prefs.getString(key("buttons", saveBaseName), fallback);
+    }
+
     static String buttonRow(SharedPreferences prefs, String saveBaseName) {
         return prefs.getString(key("buttons", saveBaseName), DEFAULT_BUTTONS);
     }

@@ -97,7 +97,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         applyScreenFilterToNative(screenFilter());
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
-            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isVita() ? "vita" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : isDos() ? "dos" : "arcade";
+            this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isVita() ? "vita" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : isDos() ? "dos" : isPc98() ? "pc98" : "arcade";
         }
         CrashReports.installJavaHandler(this);
         registerPadListener();
@@ -695,7 +695,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         boolean full = i == 1;
-        if (isDos()) {
+        if (isKeyboardPc()) {
             fitDosLandscape(frameLayout, width, height);
             return;
         }
@@ -745,7 +745,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addLandscapeControls(FrameLayout frameLayout) {
-        if (isDos()) {
+        if (isKeyboardPc()) {
             addDosControls(frameLayout, true);
             return;
         }
@@ -929,8 +929,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (isDos() && this.dosControls != null && !isControllerEvent(event)) {
-            // A physical keyboard types into DOS.
+        if (isKeyboardPc() && this.dosControls != null && !isControllerEvent(event)) {
+            // A physical keyboard types into DOS (and the PC-98).
             int dosKey = DosControls.fromAndroid(event.getKeyCode());
             if (dosKey != 0 && (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP)) {
                 if (event.getRepeatCount() == 0) {
@@ -6155,6 +6155,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                     // FBNeo's .ini cheats as this game left them (others: none of them).
                     sendFbneoCheats();
+                    if (isPc98()) {
+                        // A fresh start puts the first two disks in again; a resumed game
+                        // keeps the drives as they were.
+                        if (!autoStateFile().isFile()) {
+                            MainActivity.sharedSettings(this).edit().remove(pc98Key("fdd1")).remove(pc98Key("fdd2")).apply();
+                        }
+                        sendPc98Options(null);
+                    }
                     if ("fbneo".equals(this.coreId)) {
                         NativeGba.setDosOptions(new String[]{"fbneo-ips"}, new String[]{arcadePatchOn() ? "enabled" : "disabled"}, "");
                     }
@@ -7520,7 +7528,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void addControls(FrameLayout frameLayout) {
-        if (isDos()) {
+        if (isKeyboardPc()) {
             addDosControls(frameLayout, false);
             return;
         }
@@ -8016,6 +8024,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isMsx()) {
             addMsxMenuRows(panel, dialog);
+        }
+        if (isPc98()) {
+            addPc98MenuRows(panel, dialog);
         }
         if ("fbneo".equals(this.coreId)) {
             LinearLayout.LayoutParams iniParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -10806,7 +10817,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // pointer units across the whole screen view; melonDS DS maps them onto the lower screen.
     // The DS touch screen, and the Wii remote's pointer (Dolphin follows the finger).
     private void attachTouchScreen(View screen) {
-        if (isDos()) {
+        if (isKeyboardPc()) {
             // The mouse mode's mouse: the game screen itself.
             screen.setOnTouchListener((view, event) -> this.dosControls != null && this.dosControls.screenTouch(view, event));
             return;
@@ -11687,6 +11698,171 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean isDos() {
         return "dosbox_pure".equals(this.coreId);
+    }
+
+    // DOS and the PC-98: keyboard-and-mouse computers, on the same on-screen controls.
+    private boolean isKeyboardPc() {
+        return isDos() || isPc98();
+    }
+
+    // ---- PC-98 (NP2kai, 0.0.317) ----
+    private static final String[] PC98_SOUND_NAMES = {"PC-9801-86 (추천)", "PC-9801-26K", "86 + 스피크 보드", "86 + 118", "PC-9801-118", "없음"};
+    private static final String[] PC98_SOUND_VALUES = {"PC9801-86", "PC9801-26K", "PC9801-86 + Speak Board", "PC9801-86 + 118(B460)", "PC9801-118", "None"};
+    private static final String[] PC98_SOUND_NOTES = {"90년대 게임 대부분 · FM 6음 + PCM", "80년대 게임 · FM 3음",
+            "86에 스피크 보드를 더한 것 · 일부 게임의 음성", "86에 118을 더한 것 · 윈도우 시절 게임 일부", "118만", "소리를 끔"};
+    // Hard disk images NP2kai mounts as IDE drives; the rest of a .cmd's files are floppies.
+    private static final String[] PC98_HDD_EXTENSIONS = {".hdi", ".thd", ".nhd", ".vhd", ".hdn", ".slh"};
+
+    private boolean isPc98() {
+        return "np2kai".equals(this.coreId);
+    }
+
+    private String pc98Key(String name) {
+        return "pc98_" + name + ":" + this.saveBaseName;
+    }
+
+    private int pc98Sound() {
+        int value = MainActivity.sharedSettings(this).getInt(pc98Key("sound"), 0);
+        return value < 0 || value >= PC98_SOUND_VALUES.length ? 0 : value;
+    }
+
+    // The game's options; drive: the drive the next disk swap goes into (null: FDD1).
+    private void sendPc98Options(String drive) {
+        // The joypad is left off: NP2kai's joypad keys share their held state with the
+        // keyboard's, so a pad "up" would let go of the on-screen arrow keys every frame. The
+        // NP2 menu stays on F12 (not on L2).
+        NativeGba.setCoreOptions(new String[]{"np2kai_SNDboard", "np2kai_joymode", "np2kai_joynp2menu", "np2kai_drive"},
+                new String[]{PC98_SOUND_VALUES[pc98Sound()], "OFF", "OFF", drive == null ? "FDD1" : drive}, false);
+    }
+
+    // The floppy images of the app's .cmd (FDD1 = the first, FDD2 = the second), in the
+    // order NP2kai's disk control lists them.
+    private java.util.List<File> pc98Floppies() {
+        java.util.List<File> out = new java.util.ArrayList<>();
+        if (this.romPath == null || !this.romPath.toLowerCase(java.util.Locale.ROOT).endsWith(".cmd")) {
+            return out;
+        }
+        String text;
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(new File(this.romPath).toPath());
+            text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            return out;
+        }
+        String line = text.split("\n", 2)[0];
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"([^\"]+)\"").matcher(line);
+        while (m.find()) {
+            String path = m.group(1);
+            String lower = path.toLowerCase(java.util.Locale.ROOT);
+            boolean hdd = false;
+            for (String ext : PC98_HDD_EXTENSIONS) {
+                hdd |= lower.endsWith(ext);
+            }
+            if (!hdd) {
+                out.add(new File(path));
+            }
+        }
+        return out;
+    }
+
+    private int pc98Drive(int drive, int count) {
+        int value = MainActivity.sharedSettings(this).getInt(pc98Key("fdd" + (drive + 1)), drive);
+        return value >= 0 && value < count ? value : -1;
+    }
+
+    private void addPc98MenuRows(LinearLayout panel, android.app.Dialog dialog) {
+        java.util.List<File> disks = pc98Floppies();
+        if (disks.size() > 1) {
+            String now = "FDD1 " + pc98DiskLabel(disks, pc98Drive(0, disks.size())) + " · FDD2 " + pc98DiskLabel(disks, pc98Drive(1, disks.size()));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+            params.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.SWAP, Color.rgb(15, 118, 110), "디스크 바꾸기", now, view -> showPc98DriveDialog(dialog, disks)), params);
+        }
+        LinearLayout.LayoutParams soundParams = new LinearLayout.LayoutParams(-1, dp(52));
+        soundParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(createSettingRow(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "사운드 보드", PC98_SOUND_NAMES[pc98Sound()],
+                view -> showPc98SoundDialog(dialog)), soundParams);
+    }
+
+    private static String pc98DiskLabel(java.util.List<File> disks, int index) {
+        if (index < 0) {
+            return "비어 있음";
+        }
+        String name = disks.get(index).getName();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)[(\\[]\\s*(?:disk|disc|디스크)\\s*([0-9a-z]+)").matcher(name);
+        return m.find() ? "Disk " + m.group(1).toUpperCase(java.util.Locale.ROOT) : "#" + (index + 1);
+    }
+
+    private void showPc98DriveDialog(android.app.Dialog menu, java.util.List<File> disks) {
+        String[] names = new String[2];
+        String[] notes = new String[2];
+        for (int d = 0; d < 2; d++) {
+            int at = pc98Drive(d, disks.size());
+            names[d] = "FDD" + (d + 1) + " · " + pc98DiskLabel(disks, at);
+            notes[d] = at < 0 ? "" : disks.get(at).getName();
+        }
+        showChoiceDialog(RoundIconView.SWAP, Color.rgb(15, 118, 110), "디스크 바꾸기 · 드라이브", names, notes, 0,
+                "PC-98에는 플로피 드라이브가 2개 있어요. 처음에는 FDD1에 첫 디스크, FDD2에 둘째 디스크가 들어가요.\n"
+                        + "게임이 \"Disk C를 FDD2에 넣어 주세요\"처럼 말하면, 그 드라이브를 고르고 디스크를 골라 주세요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "디스크 고르기", drive -> showPc98DiskDialog(menu, disks, drive));
+    }
+
+    private void showPc98DiskDialog(android.app.Dialog menu, java.util.List<File> disks, int drive) {
+        int now = pc98Drive(drive, disks.size());
+        String[] names = new String[disks.size()];
+        String[] notes = new String[disks.size()];
+        for (int k = 0; k < names.length; k++) {
+            int other = pc98Drive(1 - drive, disks.size());
+            names[k] = pc98DiskLabel(disks, k) + (k == now ? " · 지금 이 드라이브" : k == other ? " · FDD" + (2 - drive) + "에 있음" : "");
+            notes[k] = disks.get(k).getName();
+        }
+        showChoiceDialog(RoundIconView.SWAP, Color.rgb(15, 118, 110), "FDD" + (drive + 1) + "에 넣을 디스크", names, notes, Math.max(0, now),
+                "같은 디스크를 두 드라이브에 함께 넣지는 않아요. 다른 드라이브에 있던 디스크를 고르면 그쪽은 비워져요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "넣기", choice -> {
+                    long handle = this.nativeHandle;
+                    if (handle == 0 || choice == now) {
+                        return;
+                    }
+                    String drives = drive == 0 ? "FDD1" : "FDD2";
+                    sendPc98Options(drives);
+                    NativeGba.diskSet(handle, choice);
+                    android.content.SharedPreferences.Editor edit = MainActivity.sharedSettings(this).edit();
+                    edit.putInt(pc98Key("fdd" + (drive + 1)), choice);
+                    if (pc98Drive(1 - drive, disks.size()) == choice) {
+                        edit.putInt(pc98Key("fdd" + (2 - drive)), -1);
+                    }
+                    edit.apply();
+                    Toast.makeText(this, drives + "에 " + pc98DiskLabel(disks, choice) + "를 넣었어요", Toast.LENGTH_SHORT).show();
+                    if (menu != null) {
+                        menu.dismiss();
+                    }
+                });
+    }
+
+    private void showPc98SoundDialog(android.app.Dialog menu) {
+        showChoiceDialog(RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "사운드 보드", PC98_SOUND_NAMES, PC98_SOUND_NOTES, pc98Sound(),
+                "게임 상자나 설명서에 적힌 음원에 맞추면 돼요. 모르면 86 그대로 두세요.\n"
+                        + "드럼 소리(리듬 음원)는 직접 가진 기계에서 뽑은 2608_*.wav 파일을 바이오스 폴더(np2kai)에 넣으면 나와요.\n"
+                        + "바꾸면 게임이 처음부터 다시 켜져요.",
+                Color.rgb(255, 251, 235), Color.rgb(146, 64, 14), "적용 후 다시 켜기", choice -> {
+                    if (choice == pc98Sound()) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt(pc98Key("sound"), choice)
+                            .remove(pc98Key("fdd1")).remove(pc98Key("fdd2")).apply();
+                    sendPc98Options(null);
+                    if (menu != null) {
+                        menu.dismiss();
+                    }
+                    // The core takes the new board when it next reads its options (a frame
+                    // away), then starts the machine over.
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        long handle = this.nativeHandle;
+                        if (handle != 0 && !this.destroyed) {
+                            NativeGba.reset(handle);
+                        }
+                    }, 300);
+                });
     }
 
     // ---- MSX · 재믹스 (blueMSX) ----
@@ -13347,8 +13523,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                 });
             }
-        }, landscape, DosSetup.keyRow(prefs, this.saveBaseName), DosSetup.buttonRow(prefs, this.saveBaseName), start,
-                DosSetup.choice(prefs, "mouse", this.saveBaseName) == 1);
+        }, landscape, DosSetup.keyRow(prefs, this.saveBaseName, isPc98() ? DosControls.PC98_KEYS : DosSetup.DEFAULT_KEYS),
+                DosSetup.buttonRow(prefs, this.saveBaseName, isPc98() ? DosControls.PC98_BUTTONS : DosSetup.DEFAULT_BUTTONS), start,
+                DosSetup.choice(prefs, "mouse", this.saveBaseName) == 1, isPc98());
         controls.setPulledStore(prefs);
         this.dosControls = controls;
         controls.attach(frame);
@@ -14340,6 +14517,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "yabasanshiro":
             case "dolphin":
             case "dosbox_pure":
+            case "np2kai":
             case "bluemsx":
             case "vita3k":
                 return MainActivity.isConsoleRomNameForCore(this.coreId, lowerCasePath);

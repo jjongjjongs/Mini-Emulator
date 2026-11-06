@@ -65,6 +65,10 @@ final class DosControls {
     private final boolean landscape;
     private final boolean directMouse;
     private final String[][] keyRow;
+    private final boolean pc98;
+    // PC-98 games mostly take Z / X (or Return / Space) and the arrow keys, F keys for menus.
+    static final String PC98_KEYS = "Esc,Enter,Space,Z,X,Shift,F1,F2,F3,F10";
+    static final String PC98_BUTTONS = "Z,X,Enter,Space";
     private final String[][] buttons;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private FrameLayout frame;
@@ -121,12 +125,18 @@ final class DosControls {
     }
 
     DosControls(Context context, Host host, boolean landscape, String keys, String bigButtons, int startPage, boolean directMouse) {
+        this(context, host, landscape, keys, bigButtons, startPage, directMouse, false);
+    }
+
+    // pc98: PC-98 (NP2kai, 0.0.317): its default keys, and a row of its own keys on the keyboard.
+    DosControls(Context context, Host host, boolean landscape, String keys, String bigButtons, int startPage, boolean directMouse, boolean pc98) {
         this.context = context;
         this.host = host;
         this.landscape = landscape;
         this.directMouse = directMouse;
-        this.keyRow = parse(keys, DosSetup.DEFAULT_KEYS);
-        this.buttons = parse(bigButtons, DosSetup.DEFAULT_BUTTONS);
+        this.pc98 = pc98;
+        this.keyRow = parse(keys, pc98 ? PC98_KEYS : DosSetup.DEFAULT_KEYS);
+        this.buttons = parse(bigButtons, pc98 ? PC98_BUTTONS : DosSetup.DEFAULT_BUTTONS);
         this.page = startPage == 1 ? PAGE_MOUSE : startPage == 2 ? PAGE_KEYBOARD : PAGE_PAD;
     }
 
@@ -163,6 +173,11 @@ final class DosControls {
                 {"shift", "304"}, {"rshift", "303"}, {"ctrl", "306"}, {"rctrl", "305"}, {"alt", "308"}, {"ralt", "307"}, {"caps", "301"},
                 {";", "59"}, {"'", "39"}, {",", "44"}, {".", "46"}, {"/", "47"}, {"-", "45"}, {"=", "61"}, {"[", "91"}, {"]", "93"}, {"\\", "92"}, {"`", "96"},
                 {"pause", "19"}, {"numlock", "300"}, {"scroll", "302"},
+                // PC-98 keys as NP2kai reads them (kbtrans.c): STOP = Pause, COPY = Print,
+                // HELP = End, GRPH = right Ctrl, NFER / XFER = left / right Alt, ROLL UP / DOWN
+                // = Page Up / Down.
+                {"stop", "19"}, {"copy", "316"}, {"help", "279"}, {"grph", "305"}, {"nfer", "308"}, {"xfer", "307"},
+                {"roll↑", "280"}, {"roll↓", "281"}, {"ret", "13"}, {"spc", "32"},
                 {"kp0", "256"}, {"kp1", "257"}, {"kp2", "258"}, {"kp3", "259"}, {"kp4", "260"}, {"kp5", "261"}, {"kp6", "262"}, {"kp7", "263"}, {"kp8", "264"}, {"kp9", "265"},
                 {"kp+", "270"}, {"kp-", "269"}, {"kp*", "268"}, {"kp/", "267"}, {"kpenter", "271"},
         };
@@ -801,6 +816,7 @@ final class DosControls {
             {"Shift", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "/", "↑"},
             {"Ctrl", "Alt", "F1~F12", "-", "Space", "=", "←", "↓", "→", "닫기"},
     };
+    private static final String[] PC98_ROW = {"STOP", "COPY", "HELP", "GRPH", "NFER", "XFER", "ROLL↑", "ROLL↓", "Ins", "Home", "Del"};
     private static final String[] F_ROW = {"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"};
 
     private View keyboard(int keyHeight) {
@@ -808,8 +824,14 @@ final class DosControls {
         board.setOrientation(LinearLayout.VERTICAL);
         board.setPadding(host.dp(5), host.dp(5), host.dp(5), host.dp(3));
         board.setBackground(rounded(Color.rgb(11, 18, 32), host.dp(14)));
-        for (int r = 0; r < KEYBOARD.length; r++) {
-            String[] keys = r == 0 && fRow ? F_ROW : KEYBOARD[r];
+        String[][] rows = KEYBOARD;
+        if (pc98) {
+            rows = new String[KEYBOARD.length + 1][];
+            rows[0] = PC98_ROW;
+            System.arraycopy(KEYBOARD, 0, rows, 1, KEYBOARD.length);
+        }
+        for (int r = 0; r < rows.length; r++) {
+            String[] keys = rows[r] == KEYBOARD[0] && fRow ? F_ROW : rows[r];
             LinearLayout row = new LinearLayout(context);
             for (final String key : keys) {
                 float weight = key.equals("Space") ? 3f : key.length() > 2 ? 1.6f : 1f;
@@ -1052,7 +1074,7 @@ final class DosControls {
     private void buildLandscape() {
         int dp = host.dp(1);
         if (page == PAGE_KEYBOARD) {
-            View board = keyboard(34 * dp);
+            View board = keyboard((pc98 ? 29 : 34) * dp);
             board.setAlpha(0.94f);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
             params.setMargins(110 * dp, 0, 110 * dp, 2 * dp);

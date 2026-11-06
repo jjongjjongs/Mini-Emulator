@@ -683,6 +683,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "dosbox_pure") return "libdosbox_pure_libretro_android.so";
     if (coreId == "bluemsx") return "libbluemsx_libretro_android.so";
     if (coreId == "vita3k") return "libvita3k_libretro_android.so";
+    if (coreId == "np2kai") return "libnp2kai_libretro_android.so";
     return nullptr;
 }
 

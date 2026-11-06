@@ -93,6 +93,7 @@ public final class MainActivity extends Activity {
     private static final String MODE_WIIU = "wiiu";
     private static final String MODE_DOS = "dos";
     private static final String MODE_MSX = "msx";
+    private static final String MODE_PC98 = "pc98";
     private static final String MODE_VITA = "vita";
     private static final int REQUEST_OPEN_SNES_ROM = 1008;
     // Cartridge consoles: mode, engine, ROM extensions, file label, ROM folder, file picker request.
@@ -133,6 +134,9 @@ public final class MainActivity extends Activity {
             // <system>/vita3k; the player adds the system software (firmware) themselves.
             {MODE_VITA, "vita3k", ".vpk,.pkg", ".vpk / .pkg", "roms_vita", "1075"},
             {MODE_MSX, "bluemsx", ".rom,.mx1,.mx2,.ri,.dsk,.cas,.m3u", ".rom / .dsk / .cas / .zip", "roms_msx", "1071"},
+            // PC-98 on NP2kai (0.0.317): floppy images (.hdm .fdi .d88 …), hard disk images, and
+            // the .cmd the app writes for games on several floppies. Runs on its built-in BIOS.
+            {MODE_PC98, "np2kai", ".hdm,.fdi,.d88,.88d,.d98,.98d,.xdf,.dup,.2hd,.tfd,.nfd,.fdd,.hdi,.thd,.nhd,.vhd,.hdn,.cmd", ".hdm / .fdi / .d88 / .hdi", "roms_pc98", "1081"},
             // MS-DOS games on DOSBox Pure: the game's folder as a zip (kept whole, never
             // unpacked), CD images, floppy/hard disk images.
             {MODE_DOS, "dosbox_pure", ".zip,.dosz,.exe,.com,.bat,.iso,.cue,.chd,.img,.ima,.vhd", ".zip (게임 폴더) / .iso / .img", "roms_dos", "1069"},
@@ -186,13 +190,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_DOS, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "DOS (고전 PC)", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -1974,6 +1978,9 @@ public final class MainActivity extends Activity {
                 this.wiiOnlineStatusView = (TextView) wiiTile.getTag();
                 actionRow.addView(wiiTile, actionTileParams());
             }
+            if (MODE_PC98.equals(this.currentMode)) {
+                actionRow.addView(createActionCard("BIOS · 글꼴", pc98BiosStatusText(), R.drawable.action_bios, MODE_COLORS[modeIndex(MODE_PC98)], view -> showPc98BiosSheet()), actionTileParams());
+            }
             if (MODE_VITA.equals(this.currentMode)) {
                 actionRow.addView(createActionCard("PS Vita 펌웨어", vitaFirmwareStatusText(), R.drawable.action_bios, Color.rgb(29, 78, 216), view -> showVitaFirmwareSheet()), actionTileParams());
             }
@@ -3154,6 +3161,8 @@ public final class MainActivity extends Activity {
             if (data != null) {
                 importPs1Bios(data);
             }
+        } else if (i == REQUEST_IMPORT_PC98_BIOS) {
+            importPc98Bios(intent);
         } else if (i == REQUEST_PICK_COVER) {
             File rom = this.pendingCoverRom;
             this.pendingCoverRom = null;
@@ -4652,6 +4661,9 @@ public final class MainActivity extends Activity {
         if (MODE_MSX.equals(this.currentMode) || discGroupMode(this.currentMode)) {
             groupSplitDisks(this.currentMode);
         }
+        if (MODE_PC98.equals(this.currentMode)) {
+            groupPc98Disks();
+        }
         File[] listFiles = currentRomDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
             this.emptyView.setText(emptyLibraryText());
@@ -4691,6 +4703,9 @@ public final class MainActivity extends Activity {
         File dir = file.getParentFile();
         if ((romDirFor(MODE_MSX).equals(dir) || romDirFor(MODE_DC).equals(dir) || romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_SS).equals(dir)
                 || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_GC).equals(dir)) && isGroupedMsxDisk(file)) {
+            return false;
+        }
+        if (romDirFor(MODE_PC98).equals(dir) && pc98GroupedNames(dir).contains(file.getName())) {
             return false;
         }
         if (romDirFor(MODE_NAOMI).equals(dir) && !file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
@@ -5532,6 +5547,18 @@ public final class MainActivity extends Activity {
                 panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60), "한글패치 덮어쓰기 (패치 zip의 파일로 바꿔 새 게임으로)", () -> pickDosPatch(file)), hanParams);
             }
         }
+        if (MODE_PC98.equals(modeForFile(file))) {
+            LinearLayout pc98Row = new LinearLayout(this);
+            List<File> disks = msxPlaylistDisks(file);
+            pc98Row.addView(createActionTile(dialog, RoundIconView.CARD, MODE_COLORS[modeIndex(MODE_PC98)], "빈 세이브\n디스크", disks.isEmpty() ? "2HD 1.2MB" : "디스크 " + disks.size() + "장", false,
+                    () -> showPc98BlankDiskDialog(file)), actionGridParams(0));
+            int sound = settingsPrefs().getInt("pc98_sound:" + saveBaseNameFor(file), 0);
+            pc98Row.addView(createActionTile(dialog, RoundIconView.GEAR, RoundIconView.COLOR_GEAR, "사운드 보드", PC98_SOUND_SHORT[sound < 0 || sound >= PC98_SOUND_SHORT.length ? 0 : sound], false,
+                    () -> showPc98SoundPicker(file)), actionGridParams(1));
+            LinearLayout.LayoutParams pc98Params = new LinearLayout.LayoutParams(-1, -2);
+            pc98Params.setMargins(0, dp(8), 0, 0);
+            panel.addView(pc98Row, pc98Params);
+        }
         if (MODE_VITA.equals(modeForFile(file)) && isVitaPkg(file)) {
             LinearLayout.LayoutParams licParams = new LinearLayout.LayoutParams(-1, dp(52));
             licParams.setMargins(0, dp(8), 0, 0);
@@ -5631,7 +5658,7 @@ public final class MainActivity extends Activity {
     private File patchRom;
 
     private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP,
-            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS, MODE_GC, MODE_MSX};
+            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS, MODE_GC, MODE_MSX, MODE_PC98};
 
     // Cartridge games, and PS1 (BIN/CUE, ISO), PSP and PS2 (ISO) discs. Compressed images
     // (CHD, CSO, PBP) would have to be unpacked first; arcade sets are not patched here.
@@ -5650,6 +5677,11 @@ public final class MainActivity extends Activity {
         }
         if (name.endsWith(".m3u") && discGroupMode(mode) && !msxPlaylistDisks(file).isEmpty()) {
             return true;  // the app's Dreamcast disc group: the disc is picked first
+        }
+        if (MODE_PC98.equals(mode)) {
+            // A floppy or hard disk image, or the app's group of floppies (the disk is picked
+            // first); not a .cmd of the player's own.
+            return !name.endsWith(".cmd") || !msxPlaylistDisks(file).isEmpty();
         }
         if (isDcChd(file, mode)) {
             return true;  // unpacked to GDI / CUE / ISO first
@@ -6185,7 +6217,7 @@ public final class MainActivity extends Activity {
 
     private void pickPatch(File file) {
         List<File> discs = msxPlaylistDisks(file);
-        if (discGroupMode(modeForFile(file)) && !discs.isEmpty()) {
+        if ((discGroupMode(modeForFile(file)) || MODE_PC98.equals(modeForFile(file))) && !discs.isEmpty()) {
             pickGroupDisc(file, discs);
             return;
         }
@@ -14573,6 +14605,9 @@ public final class MainActivity extends Activity {
         } else if (MODE_MSX.equals(mode) && !prepareMsxSystemFiles()) {
             showError("MSX 시스템 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
+        } else if (MODE_PC98.equals(mode) && !preparePc98SystemFiles()) {
+            showError("PC-98 글꼴 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
+            return;
         } else if (CORE_PCSX2.equals(coreFor(file)) && !unpackSystemAsset("pcsx2_resources.zip", new File(new File(systemDir(), "pcsx2"), "resources"))) {
             showError("PCSX2 게임 데이터베이스를 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
@@ -15556,6 +15591,419 @@ public final class MainActivity extends Activity {
                 && unpackSystemAsset("msx_xbios.zip", system, new File(new File(system, "XBIOS"), ".mini_emulator_version"));
     }
 
+    // ---- PC-98 (NP2kai, 0.0.317) ----
+    // NP2kai reads <system>/np2kai: bios.rom, font.rom, sound.rom, itf.rom and the YM2608
+    // rhythm samples (2608_*.wav) the player adds from their own machine; without them it
+    // runs on its built-in BIOS. Its libretro build has no TrueType support, so the app ships
+    // font.bmp made from the public-domain Shinonome fonts (assets/pc98_system.zip). NP2kai
+    // reads font.bmp before font.rom, so ours goes away once the player adds a font.rom.
+    private static final String[] PC98_SYSTEM_FILES = {"bios.rom", "font.rom", "sound.rom", "itf.rom", "ide.rom", "sasi.rom", "scsi.rom", "d8000.rom",
+            "bios9821.rom", "2608_bd.wav", "2608_sd.wav", "2608_top.wav", "2608_hh.wav", "2608_tom.wav", "2608_rim.wav", "font.bmp"};
+    private static final int REQUEST_IMPORT_PC98_BIOS = 1082;
+
+    private File pc98SystemDir() {
+        return new File(systemDir(), "np2kai");
+    }
+
+    private boolean pc98Has(String name) {
+        File dir = pc98SystemDir();
+        return new File(dir, name).isFile() || new File(dir, name.toUpperCase(Locale.ROOT)).isFile();
+    }
+
+    private boolean preparePc98SystemFiles() {
+        File dir = pc98SystemDir();
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            return false;
+        }
+        File font = new File(dir, "font.bmp");
+        File ours = new File(dir, ".mini_emulator_font");
+        File version = new File(dir, ".mini_emulator_version");
+        if (pc98Has("font.rom")) {
+            if (ours.isFile()) {
+                font.delete();
+                ours.delete();
+                version.delete();
+            }
+            return true;
+        }
+        if (font.isFile() && !ours.isFile()) {
+            return true;   // the player's own font.bmp
+        }
+        if (!font.isFile()) {
+            version.delete();
+        }
+        if (!unpackSystemAsset("pc98_system.zip", systemDir(), version)) {
+            return false;
+        }
+        try (FileOutputStream out = new FileOutputStream(ours)) {
+            out.write("Shinonome".getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return false;
+        }
+        return true;
+    }
+
+    private String pc98BiosStatusText() {
+        boolean bios = pc98Has("bios.rom");
+        boolean font = pc98Has("font.rom") || (new File(pc98SystemDir(), "font.bmp").isFile() && !new File(pc98SystemDir(), ".mini_emulator_font").isFile());
+        if (bios && font) return "BIOS · 글꼴 있음";
+        if (bios) return "BIOS 있음 · 동운 글꼴";
+        return font ? "내장 BIOS · 내 글꼴" : "내장 BIOS · 동운 글꼴";
+    }
+
+    private void showPc98BiosSheet() {
+        StringBuilder have = new StringBuilder();
+        for (String name : PC98_SYSTEM_FILES) {
+            if (pc98Has(name) && !("font.bmp".equals(name) && new File(pc98SystemDir(), ".mini_emulator_font").isFile())) {
+                have.append(have.length() == 0 ? "" : " · ").append(name);
+            }
+        }
+        String message = "PC-98은 바이오스 없이 NP2kai의 내장 호환 BIOS로 켜져요. 일본어 글자는 앱에 든 동운(東雲) 글꼴(퍼블릭 도메인)로 나와요.\n\n"
+                + "직접 가진 PC-98에서 뽑은 파일이 있으면 넣을 수 있어요 (여러 개 한꺼번에, .zip도 돼요):\n"
+                + "· bios.rom · itf.rom · sound.rom — 원래 BIOS (호환성 ↑)\n"
+                + "· font.rom — 원래 글꼴 (넣으면 동운 글꼴 대신 이것)\n"
+                + "· 2608_bd · sd · top · hh · tom · rim.wav — 86 보드의 드럼 소리\n\n"
+                + "지금 있는 파일: " + (have.length() == 0 ? "없음" : have) + "\n"
+                + "넣은 파일은 게임을 다시 켜면 적용돼요.";
+        new AppDialog.Builder(this).setTitle("PC-98 BIOS · 글꼴").setMessage(message).setNegativeButton("닫기", null)
+                .setPositiveButton("파일 넣기", (d, w) -> {
+                    Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+                    intent.addCategory("android.intent.category.OPENABLE");
+                    intent.setType("*/*");
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    startActivityForResult(intent, REQUEST_IMPORT_PC98_BIOS);
+                }).show();
+    }
+
+    private static String pc98SystemName(String fileName) {
+        String base = new File(fileName.replace('\\', '/')).getName().toLowerCase(Locale.ROOT);
+        for (String name : PC98_SYSTEM_FILES) {
+            if (name.equals(base)) return name;
+        }
+        return null;
+    }
+
+    private void importPc98Bios(Intent intent) {
+        List<Uri> uris = new ArrayList<>();
+        android.content.ClipData clip = intent.getClipData();
+        for (int k = 0; clip != null && k < clip.getItemCount(); k++) {
+            if (clip.getItemAt(k).getUri() != null) uris.add(clip.getItemAt(k).getUri());
+        }
+        if (clip == null && intent.getData() != null) uris.add(intent.getData());
+        File dir = pc98SystemDir();
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            showError("시스템 폴더를 만들 수 없습니다");
+            return;
+        }
+        List<String> added = new ArrayList<>();
+        try {
+            for (Uri uri : uris) {
+                String name = displayNameFor(uri);
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    if (in == null) continue;
+                    if (name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                        try (ZipInputStream zip = new ZipInputStream(in)) {
+                            ZipEntry entry;
+                            while ((entry = zip.getNextEntry()) != null) {
+                                String known = entry.isDirectory() ? null : pc98SystemName(entry.getName());
+                                if (known != null) {
+                                    writePc98SystemFile(known, readLimited(zip, 8 * 1024 * 1024));
+                                    added.add(known);
+                                }
+                            }
+                        }
+                    } else {
+                        String known = pc98SystemName(name);
+                        if (known != null) {
+                            writePc98SystemFile(known, readLimited(in, 8 * 1024 * 1024));
+                            added.add(known);
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            showError("PC-98 파일 넣기 실패: " + e.getMessage());
+            return;
+        }
+        if (added.isEmpty()) {
+            showError("PC-98 바이오스 파일이 아니에요. bios.rom · font.rom · sound.rom · itf.rom · 2608_*.wav 이름의 파일을 골라 주세요.");
+            return;
+        }
+        if (added.contains("font.rom") || added.contains("font.bmp")) {
+            // The player's font from now on, not the Shinonome one.
+            new File(dir, ".mini_emulator_font").delete();
+            if (added.contains("font.rom") && !added.contains("font.bmp")) {
+                new File(dir, "font.bmp").delete();
+            }
+        }
+        showMessage("PC-98 파일 " + added.size() + "개를 넣었어요: " + android.text.TextUtils.join(", ", added) + "\n게임을 다시 켜면 적용돼요.");
+        updateHomeStatusCards();
+    }
+
+    private void writePc98SystemFile(String name, byte[] data) throws IOException {
+        if (data.length == 0) throw new IOException(name + " 파일이 비어 있어요");
+        File target = new File(pc98SystemDir(), name);
+        File part = new File(pc98SystemDir(), name + ".part");
+        try (FileOutputStream out = new FileOutputStream(part)) {
+            out.write(data);
+        }
+        if (!part.renameTo(target)) {
+            part.delete();
+            throw new IOException(name + "을(를) 저장하지 못했어요");
+        }
+    }
+
+    // ---- PC-98 games on several floppies: "Name (Disk A).hdm", "Name (Disk 2).fdi" … ----
+    // NP2kai takes no .m3u; it reads a .cmd whose first line is a command line naming the
+    // images ("np2kai "A" "B" …"): the first two go into FDD1 and FDD2, and all of them are
+    // its disk-control list. The app writes one per game; the lines after the first list the
+    // disks for the app. A group the app made for a blank save disk ("(added)") is kept as it is.
+    private static final java.util.regex.Pattern PC98_SPLIT_DISK = java.util.regex.Pattern.compile(
+            "^(.*?)\\s*[(\\[]\\s*(?:disk|disc|디스크)\\s*([0-9]{1,2}|[a-z])(?:\\s*(?:of|/)\\s*\\w{1,2})?\\s*[)\\]](.*)\\.(?:hdm|fdi|d88|88d|d98|98d|xdf|dup|2hd|tfd|nfd|fdd)$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
+    static final String PC98_CMD_MARK = "# Mini Emulator: PC-98 disks";
+    static final String PC98_CMD_ADDED = "# Mini Emulator: PC-98 disks (added)";
+    private static final int PC98_CMD_MAX = 1000;   // NP2kai reads the first 1024 bytes of the line
+    private java.util.Set<String> pc98Grouped;
+
+    static int pc98DiskNumber(String label) {
+        if (label == null || label.isEmpty()) return 0;
+        char c = Character.toLowerCase(label.charAt(0));
+        if (c >= 'a' && c <= 'z' && label.length() == 1) return c - 'a' + 1;
+        try {
+            return Integer.parseInt(label);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    // The disks listed in a .cmd the app wrote (empty for anything else).
+    static List<File> pc98CmdDisks(File cmd) {
+        List<File> disks = new ArrayList<>();
+        if (!cmd.isFile() || cmd.length() > 16384) return disks;
+        try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(cmd), StandardCharsets.UTF_8))) {
+            String first = in.readLine();
+            String mark = in.readLine();
+            if (first == null || mark == null || !mark.startsWith(PC98_CMD_MARK)) return disks;
+            String line;
+            while ((line = in.readLine()) != null) {
+                line = line.trim();
+                if (!line.isEmpty() && !line.startsWith("#")) disks.add(new File(cmd.getParentFile(), line));
+            }
+        } catch (IOException e) {
+            disks.clear();
+        }
+        return disks;
+    }
+
+    private static boolean pc98CmdAdded(File cmd) {
+        String text = readSmallTextFull(cmd);
+        return text != null && text.contains(PC98_CMD_ADDED);
+    }
+
+    // The .cmd's text for these disks, or null when the command line would be too long.
+    private static String pc98CmdText(List<File> disks, boolean added) {
+        StringBuilder line = new StringBuilder("np2kai");
+        for (File disk : disks) {
+            if (disk.getAbsolutePath().indexOf('"') >= 0) return null;
+            line.append(" \"").append(disk.getAbsolutePath()).append('"');
+        }
+        if (line.length() > PC98_CMD_MAX) return null;
+        StringBuilder text = new StringBuilder(line).append('\n').append(added ? PC98_CMD_ADDED : PC98_CMD_MARK).append(" (").append(disks.size()).append(")\n");
+        for (File disk : disks) text.append(disk.getName()).append('\n');
+        return text.toString();
+    }
+
+    // Names of the files the app's .cmd groups in this folder hold (hidden from the list).
+    private java.util.Set<String> pc98GroupedNames(File dir) {
+        if (this.pc98Grouped == null) {
+            java.util.Set<String> names = new java.util.HashSet<>();
+            File[] files = dir.listFiles();
+            for (File file : files == null ? new File[0] : files) {
+                if (file.getName().toLowerCase(Locale.ROOT).endsWith(".cmd")) {
+                    for (File disk : pc98CmdDisks(file)) names.add(disk.getName());
+                }
+            }
+            this.pc98Grouped = names;
+        }
+        return this.pc98Grouped;
+    }
+
+    private void groupPc98Disks() {
+        File dir = romDirFor(MODE_PC98);
+        File[] files = dir.listFiles();
+        this.pc98Grouped = null;
+        if (files == null) return;
+        Map<String, Map<Integer, File>> games = new java.util.TreeMap<>();
+        for (File file : files) {
+            String source = splitSourceName(file);
+            java.util.regex.Matcher m = PC98_SPLIT_DISK.matcher(source);
+            if (!file.isFile() || !m.matches()) continue;
+            String game = (m.group(1).trim() + " " + m.group(3).trim()).trim().replaceAll("\\s+", " ");
+            int number = pc98DiskNumber(m.group(2));
+            if (game.isEmpty() || number <= 0) continue;
+            Map<Integer, File> byNumber = games.get(game);
+            if (byNumber == null) games.put(game, byNumber = new java.util.TreeMap<>());
+            File had = byNumber.get(number);
+            // A disk patched in the app takes its original's place; the newest of a kind.
+            int rank = source.equals(file.getName()) ? 0 : 1;
+            int hadRank = had == null ? -1 : splitSourceName(had).equals(had.getName()) ? 0 : 1;
+            if (had == null || rank > hadRank || (rank == hadRank && file.lastModified() > had.lastModified())) {
+                byNumber.put(number, file);
+            }
+        }
+        java.util.Set<String> made = new java.util.HashSet<>();
+        for (Map.Entry<String, Map<Integer, File>> entry : games.entrySet()) {
+            List<File> disks = new ArrayList<>(entry.getValue().values());
+            File cmd = new File(dir, entry.getKey() + ".cmd");
+            if (disks.size() < 2 || disks.size() > 16 || (cmd.exists() && (pc98CmdDisks(cmd).isEmpty() || pc98CmdAdded(cmd)))) {
+                continue;   // one disk, too many, the player's own .cmd, or a group with a save disk
+            }
+            String text = pc98CmdText(disks, false);
+            if (text == null) continue;
+            made.add(cmd.getName());
+            String old = cmd.isFile() ? readSmallTextFull(cmd) : null;
+            if (text.equals(old)) continue;
+            if (old != null && !pc98Prefix(pc98CmdDisks(cmd), disks)) {
+                // Other disks now (a patched one): the scene saved with the old ones would come
+                // back with their contents, so the game starts afresh once.
+                settingsPrefs().edit().putBoolean("fresh_start:" + saveBaseNameFor(cmd), true).apply();
+            }
+            try (FileOutputStream out = new FileOutputStream(cmd)) {
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ignored) {
+            }
+        }
+        for (File file : files) {
+            String name = file.getName();
+            if (name.toLowerCase(Locale.ROOT).endsWith(".cmd") && !made.contains(name) && !pc98CmdAdded(file) && !pc98CmdDisks(file).isEmpty()) {
+                file.delete();   // its disks belong elsewhere now (or are gone)
+            }
+        }
+        this.pc98Grouped = null;
+    }
+
+    // Whether before's disks are the first ones of after (a disk added at the end).
+    private static boolean pc98Prefix(List<File> before, List<File> after) {
+        if (before.size() > after.size()) return false;
+        for (int k = 0; k < before.size(); k++) {
+            if (!before.get(k).getName().equals(after.get(k).getName())) return false;
+        }
+        return true;
+    }
+
+    // 빈 세이브 디스크: a 2HD floppy (1.2MB) for the games that ask for a user disk.
+    // Formatted: an .hdm full of empty sectors (77 cylinders, 2 sides, 8 sectors of 1024 bytes),
+    // ready for games that write their own data. Unformatted: a .d88 with no tracks yet, for
+    // games that format the disk themselves.
+    // The same choices as the game menu's (GameActivity.PC98_SOUND_VALUES), kept per game.
+    private static final String[] PC98_SOUND_SHORT = {"86 (추천)", "26K", "86 + 스피크", "86 + 118", "118", "없음"};
+
+    private void showPc98SoundPicker(File file) {
+        String key = "pc98_sound:" + saveBaseNameFor(file);
+        int now = settingsPrefs().getInt(key, 0);
+        CharSequence[] names = {"PC-9801-86 (추천) — 90년대 게임 대부분", "PC-9801-26K — 80년대 게임", "86 + 스피크 보드", "86 + 118", "PC-9801-118", "없음"};
+        new AppDialog.Builder(this).setTitle("사운드 보드").setSingleChoiceItems(names, now < 0 || now >= names.length ? 0 : now, (d, which) -> {
+            settingsPrefs().edit().putInt(key, which).apply();
+            d.dismiss();
+            showMessage("사운드 보드: " + PC98_SOUND_SHORT[which] + " · 다음에 켤 때부터 적용돼요.");
+        }).setNegativeButton("닫기", null).show();
+    }
+
+    private void showPc98BlankDiskDialog(File file) {
+        CharSequence[] kinds = {"포맷된 디스크 (.hdm) — 대부분의 게임", "포맷 안 된 디스크 (.d88) — 게임이 직접 포맷할 때"};
+        new AppDialog.Builder(this).setTitle("빈 세이브 디스크 만들기 (2HD 1.2MB)")
+                .setItems(kinds, (d, which) -> createPc98BlankDisk(file, which == 0)).setNegativeButton("취소", null).show();
+    }
+
+    private void createPc98BlankDisk(File file, boolean formatted) {
+        File dir = file.getParentFile();
+        String ext = formatted ? ".hdm" : ".d88";
+        boolean group = file.getName().toLowerCase(Locale.ROOT).endsWith(".cmd");
+        List<File> disks = group ? pc98CmdDisks(file) : new ArrayList<>(java.util.Collections.singletonList(file));
+        if (disks.isEmpty()) {
+            showError("이 게임에는 디스크를 더할 수 없어요.");
+            return;
+        }
+        // Named like the game's disks when they are numbered ("Disk C" after A and B), so the
+        // group takes it in; otherwise "(세이브 디스크 n)" in a group of its own.
+        String base = file.getName().replaceAll("\\.[^.]+$", "");
+        java.util.regex.Matcher last = PC98_SPLIT_DISK.matcher(splitSourceName(disks.get(disks.size() - 1)));
+        File disk;
+        boolean named = group && !pc98CmdAdded(file) && last.matches();
+        if (named) {
+            String label = last.group(2);
+            int next = pc98DiskNumber(label) + 1;
+            boolean letters = Character.isLetter(label.charAt(0));
+            if (letters && next > 26) {
+                named = false;
+                disk = null;
+            } else {
+                String nextLabel = letters ? String.valueOf((char) ((Character.isUpperCase(label.charAt(0)) ? 'A' : 'a') + next - 1)) : String.valueOf(next);
+                disk = new File(dir, last.group(1).trim() + " (Disk " + nextLabel + ")" + (last.group(3).trim().isEmpty() ? "" : " " + last.group(3).trim()) + ext);
+            }
+        } else {
+            disk = null;
+        }
+        if (disk == null) {
+            int n = 1;
+            do {
+                disk = new File(dir, base + " (세이브 디스크 " + n + ")" + ext);
+                n++;
+            } while (disk.exists());
+        }
+        if (disk.exists()) {
+            showError("같은 이름의 디스크가 이미 있어요: " + disk.getName());
+            return;
+        }
+        try (FileOutputStream out = new FileOutputStream(disk)) {
+            if (formatted) {
+                byte[] track = new byte[8 * 1024];
+                Arrays.fill(track, (byte) 0xE5);
+                for (int t = 0; t < 77 * 2; t++) out.write(track);
+            } else {
+                byte[] header = new byte[0x2B0];
+                byte[] title = "MINI EMULATOR".getBytes(StandardCharsets.US_ASCII);
+                System.arraycopy(title, 0, header, 0, title.length);
+                header[0x1B] = 0x20;   // 2HD
+                header[0x1C] = (byte) 0xB0;
+                header[0x1D] = 0x02;   // disk size: the header alone
+                out.write(header);
+            }
+        } catch (IOException e) {
+            disk.delete();
+            showError("빈 디스크를 만들지 못했어요: " + e.getMessage());
+            return;
+        }
+        if (!named) {
+            // A group of the game's disks and the new one, kept as it is from now on.
+            List<File> all = new ArrayList<>(disks);
+            all.add(disk);
+            File cmd = group ? file : new File(dir, base + ".cmd");
+            if (!group && cmd.exists()) {
+                disk.delete();
+                showError("같은 이름의 .cmd 파일이 이미 있어요: " + cmd.getName());
+                return;
+            }
+            String text = pc98CmdText(all, true);
+            if (text == null) {
+                disk.delete();
+                showError("디스크가 너무 많거나 이름이 길어서 묶을 수 없어요.");
+                return;
+            }
+            try (FileOutputStream out = new FileOutputStream(cmd)) {
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                disk.delete();
+                showError("디스크 묶음을 쓰지 못했어요: " + e.getMessage());
+                return;
+            }
+        }
+        refreshLibrary();
+        showMessage(disk.getName() + "을(를) 만들었어요.\n게임 중 메뉴 → 디스크 바꾸기에서 드라이브(보통 FDD2)에 넣어 주세요."
+                + (!group ? "\n원래 디스크와 새 디스크가 한 게임(.cmd)으로 묶였어요. 빠른 저장은 묶음 쪽에 따로 남아요." : ""));
+    }
+
     static final String XBIOS_EXAMPLES_NAME = "XBIOS 예제 디스크.dsk";
 
     // ---- MSX games split over several disks ("Name (Disk 1 of 5).dsk" ...): one game ----
@@ -15581,7 +16029,9 @@ public final class MainActivity extends Activity {
 
     private static java.util.regex.Matcher splitDiskMatcher(String fileName) {
         java.util.regex.Matcher m = MSX_SPLIT_DISK.matcher(fileName);
-        return m.matches() ? m : DC_SPLIT_DISK.matcher(fileName);
+        if (m.matches()) return m;
+        m = DC_SPLIT_DISK.matcher(fileName);
+        return m.matches() ? m : PC98_SPLIT_DISK.matcher(fileName);
     }
 
     // The game's name a split disk belongs to, or null.
@@ -15594,7 +16044,7 @@ public final class MainActivity extends Activity {
 
     private static int msxSplitNumber(String fileName) {
         java.util.regex.Matcher m = splitDiskMatcher(fileName);
-        return m.matches() ? Integer.parseInt(m.group(2)) : 0;
+        return m.matches() ? pc98DiskNumber(m.group(2)) : 0;
     }
 
     // A disc patched in the app stands in for the disc it was made from (patched_from).
@@ -15628,6 +16078,9 @@ public final class MainActivity extends Activity {
     // The disks of a playlist the app wrote (empty for anything else).
     static List<File> msxPlaylistDisks(File file) {
         List<File> disks = new ArrayList<>();
+        if (file.getName().toLowerCase(Locale.ROOT).endsWith(".cmd")) {
+            return pc98CmdDisks(file);
+        }
         if (!file.getName().toLowerCase(Locale.ROOT).endsWith(".m3u") || !file.isFile() || file.length() > 16384) return disks;
         try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
             String first = in.readLine();
@@ -17723,6 +18176,8 @@ public final class MainActivity extends Activity {
             bios = "Neo Geo BIOS: " + neoGeoBiosStatusText();
         } else if ("arcade".equals(this.currentMode)) {
             bios = "MAME BIOS: " + mameBiosStatus() + " · 게임을 길게 누르면 실행 엔진을 바꿀 수 있습니다.";
+        } else if (MODE_PC98.equals(this.currentMode)) {
+            bios = "PC-98: 바이오스 없이 내장 BIOS로 켜지고, 일본어는 동운 글꼴로 나와요. \"(Disk A)\" \"(Disk B)\"처럼 나뉜 디스크는 한 게임으로 묶여요 (FDD1 = A, FDD2 = B).";
         } else if (MODE_MSX.equals(this.currentMode)) {
             bios = "MSX: 롬팩은 C-BIOS, 디스크는 XBIOS로 바이오스 없이도 켜져요 (일부 게임은 원래 바이오스 필요 · 게임 중 메뉴 → 바이오스 상태). 여러 장으로 나뉜 디스크는 한 게임으로 묶여요.";
         } else if (isConsoleMode(this.currentMode)) {
@@ -22081,6 +22536,9 @@ public final class MainActivity extends Activity {
         }
         if ("bluemsx".equals(str)) {
             return "blueMSX";
+        }
+        if ("np2kai".equals(str)) {
+            return "NP2kai";
         }
         if ("vita3k".equals(str)) {
             return "Vita3K";
