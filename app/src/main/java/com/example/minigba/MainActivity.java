@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
             {MODE_MSX, "bluemsx", ".rom,.mx1,.mx2,.ri,.dsk,.cas,.m3u", ".rom / .dsk / .cas / .zip", "roms_msx", "1071"},
             // PC-98 on NP2kai (0.0.317): floppy images (.hdm .fdi .d88 …), hard disk images, and
             // the .cmd the app writes for games on several floppies. Runs on its built-in BIOS.
-            {MODE_PC98, "np2kai", ".hdm,.fdi,.d88,.88d,.d98,.98d,.xdf,.dup,.2hd,.tfd,.nfd,.fdd,.hdi,.thd,.nhd,.vhd,.hdn,.cmd,.hfe,.scp", ".hdm / .fdi / .d88 / .hdi", "roms_pc98", "1081"},
+            {MODE_PC98, "np2kai", ".hdm,.fdi,.d88,.88d,.d98,.98d,.xdf,.dup,.2hd,.tfd,.nfd,.fdd,.hdi,.thd,.nhd,.vhd,.hdn,.cmd,.hfe,.scp,.bmp", ".hdm / .fdi / .d88 / .hdi", "roms_pc98", "1081"},
             // MS-DOS games on DOSBox Pure: the game's folder as a zip (kept whole, never
             // unpacked), CD images, floppy/hard disk images.
             {MODE_DOS, "dosbox_pure", ".zip,.dosz,.exe,.com,.bat,.iso,.cue,.chd,.img,.ima,.vhd", ".zip (게임 폴더) / .iso / .img", "roms_dos", "1069"},
@@ -3139,6 +3139,8 @@ public final class MainActivity extends Activity {
             onDosPatchPicked(intent);
         } else if (i == REQUEST_PC98_FILE_PATCH) {
             onPc98FilePatchPicked(intent);
+        } else if (i == REQUEST_PC98_FONT) {
+            onPc98FontPicked(intent);
         } else if (i == REQUEST_VITA_FIRMWARE) {
             onVitaFirmwarePicked(intent);
         } else if (i == REQUEST_ARC_PATCH) {
@@ -4711,6 +4713,9 @@ public final class MainActivity extends Activity {
         if (romDirFor(MODE_PC98).equals(dir) && pc98GroupedNames(dir).contains(file.getName())) {
             return false;
         }
+        if (romDirFor(MODE_PC98).equals(dir) && file.getName().toLowerCase(Locale.ROOT).endsWith(".bmp")) {
+            return false;   // a game's font (같은 이름 .bmp), not a game
+        }
         if (romDirFor(MODE_PC98).equals(dir) && romPrefs().getString("pc98_flux_done:" + file.getName(), null) != null
                 && new File(dir, romPrefs().getString("pc98_flux_done:" + file.getName(), "")).isFile()) {
             return false;   // an .hfe / .scp kept after converting: its disk is listed instead
@@ -5567,6 +5572,10 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams pc98Params = new LinearLayout.LayoutParams(-1, -2);
             pc98Params.setMargins(0, dp(8), 0, 0);
             panel.addView(pc98Row, pc98Params);
+            LinearLayout.LayoutParams fontParams = new LinearLayout.LayoutParams(-1, dp(52));
+            fontParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.EDIT, Color.rgb(124, 58, 237), "글꼴 (font.bmp) · " + pc98FontSummary(file),
+                    () -> showPc98FontDialog(file)), fontParams);
             LinearLayout.LayoutParams hanParams = new LinearLayout.LayoutParams(-1, dp(52));
             hanParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60), "한글패치 덮어쓰기 (패치 zip의 파일을 디스크 안에)",
@@ -14630,7 +14639,7 @@ public final class MainActivity extends Activity {
         } else if (MODE_MSX.equals(mode) && !prepareMsxSystemFiles()) {
             showError("MSX 시스템 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
-        } else if (MODE_PC98.equals(mode) && !preparePc98SystemFiles()) {
+        } else if (MODE_PC98.equals(mode) && !preparePc98SystemFiles(file)) {
             showError("PC-98 글꼴 파일을 준비하지 못했습니다. 저장 공간을 확인해 주세요.");
             return;
         } else if (CORE_PCSX2.equals(coreFor(file)) && !unpackSystemAsset("pcsx2_resources.zip", new File(new File(systemDir(), "pcsx2"), "resources"))) {
@@ -15635,42 +15644,203 @@ public final class MainActivity extends Activity {
         return new File(dir, name).isFile() || new File(dir, name.toUpperCase(Locale.ROOT)).isFile();
     }
 
-    private boolean preparePc98SystemFiles() {
+    // ---- PC-98 fonts (0.0.323) ----
+    // NP2kai reads <system>/np2kai/font.bmp before font.rom. The app keeps the fonts apart in
+    // np2kai/fonts and puts the one for the game in font.bmp before each start:
+    //   the game's own (picked for it, or a .bmp of the same name as the game next to it —
+    //   Korean patches often come with one), else the player's font.bmp, else font.rom (no
+    //   font.bmp), else the Shinonome font the app ships.
+    private File pc98FontDir() {
+        return new File(pc98SystemDir(), "fonts");
+    }
+
+    private File pc98UserFont() {
+        return new File(pc98FontDir(), "_user.bmp");
+    }
+
+    private File pc98ShinonomeFont() {
+        return new File(pc98FontDir(), "_shinonome.bmp");
+    }
+
+    // NP2kai takes a 2048x2048 1-bit BMP whose header gives the image size as 524288; tools
+    // often leave that 0, so it is filled in. Null when the file is not such a font.
+    static byte[] pc98FontBytes(byte[] bmp) {
+        if (bmp.length < 62 || bmp[0] != 'B' || bmp[1] != 'M') return null;
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.wrap(bmp).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        int offBits = b.getInt(10);
+        int width = b.getInt(18);
+        int height = Math.abs(b.getInt(22));
+        int bpp = b.getShort(28) & 0xFFFF;
+        if (width != 2048 || height != 2048 || bpp != 1 || offBits <= 0 || (long) offBits + 524288 > bmp.length) return null;
+        byte[] out = bmp.clone();
+        java.nio.ByteBuffer.wrap(out).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(34, 524288);
+        return out;
+    }
+
+    private static String pc98FontProblem(byte[] bmp) {
+        if (bmp.length < 62 || bmp[0] != 'B' || bmp[1] != 'M') return "BMP 파일이 아니에요";
+        java.nio.ByteBuffer b = java.nio.ByteBuffer.wrap(bmp).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        return "PC-98 글꼴 BMP는 2048×2048 · 흑백(1비트)이어야 해요 (이 파일: " + b.getInt(18) + "×" + Math.abs(b.getInt(22)) + " · " + (b.getShort(28) & 0xFFFF) + "비트)";
+    }
+
+    // The game's own font: picked for it, or a .bmp named like the game (or one of its disks).
+    private File pc98GameFont(File game) {
+        String picked = settingsPrefs().getString("pc98_font:" + saveBaseNameFor(game), null);
+        if (picked != null && new File(picked).isFile()) return new File(picked);
+        List<File> names = new ArrayList<>();
+        names.add(game);
+        names.addAll(msxPlaylistDisks(game));
+        for (File f : names) {
+            String base = f.getName().replaceAll("\\.[^.]+$", "");
+            for (String ext : new String[]{".bmp", ".BMP"}) {
+                File bmp = new File(f.getParentFile(), base + ext);
+                if (bmp.isFile()) return bmp;
+            }
+        }
+        return null;
+    }
+
+    private boolean preparePc98SystemFiles(File game) {
         File dir = pc98SystemDir();
-        if (!dir.isDirectory() && !dir.mkdirs()) {
+        File fonts = pc98FontDir();
+        if (!fonts.isDirectory() && !fonts.mkdirs()) {
             return false;
         }
         File font = new File(dir, "font.bmp");
-        File ours = new File(dir, ".mini_emulator_font");
-        File version = new File(dir, ".mini_emulator_version");
-        if (pc98Has("font.rom")) {
-            if (ours.isFile()) {
-                font.delete();
-                ours.delete();
-                version.delete();
+        File marker = new File(dir, ".mini_emulator_font");
+        // Before 0.0.323 a player's own font.bmp sat there unmarked; it becomes their default.
+        if (font.isFile() && !marker.isFile() && !pc98UserFont().isFile()) {
+            font.renameTo(pc98UserFont());
+        }
+        File shinonome = pc98ShinonomeFont();
+        if (!shinonome.isFile()) {
+            try (ZipInputStream zip = new ZipInputStream(getAssets().open("pc98_system.zip"))) {
+                ZipEntry entry;
+                while ((entry = zip.getNextEntry()) != null) {
+                    if (!"np2kai/font.bmp".equals(entry.getName())) continue;
+                    File part = new File(fonts, "_shinonome.part");
+                    try (FileOutputStream out = new FileOutputStream(part)) {
+                        copy(zip, out);
+                    }
+                    if (!part.renameTo(shinonome)) return false;
+                }
+            } catch (IOException e) {
+                return false;
             }
+        }
+        File own = game == null ? null : pc98GameFont(game);
+        File chosen = own != null ? own : pc98UserFont().isFile() ? pc98UserFont() : pc98Has("font.rom") ? null : shinonome;
+        if (chosen == null) {
+            font.delete();
+            marker.delete();
             return true;
         }
-        if (font.isFile() && !ours.isFile()) {
-            return true;   // the player's own font.bmp
+        String tag = chosen.getAbsolutePath() + "\n" + chosen.length() + "\n" + chosen.lastModified();
+        if (font.isFile() && tag.equals(readSmallTextFull(marker))) {
+            return true;
         }
-        if (!font.isFile()) {
-            version.delete();
-        }
-        if (!unpackSystemAsset("pc98_system.zip", systemDir(), version)) {
-            return false;
-        }
-        try (FileOutputStream out = new FileOutputStream(ours)) {
-            out.write("Shinonome".getBytes(StandardCharsets.UTF_8));
-        } catch (IOException e) {
+        try {
+            byte[] bytes = pc98FontBytes(java.nio.file.Files.readAllBytes(chosen.toPath()));
+            if (bytes == null) {
+                if (own == null) return false;
+                showMessage("게임 글꼴 " + chosen.getName() + "을(를) 쓸 수 없어서 기본 글꼴로 켜요 (2048×2048 흑백 BMP가 아님)");
+                bytes = java.nio.file.Files.readAllBytes(shinonome.toPath());
+                tag = shinonome.getAbsolutePath();
+            }
+            File part = new File(dir, "font.bmp.part");
+            try (FileOutputStream out = new FileOutputStream(part)) {
+                out.write(bytes);
+            }
+            if (!part.renameTo(font)) return false;
+            try (FileOutputStream out = new FileOutputStream(marker)) {
+                out.write(tag.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (IOException | OutOfMemoryError e) {
             return false;
         }
         return true;
     }
 
+    private static final int REQUEST_PC98_FONT = 1084;
+    private static final String PREF_PENDING_PC98_FONT = "pending_pc98_font";
+
+    private String pc98FontSummary(File game) {
+        String picked = settingsPrefs().getString("pc98_font:" + saveBaseNameFor(game), null);
+        File own = pc98GameFont(game);
+        if (own == null) return "기본";
+        return picked != null && own.getAbsolutePath().equals(picked) ? "이 게임 전용" : "같은 이름 " + own.getName();
+    }
+
+    private void showPc98FontDialog(File game) {
+        File own = pc98GameFont(game);
+        String key = "pc98_font:" + saveBaseNameFor(game);
+        String picked = settingsPrefs().getString(key, null);
+        String now = own == null ? "기본 글꼴 (" + (pc98UserFont().isFile() ? "내 font.bmp" : pc98Has("font.rom") ? "font.rom" : "동운 글꼴") + ")"
+                : own.getName() + (picked != null && own.getAbsolutePath().equals(picked) ? " (이 게임 전용으로 넣은 것)" : " (게임 옆 같은 이름)");
+        String message = "지금: " + now + "\n\n한글패치 중에는 한글 글자를 담은 글꼴 BMP(font.bmp)를 같이 쓰는 것이 있어요. 이 게임에만 그 글꼴을 쓰게 할 수 있어요.\n"
+                + "· 게임 파일과 같은 이름의 .bmp(예: 게임.hdm 옆에 게임.bmp)를 PC-98 목록에 같이 넣어도 자동으로 써요.\n"
+                + "· 글꼴은 2048×2048 흑백(1비트) BMP여야 해요 (NP2 · Neko Project 형식).";
+        AppDialog.Builder builder = new AppDialog.Builder(this).setTitle("글꼴 · " + displayGameNameFor(game)).setMessage(message)
+                .setPositiveButton("BMP 고르기", (d, w) -> {
+                    settingsPrefs().edit().putString(PREF_PENDING_PC98_FONT, game.getAbsolutePath()).apply();
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
+                    try {
+                        startActivityForResult(intent, REQUEST_PC98_FONT);
+                    } catch (Exception e) {
+                        showError("파일을 고르는 화면을 열 수 없어요.");
+                    }
+                });
+        if (picked != null) {
+            builder.setNegativeButton("기본 글꼴로", (d, w) -> {
+                new File(picked).delete();
+                settingsPrefs().edit().remove(key).apply();
+                showMessage("이 게임은 기본 글꼴로 켜요" + (pc98GameFont(game) != null ? " (단, 게임 옆에 같은 이름 .bmp가 있으면 그것)" : ""));
+            });
+        } else {
+            builder.setNegativeButton("닫기", null);
+        }
+        builder.show();
+    }
+
+    private void onPc98FontPicked(Intent data) {
+        String path = settingsPrefs().getString(PREF_PENDING_PC98_FONT, null);
+        settingsPrefs().edit().remove(PREF_PENDING_PC98_FONT).apply();
+        if (data == null || data.getData() == null || path == null) return;
+        File game = new File(path);
+        try (InputStream in = getContentResolver().openInputStream(data.getData())) {
+            if (in == null) throw new IOException("파일을 열 수 없어요");
+            byte[] bmp = readLimited(in, 4 * 1024 * 1024);
+            String error = setPc98GameFont(game, bmp);
+            if (error != null) {
+                showError(error);
+                return;
+            }
+            showMessage("이 게임은 " + displayNameFor(data.getData()) + " 글꼴로 켜요. 게임을 다시 켜면 적용돼요.");
+        } catch (IOException e) {
+            showError("글꼴을 넣지 못했어요: " + e.getMessage());
+        }
+    }
+
+    // Keeps bmp as this game's font; null, or why it can't be used.
+    private String setPc98GameFont(File game, byte[] bmp) throws IOException {
+        byte[] font = pc98FontBytes(bmp);
+        if (font == null) return pc98FontProblem(bmp);
+        File fonts = pc98FontDir();
+        if (!fonts.isDirectory() && !fonts.mkdirs()) throw new IOException("글꼴 폴더를 만들 수 없어요");
+        String name = "game_" + Integer.toHexString(saveBaseNameFor(game).hashCode()) + ".bmp";
+        File target = new File(fonts, name);
+        try (FileOutputStream out = new FileOutputStream(target)) {
+            out.write(font);
+        }
+        settingsPrefs().edit().putString("pc98_font:" + saveBaseNameFor(game), target.getAbsolutePath()).apply();
+        return null;
+    }
+
     private String pc98BiosStatusText() {
         boolean bios = pc98Has("bios.rom");
-        boolean font = pc98Has("font.rom") || (new File(pc98SystemDir(), "font.bmp").isFile() && !new File(pc98SystemDir(), ".mini_emulator_font").isFile());
+        boolean font = pc98Has("font.rom") || pc98UserFont().isFile();
         if (bios && font) return "BIOS · 글꼴 있음";
         if (bios) return "BIOS 있음 · 동운 글꼴";
         return font ? "내장 BIOS · 내 글꼴" : "내장 BIOS · 동운 글꼴";
@@ -15679,7 +15849,7 @@ public final class MainActivity extends Activity {
     private void showPc98BiosSheet() {
         StringBuilder have = new StringBuilder();
         for (String name : PC98_SYSTEM_FILES) {
-            if (pc98Has(name) && !("font.bmp".equals(name) && new File(pc98SystemDir(), ".mini_emulator_font").isFile())) {
+            if ("font.bmp".equals(name) ? pc98UserFont().isFile() : pc98Has(name)) {
                 have.append(have.length() == 0 ? "" : " · ").append(name);
             }
         }
@@ -15687,6 +15857,7 @@ public final class MainActivity extends Activity {
                 + "직접 가진 PC-98에서 뽑은 파일이 있으면 넣을 수 있어요 (여러 개 한꺼번에, .zip도 돼요):\n"
                 + "· bios.rom · itf.rom · sound.rom — 원래 BIOS (호환성 ↑)\n"
                 + "· font.rom — 원래 글꼴 (넣으면 동운 글꼴 대신 이것)\n"
+                + "· font.bmp — 모든 게임의 기본 글꼴로 (한 게임에만 쓸 글꼴은 그 게임을 길게 눌러 \"글꼴\")\n"
                 + "· 2608_bd · sd · top · hh · tom · rim.wav — 86 보드의 드럼 소리\n\n"
                 + "지금 있는 파일: " + (have.length() == 0 ? "없음" : have) + "\n"
                 + "넣은 파일은 게임을 다시 켜면 적용돼요.";
@@ -15754,12 +15925,29 @@ public final class MainActivity extends Activity {
             showError("PC-98 바이오스 파일이 아니에요. bios.rom · font.rom · sound.rom · itf.rom · 2608_*.wav 이름의 파일을 골라 주세요.");
             return;
         }
-        if (added.contains("font.rom") || added.contains("font.bmp")) {
-            // The player's font from now on, not the Shinonome one.
-            new File(dir, ".mini_emulator_font").delete();
-            if (added.contains("font.rom") && !added.contains("font.bmp")) {
-                new File(dir, "font.bmp").delete();
+        if (added.contains("font.bmp")) {
+            // The player's default font (np2kai/fonts/_user.bmp), checked and its header filled in.
+            File put = new File(dir, "font.bmp");
+            try {
+                byte[] bytes = java.nio.file.Files.readAllBytes(put.toPath());
+                byte[] fixed = pc98FontBytes(bytes);
+                put.delete();
+                if (fixed == null) {
+                    showError("font.bmp: " + pc98FontProblem(bytes));
+                    added.remove("font.bmp");
+                } else {
+                    pc98FontDir().mkdirs();
+                    try (FileOutputStream out = new FileOutputStream(pc98UserFont())) {
+                        out.write(fixed);
+                    }
+                }
+            } catch (IOException e) {
+                added.remove("font.bmp");
             }
+            new File(dir, ".mini_emulator_font").delete();
+        }
+        if (added.contains("font.rom")) {
+            new File(dir, ".mini_emulator_font").delete();   // font.bmp is put again at the next start
         }
         showMessage("PC-98 파일 " + added.size() + "개를 넣었어요: " + android.text.TextUtils.join(", ", added) + "\n게임을 다시 켜면 적용돼요.");
         updateHomeStatusCards();
@@ -16073,6 +16261,8 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private volatile Pc98PatchFile pc98PatchFont;   // a font .bmp in the patch zip
+
     private static final class Pc98PatchFile {
         String name;
         byte[] data;
@@ -16125,6 +16315,7 @@ public final class MainActivity extends Activity {
             return;
         }
         Toast.makeText(this, "디스크 안의 파일을 찾는 중…", Toast.LENGTH_SHORT).show();
+        this.pc98PatchFont = null;
         new Thread(() -> {
             String error = null;
             List<Pc98PatchHit> hits = new ArrayList<>();
@@ -16152,7 +16343,14 @@ public final class MainActivity extends Activity {
                     }
                 }
                 for (int k = 0; k < files.size(); k++) {
-                    if (!used[k]) lines.add("– " + files.get(k).name + " — 디스크에 없음 · 건너뜀");
+                    if (used[k]) continue;
+                    Pc98PatchFile f = files.get(k);
+                    if (f.name.toLowerCase(Locale.ROOT).endsWith(".bmp") && pc98FontBytes(f.data) != null && this.pc98PatchFont == null) {
+                        this.pc98PatchFont = f;
+                        lines.add("✓ " + f.name + " — 한글 글꼴 · 이 게임의 글꼴로 써요");
+                    } else {
+                        lines.add("– " + f.name + " — 디스크에 없음 · 건너뜀");
+                    }
                 }
             } catch (IOException e) {
                 error = "패치를 읽지 못했어요: " + e.getMessage();
@@ -16177,6 +16375,20 @@ public final class MainActivity extends Activity {
     private void showPc98FilePatchPlan(File game, String patchName, List<Pc98PatchHit> hits, List<String> lines) {
         StringBuilder text = new StringBuilder("패치: " + patchName + "\n\n");
         for (String line : lines) text.append(line).append('\n');
+        if (hits.isEmpty() && this.pc98PatchFont != null) {
+            Pc98PatchFile font = this.pc98PatchFont;
+            new AppDialog.Builder(this).setTitle("한글패치 · 글꼴만").setMessage(text.toString() + "\n디스크에서 바꿀 파일은 없고, 한글 글꼴이 들어 있어요. 이 게임의 글꼴로 쓸까요?")
+                    .setNegativeButton("취소", null).setPositiveButton("글꼴로 쓰기", (d, w) -> {
+                        try {
+                            String error = setPc98GameFont(game, font.data);
+                            if (error != null) showError(error);
+                            else showMessage("이 게임은 " + font.name + " 글꼴로 켜요.");
+                        } catch (IOException e) {
+                            showError("글꼴을 넣지 못했어요: " + e.getMessage());
+                        }
+                    }).show();
+            return;
+        }
         if (hits.isEmpty()) {
             text.append("\n디스크 안에서 바꿀 파일을 찾지 못했어요. 패치 설명서가 이 방식(파일 덮어쓰기)인지, 디스크가 MS-DOS 형식인지 확인해 주세요.");
             new AppDialog.Builder(this).setTitle("한글패치 덮어쓰기").setMessage(text.toString()).setPositiveButton("닫기", null).show();
@@ -16261,6 +16473,13 @@ public final class MainActivity extends Activity {
                     }
                 }
                 for (File out : made.values()) recordPatch(out, "파일 덮어쓰기 (" + patchName + ")", log);
+                Pc98PatchFile font = this.pc98PatchFont;
+                if (font != null) {
+                    try {
+                        setPc98GameFont(group ? game : made.get(game), font.data);
+                    } catch (IOException ignored) {
+                    }
+                }
                 refreshLibrary();
                 showMessage("파일 " + hits.size() + "개를 디스크 " + made.size() + "장에 덮어썼어요."
                         + (group ? "\n묶음이 바뀐 디스크로 켜져요 (빠른 저장은 처음부터)." : "\n\"" + displayGameNameFor(game) + " (한글)\"로 추가했어요."));
