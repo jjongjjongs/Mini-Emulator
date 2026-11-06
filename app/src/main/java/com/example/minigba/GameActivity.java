@@ -5820,6 +5820,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (requestCode == REQUEST_MSX_SLOT2 && resultCode == RESULT_OK && data != null && data.getData() != null) {
             importMsxSlot2(data.getData());
         }
+        if (requestCode == REQUEST_FBNEO_INI && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            importFbneoIni(data.getData());
+        }
         if (requestCode == REQUEST_BG_EDITOR) {
             // Whatever was applied (or not), draw the case as it now stands.
             rebuildContent();
@@ -6150,6 +6153,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isNds()) {
                         NativeGba.setDsMic(dsMicInput(), dsMicButton());
                     }
+                    // FBNeo's .ini cheats as this game left them (others: none of them).
+                    sendFbneoCheats();
                     if ("fbneo".equals(this.coreId)) {
                         NativeGba.setDosOptions(new String[]{"fbneo-ips"}, new String[]{arcadePatchOn() ? "enabled" : "disabled"}, "");
                     }
@@ -8011,6 +8016,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isMsx()) {
             addMsxMenuRows(panel, dialog);
+        }
+        if ("fbneo".equals(this.coreId)) {
+            LinearLayout.LayoutParams iniParams = new LinearLayout.LayoutParams(-1, dp(52));
+            iniParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, "FBNeo 치트 (.ini)", fbneoCheatSummary(),
+                    view -> showFbneoCheatSheet(dialog)), iniParams);
         }
         if ("fbneo".equals(this.coreId) && arcadePatchDir().isDirectory()) {
             addArcadePatchRows(panel, dialog);
@@ -12176,6 +12187,258 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Pause menu (기본): machine type, the player's own BIOS ROMs, the next disk.
     // ---- 아케이드 한글패치 (FBNeo IPS): <system>/fbneo/ips/<set>, on or off per game ----
+    // ---- FBNeo .ini cheats (0.0.316): the file goes to <system>/fbneo/cheats/<set>.ini, the
+    // core makes each cheat an option ("fbneo-cheat-..."), and the app picks their values. A
+    // pick is sent at once (the core applies cheats when options change) and kept per game. ----
+    private static final int REQUEST_FBNEO_INI = 3112;
+
+    private File fbneoIniFile() {
+        String name = new File(this.romPath).getName();
+        int dot = name.lastIndexOf('.');
+        return new File(new File(new File(new File(getFilesDir(), "system"), "fbneo"), "cheats"), (dot > 0 ? name.substring(0, dot) : name) + ".ini");
+    }
+
+    private String fbneoPrefKey() {
+        return "fbcheats:" + this.saveBaseName;
+    }
+
+    // Saved picks: "key\tindex" lines.
+    private java.util.Map<String, Integer> fbneoPicks() {
+        java.util.Map<String, Integer> picks = new java.util.LinkedHashMap<>();
+        for (String line : MainActivity.sharedSettings(this).getString(fbneoPrefKey(), "").split("\n")) {
+            int tab = line.indexOf('\t');
+            if (tab > 0) {
+                try {
+                    picks.put(line.substring(0, tab), Integer.parseInt(line.substring(tab + 1)));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return picks;
+    }
+
+    private void saveFbneoPicks(java.util.Map<String, Integer> picks) {
+        StringBuilder sb = new StringBuilder();
+        for (java.util.Map.Entry<String, Integer> e : picks.entrySet()) {
+            sb.append(e.getKey()).append('\t').append(e.getValue()).append('\n');
+        }
+        MainActivity.sharedSettings(this).edit().putString(fbneoPrefKey(), sb.toString()).apply();
+    }
+
+    private void sendFbneoCheats() {
+        java.util.Map<String, Integer> picks = "fbneo".equals(this.coreId) ? fbneoPicks() : new java.util.HashMap<>();
+        String[] keys = new String[picks.size()];
+        String[] values = new String[picks.size()];
+        int k = 0;
+        for (java.util.Map.Entry<String, Integer> e : picks.entrySet()) {
+            keys[k] = e.getKey();
+            values[k] = "#" + e.getValue();
+            k++;
+        }
+        NativeGba.setCoreOptions(keys, values, true);
+    }
+
+    private static final class FbneoCheat {
+        String key;
+        String name;
+        String[] choices;
+        int now;
+    }
+
+    private java.util.List<FbneoCheat> fbneoCheats() {
+        java.util.List<FbneoCheat> list = new java.util.ArrayList<>();
+        if (this.nativeHandle == 0) {
+            return list;
+        }
+        String[] raw = NativeGba.coreOptions(this.nativeHandle, "fbneo-cheat-");
+        for (int i = 0; raw != null && i + 3 < raw.length; i += 4) {
+            FbneoCheat cheat = new FbneoCheat();
+            cheat.key = raw[i];
+            // "[Cheat][file] Heading Name" -> "Heading Name"
+            cheat.name = raw[i + 1].replaceFirst("^\\[Cheat\\]\\[[^\\]]*\\]\\s*", "").trim();
+            cheat.choices = raw[i + 2].split("\\|");
+            String now = raw[i + 3];
+            cheat.now = 0;
+            if (now.startsWith("#")) {
+                try {
+                    cheat.now = Integer.parseInt(now.substring(1));
+                } catch (NumberFormatException ignored) {
+                }
+            } else {
+                for (int c = 0; c < cheat.choices.length; c++) {
+                    if (cheat.choices[c].equals(now)) {
+                        cheat.now = c;
+                    }
+                }
+            }
+            list.add(cheat);
+        }
+        return list;
+    }
+
+    // "1 - Enabled" -> "Enabled"
+    private static String fbneoChoiceName(String choice) {
+        return choice.replaceFirst("^\\d+\\s*-\\s*", "");
+    }
+
+    private String fbneoCheatSummary() {
+        if (!fbneoIniFile().isFile()) {
+            return "없음 · 넣기";
+        }
+        java.util.List<FbneoCheat> cheats = fbneoCheats();
+        int on = 0;
+        for (FbneoCheat cheat : cheats) {
+            if (cheat.now != 0) {
+                on++;
+            }
+        }
+        return cheats.size() + "개 · " + on + "개 켜짐";
+    }
+
+    private void pickFbneoIni() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(intent, REQUEST_FBNEO_INI);
+        } catch (Exception e) {
+            Toast.makeText(this, "파일을 고르는 화면을 열 수 없어요.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void importFbneoIni(android.net.Uri uri) {
+        File target = fbneoIniFile();
+        File part = new File(target.getPath() + ".part");
+        try {
+            target.getParentFile().mkdirs();
+            try (java.io.InputStream in = getContentResolver().openInputStream(uri); java.io.FileOutputStream out = new java.io.FileOutputStream(part)) {
+                if (in == null) {
+                    throw new java.io.IOException("열 수 없어요");
+                }
+                byte[] buffer = new byte[8192];
+                int n;
+                long total = 0;
+                while ((n = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, n);
+                    total += n;
+                    if (total > 4L << 20) {
+                        throw new java.io.IOException("치트 파일이 너무 커요");
+                    }
+                }
+            }
+            String head = new String(java.nio.file.Files.readAllBytes(part.toPath()), java.nio.charset.StandardCharsets.ISO_8859_1);
+            if (!head.toLowerCase(Locale.ROOT).contains("cheat")) {
+                part.delete();
+                Toast.makeText(this, "FBNeo 치트 파일(.ini)이 아닌 것 같아요 (cheat \"이름\" 줄이 없어요).", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (!part.renameTo(target)) {
+                throw new java.io.IOException("저장하지 못했어요");
+            }
+        } catch (java.io.IOException e) {
+            part.delete();
+            Toast.makeText(this, "치트 파일을 넣지 못했어요: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        // The core reads cheats when the game starts: start again from this scene.
+        MainActivity.sharedSettings(this).edit().remove(fbneoPrefKey()).apply();
+        Toast.makeText(this, "치트 파일을 넣었어요 · 게임을 다시 켜서 읽어요", Toast.LENGTH_LONG).show();
+        relaunchGame();
+    }
+
+    private void showFbneoCheatSheet(android.app.Dialog menu) {
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        TextView title = new TextView(this);
+        title.setText("FBNeo 치트 (.ini)");
+        title.setTextSize(17f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(fbneoIniFile().getName() + (fbneoIniFile().isFile() ? "" : " · 아직 없음"));
+        sub.setTextSize(12f);
+        sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        panel.addView(sub);
+        java.util.List<FbneoCheat> cheats = fbneoIniFile().isFile() ? fbneoCheats() : new java.util.ArrayList<>();
+        if (cheats.isEmpty()) {
+            LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+            noteParams.setMargins(0, dp(10), 0, 0);
+            panel.addView(dcNote(fbneoIniFile().isFile()
+                    ? "이 파일에서 이 게임의 치트를 찾지 못했어요. 파일 이름이 롬 이름(" + fbneoIniFile().getName() + ")과 맞는지, FBNeo 형식(cheat \"이름\" · 0 \"끄기\" · 1 \"켜기\", 0, 주소, 값)인지 확인해 주세요."
+                    : "FBNeo 형식 치트 파일(<롬 이름>.ini)을 넣으면 그 안의 치트가 여기 목록으로 나와요. 선택지가 여럿인 치트(캐릭터 고르기 등)도 돼요. 넣으면 게임을 다시 켜서 읽어요.",
+                    Color.rgb(255, 251, 235), Color.rgb(146, 64, 14)), noteParams);
+        }
+        android.widget.ScrollView listScroll = new android.widget.ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        listScroll.addView(list);
+        for (FbneoCheat cheat : cheats) {
+            LinearLayout row = createSettingRow(RoundIconView.CHEAT, cheat.now != 0 ? RoundIconView.COLOR_CHEAT : Color.rgb(156, 163, 175), cheat.name,
+                    fbneoChoiceName(cheat.choices[Math.min(cheat.now, cheat.choices.length - 1)]), view -> {
+                        String[] names = new String[cheat.choices.length];
+                        String[] notes = new String[cheat.choices.length];
+                        for (int c = 0; c < names.length; c++) {
+                            names[c] = fbneoChoiceName(cheat.choices[c]);
+                            notes[c] = c == 0 ? "원래대로" : "";
+                        }
+                        showChoiceDialog(RoundIconView.CHEAT, RoundIconView.COLOR_CHEAT, cheat.name, names, notes, cheat.now,
+                                "바로 적용돼요. 이 게임에 기억해서 다음에 켤 때도 그대로예요.", Color.rgb(255, 251, 235), Color.rgb(146, 64, 14), "적용", choice -> {
+                                    java.util.Map<String, Integer> picks = fbneoPicks();
+                                    if (choice == 0) {
+                                        picks.remove(cheat.key);
+                                    } else {
+                                        picks.put(cheat.key, choice);
+                                    }
+                                    saveFbneoPicks(picks);
+                                    NativeGba.setCoreOptions(new String[]{cheat.key}, new String[]{"#" + choice}, false);
+                                    dialog.dismiss();
+                                    showFbneoCheatSheet(menu);
+                                });
+                    });
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(52));
+            rowParams.setMargins(0, dp(6), 0, 0);
+            list.addView(row, rowParams);
+        }
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, cheats.size() > 6 ? dp(360) : -2);
+        listParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(listScroll, listParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = dcChoice("닫기", "", false);
+        close.setText("닫기");
+        close.setTextSize(15f);
+        close.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        TextView pick = dcChoice("", "", true);
+        pick.setText(fbneoIniFile().isFile() ? ".ini 바꾸기" : ".ini 넣기");
+        pick.setTextSize(15f);
+        pick.setBackground(roundRect(RoundIconView.COLOR_CHEAT, dp(11)));
+        pick.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (menu != null) {
+                menu.dismiss();
+            }
+            pickFbneoIni();
+        });
+        LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        pickParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(pick, pickParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
     private File arcadePatchDir() {
         String name = new File(this.romPath).getName();
         int dot = name.lastIndexOf('.');

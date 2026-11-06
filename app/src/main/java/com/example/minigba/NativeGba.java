@@ -206,6 +206,13 @@ final class NativeGba {
     // The disk the next game starts on (from 0; -1 for its first), before create().
     static native void setInitialDisk(int which);
 
+    // Options set by name, answered before the core's own ("#n" is the core's n-th choice);
+    // clear drops the earlier ones. FBNeo .ini cheats are options "fbneo-cheat-...".
+    static native void setCoreOptions(String[] keys, String[] values, boolean clear);
+
+    // The running core's options starting with prefix: {key, description, "a|b|c", value}...
+    static native String[] coreOptions(long handle, String prefix);
+
     // DOS: an on-screen key (libretro RETROK_ code) going down or up.
     static native void dosKey(long handle, int code, boolean down, int character);
 

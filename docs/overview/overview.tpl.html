@@ -467,6 +467,13 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <h3>되감기 · 배속</h3>
 <p>되감기를 켜면 패드에 되감기 버튼이 생겨 누르는 동안 몇 초 전으로 돌아갑니다. 배속 버튼은 1x에서 빠르게로 토글하며, PSP · PS1 · PS2는 세로 모드에서 L · R 사이, 가로 모드에서 아래 가운데에 놓입니다.</p>
 <figure><img src="img/rw.jpg" alt="되감기와 배속 버튼 위치"><figcaption>게임기별 가로 모드 되감기 · 배속 버튼 위치 시안.</figcaption></figure>
+<h3>FBNeo 치트 파일 .ini (0.0.316)</h3>
+<ul>
+<li>아케이드(FBNeo) 게임 메뉴 기본 탭에 <b>FBNeo 치트 (.ini)</b> 줄이 생깁니다. FBNeo 형식 치트 파일(<code>cheat "이름"</code> · <code>0 "끄기"</code> · <code>1 "켜기", 0, 주소, 값</code>)을 넣으면 <code>system/fbneo/cheats/&lt;롬 이름&gt;.ini</code>로 저장하고 게임을 다시 켜서 읽습니다. 롬 이름이 다르면 부모 롬 이름의 .ini도 엔진이 찾습니다.</li>
+<li>엔진(FBNeo)이 파일 안의 치트를 하나씩 옵션으로 만들고, 앱이 그 목록을 보여 줍니다. 선택지가 여럿인 치트(캐릭터 · 스테이지 고르기 등)도 그대로 고를 수 있고, 고르면 바로 적용되며 게임마다 기억합니다(다음에 켤 때도 그대로).</li>
+<li>기존 치트(RetroArch .cht 형식 · 치트 모음)는 그대로 따로 씁니다.</li>
+<li>UTF-8이 아닌 옛 일본어 .ini는 글자가 ?로 보일 수 있습니다(치트 동작은 같음).</li>
+</ul>
 <h3>치트</h3>
 <p>치트 코드를 이름과 함께 등록하고 켜고 끌 수 있습니다. 게임마다 따로 저장됩니다. 드림캐스트 · Naomi · 네오지오 포켓처럼 엔진에 치트 기능이 없는 기종은 앱이 게임 메모리에 직접 값을 써서 적용하는 주소 치트를 씁니다(드림캐스트 · 네오지오 포켓 컬러는 공개 치트 모음에서 자동으로 채움). 원더스완은 RAM 코드 직접 입력만 됩니다.</p>
 <figure><img src="img/cheat.jpg" alt="치트 시안"><figcaption>치트 추가 · 목록 시안.</figcaption></figure>

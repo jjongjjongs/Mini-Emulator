@@ -426,6 +426,9 @@ struct Core {
     std::string statePath;
     std::unordered_map<std::string, std::string> variables;
     std::unordered_map<std::string, std::string> variableChoices;  // "a|b|c" per option
+    std::unordered_map<std::string, std::string> variableDescs;    // what the core calls it
+    std::vector<std::string> variableOrder;                        // as the core listed them
+    std::unordered_map<std::string, std::string> pickedChoices;    // "#n" overrides, resolved
     std::string pickedChoice;
 
     unsigned pixelFormat = RETRO_PIXEL_FORMAT_RGB565;
@@ -1571,6 +1574,10 @@ bool vulkanFor(const std::string& coreId) {
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
+// Options the app sets by name, answered before anything else (FBNeo's .ini cheats, which
+// the core lists as options "fbneo-cheat-..."). Kept across games; set before a game starts.
+std::mutex gOptionOverridesMutex;
+std::unordered_map<std::string, std::string> gOptionOverrides;
 // DS screen layout: 0 stacked 4 rows apart (portrait), 1 stacked and touching
 // (landscape), 2 side by side (landscape with a physical controller, no touch buttons).
 std::atomic<int> gNdsLayout{0};
@@ -1920,7 +1927,11 @@ void storeDefaultVariables(Core* core, const retro_variable* vars) {
         const char* bar = strchr(start, '|');
         std::string value = bar != nullptr ? std::string(start, bar - start) : std::string(start);
         core->variables[vars->key] = value;
+        if (core->variableChoices.find(vars->key) == core->variableChoices.end()) {
+            core->variableOrder.push_back(vars->key);
+        }
         core->variableChoices[vars->key] = start;   // "a|b|c", to pick one by its start
+        core->variableDescs[vars->key] = std::string(vars->value, semicolon - vars->value);
     }
 }
 
@@ -2094,6 +2105,30 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_GET_VARIABLE: {
             auto* var = static_cast<retro_variable*>(data);
             if (var == nullptr || var->key == nullptr) return false;
+            {
+                std::lock_guard<std::mutex> lock(gOptionOverridesMutex);
+                auto it = gOptionOverrides.find(var->key);
+                if (it != gOptionOverrides.end()) {
+                    // "#n": the core's n-th choice (from 0), so the app needn't send its text.
+                    if (!it->second.empty() && it->second[0] == '#') {
+                        auto all = core->variableChoices.find(var->key);
+                        if (all == core->variableChoices.end()) return false;
+                        int want = atoi(it->second.c_str() + 1);
+                        size_t at = 0;
+                        for (int n = 0; n < want && at != std::string::npos; ++n) {
+                            at = all->second.find('|', at);
+                            if (at != std::string::npos) ++at;
+                        }
+                        if (at == std::string::npos) return false;
+                        size_t end = all->second.find('|', at);
+                        core->pickedChoices[var->key] = all->second.substr(at, end == std::string::npos ? std::string::npos : end - at);
+                        var->value = core->pickedChoices[var->key].c_str();
+                        return true;
+                    }
+                    var->value = it->second.c_str();
+                    return true;
+                }
+            }
             // Dreamcast 그래픽 (0.0.311): transparency sorted per pixel for this game, as the
             // core names that choice ("per-pixel (...)").
             if (strcmp(var->key, "reicast_alpha_sorting") == 0 && dos::option("dc-alpha") != nullptr && strcmp(dos::option("dc-alpha"), "per-pixel") == 0) {
@@ -4859,6 +4894,75 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPointer(
 }
 
 // DOS: the core options picked for the game and the file to start, before create().
+// Options set by name (key, value pairs); clear drops the earlier ones first. The core is
+// told options changed, so a running game picks them up (FBNeo applies cheats then).
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCoreOptions(
+        JNIEnv* env, jclass /*cls*/, jobjectArray keys, jobjectArray values, jboolean clear) {
+    std::lock_guard<std::mutex> lock(gOptionOverridesMutex);
+    if (clear == JNI_TRUE) {
+        gOptionOverrides.clear();
+    }
+    jsize n = keys == nullptr ? 0 : env->GetArrayLength(keys);
+    for (jsize i = 0; i < n; ++i) {
+        auto key = static_cast<jstring>(env->GetObjectArrayElement(keys, i));
+        auto value = static_cast<jstring>(env->GetObjectArrayElement(values, i));
+        if (key != nullptr && value != nullptr) {
+            gOptionOverrides[jstringToString(env, key)] = jstringToString(env, value);
+        }
+        if (key != nullptr) env->DeleteLocalRef(key);
+        if (value != nullptr) env->DeleteLocalRef(value);
+    }
+    gVariablesUpdated.store(true);
+}
+
+// The options the running core listed whose key starts with prefix, as {key, description,
+// "a|b|c" choices, value now} for each, one after another.
+JNIEXPORT jobjectArray JNICALL Java_com_example_minigba_NativeGba_coreOptions(
+        JNIEnv* env, jclass /*cls*/, jlong handle, jstring prefix) {
+    Core* core = fromHandle(handle);
+    std::vector<std::string> out;
+    if (core != nullptr) {
+        std::string want = jstringToString(env, prefix);
+        std::lock_guard<std::mutex> lock(core->coreMutex);
+        for (const std::string& key : core->variableOrder) {
+            if (key.compare(0, want.size(), want) != 0) continue;
+            std::string now = core->variables[key];
+            {
+                std::lock_guard<std::mutex> overrides(gOptionOverridesMutex);
+                auto it = gOptionOverrides.find(key);
+                if (it != gOptionOverrides.end()) now = it->second;
+            }
+            out.push_back(key);
+            out.push_back(core->variableDescs[key]);
+            out.push_back(core->variableChoices[key]);
+            out.push_back(now);
+        }
+    }
+    jobjectArray array = env->NewObjectArray(static_cast<jsize>(out.size()), env->FindClass("java/lang/String"), nullptr);
+    for (size_t i = 0; i < out.size(); ++i) {
+        // Cheat files are not always UTF-8 (old Japanese ones): anything else shows as '?'.
+        std::string text;
+        const std::string& in = out[i];
+        for (size_t k = 0; k < in.size();) {
+            unsigned char c = static_cast<unsigned char>(in[k]);
+            size_t len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : 0;
+            bool ok = len > 0 && k + len <= in.size() && c != 0;
+            for (size_t m = 1; ok && m < len; ++m) ok = (static_cast<unsigned char>(in[k + m]) & 0xC0) == 0x80;
+            if (ok) {
+                text.append(in, k, len);
+                k += len;
+            } else {
+                text.push_back('?');
+                k += 1;
+            }
+        }
+        jstring s = env->NewStringUTF(text.c_str());
+        env->SetObjectArrayElement(array, static_cast<jsize>(i), s);
+        env->DeleteLocalRef(s);
+    }
+    return array;
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDosOptions(
         JNIEnv* env, jclass /*cls*/, jobjectArray keys, jobjectArray values, jstring start) {
     std::map<std::string, std::string> options;
