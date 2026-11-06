@@ -8205,7 +8205,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // ---- Dreamcast games on several discs (the app's .m3u, 0.0.303) ----
     private boolean isDiscGroup() {
-        return isDreamcast() && this.romPath != null && this.romPath.toLowerCase(java.util.Locale.ROOT).endsWith(".m3u");
+        return (isDreamcast() || isPs1() || isSaturn() || isMegaCd() || isPcEngine()) && this.romPath != null
+                && this.romPath.toLowerCase(java.util.Locale.ROOT).endsWith(".m3u");
     }
 
     private void rememberDisc() {

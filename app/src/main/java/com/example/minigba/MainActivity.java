@@ -103,14 +103,14 @@ public final class MainActivity extends Activity {
             // Master System, Game Gear and SG-1000 on the same engine as the Mega Drive.
             {MODE_SMS, "genesis_plus_gx", ".sms,.gg,.sg", ".sms / .gg / .sg / .zip", "roms_sms", "1023"},
             {MODE_N64, "mupen64plus_next", ".z64,.n64,.v64", ".z64 / .n64 / .v64 / .zip", "roms_n64", "1024"},
-            {MODE_PCE, "pce_fast", ".pce,.cue,.bin,.img,.chd", ".pce / .cue+.bin / .chd", "roms_pce", "1016"},
+            {MODE_PCE, "pce_fast", ".pce,.cue,.bin,.img,.chd,.m3u", ".pce / .cue+.bin / .chd", "roms_pce", "1016"},
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
-            {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
+            {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso,.m3u", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
             // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
             {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
-            {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
+            {MODE_SS, "yabasanshiro", ".cue,.chd,.iso,.bin,.ccd,.mds,.m3u", ".cue+.bin / .chd / .iso", "roms_ss", "1032"},
             // Dreamcast discs as single files (CHD, DiscJuggler CDI).
             {MODE_DC, "flycast", ".gdi,.chd,.cdi,.bin,.raw,.m3u", ".gdi+트랙 / .chd / .cdi", "roms_dc", "1025"},
             // Naomi / Naomi 2 / Atomiswave arcade sets (MAME-named ZIPs, GD-ROM games with
@@ -123,7 +123,7 @@ public final class MainActivity extends Activity {
             // the console's keys) on Cemu (experimental).
             {MODE_WIIU, "cemu", ".wua,.wud,.wux", ".wua / .wud / .wux", "roms_wiiu", "1043"},
             // Mega CD discs and 32X cartridges on PicoDrive.
-            {MODE_MCD, "picodrive", ".cue,.chd,.iso,.bin,.32x", ".cue+.bin / .chd / .32x", "roms_mcd", "1030"},
+            {MODE_MCD, "picodrive", ".cue,.chd,.iso,.bin,.32x,.m3u", ".cue+.bin / .chd / .32x", "roms_mcd", "1030"},
             {MODE_WS, "wswan", ".ws,.wsc,.pc2", ".ws / .wsc / .zip", "roms_ws", "1028"},
             {MODE_NGP, "ngp", ".ngp,.ngc,.ngpc,.npc", ".ngp / .ngc / .zip", "roms_ngp", "1029"},
             // MSX / MSX2 / MSX2+ / turbo R (and Daewoo's Zemmix) on blueMSX: cartridges,
@@ -4649,7 +4649,7 @@ public final class MainActivity extends Activity {
         }
         linearLayout.removeAllViews();
         this.coverViews.clear();
-        if (MODE_MSX.equals(this.currentMode) || MODE_DC.equals(this.currentMode)) {
+        if (MODE_MSX.equals(this.currentMode) || discGroupMode(this.currentMode)) {
             groupSplitDisks(this.currentMode);
         }
         File[] listFiles = currentRomDir().listFiles(this::isRomFile);
@@ -4689,7 +4689,8 @@ public final class MainActivity extends Activity {
 
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
-        if ((romDirFor(MODE_MSX).equals(dir) || romDirFor(MODE_DC).equals(dir)) && isGroupedMsxDisk(file)) {
+        if ((romDirFor(MODE_MSX).equals(dir) || romDirFor(MODE_DC).equals(dir) || romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_SS).equals(dir)
+                || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_PCE).equals(dir)) && isGroupedMsxDisk(file)) {
             return false;
         }
         if (romDirFor(MODE_NAOMI).equals(dir) && !file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
@@ -4807,7 +4808,7 @@ public final class MainActivity extends Activity {
         if (MODE_VITA.equals(modeForFile(file))) {
             sb.append(vitaExtraDetail(file));
         }
-        if (MODE_DC.equals(modeForFile(file))) {
+        if (discGroupMode(modeForFile(file))) {
             List<File> discs = msxPlaylistDisks(file);
             if (!discs.isEmpty()) {
                 int now = settingsPrefs().getInt("disc:" + saveBaseNameFor(file), 0);
@@ -5647,7 +5648,7 @@ public final class MainActivity extends Activity {
         if (name.endsWith(".gdi")) {
             return MODE_DC.equals(mode);
         }
-        if (name.endsWith(".m3u") && MODE_DC.equals(mode) && !msxPlaylistDisks(file).isEmpty()) {
+        if (name.endsWith(".m3u") && discGroupMode(mode) && !msxPlaylistDisks(file).isEmpty()) {
             return true;  // the app's Dreamcast disc group: the disc is picked first
         }
         if (isDcChd(file, mode)) {
@@ -6184,7 +6185,7 @@ public final class MainActivity extends Activity {
 
     private void pickPatch(File file) {
         List<File> discs = msxPlaylistDisks(file);
-        if (MODE_DC.equals(modeForFile(file)) && !discs.isEmpty()) {
+        if (discGroupMode(modeForFile(file)) && !discs.isEmpty()) {
             pickGroupDisc(file, discs);
             return;
         }
@@ -6200,7 +6201,7 @@ public final class MainActivity extends Activity {
     private void pickGroupDisc(File group, List<File> discs) {
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
-        cardHeader(panel, RoundIconView.PATCH, Color.rgb(202, 138, 4), "한글 패치 적용", displayGameNameFor(group) + " · 디스크 " + discs.size() + "장");
+        cardHeader(panel, RoundIconView.PATCH, MODE_COLORS[modeIndex(modeForFile(group))], "한글 패치 적용", displayGameNameFor(group) + " · 디스크 " + discs.size() + "장");
         panel.addView(noteBox("어느 디스크에 적용할까요? 패치한 디스크는 새 파일로 만들어 묶음에서 그 디스크 자리를 바꿔요 (원본은 그대로). 디스크마다 따로 적용해요.",
                 Color.rgb(255, 251, 235), Color.rgb(146, 64, 14)), spaced(10));
         for (int k = 0; k < discs.size(); k++) {
@@ -6208,7 +6209,7 @@ public final class MainActivity extends Activity {
             boolean patched = romPrefs().getString("patched_from:" + disc.getName(), null) != null;
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
             params.setMargins(0, dp(8), 0, 0);
-            panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(202, 138, 4),
+            panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, MODE_COLORS[modeIndex(modeForFile(group))],
                     "Disc " + (k + 1) + " · " + disc.getName() + (patched ? " (패치됨)" : ""), () -> pickPatch(disc)), params);
         }
         dialog.show();
@@ -15568,8 +15569,14 @@ public final class MainActivity extends Activity {
     // Dreamcast games on several discs (0.0.303): "Name (Disc 1).gdi" ... (.gdi / .chd / .cdi),
     // grouped the same way; Flycast swaps them through its disk control.
     private static final java.util.regex.Pattern DC_SPLIT_DISK = java.util.regex.Pattern.compile(
-            "^(.*?)\\s*[(\\[]\\s*(?:disk|disc|디스크)\\s*(\\d+)(?:\\s*(?:of|/)\\s*\\d+)?\\s*[)\\]](.*)\\.(?:gdi|chd|cdi)$",
+            "^(.*?)\\s*[(\\[]\\s*(?:disk|disc|디스크)\\s*(\\d+)(?:\\s*(?:of|/)\\s*\\d+)?\\s*[)\\]](.*)\\.(?:gdi|chd|cdi|cue|iso|ccd|mds)$",
             java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    // Consoles whose games on several discs are grouped (0.0.303 Dreamcast; 0.0.314 PS1,
+    // 세가 새턴, 메가CD, PC엔진 CD): their engines swap discs through libretro's disk control.
+    static boolean discGroupMode(String mode) {
+        return MODE_DC.equals(mode) || MODE_PS1.equals(mode) || MODE_SS.equals(mode) || MODE_MCD.equals(mode) || MODE_PCE.equals(mode);
+    }
 
     private static java.util.regex.Matcher splitDiskMatcher(String fileName) {
         java.util.regex.Matcher m = MSX_SPLIT_DISK.matcher(fileName);
@@ -15608,7 +15615,8 @@ public final class MainActivity extends Activity {
         if (!splitSourceName(disc).equals(disc.getName())) {
             return 2;   // patched in the app
         }
-        return disc.getName().toLowerCase(Locale.ROOT).endsWith(".gdi") ? 1 : 0;
+        String lower = disc.getName().toLowerCase(Locale.ROOT);
+        return lower.endsWith(".gdi") || lower.endsWith(".cue") ? 1 : 0;   // unpacked: patchable as it is
     }
 
     private boolean isGroupedMsxDisk(File file) {
@@ -15640,7 +15648,7 @@ public final class MainActivity extends Activity {
         File dir = romDirFor(mode);
         File[] files = dir.listFiles();
         if (files == null) return;
-        boolean dc = MODE_DC.equals(mode);
+        boolean dc = discGroupMode(mode);   // discs of a CD-type console (not MSX disks)
         java.util.Set<String> made = new java.util.HashSet<>();
         Map<String, List<File>> games = new java.util.TreeMap<>();
         for (File file : files) {

@@ -3998,6 +3998,10 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
                                                       : kDefaultSampleRate;
     configureAudio(core, core->sampleRate);
 
+    // A game on several discs starts with the disc it was left on in the drive, before its
+    // scene comes back (that scene was saved with that disc).
+    disk::tick();
+
     // Resume where the player left off: in-game save first, then the quick save.
     loadSram(core);
     if (!autoState(core)) {
