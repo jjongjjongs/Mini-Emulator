@@ -15452,6 +15452,13 @@ public final class MainActivity extends Activity {
         return from != null && msxSplitGameName(from) != null ? from : file.getName();
     }
 
+    private int discRank(File disc) {
+        if (!splitSourceName(disc).equals(disc.getName())) {
+            return 2;   // patched in the app
+        }
+        return disc.getName().toLowerCase(Locale.ROOT).endsWith(".gdi") ? 1 : 0;
+    }
+
     private boolean isGroupedMsxDisk(File file) {
         String game = msxSplitGameName(splitSourceName(file));
         return game != null && !msxPlaylistDisks(new File(file.getParentFile(), game + ".m3u")).isEmpty();
@@ -15496,13 +15503,14 @@ public final class MainActivity extends Activity {
         for (Map.Entry<String, List<File>> entry : games.entrySet()) {
             List<File> disks = entry.getValue();
             if (dc) {
-                // One file per disc: a patched one before the original it was made from.
+                // One file per disc: a patched one first, then one unpacked to GDI (it can be
+                // patched without unpacking again), then the CHD / CDI; the newest of a kind.
                 Map<Integer, File> byNumber = new java.util.TreeMap<>();
                 for (File disk : disks) {
                     int number = msxSplitNumber(splitSourceName(disk));
                     File had = byNumber.get(number);
-                    boolean patched = !splitSourceName(disk).equals(disk.getName());
-                    if (had == null || (patched && (splitSourceName(had).equals(had.getName()) || disk.lastModified() > had.lastModified()))) {
+                    int rank = discRank(disk);
+                    if (had == null || rank > discRank(had) || (rank == discRank(had) && disk.lastModified() > had.lastModified())) {
                         byNumber.put(number, disk);
                     }
                 }
