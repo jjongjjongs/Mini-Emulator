@@ -5763,6 +5763,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         this.activityResumed = false;
+        rememberDisc();
         onRewindHeld(false);
         stopMicPoll();
         if (this.dosControls != null) {
@@ -6160,6 +6161,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                     // A crash while on Vulkan turns it off for that engine for good (MainActivity).
                     NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
+                    // A Dreamcast game on several discs starts on the disc it was left on, so
+                    // the scene saved with it comes back with the same disc in the drive.
+                    NativeGba.setInitialDisk(isDiscGroup() ? MainActivity.sharedSettings(this).getInt("disc:" + this.saveBaseName, -1) : -1);
                     handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
                 } catch (RuntimeException e3) {
                     error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
@@ -7994,6 +7998,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams cheatParams = new LinearLayout.LayoutParams(-1, dp(52));
         cheatParams.setMargins(0, dp(10), 0, 0);
         panel.addView(cheatRow, cheatParams);
+        int[] disc = isDiscGroup() && this.nativeHandle != 0 ? NativeGba.diskInfo(this.nativeHandle) : null;
+        if (disc != null && disc.length == 2 && disc[1] > 1) {
+            LinearLayout.LayoutParams discParams = new LinearLayout.LayoutParams(-1, dp(52));
+            discParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(createSettingRow(RoundIconView.SWAP, Color.rgb(202, 138, 4), "디스크 바꾸기", "지금 Disc " + (disc[0] + 1) + " / " + disc[1],
+                    view -> showDiscDialog(dialog)), discParams);
+        }
         if (isMsx()) {
             addMsxMenuRows(panel, dialog);
         }
@@ -8040,6 +8051,49 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // 성능 탭: power, the readout, render scale, 속도 우선 and heat.
+    // ---- Dreamcast games on several discs (the app's .m3u, 0.0.303) ----
+    private boolean isDiscGroup() {
+        return isDreamcast() && this.romPath != null && this.romPath.toLowerCase(java.util.Locale.ROOT).endsWith(".m3u");
+    }
+
+    private void rememberDisc() {
+        if (!isDiscGroup() || this.nativeHandle == 0) {
+            return;
+        }
+        int[] disc = NativeGba.diskInfo(this.nativeHandle);
+        if (disc != null && disc.length == 2 && disc[1] > 1) {
+            MainActivity.sharedSettings(this).edit().putInt("disc:" + this.saveBaseName, disc[0]).apply();
+        }
+    }
+
+    private void showDiscDialog(android.app.Dialog menu) {
+        int[] disc = NativeGba.diskInfo(this.nativeHandle);
+        if (disc == null || disc.length != 2 || disc[1] < 2) {
+            return;
+        }
+        java.util.List<File> files = MainActivity.msxPlaylistDisks(new File(this.romPath));
+        String[] names = new String[disc[1]];
+        String[] notes = new String[disc[1]];
+        for (int k = 0; k < names.length; k++) {
+            names[k] = "Disc " + (k + 1) + (k == disc[0] ? " · 지금 넣은 디스크" : "");
+            notes[k] = k < files.size() ? files.get(k).getName() : "";
+        }
+        showChoiceDialog(RoundIconView.SWAP, Color.rgb(202, 138, 4), "디스크 바꾸기", names, notes, disc[0],
+                "게임이 \"다음 디스크를 넣어 주세요\"라고 할 때 바꾸세요. 엔진이 뚜껑을 열고 디스크를 바꿔 끼워요 — 게임은 그대로 이어져요.\n"
+                        + "빠른 저장 · 불러오기는 지금 넣은 디스크로 해요. 다른 디스크에서 저장한 칸을 불러오면 디스크를 먼저 그 디스크로 바꿔 주세요.",
+                Color.rgb(255, 251, 235), Color.rgb(146, 64, 14), "바꾸기", choice -> {
+                    if (choice == disc[0]) {
+                        return;
+                    }
+                    NativeGba.diskSet(this.nativeHandle, choice);
+                    MainActivity.sharedSettings(this).edit().putInt("disc:" + this.saveBaseName, choice).apply();
+                    Toast.makeText(this, "Disc " + (choice + 1) + "(으)로 바꿨어요", Toast.LENGTH_SHORT).show();
+                    if (menu != null) {
+                        menu.dismiss();
+                    }
+                });
+    }
+
     private void addPerfTabRows(LinearLayout panel, android.app.Dialog dialog) {
         if (isPadScreen()) {
             panel.addView(createSpeedRow(), tabRowParams(panel));

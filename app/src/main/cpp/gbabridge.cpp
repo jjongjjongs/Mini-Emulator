@@ -1628,6 +1628,10 @@ bool available = false;
 std::atomic<int> nextRequested{0};
 std::atomic<int> index{0};
 std::atomic<int> count{0};
+// A disk asked for by number (-1 none): from the game menu, or the disk the game was left on
+// (set before the game starts, taken at its first frame, before its scene is restored).
+std::atomic<int> target{-1};
+std::atomic<int> initial{-1};
 
 void reset() {
     callbacks = retro_disk_control_callback{};
@@ -1635,16 +1639,21 @@ void reset() {
     nextRequested.store(0);
     index.store(0);
     count.store(0);
+    target.store(initial.exchange(-1));
 }
 
 // Emulation thread, before retro_run.
 void tick() {
     if (!available || callbacks.get_num_images == nullptr || callbacks.get_image_index == nullptr) return;
     unsigned n = callbacks.get_num_images();
-    if (nextRequested.exchange(0) != 0 && n > 1 && callbacks.set_eject_state != nullptr && callbacks.set_image_index != nullptr) {
-        unsigned current = callbacks.get_image_index();
+    int wanted = target.exchange(-1);
+    if (nextRequested.exchange(0) != 0 && n > 1) {
+        wanted = static_cast<int>((callbacks.get_image_index() + 1) % n);
+    }
+    if (wanted >= 0 && static_cast<unsigned>(wanted) < n && static_cast<unsigned>(wanted) != callbacks.get_image_index() &&
+        callbacks.set_eject_state != nullptr && callbacks.set_image_index != nullptr) {
         callbacks.set_eject_state(true);
-        callbacks.set_image_index((current + 1) % n);
+        callbacks.set_image_index(static_cast<unsigned>(wanted));
         callbacks.set_eject_state(false);
     }
     count.store(static_cast<int>(n));
@@ -4840,6 +4849,16 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDosOptions(
 // Disk swapping: move to the next disk of a multi-disk game (an .m3u) at the next frame.
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_diskNext(JNIEnv* /*env*/, jclass /*cls*/, jlong /*handle*/) {
     disk::nextRequested.store(1);
+}
+
+// A disk by number (from 0), at the next frame.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_diskSet(JNIEnv* /*env*/, jclass /*cls*/, jlong /*handle*/, jint which) {
+    disk::target.store(which);
+}
+
+// The disk the next game starts on (from 0; -1 its first), before NativeGba.create.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setInitialDisk(JNIEnv* /*env*/, jclass /*cls*/, jint which) {
+    disk::initial.store(which);
 }
 
 // {current disk (from 0), number of disks}; {0, 0} when the game has no disk control.

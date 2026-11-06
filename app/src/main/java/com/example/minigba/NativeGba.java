@@ -200,6 +200,12 @@ final class NativeGba {
 
     static native int[] diskInfo(long handle);
 
+    // A disk of a multi-disk game by number (from 0), at the next frame.
+    static native void diskSet(long handle, int which);
+
+    // The disk the next game starts on (from 0; -1 for its first), before create().
+    static native void setInitialDisk(int which);
+
     // DOS: an on-screen key (libretro RETROK_ code) going down or up.
     static native void dosKey(long handle, int code, boolean down, int character);
 
