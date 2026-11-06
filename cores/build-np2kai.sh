@@ -37,6 +37,8 @@ fi
 # jni/Android.mk at this commit has "INCFLAGS += (NP21_INCFLAGS)" (no $), which puts a bare
 # "(NP21_INCFLAGS)" on every compile line; and it asks git for a tag the shallow fetch lacks.
 sed -i 's/+= (NP21_INCFLAGS)/+= $(NP21_INCFLAGS)/' "$SRC/jni/Android.mk"
+# Its sdl/Makefile.common also misses the YMZ280B ADPCM files the CMake build has.
+grep -q ymzadpcmc "$SRC/jni/Android.mk" || sed -i 's|^SOURCES_CXX += $(NP21_SOURCES_CXX)|SOURCES_C += $(NP2_PATH)/sound/ymzadpcmc.c $(NP2_PATH)/sound/ymzadpcmg.c\n\n&|' "$SRC/jni/Android.mk"
 
 echo "== building np2kai"
 "$NDK/ndk-build" -C "$SRC/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
