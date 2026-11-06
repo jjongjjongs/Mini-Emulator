@@ -6877,8 +6877,53 @@ public final class MainActivity extends Activity {
         int format;
         int track = -1;          // index into the source's tracks; -1 not decided
         int span = 1;            // tracks the patch covers, joined end to end (from track on)
+        // The track's stored pregap ("<track>.pregap", from a CHD unpacked by 0.0.304+): the
+        // patch was made on a Redump track, which is that pregap followed by the GDI track.
+        File pregap;
         String reason = "";
         boolean noMatch;         // the patch says none of the tracks is its original
+    }
+
+    // A patch made on a Redump track: pregap + track joined, patched, and the pregap's length
+    // cut off again, so the result is the GDI track (the GDI keeps its layout).
+    private static void applyWithPregap(DiscPatch item, File track, File out, File dir) throws IOException {
+        File joined = new File(dir, "." + out.getName() + ".joined");
+        File patched = new File(dir, "." + out.getName() + ".joined-out");
+        try {
+            try (OutputStream joinOut = new java.io.BufferedOutputStream(new FileOutputStream(joined), 1 << 20)) {
+                byte[] buffer = new byte[1 << 20];
+                for (File part : new File[]{item.pregap, track}) {
+                    try (InputStream in = new FileInputStream(part)) {
+                        int n;
+                        while ((n = in.read(buffer)) > 0) {
+                            joinOut.write(buffer, 0, n);
+                        }
+                    }
+                }
+            }
+            RomPatcher.Check check = RomPatcher.check(item.patch, joined);
+            RomPatcher.apply(item.patch, joined, check, patched);
+            joined.delete();
+            long cut = item.pregap.length();
+            if (patched.length() < cut) {
+                throw new IOException("패치한 결과의 크기가 맞지 않아요.");
+            }
+            try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(patched, "r");
+                 OutputStream trackOut = new java.io.BufferedOutputStream(new FileOutputStream(out), 1 << 20)) {
+                in.seek(cut);
+                byte[] buffer = new byte[1 << 20];
+                int n;
+                while ((n = in.read(buffer)) > 0) {
+                    trackOut.write(buffer, 0, n);
+                }
+            }
+        } catch (IOException e) {
+            out.delete();
+            throw e;
+        } finally {
+            joined.delete();
+            patched.delete();
+        }
     }
 
     private static boolean isDiscSheet(File file) {
@@ -6980,6 +7025,34 @@ public final class MainActivity extends Activity {
         if (item.format == RomPatcher.XDELTA) {
             long end = RomPatcher.xdeltaSourceEnd(item.patch);
             if (end > 0) {
+                // Made on a Redump track: pregap + this track, exactly.
+                for (int k = 0; k < source.tracks.size(); k++) {
+                    File pregap = new File(source.tracks.get(k).getPath() + ".pregap");
+                    long size = source.tracks.get(k).length();
+                    if (pregap.isFile() && pregap.length() > 0 && end > size && end <= size + pregap.length()) {
+                        item.track = k;
+                        item.pregap = pregap;
+                        item.reason = "원본 크기 = 프리갭 + 트랙 (Redump 방식)";
+                        return;
+                    }
+                }
+                // Exactly one track's size, or the track the patch's name gives.
+                for (int k = 0; k < source.tracks.size(); k++) {
+                    if (source.tracks.get(k).length() == end) {
+                        item.track = k;
+                        item.reason = "원본 크기와 같음";
+                        return;
+                    }
+                }
+                java.util.regex.Matcher named = TRACK_HINT.matcher(item.name);
+                if (named.find()) {
+                    int k = Integer.parseInt(named.group(1)) - 1;
+                    if (k >= 0 && k < source.tracks.size()) {
+                        item.track = k;
+                        item.reason = "파일 이름";
+                        return;
+                    }
+                }
                 int only = -1;
                 int count = 0;
                 for (int k = 0; k < source.tracks.size(); k++) {
@@ -7374,6 +7447,9 @@ public final class MainActivity extends Activity {
             for (int k = item.track; item.span > 1 && k < item.track + item.span; k++) {
                 needed += 2 * source.tracks.get(k).length();  // the joined copy and its patched copy, for a while
             }
+            if (item.pregap != null && item.track >= 0) {
+                needed += 2 * (source.tracks.get(item.track).length() + item.pregap.length());
+            }
         }
         long free = new android.os.StatFs(dir.getAbsolutePath()).getAvailableBytes();
         if (free < needed + 64L * 1024 * 1024) {
@@ -7459,12 +7535,49 @@ public final class MainActivity extends Activity {
                         if (item.track != k || item.span > 1) {
                             continue;
                         }
+                        File temp = new File(dir, "." + target.getName() + ".patching");
+                        if (item.pregap != null) {
+                            applyWithPregap(item, current, temp, dir);
+                            if (!first) {
+                                current.delete();
+                            }
+                            current = temp;
+                            first = false;
+                            patchedTracks.add(k + 1);
+                            continue;
+                        }
                         RomPatcher.Check check = RomPatcher.check(item.patch, current);
                         if (check.sourceMatches < 0) {
                             throw new IOException(item.name + "이(가) Track " + String.format(Locale.ROOT, "%02d", k + 1) + "과(와) 맞지 않아요. 안내문의 트랙과 원본 버전을 확인해 주세요.");
                         }
-                        File temp = new File(dir, "." + target.getName() + ".patching");
-                        RomPatcher.apply(item.patch, current, check, temp);
+                        try {
+                            RomPatcher.apply(item.patch, current, check, temp);
+                        } catch (IOException e) {
+                            temp.delete();
+                            // It may have been made on the Redump track (pregap + track) though its
+                            // size couldn't tell: try that before giving up.
+                            File stored = new File(source.tracks.get(k).getPath() + ".pregap");
+                            if (stored.isFile() && stored.length() > 0) {
+                                item.pregap = stored;
+                                try {
+                                    applyWithPregap(item, current, temp, dir);
+                                    if (!first) {
+                                        current.delete();
+                                    }
+                                    current = temp;
+                                    first = false;
+                                    patchedTracks.add(k + 1);
+                                    continue;
+                                } catch (IOException again) {
+                                    item.pregap = null;
+                                }
+                            }
+                            if (!stored.isFile() && source.gdi
+                                    && RomPatcher.xdeltaSourceEnd(item.patch) > current.length()) {
+                                throw new IOException(e.getMessage() + "\n\n이 패치는 원본 트랙이 지금보다 커요 — Redump 덤프(트랙 앞 공백 포함)용 패치일 수 있어요. CHD에서 푼 게임이면 원본 CHD로 다시 패치해 주세요(0.0.304부터 CHD를 풀 때 그 공백을 함께 보관해 맞춰 줘요).");
+                            }
+                            throw e;
+                        }
                         if (!first) {
                             current.delete();
                         }
@@ -7481,6 +7594,14 @@ public final class MainActivity extends Activity {
                         throw new IOException("패치한 트랙을 저장하지 못했어요.");
                     }
                     written.add(target);
+                    // The track's stored pregap goes along, for patches on top of this one.
+                    File pregap = new File(source.tracks.get(k).getPath() + ".pregap");
+                    if (pregap.isFile()) {
+                        File pregapCopy = new File(target.getPath() + ".pregap");
+                        if (copyFile(pregap, pregapCopy)) {
+                            written.add(pregapCopy);
+                        }
+                    }
                 }
                 // The sheet with the new track names; other lines as they were (bytes kept).
                 List<String> lines = new ArrayList<>(source.cueLines);
@@ -17111,6 +17232,10 @@ public final class MainActivity extends Activity {
         for (File track : tracks) {
             if (track.isFile() && !isCueTrack(track) && !track.delete()) {
                 track.deleteOnExit();
+            }
+            File pregap = new File(track.getPath() + ".pregap");
+            if (pregap.isFile() && !track.exists()) {
+                pregap.delete();
             }
         }
         return true;

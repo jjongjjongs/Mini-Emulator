@@ -216,6 +216,10 @@ std::string open(const char *path, Disc &disc) {
         track.firstFrame = offset + inFile;
         track.count = (uint32_t) frames - inFile - (uint32_t) pad;
         track.swap = track.ctrl == 0 && swap;
+        // The pregap stored before the track (a disc made from a Redump dump): not part of
+        // the GDI track, but kept beside it (".pregap") for patches made on Redump tracks.
+        track.pregap = inFile;
+        track.pregapInFile = inFile > 0;
         disc.tracks.push_back(track);
         offset += (uint64_t) ((frames + kPadding - 1) / kPadding) * kPadding;
     }
@@ -395,6 +399,39 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_ChdGdi_convert(JNI
         if (failed) {
             break;
         }
+    }
+    // GD-ROM: each track's stored pregap as "<track file>.pregap" (Redump's track = it + the track).
+    for (size_t t = 0; !failed && disc.kind == GDROM && t < disc.tracks.size(); t++) {
+        const Track &track = disc.tracks[t];
+        if (!track.pregapInFile || track.pregap == 0) {
+            continue;
+        }
+        std::string path = dir + "/" + track.file + ".pregap";
+        FILE *file = fopen(path.c_str(), "wb");
+        if (file == nullptr) {
+            continue;  // a bonus for patching; the game itself is complete
+        }
+        written.push_back(path);
+        for (uint32_t k = 0; k < track.pregap; k++) {
+            uint64_t frame = track.firstFrame - track.pregap + k;
+            uint64_t index = frame / disc.framesPerHunk;
+            if (index != loaded) {
+                if (chd_read(disc.chd, (uint32_t) index, hunk.data()) != CHDERR_NONE) {
+                    break;
+                }
+                loaded = index;
+            }
+            const uint8_t *sector = hunk.data() + (frame % disc.framesPerHunk) * kFrame;
+            out.assign(sector, sector + track.sectorSize);
+            if (track.swap) {
+                for (size_t b = 0; b + 1 < out.size(); b += 2) {
+                    std::swap(out[b], out[b + 1]);
+                }
+            }
+            fwrite(out.data(), 1, out.size(), file);
+        }
+        out.clear();
+        fclose(file);
     }
     if (!failed && disc.kind == CDROM) {
         std::string cue;
