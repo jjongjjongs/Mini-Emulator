@@ -1,0 +1,99 @@
+diff --git a/Source/gs/GSHandler.cpp b/Source/gs/GSHandler.cpp
+index 57e58ba..91bcea6 100644
+--- a/Source/gs/GSHandler.cpp
++++ b/Source/gs/GSHandler.cpp
+@@ -2213,6 +2213,15 @@ void CGSHandler::ProcessSingleFrame()
+ 	m_flipped = false;
+ }
+ 
++void CGSHandler::ProcessPendingCalls()
++{
++	assert(!m_gsThreaded);
++	while(m_mailBox.IsPending())
++	{
++		m_mailBox.ReceiveCall();
++	}
++}
++
+ Framework::CBitmap CGSHandler::GetScreenshot()
+ {
+ 	throw std::runtime_error("Screenshot feature is not implemented in current backend.");
+diff --git a/Source/gs/GSHandler.h b/Source/gs/GSHandler.h
+index 66bfe59..989906b 100644
+--- a/Source/gs/GSHandler.h
++++ b/Source/gs/GSHandler.h
+@@ -901,6 +901,8 @@ public:
+ 	void SendGSCall(const CMailBox::FunctionType&, bool = false, bool = false);
+ 
+ 	void ProcessSingleFrame();
++	//Runs the GS calls already queued, without waiting for more (non-threaded GS only).
++	void ProcessPendingCalls();
+ 
+ 	FlipCompleteEvent OnFlipComplete;
+ 	NewFrameEvent OnNewFrame;
+diff --git a/Source/ui_libretro/main_libretro.cpp b/Source/ui_libretro/main_libretro.cpp
+index 8a07c26..0d68f19 100644
+--- a/Source/ui_libretro/main_libretro.cpp
++++ b/Source/ui_libretro/main_libretro.cpp
+@@ -17,6 +17,7 @@
+ #include "filesystem_def.h"
+ #include "DefaultAppConfig.h"
+ 
++#include <thread>
+ #include <vector>
+ #include <cstdlib>
+ 
+@@ -239,6 +240,35 @@ unsigned retro_get_region(void)
+ 	return RETRO_REGION_NTSC;
+ }
+ 
++// The frontend saves and restores states on its own thread while the VM's emulation thread
++// keeps running, so a state was read or written halfway through the VM's work and the game
++// crashed later (CIopBios::SleepThread, EE blocks jumping to 0). Hold the VM paused for the
++// duration, running the GS calls queued for this thread until the VM has stopped.
++class CStatePause
++{
++public:
++	CStatePause()
++	{
++		if(m_virtualMachine->GetStatus() == CVirtualMachine::PAUSED) return;
++		m_virtualMachine->PauseAsync();
++		auto gs = m_virtualMachine->GetGSHandler();
++		while(m_virtualMachine->GetStatus() != CVirtualMachine::PAUSED)
++		{
++			if(gs) gs->ProcessPendingCalls();
++			std::this_thread::yield();
++		}
++		if(gs) gs->ProcessPendingCalls();
++		m_paused = true;
++	}
++	~CStatePause()
++	{
++		if(m_paused) m_virtualMachine->Resume();
++	}
++
++private:
++	bool m_paused = false;
++};
++
+ size_t retro_serialize_size(void)
+ {
+ 	CLog::GetInstance().Print(LOG_NAME, "%s\n", __FUNCTION__);
+@@ -250,6 +280,8 @@ bool retro_serialize(void* data, size_t size)
+ {
+ 	CLog::GetInstance().Print(LOG_NAME, "%s\n", __FUNCTION__);
+ 
++	if(!m_virtualMachine) return false;
++	CStatePause pause;
+ 	try
+ 	{
+ 		Framework::CMemStream stateStream;
+@@ -275,6 +307,8 @@ bool retro_unserialize(const void* data, size_t size)
+ {
+ 	CLog::GetInstance().Print(LOG_NAME, "%s\n", __FUNCTION__);
+ 
++	if(!m_virtualMachine) return false;
++	CStatePause pause;
+ 	try
+ 	{
+ 		Framework::CPtrStream stateStream(data, size);

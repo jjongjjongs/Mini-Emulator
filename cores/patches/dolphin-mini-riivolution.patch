@@ -1,0 +1,30 @@
+diff --git a/Source/Core/DolphinLibretro/Boot.cpp b/Source/Core/DolphinLibretro/Boot.cpp
+index aaa4cbe..7dc8062 100644
+--- a/Source/Core/DolphinLibretro/Boot.cpp
++++ b/Source/Core/DolphinLibretro/Boot.cpp
+@@ -737,6 +737,25 @@ bool retro_load_game(const struct retro_game_info* game)
+   const bool disc_based_games_boot_to_wii_menu = Libretro::GetOption<bool>(Libretro::Options::core::DISC_BASED_GAMES_BOOT_TO_WII_MENU, false);
+   std::unique_ptr<BootParameters> boot_params = BootParameters::GenerateFromFile(normalized_game_paths);
+ 
++  // Mini Emulator: Riivolution patches the app puts in <User>/Load/Riivolution (riivolution/*.xml
++  // and their files, riivolution/config/<game>.xml with the chosen options) are laid over a disc
++  // game, as Dolphin's own "Start with Riivolution Patches" does.
++  if (boot_params)
++  {
++    if (auto* disc = std::get_if<BootParameters::Disc>(&boot_params->parameters); disc && disc->volume)
++    {
++      const std::string riivolution_root = File::GetUserPath(D_RIIVOLUTION_IDX);
++      if (File::IsDirectory(riivolution_root + "riivolution"))
++      {
++        boot_params->riivolution_patches = DiscIO::Riivolution::GenerateRiivolutionPatchesFromConfig(
++            riivolution_root, disc->volume->GetGameID(), disc->volume->GetRevision(),
++            disc->volume->GetDiscNumber());
++        INFO_LOG_FMT(BOOT, "Riivolution: {} patches for {}", boot_params->riivolution_patches.size(),
++                     disc->volume->GetGameID());
++      }
++    }
++  }
++
+   if (disc_based_games_boot_to_wii_menu)
+   {
+     bool is_disc_title = false;

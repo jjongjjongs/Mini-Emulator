@@ -1,0 +1,17 @@
+diff --git a/pcee2-libretro/Libretro.cpp b/pcee2-libretro/Libretro.cpp
+index 2d7f95db6..150c863f4 100644
+--- a/pcee2-libretro/Libretro.cpp
++++ b/pcee2-libretro/Libretro.cpp
+@@ -3367,3 +3367,12 @@ const char* InputManager::ConvertHostKeyboardCodeToIcon(u32 code)
+ 
+ BEGIN_HOTKEY_LIST(g_host_hotkeys)
+ END_HOTKEY_LIST()
++
++// Whether the GS has presented a game picture yet (Mini Emulator). A state restored
++// before that leaves the GS without a picture for the rest of the session, and on
++// Vulkan the frames handed over from the first vsync do not tell (they are the
++// backbuffer, picture or not), so the frontend asks here before restoring one.
++extern "C" RETRO_API bool retro_pcee2_has_picture(void)
++{
++	return GSLibretro::NativeSize.load(std::memory_order_acquire) != 0;
++}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: NEO -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M4 25H44L42.5 40H5.5Z" android:fillColor="#FFF"/>
+    <path android:pathData="M10.6,12h2.8v14h-2.8Z" android:fillColor="#FFF"/>
+    <path android:pathData="M7,11a5,5 0,1 0,10,0a5,5 0,1 0,-10,0Z" android:fillColor="#E0392F"/>
+    <path android:pathData="M8,27.5a4,1.4 0,1 0,8,0a4,1.4 0,1 0,-8,0Z" android:fillColor="#7C3AED" android:fillAlpha="0.5"/>
+    <path android:pathData="M20.3,32a2.2,2.2 0,1 0,4.4,0a2.2,2.2 0,1 0,-4.4,0Z" android:fillColor="#E0392F"/>
+    <path android:pathData="M26.1,30.8a2.2,2.2 0,1 0,4.4,0a2.2,2.2 0,1 0,-4.4,0Z" android:fillColor="#F2B705"/>
+    <path android:pathData="M31.9,30.8a2.2,2.2 0,1 0,4.4,0a2.2,2.2 0,1 0,-4.4,0Z" android:fillColor="#21A35A"/>
+    <path android:pathData="M37.4,32a2.2,2.2 0,1 0,4.4,0a2.2,2.2 0,1 0,-4.4,0Z" android:fillColor="#2F6FD6"/>
+</vector>

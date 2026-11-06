@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: NDS -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M13,4H35A3,3 0,0 1,38,7V20A3,3 0,0 1,35,23H13A3,3 0,0 1,10,20V7A3,3 0,0 1,13,4Z" android:fillColor="#FFF"/>
+    <path android:pathData="M15,7H33A1,1 0,0 1,34,8V19A1,1 0,0 1,33,20H15A1,1 0,0 1,14,19V8A1,1 0,0 1,15,7Z" android:fillColor="#DB2777"/>
+    <path android:pathData="M11,25H37A3,3 0,0 1,40,28V41A3,3 0,0 1,37,44H11A3,3 0,0 1,8,41V28A3,3 0,0 1,11,25Z" android:fillColor="#FFF"/>
+    <path android:pathData="M18,28H30A1,1 0,0 1,31,29V38A1,1 0,0 1,30,39H18A1,1 0,0 1,17,38V29A1,1 0,0 1,18,28Z" android:fillColor="#DB2777"/>
+    <path android:pathData="M10.2,32.4h5v1.8h-5Z" android:fillColor="#DB2777"/>
+    <path android:pathData="M11.8,30.8h1.8v5h-1.8Z" android:fillColor="#DB2777"/>
+    <path android:pathData="M34.4,31a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#DB2777"/>
+    <path android:pathData="M34.4,35.6a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#DB2777"/>
+    <path android:pathData="M32.1,33.3a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#DB2777"/>
+    <path android:pathData="M36.7,33.3a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#DB2777"/>
+</vector>

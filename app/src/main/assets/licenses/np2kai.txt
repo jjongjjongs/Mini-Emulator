@@ -1,0 +1,2399 @@
+NP2kai (Neko Project II kai) — commit 5939e0c6d5985c4c08fc70f289a83290e5d3e6f7
+https://github.com/AZO234/NP2kai
+
+MIT License
+
+Copyright (c) 2017 AZO
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==== LICENSES/LICENSE-C86CTL.TXT ====
+--------------------------------------
+/win9x/ext/c86ctl
+
+c86ctl
+
+Copyright (c) 2009-2012, honet. All rights reserved.
+This software is licensed under the BSD license.
+
+honet.kk(at)gmail.com
+==== LICENSES/LICENSE-GA1280A.TXT ====
+--------------------------------------
+/wab/ga1280a.cpp
+/wab/ga1280adef.h
+/wab/ga1280a.h
+
+プリプロセッサ 
+SUPPORT_WAB_GA1280A
+を定義しない場合は除外
+
+
+Copyright (c) 2026 neetan developer team.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software without
+   specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+==== LICENSES/LICENSE-GD54XX.TXT ====
+--------------------------------------
+/wab/cirrus_vga.c
+/wab/cirrus_vga.h
+/wab/cirrus_vga_extern.h
+/wab/cirrus_vga_rop.h
+/wab/cirrus_vga_rop2.h
+/wab/vga_int.h
+
+QEMU Cirrus CLGD 54xx VGA Emulator.
+
+Copyright (c) 2004 Fabrice Bellard
+Copyright (c) 2004 Makoto Suzuki (suzu)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+==== LICENSES/LICENSE-I386C-FPU.TXT ====
+
+--------------------------------------
+/i386c/ia32/instructions/fpu/fp.h
+/i386c/ia32/instructions/fpu/fpdummy.c
+/i386c/ia32/instructions/fpu/fpemul.c
+/i386c/ia32/instructions/fpu/fpumem.h
+
+Copyright (c) 2003 NONAKA Kimihiro
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------
+/i386c/ia32/instructions/fpu/fpemul_softfloat.c
+/i386c/ia32/instructions/fpu/fpemul_softfloat3.c
+
+Copyright (c) 2012 NONAKA Kimihiro
+Copyright (c) 2018-2025 SimK
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+==== LICENSES/LICENSE-I386C-SIMD.TXT ====
+--------------------------------------
+/i386c/ia32/instructions/mmx
+/i386c/ia32/instructions/sse
+/i386c/ia32/instructions/sse2
+/i386c/ia32/instructions/sse3
+/i386c/ia32/instructions/sse4a
+
+Copyright (c) 2018-2024 SimK
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------
+/i386c/ia32/instructions/ssse3
+/i386c/ia32/instructions/sse4
+
+Copyright (c) 2024 Gocaine Project
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+==== LICENSES/LICENSE-I386C.TXT ====
+/i386c以下に適用。ただし、以下を除く
+/i386c/ia32/instructions/fpu
+/i386c/ia32/instructions/mmx
+/i386c/ia32/instructions/sse
+/i386c/ia32/instructions/sse2
+/i386c/ia32/instructions/sse3
+/i386c/ia32/instructions/ssse3
+/i386c/ia32/instructions/sse4
+/i386c/ia32/instructions/sse4a
+
+Copyright (c) 2003 NONAKA Kimihiro
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+==== LICENSES/LICENSE-LGY98.TXT ====
+--------------------------------------
+/network/lgy98.c
+/network/lgy98.h
+/network/lgy98dev.h
+
+QEMU NE2000 emulation
+
+Copyright (c) 2003-2004 Fabrice Bellard
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+==== LICENSES/LICENSE-LIO.TXT ====
+LIO GCIRCLE（lio/gcircle.c）のうち、円、楕円および円弧、楕円弧の輪郭計算部分について適用
+参照元：https://github.com/msonrm/quubee
+
+MIT License
+
+Copyright (c) 2026 msonrm
+
+QuuBee 独自のソースコード（msonrm 著作の部分。`native/` の `bridge`・`dos_loader`・
+`dos_int21`・`qb_*`、`web/player/`、`web/index.html`、`tools/`、`emscripten/`、`docs/` 等。
+第三者由来のファイル／`core/np2kai` サブモジュールを除く）は **MIT ライセンス**で利用できる。
+本ファイルはその全文である。配布バイナリ全体は GPL 部品を含まない寛容ライセンスの集合体であり、
+その内訳・各部品の全文の所在はリポジトリ直下の `LICENSE` と `CREDITS.md` を参照のこと。
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+==== LICENSES/LICENSE-SCCI.TXT ====
+--------------------------------------
+/win9x/ext/scci2
+
+MIT License
+
+Copyright (c) 2024- gasshi47
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+The following file is specifically covered by this license:
+  - scci2.h
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==== LICENSES/LICENSE-TGUI9680.TXT ====
+--------------------------------------
+/wab/tgui9680.c
+/wab/tgui9680.h
+/wab/tgui9680_extern.h
+/wab/tgui9680_wrapper.h
+
+プリプロセッサ 
+SUPPORT_TRIDENT_TGUI
+を定義しない場合は除外
+
+
+		    GNU GENERAL PUBLIC LICENSE
+		       Version 2, June 1991
+
+ Copyright (C) 1989, 1991 Free Software Foundation, Inc.
+                          675 Mass Ave, Cambridge, MA 02139, USA
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+			    Preamble
+
+  The licenses for most software are designed to take away your
+freedom to share and change it.  By contrast, the GNU General Public
+License is intended to guarantee your freedom to share and change free
+software--to make sure the software is free for all its users.  This
+General Public License applies to most of the Free Software
+Foundation's software and to any other program whose authors commit to
+using it.  (Some other Free Software Foundation software is covered by
+the GNU Library General Public License instead.)  You can apply it to
+your programs, too.
+
+  When we speak of free software, we are referring to freedom, not
+price.  Our General Public Licenses are designed to make sure that you
+have the freedom to distribute copies of free software (and charge for
+this service if you wish), that you receive source code or can get it
+if you want it, that you can change the software or use pieces of it
+in new free programs; and that you know you can do these things.
+
+  To protect your rights, we need to make restrictions that forbid
+anyone to deny you these rights or to ask you to surrender the rights.
+These restrictions translate to certain responsibilities for you if you
+distribute copies of the software, or if you modify it.
+
+  For example, if you distribute copies of such a program, whether
+gratis or for a fee, you must give the recipients all the rights that
+you have.  You must make sure that they, too, receive or can get the
+source code.  And you must show them these terms so they know their
+rights.
+
+  We protect your rights with two steps: (1) copyright the software, and
+(2) offer you this license which gives you legal permission to copy,
+distribute and/or modify the software.
+
+  Also, for each author's protection and ours, we want to make certain
+that everyone understands that there is no warranty for this free
+software.  If the software is modified by someone else and passed on, we
+want its recipients to know that what they have is not the original, so
+that any problems introduced by others will not reflect on the original
+authors' reputations.
+
+  Finally, any free program is threatened constantly by software
+patents.  We wish to avoid the danger that redistributors of a free
+program will individually obtain patent licenses, in effect making the
+program proprietary.  To prevent this, we have made it clear that any
+patent must be licensed for everyone's free use or not licensed at all.
+
+  The precise terms and conditions for copying, distribution and
+modification follow.
+
+		    GNU GENERAL PUBLIC LICENSE
+   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+
+  0. This License applies to any program or other work which contains
+a notice placed by the copyright holder saying it may be distributed
+under the terms of this General Public License.  The "Program", below,
+refers to any such program or work, and a "work based on the Program"
+means either the Program or any derivative work under copyright law:
+that is to say, a work containing the Program or a portion of it,
+either verbatim or with modifications and/or translated into another
+language.  (Hereinafter, translation is included without limitation in
+the term "modification".)  Each licensee is addressed as "you".
+
+Activities other than copying, distribution and modification are not
+covered by this License; they are outside its scope.  The act of
+running the Program is not restricted, and the output from the Program
+is covered only if its contents constitute a work based on the
+Program (independent of having been made by running the Program).
+Whether that is true depends on what the Program does.
+
+  1. You may copy and distribute verbatim copies of the Program's
+source code as you receive it, in any medium, provided that you
+conspicuously and appropriately publish on each copy an appropriate
+copyright notice and disclaimer of warranty; keep intact all the
+notices that refer to this License and to the absence of any warranty;
+and give any other recipients of the Program a copy of this License
+along with the Program.
+
+You may charge a fee for the physical act of transferring a copy, and
+you may at your option offer warranty protection in exchange for a fee.
+
+  2. You may modify your copy or copies of the Program or any portion
+of it, thus forming a work based on the Program, and copy and
+distribute such modifications or work under the terms of Section 1
+above, provided that you also meet all of these conditions:
+
+    a) You must cause the modified files to carry prominent notices
+    stating that you changed the files and the date of any change.
+
+    b) You must cause any work that you distribute or publish, that in
+    whole or in part contains or is derived from the Program or any
+    part thereof, to be licensed as a whole at no charge to all third
+    parties under the terms of this License.
+
+    c) If the modified program normally reads commands interactively
+    when run, you must cause it, when started running for such
+    interactive use in the most ordinary way, to print or display an
+    announcement including an appropriate copyright notice and a
+    notice that there is no warranty (or else, saying that you provide
+    a warranty) and that users may redistribute the program under
+    these conditions, and telling the user how to view a copy of this
+    License.  (Exception: if the Program itself is interactive but
+    does not normally print such an announcement, your work based on
+    the Program is not required to print an announcement.)
+
+These requirements apply to the modified work as a whole.  If
+identifiable sections of that work are not derived from the Program,
+and can be reasonably considered independent and separate works in
+themselves, then this License, and its terms, do not apply to those
+sections when you distribute them as separate works.  But when you
+distribute the same sections as part of a whole which is a work based
+on the Program, the distribution of the whole must be on the terms of
+this License, whose permissions for other licensees extend to the
+entire whole, and thus to each and every part regardless of who wrote it.
+
+Thus, it is not the intent of this section to claim rights or contest
+your rights to work written entirely by you; rather, the intent is to
+exercise the right to control the distribution of derivative or
+collective works based on the Program.
+
+In addition, mere aggregation of another work not based on the Program
+with the Program (or with a work based on the Program) on a volume of
+a storage or distribution medium does not bring the other work under
+the scope of this License.
+
+  3. You may copy and distribute the Program (or a work based on it,
+under Section 2) in object code or executable form under the terms of
+Sections 1 and 2 above provided that you also do one of the following:
+
+    a) Accompany it with the complete corresponding machine-readable
+    source code, which must be distributed under the terms of Sections
+    1 and 2 above on a medium customarily used for software interchange; or,
+
+    b) Accompany it with a written offer, valid for at least three
+    years, to give any third party, for a charge no more than your
+    cost of physically performing source distribution, a complete
+    machine-readable copy of the corresponding source code, to be
+    distributed under the terms of Sections 1 and 2 above on a medium
+    customarily used for software interchange; or,
+
+    c) Accompany it with the information you received as to the offer
+    to distribute corresponding source code.  (This alternative is
+    allowed only for noncommercial distribution and only if you
+    received the program in object code or executable form with such
+    an offer, in accord with Subsection b above.)
+
+The source code for a work means the preferred form of the work for
+making modifications to it.  For an executable work, complete source
+code means all the source code for all modules it contains, plus any
+associated interface definition files, plus the scripts used to
+control compilation and installation of the executable.  However, as a
+special exception, the source code distributed need not include
+anything that is normally distributed (in either source or binary
+form) with the major components (compiler, kernel, and so on) of the
+operating system on which the executable runs, unless that component
+itself accompanies the executable.
+
+If distribution of executable or object code is made by offering
+access to copy from a designated place, then offering equivalent
+access to copy the source code from the same place counts as
+distribution of the source code, even though third parties are not
+compelled to copy the source along with the object code.
+
+  4. You may not copy, modify, sublicense, or distribute the Program
+except as expressly provided under this License.  Any attempt
+otherwise to copy, modify, sublicense or distribute the Program is
+void, and will automatically terminate your rights under this License.
+However, parties who have received copies, or rights, from you under
+this License will not have their licenses terminated so long as such
+parties remain in full compliance.
+
+  5. You are not required to accept this License, since you have not
+signed it.  However, nothing else grants you permission to modify or
+distribute the Program or its derivative works.  These actions are
+prohibited by law if you do not accept this License.  Therefore, by
+modifying or distributing the Program (or any work based on the
+Program), you indicate your acceptance of this License to do so, and
+all its terms and conditions for copying, distributing or modifying
+the Program or works based on it.
+
+  6. Each time you redistribute the Program (or any work based on the
+Program), the recipient automatically receives a license from the
+original licensor to copy, distribute or modify the Program subject to
+these terms and conditions.  You may not impose any further
+restrictions on the recipients' exercise of the rights granted herein.
+You are not responsible for enforcing compliance by third parties to
+this License.
+
+  7. If, as a consequence of a court judgment or allegation of patent
+infringement or for any other reason (not limited to patent issues),
+conditions are imposed on you (whether by court order, agreement or
+otherwise) that contradict the conditions of this License, they do not
+excuse you from the conditions of this License.  If you cannot
+distribute so as to satisfy simultaneously your obligations under this
+License and any other pertinent obligations, then as a consequence you
+may not distribute the Program at all.  For example, if a patent
+license would not permit royalty-free redistribution of the Program by
+all those who receive copies directly or indirectly through you, then
+the only way you could satisfy both it and this License would be to
+refrain entirely from distribution of the Program.
+
+If any portion of this section is held invalid or unenforceable under
+any particular circumstance, the balance of the section is intended to
+apply and the section as a whole is intended to apply in other
+circumstances.
+
+It is not the purpose of this section to induce you to infringe any
+patents or other property right claims or to contest validity of any
+such claims; this section has the sole purpose of protecting the
+integrity of the free software distribution system, which is
+implemented by public license practices.  Many people have made
+generous contributions to the wide range of software distributed
+through that system in reliance on consistent application of that
+system; it is up to the author/donor to decide if he or she is willing
+to distribute software through any other system and a licensee cannot
+impose that choice.
+
+This section is intended to make thoroughly clear what is believed to
+be a consequence of the rest of this License.
+
+  8. If the distribution and/or use of the Program is restricted in
+certain countries either by patents or by copyrighted interfaces, the
+original copyright holder who places the Program under this License
+may add an explicit geographical distribution limitation excluding
+those countries, so that distribution is permitted only in or among
+countries not thus excluded.  In such case, this License incorporates
+the limitation as if written in the body of this License.
+
+  9. The Free Software Foundation may publish revised and/or new versions
+of the General Public License from time to time.  Such new versions will
+be similar in spirit to the present version, but may differ in detail to
+address new problems or concerns.
+
+Each version is given a distinguishing version number.  If the Program
+specifies a version number of this License which applies to it and "any
+later version", you have the option of following the terms and conditions
+either of that version or of any later version published by the Free
+Software Foundation.  If the Program does not specify a version number of
+this License, you may choose any version ever published by the Free Software
+Foundation.
+
+  10. If you wish to incorporate parts of the Program into other free
+programs whose distribution conditions are different, write to the author
+to ask for permission.  For software which is copyrighted by the Free
+Software Foundation, write to the Free Software Foundation; we sometimes
+make exceptions for this.  Our decision will be guided by the two goals
+of preserving the free status of all derivatives of our free software and
+of promoting the sharing and reuse of software generally.
+
+			    NO WARRANTY
+
+  11. BECAUSE THE PROGRAM IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY
+FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW.  EXCEPT WHEN
+OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES
+PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED
+OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK AS
+TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU.  SHOULD THE
+PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING,
+REPAIR OR CORRECTION.
+
+  12. IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
+WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR
+REDISTRIBUTE THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES,
+INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING
+OUT OF THE USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED
+TO LOSS OF DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY
+YOU OR THIRD PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER
+PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGES.
+
+		     END OF TERMS AND CONDITIONS
+
+	Appendix: How to Apply These Terms to Your New Programs
+
+  If you develop a new program, and you want it to be of the greatest
+possible use to the public, the best way to achieve this is to make it
+free software which everyone can redistribute and change under these terms.
+
+  To do so, attach the following notices to the program.  It is safest
+to attach them to the start of each source file to most effectively
+convey the exclusion of warranty; and each file should have at least
+the "copyright" line and a pointer to where the full notice is found.
+
+    <one line to give the program's name and a brief idea of what it does.>
+    Copyright (C) 19yy  <name of author>
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+Also add information on how to contact you by electronic and paper mail.
+
+If the program is interactive, make it output a short notice like this
+when it starts in an interactive mode:
+
+    Gnomovision version 69, Copyright (C) 19yy name of author
+    Gnomovision comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
+    This is free software, and you are welcome to redistribute it
+    under certain conditions; type `show c' for details.
+
+The hypothetical commands `show w' and `show c' should show the appropriate
+parts of the General Public License.  Of course, the commands you use may
+be called something other than `show w' and `show c'; they could even be
+mouse-clicks or menu items--whatever suits your program.
+
+You should also get your employer (if you work as a programmer) or your
+school, if any, to sign a "copyright disclaimer" for the program, if
+necessary.  Here is a sample; alter the names:
+
+  Yoyodyne, Inc., hereby disclaims all copyright interest in the program
+  `Gnomovision' (which makes passes at compilers) written by James Hacker.
+
+  <signature of Ty Coon>, 1 April 1989
+  Ty Coon, President of Vice
+
+This General Public License does not permit incorporating your program into
+proprietary programs.  If your program is a subroutine library, you may
+consider it more useful to permit linking proprietary applications with the
+library.  If this is what you want to do, use the GNU Library General
+Public License instead of this License.
+==== LICENSES/LICENSE-ZLIB.TXT ====
+--------------------------------------
+/zlib
+
+ zlib.h -- interface of the 'zlib' general purpose compression library
+version 1.2.2, October 3rd, 2004
+
+Copyright (C) 1995-2004 Jean-loup Gailly and Mark Adler
+
+This software is provided 'as-is', without any express or implied
+warranty.  In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+
+Jean-loup Gailly        Mark Adler
+jloup@gzip.org          madler@alumni.caltech.edu
+
+
+The data format used by the zlib library is described by RFCs (Request for
+Comments) 1950 to 1952 in the files http://www.ietf.org/rfc/rfc1950.txt
+(zlib format), rfc1951.txt (deflate format) and rfc1952.txt (gzip format).
+
+==== LICENSES/LICENSE.TXT ====
+他のLICENSE文書で該当していないソースコードへ適用
+
+Copyright (c) 1999-2025, NP2 developer team
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+* Redistributions of source code must retain the above copyright notice, 
+  this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice, 
+  this list of conditions and the following disclaimer in the documentation 
+  and/or other materials provided with the distribution.
+* Neither the name of the <organization> nor the names of its contributors 
+  may be used to endorse or promote products derived from this software 
+  without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+==== LICENSES/dosbox-fpu/LICENSE-GPL.TXT ====
+--------------------------------------
+/i386c/ia32/instructions/fpu/fpemul_dosbox.c
+/i386c/ia32/instructions/fpu/fpemul_dosbox2.c
+
+プリプロセッサ 
+SUPPORT_FPU_DOSBOX
+SUPPORT_FPU_DOSBOX2
+を定義しない場合は除外
+
+
+Copyright (C) 2002-2015  The DOSBox Team
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+
+
+Copyright (c) 2018-2025 SimK
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+Copyright (c) 2012 NONAKA Kimihiro
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+==== LICENSES/fmgen/fmgen_readme.txt ====
+------------------------------------------------------------------------------
+        FM Sound Generator with OPN/OPM interface
+        Copyright (C) by cisc 1998, 2003.
+------------------------------------------------------------------------------
+
+【概要】
+	C++ による FM/PSG 音源の実装です。
+	
+	AY8910, YM2203, YM2151, YM2608, YM2610 相当のインターフェースも
+	実装してあります。
+
+
+【使い方】
+	(TODO:中身を書く)
+
+【注意】
+	以前のバージョンから幾分手を加えました。インターフェースは
+	いじっていないつもりですが、何かしらのバグが隠れているかもしれません。
+
+	YM2610 は動作チェックすらしていません。
+
+	線形補完モード(interpolation)は廃止されました。
+	Init() の引数仕様は変わっていませんが、interpolation = true にしても
+	動作は変わりません。
+
+	OPNA::Init/SetRate で与えるチップクロックの値の仕様が
+	以前の M88 に搭載されていたバージョンと異なっています．
+
+
+【著作権、免責規定】
+
+	・本ソースコードは作者(cisc@retropc.net) が著作権を所有しています。
+	
+	・本ソースコードはあるがままに提供されるものであり，
+	  暗黙及び明示的な保証を一切含みません．
+	  
+	・本ソースコードを利用したこと，利用しなかったこと，
+	  利用できなかったことに関して生じたあるいは生じると予測される
+	  損害について，作者は一切責任を負いません．
+	  
+	・本ソースコードは，以下の制限を満たす限り自由に改変・組み込み・
+	  配布・利用することができます．
+	  
+	  1. 本ソフトの由来(作者, 著作権)を明記すること.
+	  2. 配布する際にはフリーソフトとすること．
+	  3. 改変したソースコードを配布する際は改変内容を明示すること.
+	  4. ソースコードを配布する際にはこのテキストを一切改変せずに
+	     そのまま添付すること．
+	  
+	・公開の際に作者への連絡を頂ければ幸いです．
+	
+	・商用ソフト(シェアウェア含む) に本ソースコードの一部，または
+	  全部を組み込む際には，事前に作者の合意を得る必要があります．
+
+
+【変更点】
+008	030902	・出力サンプリングレートの設定を、チップ元来の合成サンプ
+                  リングレートと異なる設定にするとエンベロープがおかしく
+                  なる問題を修正。
+
+007a	030608	・領域外アクセスがあったのを修正 (Thanks to ＰＩ．様)
+
+007	030607	・再現性の向上
+		・OPN: SSG-EG のサポート
+		・線形補完の廃止
+		・asm 版の廃止
+		・マルチスレッドフリーになった？
+
+006	010330	・再現性に関していくらか手直し(正弦波，出力タイミング等)
+
+005	010317	・OPN: FM 音源の合成周波数が出力周波数よりも低いときに，
+		  補完を使うと音痴になる/音がまともに出なくなる問題を修正.
+		・FM: 補完を使わない時の精度を上げてみる．
+		  問題が起きたら fmgeninl.h の FM_RATIOBITS を 8 に戻すと吉．
+
+004a	010311	・OPM: ノイズをそこそこ聞けるレベル(？)まで修正.
+		・OPNA/OPM: FM_USE_CALC2 廃止.
+		・デグレ修正, なんのために cvs で管理しているんだか…(T-T
+		  OPNB: ADPCMB ROM マスク作成ミス.
+		  OPNB: ADPCMA ステータスフラグ関係の挙動修復.
+		  OPM: LFO パラメータの初期化を忘れていたのを修正.
+
+003	010124	・OPNA/OPM： 実際には補完前の値を出力していたバグを修正.
+
+002	010123	・合成周波数が出力周波数より低いときでも補間が効くようにする.
+		・OPN: 補間時にプリスケーラの設定を変更したときに音化けする
+		  バグを修正.
+		・OPNA/B: LFO が効かないバグを修正.
+
+001 	000928	・初期バージョン
+
+
+$Id: readme.txt,v 1.1 2003/06/07 08:25:20 cisc Exp $
+
+==== LICENSES/fmgen/fmgen_readme_kai.txt ====
+NP2kai 縺ｫ縺翫＞縺ｦ fmgen 008 縺ｸ陦後▲縺滓隼螟会ｼNP2kai において fmgen 008 へ行った改変． by AZO
+
+１．ファイル名の変更． （fmgen_*.*）
+
+２．fmgen.cpp Operator::MakeTable() のインクリメント修正．
+
+[修正前]
+*p++ = p[-512] / 2;
+
+[修正後]
+//*p++ = p[-512] / 2;
+*p = p[-512] / 2;
+p++;
+
+３．各クラスのステートセーブ用構造体と、ステートセーブ／ロード実装
+
+struct xxxData : ステートセーブ用構造体
+
+xxx_DataSave() : ステートセーブ
+xxx_DataLoad() : ステートロード
+
+４．C言語用ラッパー fmgen_fmgwrap.cpp/.h
+
+以上．
+
+==== LICENSES/fmgen/fmgen_readme_np2.txt ====
+--------------------------------------
+/sound/fmgen莉･荳九↓驕ｩ逕ｨ
+
+SUPPORT_FMGEN繧貞ｮ夂ｾｩ縺励◆蝣ｴ蜷医--------------------------------------
+/sound/fmgen以下に適用
+
+SUPPORT_FMGENを定義した場合のみビルド対象に含めるように変更しています。
+
+==== LICENSES/mame/LICENSE-MAME-GPL.TXT ====
+--------------------------------------
+/sound/mame以下に適用
+
+プリプロセッサ USE_MAME_BSDを定義するか、USE_MAMEを定義しない場合は除外
+
+license:GPL-2.0+
+copyright-holders:Jarek Burczynski
+
+
+
+ File: ymf262.c - software implementation of YMF262
+                  FM sound generator type OPL3
+
+ Copyright (C) 2003 Jarek Burczynski
+
+ Version 0.2
+
+
+
+ File: ymdeltat.c
+
+ YAMAHA DELTA-T adpcm sound emulation subroutine
+ used by fmopl.c (Y8950) and fm.c (YM2608 and YM2610/B)
+
+ Base program is YM2610 emulator by Hiromitsu Shioya.
+ Written by Tatsuyuki Satoh
+ Improvements by Jarek Burczynski (bujar at mame dot net)
+
+
+
+
+ File: fmopl.c - software implementation of FM sound generator
+                                            types OPL and OPL2
+
+ Copyright (C) 2002,2003 Jarek Burczynski (bujar at mame dot net)
+ Copyright (C) 1999,2000 Tatsuyuki Satoh , MultiArcadeMachineEmulator development
+
+ Version 0.72
+
+==== LICENSES/mamebsd/LICENSE-MAME-BSD.TXT ====
+--------------------------------------
+/sound/mamebsd, /sound/mamebsdsub以下に適用
+
+プリプロセッサ USE_MAME_BSDを定義しない場合は除外
+
+BSD 3-Clause License
+
+Copyright (c) 2021, Aaron Giles
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+==== LICENSES/softfloat/README.txt ====
+
+Package Overview for Berkeley SoftFloat Release 2c
+
+John R. Hauser
+2015 January 30
+
+
+----------------------------------------------------------------------------
+Overview
+
+Berkeley SoftFloat is a software implementation of binary floating-point
+that conforms to the IEEE Standard for Floating-Point Arithmetic.
+Release 2c updates an older version of SoftFloat that has for most purposes
+been supplanted by Release 3 or later.  For the latest version of SoftFloat,
+see Web page `http://www.jhauser.us/arithmetic/SoftFloat.html'.
+
+SoftFloat is distributed in the form of C source code.  For Release 2c,
+compiling the SoftFloat sources generates two things:
+
+-- A SoftFloat object file (typically `softfloat.o') containing the complete
+   set of IEC/IEEE floating-point routines.
+
+-- A `timesoftfloat' program for evaluating the speed of the SoftFloat
+   routines.  (The SoftFloat module is linked into this program.)
+
+This version of the SoftFloat package is documented in four text files:
+
+   SoftFloat.txt          Documentation for using the SoftFloat functions.
+   SoftFloat-source.txt   Documentation for compiling SoftFloat.
+   SoftFloat-history.txt  History of major changes to SoftFloat.
+   timesoftfloat.txt      Documentation for using `timesoftfloat'.
+
+Other files in the package comprise the source code for SoftFloat.
+
+Please be aware that some work is involved in porting this software to other
+targets.  It is not just a matter of getting `make' to complete without
+error messages.  You should not attempt to compile this release of SoftFloat
+without first reading both `SoftFloat.txt' and `SoftFloat-source.txt'.
+Depending on your needs, you may find that newer versions of SoftFloat are
+less work to port.
+
+
+----------------------------------------------------------------------------
+Legal Notice
+
+SoftFloat was written by John R. Hauser.  Release 2c of SoftFloat was made
+possible in part by the International Computer Science Institute, located
+at Suite 600, 1947 Center Street, Berkeley, California 94704.  Funding
+was partially provided by the National Science Foundation under grant
+MIP-9311980.  The original version of this code was written as part of a
+project to build a fixed-point vector processor in collaboration with the
+University of California at Berkeley, overseen by Profs. Nelson Morgan and
+John Wawrzynek.
+
+THIS SOFTWARE IS DISTRIBUTED AS IS, FOR FREE.  Although reasonable effort
+has been made to avoid it, THIS SOFTWARE MAY CONTAIN FAULTS THAT WILL AT
+TIMES RESULT IN INCORRECT BEHAVIOR.  USE OF THIS SOFTWARE IS RESTRICTED TO
+PERSONS AND ORGANIZATIONS WHO CAN AND WILL TOLERATE ALL LOSSES, COSTS, OR
+OTHER PROBLEMS THEY INCUR DUE TO THE SOFTWARE WITHOUT RECOMPENSE FROM JOHN
+HAUSER OR THE INTERNATIONAL COMPUTER SCIENCE INSTITUTE, AND WHO FURTHERMORE
+EFFECTIVELY INDEMNIFY JOHN HAUSER AND THE INTERNATIONAL COMPUTER SCIENCE
+INSTITUTE (possibly via similar legal notice) AGAINST ALL LOSSES, COSTS, OR
+OTHER PROBLEMS INCURRED BY THEIR CUSTOMERS AND CLIENTS DUE TO THE SOFTWARE,
+OR INCURRED BY ANYONE DUE TO A DERIVATIVE WORK THEY CREATE USING ANY PART OF
+THE SOFTWARE.
+
+The following are expressly permitted, even for commercial purposes:
+(1) distribution of SoftFloat in whole or in part, as long as this and
+other legal notices remain and are prominent, and provided also that, for a
+partial distribution, prominent notice is given that it is a subset of the
+original; and
+(2) inclusion or use of SoftFloat in whole or in part in a derivative
+work, provided that the use restrictions above are met and the minimal
+documentation requirements stated in the source code are satisfied.
+
+
+----------------------------------------------------------------------------
+Contact Information
+
+At the time of this writing, the most up-to-date information about SoftFloat
+and the latest release can be found at the Web page `http://www.jhauser.us/
+arithmetic/SoftFloat.html'.
+
+
+==== LICENSES/softfloat/README2.txt ====
+--------------------------------------
+/i386c/ia32/instructions/fpu/softfloat以下に適用
+
+SUPPORT_FPU_SOFTFLOATを定義しない場合は除外
+
+
+==== LICENSES/softfloat/SoftFloat-history.txt ====
+
+History of Major Changes to Berkeley SoftFloat, up to Release 2c
+
+John R. Hauser
+2015 January 31
+
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Release 2c (2015 January)
+
+-- Fixed mistakes affecting some 64-bit processors.
+
+-- Further improved the documentation and the wording for the legal
+   restrictions on using SoftFloat.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Release 2b (2002 May)
+
+-- Made minor updates to the documentation, including improved wording for
+   the legal restrictions on using SoftFloat.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Release 2a (1998 December)
+
+-- Added functions to convert between 64-bit integers (int64) and all
+   supported floating-point formats.
+
+-- Fixed a bug in all 64-bit-version square root functions except
+   `float32_sqrt' that caused the result sometimes to be off by 1 unit in
+   the last place (1 ulp) from what it should be.  (Bug discovered by Paul
+   Donahue.)
+
+-- Improved the Makefiles.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Release 2 (1997 June)
+
+-- Created the 64-bit (bits64) version, adding the floatx80 and float128
+   formats.
+
+-- Changed the source directory structure, splitting the sources into a
+   `bits32' and a `bits64' version.  Renamed `environment.h' to `milieu.h'
+   to avoid confusion with environment variables.
+
+-- Fixed a small error that caused `float64_round_to_int' often to round the
+   wrong way in nearest/even mode when the operand was between 2^20 and 2^21
+   and halfway between two integers.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Release 1a (1996 July)
+
+-- Corrected a mistake that caused borderline underflow cases not to raise
+   the underflow flag when they should have.  (Problem reported by Doug
+   Priest.)
+
+-- Added the `float_detect_tininess' variable to control whether tininess is
+   detected before or after rounding.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Release 1 (1996 July)
+
+-- Original release.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+==== LICENSES/softfloat/SoftFloat-source.txt ====
+
+Berkeley SoftFloat Release 2c Source Documentation
+
+John R. Hauser
+2015 January 30
+
+
+----------------------------------------------------------------------------
+Introduction
+
+Berkeley SoftFloat is a software implementation of binary floating-point
+that conforms to the IEEE Standard for Floating-Point Arithmetic.
+Release 2c of SoftFloat can support four floating-point formats:  32-bit
+single-precision, 64-bit double-precision, 80-bit double-extended-precision,
+and 128-bit quadruple-precision.  All operations required by the older 1985
+version of the IEEE Standard are implemented, except for conversions to and
+from decimal.  SoftFloat is distributed in the form of C source code, so a
+C compiler is needed to compile the code.  Support for the 80-bit double-
+extended-precision and 128-bit quadruple-precision formats is dependent on
+the C compiler implementing a 64-bit integer type.
+
+This document gives information needed for compiling and/or porting this
+SoftFloat release.
+
+The source code for SoftFloat is intended to be relatively machine-
+independent and should be compilable using most any ISO/ANSI C compiler.  At
+the time of this writing, SoftFloat has been successfully compiled with the
+GNU C Compiler (`gcc') for several platforms.
+
+
+----------------------------------------------------------------------------
+Limitations
+
+As supplied, SoftFloat requires an ISO/ANSI-style C compiler.  No attempt
+has been made to accomodate compilers that are not ISO-conformant.  Older
+"K&R-style" compilers are not adequate for compiling SoftFloat.  All testing
+I have done so far has been with the GNU C Compiler.  Compilation with other
+compilers should be possible but has not been tested by me.
+
+The SoftFloat sources assume that source code file names can be longer than
+8 characters.  In order to compile under an MS-DOS-type system, many of the
+source files will need to be renamed, and the source and Makefiles edited
+appropriately.  Once compiled, the SoftFloat binary does not depend on the
+existence of long file names.
+
+The underlying machine is assumed to be binary with a word size that is a
+power of 2.  Bytes are 8 bits.  Arithmetic on signed integers must modularly
+wrap around on overflows (as is already required for unsigned integers
+in C).
+
+Support for the 80-bit double-extended-precision and 128-bit quadruple-
+precision formats depends on the C compiler implementing a 64-bit integer
+type.  If the largest integer type supported by the C compiler is 32 bits,
+SoftFloat is limited to the 32-bit single-precision and 64-bit double-
+precision formats.
+
+
+----------------------------------------------------------------------------
+Contents
+
+    Introduction
+    Limitations
+    Contents
+    Legal Notice
+    SoftFloat Source Directory Structure
+    SoftFloat Source Files
+        processors/*.h
+        softfloat/bits*/*/softfloat.h
+        softfloat/bits*/*/milieu.h
+        softfloat/bits*/*/softfloat-specialize
+        softfloat/bits*/softfloat-macros
+        softfloat/bits*/softfloat.c
+    Steps to Creating a `softfloat.o'
+    Making `softfloat.o' a Library
+    Testing SoftFloat
+    Timing SoftFloat
+    Compiler Options and Efficiency
+    Processor-Specific Optimization of `softfloat.c' Using `softfloat-macros'
+    Contact Information
+
+
+
+----------------------------------------------------------------------------
+Legal Notice
+
+SoftFloat was written by John R. Hauser.  Release 2c of SoftFloat was made
+possible in part by the International Computer Science Institute, located
+at Suite 600, 1947 Center Street, Berkeley, California 94704.  Funding
+was partially provided by the National Science Foundation under grant
+MIP-9311980.  The original version of this code was written as part of a
+project to build a fixed-point vector processor in collaboration with the
+University of California at Berkeley, overseen by Profs. Nelson Morgan and
+John Wawrzynek.
+
+THIS SOFTWARE IS DISTRIBUTED AS IS, FOR FREE.  Although reasonable effort
+has been made to avoid it, THIS SOFTWARE MAY CONTAIN FAULTS THAT WILL AT
+TIMES RESULT IN INCORRECT BEHAVIOR.  USE OF THIS SOFTWARE IS RESTRICTED TO
+PERSONS AND ORGANIZATIONS WHO CAN AND WILL TOLERATE ALL LOSSES, COSTS, OR
+OTHER PROBLEMS THEY INCUR DUE TO THE SOFTWARE WITHOUT RECOMPENSE FROM JOHN
+HAUSER OR THE INTERNATIONAL COMPUTER SCIENCE INSTITUTE, AND WHO FURTHERMORE
+EFFECTIVELY INDEMNIFY JOHN HAUSER AND THE INTERNATIONAL COMPUTER SCIENCE
+INSTITUTE (possibly via similar legal notice) AGAINST ALL LOSSES, COSTS, OR
+OTHER PROBLEMS INCURRED BY THEIR CUSTOMERS AND CLIENTS DUE TO THE SOFTWARE,
+OR INCURRED BY ANYONE DUE TO A DERIVATIVE WORK THEY CREATE USING ANY PART OF
+THE SOFTWARE.
+
+The following are expressly permitted, even for commercial purposes:
+(1) distribution of SoftFloat in whole or in part, as long as this and
+other legal notices remain and are prominent, and provided also that, for a
+partial distribution, prominent notice is given that it is a subset of the
+original; and
+(2) inclusion or use of SoftFloat in whole or in part in a derivative
+work, provided that the use restrictions above are met and the minimal
+documentation requirements stated in the source code are satisfied.
+
+
+----------------------------------------------------------------------------
+SoftFloat Source Directory Structure
+
+Because SoftFloat is targeted to multiple platforms, its source code
+is slightly scattered between target-specific and target-independent
+directories and files.  The directory structure is as follows:
+
+    processors
+    softfloat
+        bits64
+            templates
+            386-Win32-GCC
+            SPARC-Solaris-GCC
+        bits32
+            templates
+            386-Win32-GCC
+            SPARC-Solaris-GCC
+
+The two topmost directories and their contents are:
+
+    softfloat    - Most of the source code needed for SoftFloat.
+    processors   - Target-specific header files that are not specific to
+                       SoftFloat.
+
+The `softfloat' directory is further split into two parts:
+
+    bits64       - SoftFloat implementation using 64-bit integers.
+    bits32       - SoftFloat implementation using only 32-bit integers.
+
+Within these directories are subdirectories for each of the targeted
+platforms.  The SoftFloat source code is distributed with targets
+`386-Win32-GCC' and `SPARC-Solaris-GCC' (and perhaps others) already
+prepared for both the 32-bit and 64-bit implementations.  Source files
+that are not within these target-specific subdirectories are intended to be
+target-independent.
+
+The naming convention used for the target-specific directories is
+`<processor>-<executable-type>-<compiler>'.  The names of the supplied
+target directories should be interpreted as follows:
+
+  <processor>:
+    386          - Intel 386-compatible processor.
+    SPARC        - SPARC processor (as used by Sun computers).
+  <executable-type>:
+    Win32        - Microsoft Win32 executable.
+    Solaris      - Sun Solaris executable.
+  <compiler>:
+    GCC          - GNU C Compiler.
+
+You do not need to maintain this convention if you do not want to.
+
+Alongside the supplied target-specific directories is a `templates'
+directory containing a set of "generic" target-specific source files.  A
+new target directory can be created by copying the `templates' directory and
+editing the files inside.  (Complete instructions for porting SoftFloat to
+a new target are in the section _Steps to Creating a `softfloat.o'_.)  Note
+that the `templates' directory will not work as a target directory without
+some editing.  To avoid confusion, it would be wise to refrain from editing
+the files inside `templates' directly.
+
+
+----------------------------------------------------------------------------
+SoftFloat Source Files
+
+The purpose of each source file is described below.  In the following,
+the `*' symbol is used in place of the name of a specific target, such as
+`386-Win32-GCC' or `SPARC-Solaris-GCC', or in place of some other text, as
+in `bits*' for either `bits32' or `bits64'.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+processors/*.h
+
+The target-specific `processors' header file defines integer types
+of various sizes, and also defines certain C preprocessor macros that
+characterize the target.  The two examples supplied are `386-GCC.h' and
+`SPARC-GCC.h'.  The naming convention used for processor header files is
+`<processor>-<compiler>.h'.
+
+If 64-bit integers are supported by the compiler, the macro name `BITS64'
+should be defined here along with the corresponding 64-bit integer
+types.  In addition, the function-like macro `LIT64' must be defined for
+constructing 64-bit integer literals (constants).  The `LIT64' macro is used
+consistently in the SoftFloat code to annotate 64-bit literals.
+
+If `BITS64' is not defined, only the 32-bit version of SoftFloat can be
+compiled.  If `BITS64' _is_ defined, either can be compiled.
+
+If an inlining attribute (such as an `inline' keyword) is provided by the
+compiler, the macro `INLINE' should be defined to the appropriate keyword.
+If not, `INLINE' can be set to the keyword `static'.  The `INLINE' macro
+appears in the SoftFloat source code before every function that should
+be inlined by the compiler.  SoftFloat depends on inlining to obtain
+good speed.  Even if inlining cannot be forced with a language keyword,
+the compiler may still be able to perform inlining on its own as an
+optimization.  If a command-line option is needed to convince the compiler
+to perform this optimization, this should be assured in the Makefile.  (See
+the section _Compiler Options and Efficiency_ below.)
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+softfloat/bits*/*/softfloat.h
+
+The target-specific `softfloat.h' header file defines the SoftFloat
+interface as seen by clients.
+
+Unlike the actual function definitions in `softfloat.c', the declarations
+in `softfloat.h' do not use any of the types defined by the `processors'
+header file.  This is done so that clients will not have to include the
+`processors' header file in order to use SoftFloat.  Nevertheless, the
+target-specific declarations in `softfloat.h' must match what `softfloat.c'
+expects.  For example, if `int32' is defined as `int' in the `processors'
+header file, then in `softfloat.h' the output of `float32_to_int32' should
+be stated as `int', although in `softfloat.c' it is given in target-
+independent form as `int32'.
+
+For the `bits64' implementation of SoftFloat, the macro names `FLOATX80'
+and `FLOAT128' must be defined in order for the 80-bit double-extended-
+precision and 128-bit quadruple-precision formats to be enabled in the
+code.  Conversely, either or both of these larger formats can be disabled by
+simply removing the `#define' of the respective macro.  When a format is not
+enabled, none of the functions that either input or output the format are
+defined, and no space is taken up in `softfloat.o' by such functions.  There
+is no provision for disabling the usual 32-bit single-precision and 64-bit
+double-precision formats.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+softfloat/bits*/*/milieu.h
+
+The target-specific `milieu.h' header file provides declarations that are
+needed to compile SoftFloat.  In addition, deviations from ISO/ANSI C by
+the compiler (such as names not properly declared in system header files)
+are corrected in this header if possible.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+softfloat/bits*/*/softfloat-specialize
+
+This target-specific C source fragment defines:
+
+-- whether tininess for underflow is detected before or after rounding by
+       default;
+-- what (if anything) special happens when exceptions are raised;
+-- how signaling NaNs are distinguished from quiet NaNs;
+-- the default generated quiet NaNs; and
+-- how NaNs are propagated from function inputs to output.
+
+These details are not decided by the IEEE Standard.  This fragment is
+included verbatim within `softfloat.c' when SoftFloat is compiled.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+softfloat/bits*/softfloat-macros
+
+This target-independent C source fragment defines a number of arithmetic
+functions used as primitives within the `softfloat.c' source.  Most of
+the functions defined here are intended to be inlined for efficiency.
+This fragment is included verbatim within `softfloat.c' when SoftFloat is
+compiled.
+
+Target-specific variations on this file are possible.  See the section
+_Processor-Specific Optimization of `softfloat.c' Using `softfloat-macros'_
+below.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+softfloat/bits*/softfloat.c
+
+The target-independent `softfloat.c' source file contains the body of the
+SoftFloat implementation.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+The inclusion of the files above within each other (using `#include') can be
+shown graphically as follows:
+
+    softfloat/bits*/softfloat.c
+        softfloat/bits*/*/milieu.h
+            processors/*.h
+        softfloat/bits*/*/softfloat.h
+        softfloat/bits*/*/softfloat-specialize
+        softfloat/bits*/softfloat-macros
+
+Note in particular that `softfloat.c' does not include the `processors'
+header file directly.  Rather, `softfloat.c' includes the target-specific
+`milieu.h' header file, which in turn includes the appropriate processor
+header file.
+
+
+----------------------------------------------------------------------------
+Steps to Creating a `softfloat.o'
+
+Porting and/or compiling SoftFloat involves the following steps:
+
+1. If one does not already exist, create an appropriate `.h' file in the
+   `processors' directory.
+
+2. If `BITS64' is defined in the `processors' header file, choose whether
+   to compile the 32-bit or 64-bit implementation of SoftFloat.  If
+   `BITS64' is not defined, your only choice is the 32-bit implementation.
+   The remaining steps occur within either the `bits32' or `bits64'
+   subdirectories.
+
+3. If one does not already exist, create an appropriate target-specific
+   subdirectory by copying the given `templates' directory.
+
+4. In the target-specific subdirectory, edit the files `softfloat-specialize'
+   and `softfloat.h' to define the desired exception handling functions
+   and mode control values.  In the `softfloat.h' header file, ensure also
+   that all declarations give the proper target-specific type (such as
+   `int' or `long') corresponding to the target-independent type used in
+   `softfloat.c' (such as `int32').  None of the type names declared in the
+   `processors' header file should appear in `softfloat.h'.
+
+5. In the target-specific subdirectory, edit the files `milieu.h' and
+   `Makefile' to reflect the current environment.
+
+6. In the target-specific subdirectory, execute `make'.
+
+For the targets that are supplied, if the expected compiler is available
+(usually `gcc'), it should only be necessary to execute `make' in the
+target-specific subdirectory.
+
+
+----------------------------------------------------------------------------
+Making `softfloat.o' a Library
+
+SoftFloat is not made into a software library by the supplied Makefile.
+If desired, `softfloat.o' can easily be put into its own library (typically
+`softfloat.a' or `libsoftfloat.a') using the usual system tool (in UNIX,
+`ar').
+
+
+----------------------------------------------------------------------------
+Testing SoftFloat
+
+SoftFloat can be tested using the `testsoftfloat' program by the same
+author.  The `testsoftfloat' program is part of the TestFloat package
+available at the Web page `http://www.jhauser.us/arithmetic/TestFloat.html'.
+
+
+----------------------------------------------------------------------------
+Timing SoftFloat
+
+A program called `timesoftfloat' for timing the SoftFloat functions is
+included with the SoftFloat source code.  Compiling `timesoftfloat' should
+pose no difficulties once `softfloat.o' exists.  The supplied Makefile
+will create a `timesoftfloat' executable by default after generating
+`softfloat.o'.  See `timesoftfloat.txt' for documentation about using
+`timesoftfloat'.
+
+
+----------------------------------------------------------------------------
+Compiler Options and Efficiency
+
+In order to get good speed with SoftFloat, it is important that the compiler
+inline the routines that have been marked `INLINE' in the code.  Even if
+inlining cannot be forced by an appropriate definition of the `INLINE'
+macro, the compiler may still be able to perform inlining on its own as
+an optimization.  In that case, the Makefile should be edited to give the
+compiler whatever option is required to cause it to inline small functions.
+
+
+----------------------------------------------------------------------------
+Processor-Specific Optimization of `softfloat.c' Using `softfloat-macros'
+
+The `softfloat-macros' source fragment defines arithmetic functions used
+as primitives by `softfloat.c'.  This file has been written in a target-
+independent form.  For a given target, it may be possible to improve on
+these functions using target-specific and/or non-ISO-C features (such
+as `asm' statements).  For example, one of the "macro" functions takes
+two word-size integers and returns their full product in two words.
+This operation can be done directly in hardware on many processors; but
+because it is not available through standard C, the function defined in
+`softfloat-macros' uses four multiplications to achieve the same result.
+
+To address these shortcomings, a customized version of `softfloat-macros'
+can be created in any of the target-specific subdirectories.  A simple
+modification to the target's Makefile should be sufficient to ensure that
+the custom version is used instead of the generic one.
+
+
+----------------------------------------------------------------------------
+Contact Information
+
+At the time of this writing, the most up-to-date information about SoftFloat
+and the latest release can be found at the Web page `http://www.jhauser.us/
+arithmetic/SoftFloat.html'.
+
+
+==== LICENSES/softfloat/SoftFloat.txt ====
+
+Berkeley SoftFloat Release 2c General Documentation
+
+John R. Hauser
+2015 January 30
+
+
+----------------------------------------------------------------------------
+Introduction
+
+Berkeley SoftFloat is a software implementation of binary floating-point
+that conforms to the IEEE Standard for Floating-Point Arithmetic.  For
+Release 2c of SoftFloat, as many as four formats are supported:  32-bit
+single-precision, 64-bit double-precision, 80-bit double-extended-precision,
+and 128-bit quadruple-precision.  All operations required by the older 1985
+version of the IEEE Standard are implemented, except for conversions to and
+from decimal.
+
+This document gives information about the types defined and the routines
+implemented by this release of SoftFloat.  It does not attempt to define or
+explain the IEEE Floating-Point Standard.  Details about the standard are
+available elsewhere.
+
+
+----------------------------------------------------------------------------
+Limitations
+
+SoftFloat is written in C and is designed to work with other C code.  The
+SoftFloat header files assume an ISO/ANSI-style C compiler.  No attempt
+has been made to accomodate compilers that are not ISO-conformant.  In
+particular, the distributed header files will not be acceptable to any
+compiler that does not recognize function prototypes.
+
+Support for the 80-bit double-extended-precision and 128-bit quadruple-
+precision formats depends on a C compiler that implements 64-bit integer
+arithmetic.  If the largest integer format supported by the C compiler is
+32 bits, SoftFloat is limited to only 32-bit single-precision and 64-bit
+double-precision.  When that is the case, all references in this document
+to 80-bit double-extended-precision, 128-bit quadruple-precision, and 64-bit
+integers should be ignored.
+
+
+----------------------------------------------------------------------------
+Contents
+
+    Introduction
+    Limitations
+    Contents
+    Legal Notice
+    Types and Functions
+    Rounding Modes
+    Double-Extended-Precision Rounding Precision
+    Exceptions and Exception Flags
+    Function Details
+        Conversion Functions
+        Basic Arithmetic Functions
+        Remainder Functions
+        Round-to-Integer Functions
+        Comparison Functions
+        Signaling NaN Test Functions
+        Raise-Exception Function
+    Contact Information
+
+
+
+----------------------------------------------------------------------------
+Legal Notice
+
+SoftFloat was written by John R. Hauser.  Release 2c of SoftFloat was made
+possible in part by the International Computer Science Institute, located
+at Suite 600, 1947 Center Street, Berkeley, California 94704.  Funding
+was partially provided by the National Science Foundation under grant
+MIP-9311980.  The original version of this code was written as part of a
+project to build a fixed-point vector processor in collaboration with the
+University of California at Berkeley, overseen by Profs. Nelson Morgan and
+John Wawrzynek.
+
+THIS SOFTWARE IS DISTRIBUTED AS IS, FOR FREE.  Although reasonable effort
+has been made to avoid it, THIS SOFTWARE MAY CONTAIN FAULTS THAT WILL AT
+TIMES RESULT IN INCORRECT BEHAVIOR.  USE OF THIS SOFTWARE IS RESTRICTED TO
+PERSONS AND ORGANIZATIONS WHO CAN AND WILL TOLERATE ALL LOSSES, COSTS, OR
+OTHER PROBLEMS THEY INCUR DUE TO THE SOFTWARE WITHOUT RECOMPENSE FROM JOHN
+HAUSER OR THE INTERNATIONAL COMPUTER SCIENCE INSTITUTE, AND WHO FURTHERMORE
+EFFECTIVELY INDEMNIFY JOHN HAUSER AND THE INTERNATIONAL COMPUTER SCIENCE
+INSTITUTE (possibly via similar legal notice) AGAINST ALL LOSSES, COSTS, OR
+OTHER PROBLEMS INCURRED BY THEIR CUSTOMERS AND CLIENTS DUE TO THE SOFTWARE,
+OR INCURRED BY ANYONE DUE TO A DERIVATIVE WORK THEY CREATE USING ANY PART OF
+THE SOFTWARE.
+
+The following are expressly permitted, even for commercial purposes:
+(1) distribution of SoftFloat in whole or in part, as long as this and
+other legal notices remain and are prominent, and provided also that, for a
+partial distribution, prominent notice is given that it is a subset of the
+original; and
+(2) inclusion or use of SoftFloat in whole or in part in a derivative
+work, provided that the use restrictions above are met and the minimal
+documentation requirements stated in the source code are satisfied.
+
+
+----------------------------------------------------------------------------
+Types and Functions
+
+When 64-bit integers are supported by the compiler, the `softfloat.h' header
+file defines four types:  `float32' (32-bit single-precision), `float64'
+(64-bit double-precision), `floatx80' (80-bit double-extended-precision),
+and `float128' (128-bit quadruple-precision).  The `float32' and `float64'
+types are defined in terms of 32-bit and 64-bit integer types, respectively,
+while the `float128' type is defined as a structure of two 64-bit integers,
+taking into account the byte order of the particular machine being used.
+The `floatx80' type is defined as a structure containing one 16-bit and one
+64-bit integer, with the machine's byte order again determining the order
+within the structure.
+
+When 64-bit integers are _not_ supported by the compiler, the `softfloat.h'
+header file defines only two types:  `float32' and `float64'.  Because
+the ISO/ANSI C Standard guarantees at least one built-in integer type of
+32 bits, the `float32' type is identified with an appropriate integer type.
+The `float64' type is defined as a structure of two 32-bit integers, with
+the machine's byte order determining the order of the fields.
+
+In either case, the types in `softfloat.h' are defined such that if a system
+implements the usual C `float' and `double' types according to the IEEE
+Standard, then the `float32' and `float64' types should be indistinguishable
+in memory from the native `float' and `double' types.  (On the other hand,
+when `float32' or `float64' values are placed in processor registers by
+the compiler, the type of registers used may differ from those used for the
+native `float' and `double' types.)
+
+SoftFloat implements the following arithmetic operations:
+
+-- Conversions among all the floating-point formats, and also between
+   integers (32-bit and 64-bit) and any of the floating-point formats.
+
+-- The usual add, subtract, multiply, divide, and square root operations for
+   all floating-point formats.
+
+-- For each format, the floating-point remainder operation defined by the
+   IEEE Standard.
+
+-- For each floating-point format, a "round to integer" operation that
+   rounds to the nearest integer value in the same format.  (The floating-
+   point formats can hold integer values, of course.)
+
+-- Comparisons between two values in the same floating-point format.
+
+The only functions required by the 1985 IEEE Standard that are not provided
+are conversions to and from decimal.
+
+
+----------------------------------------------------------------------------
+Rounding Modes
+
+All four rounding modes prescribed by the 1985 IEEE Standard are implemented
+for all operations that require rounding.  The rounding mode is selected
+by the global variable `float_rounding_mode'.  This variable may be set
+to one of the values `float_round_nearest_even', `float_round_to_zero',
+`float_round_down', or `float_round_up'.  The rounding mode is initialized
+to nearest/even.
+
+
+----------------------------------------------------------------------------
+Double-Extended-Precision Rounding Precision
+
+For 80-bit double-extended-precision (`floatx80') only, the rounding
+precision of the basic arithmetic operations is controlled by the global
+variable `floatx80_rounding_precision'.  The operations affected are:
+
+   floatx80_add   floatx80_sub   floatx80_mul   floatx80_div   floatx80_sqrt
+
+When `floatx80_rounding_precision' is set to its default value of 80,
+these operations are rounded (as usual) to the full precision of the 80-bit
+double-extended-precision format.  Setting `floatx80_rounding_precision' to
+32 or to 64 causes the operations listed to be rounded to reduced precision
+equivalent to 32-bit single-precision (`float32') or to 64-bit double-
+precision (`float64'), respectively.  When rounding to reduced precision,
+additional bits in the result significand beyond the rounding point are set
+to zero.  The consequences of setting `floatx80_rounding_precision' to a
+value other than 32, 64, or 80 is not specified.  Operations other than the
+ones listed above are not affected by `floatx80_rounding_precision'.
+
+
+----------------------------------------------------------------------------
+Exceptions and Exception Flags
+
+All five exception flags required by the IEEE Standard are implemented.
+Each flag is stored as a separate bit in the global variable
+`float_exception_flags'.  The positions of the exception flag bits within
+this variable are determined by the bit masks `float_flag_inexact',
+`float_flag_underflow', `float_flag_overflow', `float_flag_divbyzero', and
+`float_flag_invalid'.  The exception flags variable is initialized to all 0,
+meaning no exceptions.
+
+An individual exception flag can be cleared with the statement
+
+    float_exception_flags &= ~ float_flag_<exception>;
+
+where `<exception>' is the appropriate name.  To raise a floating-point
+exception, the SoftFloat function `float_raise' should be used (see below).
+
+In the terminology of the IEEE Standard, SoftFloat can detect tininess
+for underflow either before or after rounding.  The choice is made by
+the global variable `float_detect_tininess', which can be set to either
+`float_tininess_before_rounding' or `float_tininess_after_rounding'.
+Detecting tininess after rounding is better because it results in fewer
+spurious underflow signals.  The other option is provided for compatibility
+with some systems.  Like most systems, SoftFloat always detects loss of
+accuracy for underflow as an inexact result.
+
+
+----------------------------------------------------------------------------
+Function Details
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Conversion Functions
+
+All conversions among the floating-point formats are supported, as are all
+conversions between a floating-point format and 32-bit and 64-bit signed
+integers.  The complete set of conversion functions is:
+
+   int32_to_float32      int64_to_float32
+   int32_to_float64      int64_to_float64
+   int32_to_floatx80     int64_to_floatx80
+   int32_to_float128     int64_to_float128
+
+   float32_to_int32      float32_to_int64
+   float64_to_int32      float64_to_int64
+   floatx80_to_int32     floatx80_to_int64
+   float128_to_int32     float128_to_int64
+
+   float32_to_float64    float32_to_floatx80   float32_to_float128
+   float64_to_float32    float64_to_floatx80   float64_to_float128
+   floatx80_to_float32   floatx80_to_float64   floatx80_to_float128
+   float128_to_float32   float128_to_float64   float128_to_floatx80
+
+Each conversion function takes one operand of the appropriate type and
+returns one result.  Conversions from a smaller to a larger floating-point
+format are always exact and so require no rounding.  Conversions from 32-bit
+integers to 64-bit double-precision and larger formats are also exact, and
+likewise for conversions from 64-bit integers to 80-bit double-extended-
+precision and 128-bit quadruple-precision.
+
+Conversions from floating-point to integer raise the invalid exception if
+the source value cannot be rounded to a representable integer of the desired
+size (32 or 64 bits).  If the floating-point operand is a NaN, the largest
+positive integer is returned.  Otherwise, if the conversion overflows, the
+largest integer with the same sign as the operand is returned.
+
+On conversions to integer, if the floating-point operand is not already
+an integer value, the operand is rounded according to the current rounding
+mode as specified by `float_rounding_mode'.  Because C (and perhaps other
+languages) require that conversions to integers be rounded toward zero, the
+following functions are provided for improved speed and convenience:
+
+   float32_to_int32_round_to_zero    float32_to_int64_round_to_zero
+   float64_to_int32_round_to_zero    float64_to_int64_round_to_zero
+   floatx80_to_int32_round_to_zero   floatx80_to_int64_round_to_zero
+   float128_to_int32_round_to_zero   float128_to_int64_round_to_zero
+
+These variant functions ignore `float_rounding_mode' and always round toward
+zero.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Basic Arithmetic Functions
+
+The following basic arithmetic functions are provided:
+
+   float32_add    float32_sub    float32_mul    float32_div    float32_sqrt
+   float64_add    float64_sub    float64_mul    float64_div    float64_sqrt
+   floatx80_add   floatx80_sub   floatx80_mul   floatx80_div   floatx80_sqrt
+   float128_add   float128_sub   float128_mul   float128_div   float128_sqrt
+
+Each function takes two operands, except for `sqrt' which takes only one.
+The operands and result are all of the same type.
+
+Rounding of the 80-bit double-extended-precision (`floatx80') functions is
+affected by the `floatx80_rounding_precision' variable, as explained above
+in the section _Double-Extended-Precision Rounding Precision_.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Remainder Functions
+
+For each format, SoftFloat implements the remainder function according to
+the IEEE Standard.  The remainder functions are:
+
+   float32_rem
+   float64_rem
+   floatx80_rem
+   float128_rem
+
+Each remainder function takes two operands.  The operands and result are all
+of the same type.  Given operands x and y, the remainder functions return
+the value x - n*y, where n is the integer closest to x/y.  If x/y is exactly
+halfway between two integers, n is the even integer closest to x/y.  The
+remainder functions are always exact and so require no rounding.
+
+Depending on the relative magnitudes of the operands, the remainder
+functions can take considerably longer to execute than the other SoftFloat
+functions.  This is inherent in the remainder operation itself and is not a
+flaw in the SoftFloat implementation.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Round-to-Integer Functions
+
+For each format, SoftFloat implements the round-to-integer function
+specified by the IEEE Standard.  The functions are:
+
+   float32_round_to_int
+   float64_round_to_int
+   floatx80_round_to_int
+   float128_round_to_int
+
+Each function takes a single floating-point operand and returns a result of
+the same type.  (Note that the result is not an integer type.)  The operand
+is rounded to an exact integer according to the current rounding mode, and
+the resulting integer value is returned in the same floating-point format.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Comparison Functions
+
+The following floating-point comparison functions are provided:
+
+   float32_eq    float32_le    float32_lt
+   float64_eq    float64_le    float64_lt
+   floatx80_eq   floatx80_le   floatx80_lt
+   float128_eq   float128_le   float128_lt
+
+Each function takes two operands of the same type and returns a 1 or 0
+representing either _true_ or _false_.  The abbreviation `eq' stands for
+"equal" (=); `le' stands for "less than or equal" (<=); and `lt' stands for
+"less than" (<).
+
+The usual greater-than (>), greater-than-or-equal (>=), and not-equal (!=)
+functions are easily obtained using the functions provided.  The not-equal
+function is just the logical complement of the equal function.  The greater-
+than-or-equal function is identical to the less-than-or-equal function with
+the operands reversed, and the greater-than function is identical to the
+less-than function with the operands reversed.
+
+The IEEE Standard specifies that the less-than-or-equal and less-than
+functions raise the invalid exception if either input is any kind of NaN.
+The equal functions, on the other hand, are defined not to raise the invalid
+exception on quiet NaNs.  For completeness, SoftFloat provides the following
+additional functions:
+
+   float32_eq_signaling    float32_le_quiet    float32_lt_quiet
+   float64_eq_signaling    float64_le_quiet    float64_lt_quiet
+   floatx80_eq_signaling   floatx80_le_quiet   floatx80_lt_quiet
+   float128_eq_signaling   float128_le_quiet   float128_lt_quiet
+
+The `signaling' equal functions are identical to the standard functions
+except that the invalid exception is raised for any NaN input.  Likewise,
+the `quiet' comparison functions are identical to their counterparts except
+that the invalid exception is not raised for quiet NaNs.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Signaling NaN Test Functions
+
+The following functions test whether a floating-point value is a signaling
+NaN:
+
+   float32_is_signaling_nan
+   float64_is_signaling_nan
+   floatx80_is_signaling_nan
+   float128_is_signaling_nan
+
+The functions take one operand and return 1 if the operand is a signaling
+NaN and 0 otherwise.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Raise-Exception Function
+
+SoftFloat provides a function for raising floating-point exceptions:
+
+    float_raise
+
+The function takes a mask indicating the set of exceptions to raise.  No
+result is returned.  In addition to setting the specified exception flags,
+this function may cause a trap or abort appropriate for the current system.
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+----------------------------------------------------------------------------
+Contact Information
+
+At the time of this writing, the most up-to-date information about SoftFloat
+and the latest release can be found at the Web page `http://www.jhauser.us/
+arithmetic/SoftFloat.html'.
+
+
+==== LICENSES/softfloat3/COPYING.txt ====
+
+License for Berkeley SoftFloat Release 3e
+
+John R. Hauser
+2018 January 20
+
+The following applies to the whole of SoftFloat Release 3e as well as to
+each source file individually.
+
+Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the
+University of California.  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+ 1. Redistributions of source code must retain the above copyright notice,
+    this list of conditions, and the following disclaimer.
+
+ 2. Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions, and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+
+ 3. Neither the name of the University nor the names of its contributors
+    may be used to endorse or promote products derived from this software
+    without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS", AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE
+DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+==== LICENSES/softfloat3/README.txt ====
+
+Package Overview for Berkeley SoftFloat Release 3e
+
+John R. Hauser
+2018 January 20
+
+Berkeley SoftFloat is a software implementation of binary floating-point
+that conforms to the IEEE Standard for Floating-Point Arithmetic.  SoftFloat
+is distributed in the form of C source code.  Building the SoftFloat sources
+generates a library file (typically "softfloat.a" or "libsoftfloat.a")
+containing the floating-point subroutines.
+
+The SoftFloat package is documented in the following files in the "doc"
+subdirectory:
+
+    SoftFloat.html          Documentation for using the SoftFloat functions.
+    SoftFloat-source.html   Documentation for building SoftFloat.
+    SoftFloat-history.html  History of the major changes to SoftFloat.
+
+Other files in the package comprise the source code for SoftFloat.
+
+
+==== LICENSES/softfloat3/README2.txt ====
+--------------------------------------
+/i386c/ia32/instructions/fpu/softfloat3以下に適用
+
+SUPPORT_FPU_SOFTFLOAT3を定義しない場合は除外
+
+
+==== LICENSES/softfloat3/np2_memo.txt ====
+https://github.com/ucb-bar/berkeley-softfloat-3
+
+莉･荳九https://github.com/ucb-bar/berkeley-softfloat-3
+
+以下のファイルをこのディレクトリにコピーした。
+（build/Linux-x86_64-GCC/Makefile を参考に）
+
+berkeley-softfloat-3/
+  build/Linux-386-GCC/*.h
+  source/
+    s_eq128.c
+    s_le128.c
+    s_lt128.c
+    s_shortShiftLeft128.c
+    s_shortShiftRight128.c
+    s_shortShiftRightJam64.c
+    s_shortShiftRightJam64Extra.c
+    s_shortShiftRightJam128.c
+    s_shortShiftRightJam128Extra.c
+    s_shiftRightJam32.c
+    s_shiftRightJam64.c
+    s_shiftRightJam64Extra.c
+    s_shiftRightJam128.c
+    s_shiftRightJam128Extra.c
+    s_shiftRightJam256M.c
+    s_countLeadingZeros8.c
+    s_countLeadingZeros16.c
+    s_countLeadingZeros32.c
+    s_countLeadingZeros64.c
+    s_add128.c
+    s_add256M.c
+    s_sub128.c
+    s_sub256M.c
+    s_mul64ByShifted32To128.c
+    s_mul64To128.c
+    s_mul128By32.c
+    s_mul128To256M.c
+    s_approxRecip_1Ks.c
+    s_approxRecip32_1.c
+    s_approxRecipSqrt_1Ks.c
+    s_approxRecipSqrt32_1.c
+    s_roundToUI32.c
+    s_roundToUI64.c
+    s_roundToI32.c
+    s_roundToI64.c
+    s_normSubnormalF16Sig.c
+    s_roundPackToF16.c
+    s_normRoundPackToF16.c
+    s_addMagsF16.c
+    s_subMagsF16.c
+    s_mulAddF16.c
+    s_normSubnormalF32Sig.c
+    s_roundPackToF32.c
+    s_normRoundPackToF32.c
+    s_addMagsF32.c
+    s_subMagsF32.c
+    s_mulAddF32.c
+    s_normSubnormalF64Sig.c
+    s_roundPackToF64.c
+    s_normRoundPackToF64.c
+    s_addMagsF64.c
+    s_subMagsF64.c
+    s_mulAddF64.c
+    s_normSubnormalExtF80Sig.c
+    s_roundPackToExtF80.c
+    s_normRoundPackToExtF80.c
+    s_addMagsExtF80.c
+    s_subMagsExtF80.c
+    s_normSubnormalF128Sig.c
+    s_roundPackToF128.c
+    s_normRoundPackToF128.c
+    s_addMagsF128.c
+    s_subMagsF128.c
+    s_mulAddF128.c
+    softfloat_state.c
+    ui32_to_f16.c
+    ui32_to_f32.c
+    ui32_to_f64.c
+    ui32_to_extF80.c
+    ui32_to_extF80M.c
+    ui32_to_f128.c
+    ui32_to_f128M.c
+    ui64_to_f16.c
+    ui64_to_f32.c
+    ui64_to_f64.c
+    ui64_to_extF80.c
+    ui64_to_extF80M.c
+    ui64_to_f128.c
+    ui64_to_f128M.c
+    i32_to_f16.c
+    i32_to_f32.c
+    i32_to_f64.c
+    i32_to_extF80.c
+    i32_to_extF80M.c
+    i32_to_f128.c
+    i32_to_f128M.c
+    i64_to_f16.c
+    i64_to_f32.c
+    i64_to_f64.c
+    i64_to_extF80.c
+    i64_to_extF80M.c
+    i64_to_f128.c
+    i64_to_f128M.c
+    f16_to_ui32.c
+    f16_to_ui64.c
+    f16_to_i32.c
+    f16_to_i64.c
+    f16_to_ui32_r_minMag.c
+    f16_to_ui64_r_minMag.c
+    f16_to_i32_r_minMag.c
+    f16_to_i64_r_minMag.c
+    f16_to_f32.c
+    f16_to_f64.c
+    f16_to_extF80.c
+    f16_to_extF80M.c
+    f16_to_f128.c
+    f16_to_f128M.c
+    f16_roundToInt.c
+    f16_add.c
+    f16_sub.c
+    f16_mul.c
+    f16_mulAdd.c
+    f16_div.c
+    f16_rem.c
+    f16_sqrt.c
+    f16_eq.c
+    f16_le.c
+    f16_lt.c
+    f16_eq_signaling.c
+    f16_le_quiet.c
+    f16_lt_quiet.c
+    f16_isSignalingNaN.c
+    f32_to_ui32.c
+    f32_to_ui64.c
+    f32_to_i32.c
+    f32_to_i64.c
+    f32_to_ui32_r_minMag.c
+    f32_to_ui64_r_minMag.c
+    f32_to_i32_r_minMag.c
+    f32_to_i64_r_minMag.c
+    f32_to_f16.c
+    f32_to_f64.c
+    f32_to_extF80.c
+    f32_to_extF80M.c
+    f32_to_f128.c
+    f32_to_f128M.c
+    f32_roundToInt.c
+    f32_add.c
+    f32_sub.c
+    f32_mul.c
+    f32_mulAdd.c
+    f32_div.c
+    f32_rem.c
+    f32_sqrt.c
+    f32_eq.c
+    f32_le.c
+    f32_lt.c
+    f32_eq_signaling.c
+    f32_le_quiet.c
+    f32_lt_quiet.c
+    f32_isSignalingNaN.c
+    f64_to_ui32.c
+    f64_to_ui64.c
+    f64_to_i32.c
+    f64_to_i64.c
+    f64_to_ui32_r_minMag.c
+    f64_to_ui64_r_minMag.c
+    f64_to_i32_r_minMag.c
+    f64_to_i64_r_minMag.c
+    f64_to_f16.c
+    f64_to_f32.c
+    f64_to_extF80.c
+    f64_to_extF80M.c
+    f64_to_f128.c
+    f64_to_f128M.c
+    f64_roundToInt.c
+    f64_add.c
+    f64_sub.c
+    f64_mul.c
+    f64_mulAdd.c
+    f64_div.c
+    f64_rem.c
+    f64_sqrt.c
+    f64_eq.c
+    f64_le.c
+    f64_lt.c
+    f64_eq_signaling.c
+    f64_le_quiet.c
+    f64_lt_quiet.c
+    f64_isSignalingNaN.c
+    extF80_to_ui32.c
+    extF80_to_ui64.c
+    extF80_to_i32.c
+    extF80_to_i64.c
+    extF80_to_ui32_r_minMag.c
+    extF80_to_ui64_r_minMag.c
+    extF80_to_i32_r_minMag.c
+    extF80_to_i64_r_minMag.c
+    extF80_to_f16.c
+    extF80_to_f32.c
+    extF80_to_f64.c
+    extF80_to_f128.c
+    extF80_roundToInt.c
+    extF80_add.c
+    extF80_sub.c
+    extF80_mul.c
+    extF80_div.c
+    extF80_rem.c
+    extF80_sqrt.c
+    extF80_eq.c
+    extF80_le.c
+    extF80_lt.c
+    extF80_eq_signaling.c
+    extF80_le_quiet.c
+    extF80_lt_quiet.c
+    extF80_isSignalingNaN.c
+    extF80M_to_ui32.c
+    extF80M_to_ui64.c
+    extF80M_to_i32.c
+    extF80M_to_i64.c
+    extF80M_to_ui32_r_minMag.c
+    extF80M_to_ui64_r_minMag.c
+    extF80M_to_i32_r_minMag.c
+    extF80M_to_i64_r_minMag.c
+    extF80M_to_f16.c
+    extF80M_to_f32.c
+    extF80M_to_f64.c
+    extF80M_to_f128M.c
+    extF80M_roundToInt.c
+    extF80M_add.c
+    extF80M_sub.c
+    extF80M_mul.c
+    extF80M_div.c
+    extF80M_rem.c
+    extF80M_sqrt.c
+    extF80M_eq.c
+    extF80M_le.c
+    extF80M_lt.c
+    extF80M_eq_signaling.c
+    extF80M_le_quiet.c
+    extF80M_lt_quiet.c
+    f128_to_ui32.c
+    f128_to_ui64.c
+    f128_to_i32.c
+    f128_to_i64.c
+    f128_to_ui32_r_minMag.c
+    f128_to_ui64_r_minMag.c
+    f128_to_i32_r_minMag.c
+    f128_to_i64_r_minMag.c
+    f128_to_f16.c
+    f128_to_f32.c
+    f128_to_extF80.c
+    f128_to_f64.c
+    f128_roundToInt.c
+    f128_add.c
+    f128_sub.c
+    f128_mul.c
+    f128_mulAdd.c
+    f128_div.c
+    f128_rem.c
+    f128_sqrt.c
+    f128_eq.c
+    f128_le.c
+    f128_lt.c
+    f128_eq_signaling.c
+    f128_le_quiet.c
+    f128_lt_quiet.c
+    f128_isSignalingNaN.c
+    f128M_to_ui32.c
+    f128M_to_ui64.c
+    f128M_to_i32.c
+    f128M_to_i64.c
+    f128M_to_ui32_r_minMag.c
+    f128M_to_ui64_r_minMag.c
+    f128M_to_i32_r_minMag.c
+    f128M_to_i64_r_minMag.c
+    f128M_to_f16.c
+    f128M_to_f32.c
+    f128M_to_extF80M.c
+    f128M_to_f64.c
+    f128M_roundToInt.c
+    f128M_add.c
+    f128M_sub.c
+    f128M_mul.c
+    f128M_mulAdd.c
+    f128M_div.c
+    f128M_rem.c
+    f128M_sqrt.c
+    f128M_eq.c
+    f128M_le.c
+    f128M_lt.c
+    f128M_eq_signaling.c
+    f128M_le_quiet.c
+    f128M_lt_quiet.c
+
+  source/8086/*.c *.h
+    softfloat_raiseFlags.c
+    s_f16UIToCommonNaN.c
+    s_commonNaNToF16UI.c
+    s_propagateNaNF16UI.c
+    s_f32UIToCommonNaN.c
+    s_commonNaNToF32UI.c
+    s_propagateNaNF32UI.c
+    s_f64UIToCommonNaN.c
+    s_commonNaNToF64UI.c
+    s_propagateNaNF64UI.c
+    extF80M_isSignalingNaN.c
+    s_extF80UIToCommonNaN.c
+    s_commonNaNToExtF80UI.c
+    s_propagateNaNExtF80UI.c
+    f128M_isSignalingNaN.c
+    s_f128UIToCommonNaN.c
+    s_commonNaNToF128UI.c
+    s_propagateNaNF128UI.c
+
+  source/include/*.h
+  COPYING.txt
+  README.md
+  README.txt
+
+汎用的でレガシーな実装のため、CPU特化は使用しない。
+
+platform.h
+primitiveTypes.h
+softfloat_types.h
+の先頭に、
+#define LITTLEENDIAN 1
+#define SOFTFLOAT_FAST_INT64
+を定義している。
+
+
+==== LICENSES/全体説明.txt ====
+Neko Project 21/Wの大半のコードは修正BSDライセンスですが、一部のファイルは移植のためライセンスが異なっています。これらを含めてコンパイルすると全体としてのライセンスが変わりますのでご注意ください。
+
+詳細や除外方法についてはNeko Project 21/Wサイトの「ライセンスについて」をご覧ください。
+https://simk98.github.io/np21w/download.html
+
+
+
+==== font.bmp (앱이 만든 PC-98 글꼴) ====
+Made from the Shinonome (東雲) 16-dot bitmap fonts (shnmk16, shnm8x16r), which their authors put in the public domain.

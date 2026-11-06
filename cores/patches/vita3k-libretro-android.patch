@@ -1,0 +1,492 @@
+diff --git a/vita3k/app/src/app.cpp b/vita3k/app/src/app.cpp
+index 9446512..50e36ff 100644
+--- a/vita3k/app/src/app.cpp
++++ b/vita3k/app/src/app.cpp
+@@ -28,7 +28,7 @@
+ #include <SDL3/SDL_messagebox.h>
+ #include <SDL3/SDL_timer.h>
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #include <SDL3/SDL_system.h>
+ #include <host/dialog/filesystem.h>
+ #include <miniz.h>
+@@ -86,7 +86,7 @@ void set_window_title(EmuEnvState &emuenv) {
+ }
+ #endif // !BUILD_LIBRETRO
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ void add_custom_driver(EmuEnvState &emuenv) {
+     fs::path file_path{};
+     host::dialog::filesystem::Result result = host::dialog::filesystem::open_file(file_path);
+diff --git a/vita3k/app/src/app_init.cpp b/vita3k/app/src/app_init.cpp
+index 7bc0b98..a6484de 100644
+--- a/vita3k/app/src/app_init.cpp
++++ b/vita3k/app/src/app_init.cpp
+@@ -54,7 +54,7 @@
+ #include <dwmapi.h>
+ #endif
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #include <SDL3/SDL_hints.h>
+ #include <SDL3/SDL_system.h>
+ #endif
+@@ -288,7 +288,7 @@ void calculate_fps(EmuEnvState &emuenv) {
+ }
+ #else // !BUILD_LIBRETRO
+ void init_paths(Root &root_paths) {
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     fs::path storage_path = fs::path(SDL_GetAndroidExternalStoragePath()) / "";
+     fs::path vita_storage_path = storage_path / "vita/";
+ 
+@@ -607,13 +607,13 @@ void destroy(EmuEnvState &emuenv, ImGui_State *imgui) {
+ 
+ void switch_state(EmuEnvState &emuenv, const bool pause) {
+     if (pause) {
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         emuenv.display.imgui_render = true;
+         gui::set_controller_overlay_state(0);
+ #endif
+         emuenv.kernel.pause_threads();
+     } else {
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         emuenv.display.imgui_render = false;
+         gui::set_controller_overlay_state(gui::get_overlay_display_mask(emuenv.cfg));
+ #endif
+diff --git a/vita3k/ctrl/src/ctrl.cpp b/vita3k/ctrl/src/ctrl.cpp
+index 3de3d68..1e8300a 100644
+--- a/vita3k/ctrl/src/ctrl.cpp
++++ b/vita3k/ctrl/src/ctrl.cpp
+@@ -217,7 +217,7 @@ void refresh_controllers(CtrlState &state, EmuEnvState &emuenv) {
+             break;
+         }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         // for whatever reasons, fingerprint sensors are detected as controllers, filter them out
+         const char *controller_name = SDL_GetGamepadNameForID(gamepad_id);
+         if (controller_name != nullptr && (std::string_view(controller_name).starts_with("uinput-") || std::string_view(controller_name).starts_with("gf_")))
+diff --git a/vita3k/libretro/CMakeLists.txt b/vita3k/libretro/CMakeLists.txt
+index 0fb4e5c..a797bcf 100644
+--- a/vita3k/libretro/CMakeLists.txt
++++ b/vita3k/libretro/CMakeLists.txt
+@@ -19,6 +19,7 @@ target_link_libraries(vita3k_libretro PRIVATE
+ 	config
+ 	cppcommon
+ 	ctrl
++	dialog
+ 	display
+ 	glad
+ 	gxm
+diff --git a/vita3k/libretro/libretro_installer.cpp b/vita3k/libretro/libretro_installer.cpp
+index a0ca512..d1e8976 100644
+--- a/vita3k/libretro/libretro_installer.cpp
++++ b/vita3k/libretro/libretro_installer.cpp
+@@ -18,7 +18,10 @@
+ #include "libretro_installer.h"
+ #include "libretro_state.h"
+ 
++#include <config/state.h>
++#include <emuenv/state.h>
+ #include <packages/functions.h>
++#include <packages/pkg.h>
+ #include <packages/sfo.h>
+ #include <util/fs.h>
+ #include <util/log.h>
+@@ -30,6 +33,7 @@
+ 
+ #include <miniz.h>
+ 
++#include <algorithm>
+ #include <cstring>
+ #include <fstream>
+ 
+@@ -726,7 +730,83 @@ static GameInstallResult handle_folder_game(const fs::path &game_path, const fs:
+     return result;
+ }
+ 
+-GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
++// Mini Emulator: an official .pkg, installed with Vita3K's own install_pkg() and the game's
++// license the player put beside it: "<file>.pkg.zrif" (the zRIF text) or
++// "<file>.pkg.work.bin" (the license file from their own console). Installed once; a marker in
++// <pref>/pkg_installed names the title it became.
++static bool read_installed_title(const fs::path &dir, int sys_lang, GameInstallResult &result) {
++    std::ifstream sfo_file((dir / "sce_sys" / "param.sfo").native(), std::ios::binary);
++    if (!sfo_file) return false;
++    std::vector<uint8_t> sfo_data((std::istreambuf_iterator<char>(sfo_file)), std::istreambuf_iterator<char>());
++    sfo::SfoAppInfo app_info;
++    sfo::get_param_info(app_info, sfo_data, sys_lang);
++    if (app_info.app_title_id.empty()) return false;
++    result.title_id = app_info.app_title_id;
++    result.title = app_info.app_title;
++    result.category = app_info.app_category;
++    result.content_id = app_info.app_content_id;
++    result.success = true;
++    return true;
++}
++
++// The license beside a .pkg: "<file>.zrif" (the zRIF text) or "<file>.work.bin".
++static std::string read_pkg_license(const fs::path &pkg_path) {
++    std::string zrif;
++    const fs::path zrif_path = fs::path(pkg_path.string() + ".zrif");
++    const fs::path bin_path = fs::path(pkg_path.string() + ".work.bin");
++    if (fs::exists(zrif_path)) {
++        std::ifstream in(zrif_path.native());
++        std::getline(in, zrif);
++        while (!zrif.empty() && (zrif.back() == '\r' || zrif.back() == ' ' || zrif.back() == '\n')) zrif.pop_back();
++    } else if (fs::exists(bin_path)) {
++        fs::ifstream bin(bin_path, std::ios::in | std::ios::binary | std::ios::ate);
++        zrif = rif2zrif(bin);
++    }
++    return zrif;
++}
++
++static GameInstallResult handle_pkg_game(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
++    GameInstallResult result;
++    const fs::path marker = pref_path / "pkg_installed" / (game_path.filename().string() + ".txt");
++    if (fs::exists(marker)) {
++        std::ifstream in(marker.native());
++        std::string title_id;
++        std::getline(in, title_id);
++        if (!title_id.empty() && read_installed_title(pref_path / "ux0" / "app" / title_id, sys_lang, result)) {
++            lr_log(RETRO_LOG_INFO, "PKG already installed as %s\n", title_id.c_str());
++            return result;
++        }
++    }
++    std::string zrif = read_pkg_license(game_path);
++    if (zrif.empty()) {
++        lr_log(RETRO_LOG_ERROR, "PKG without a license (%s.zrif or .work.bin)\n", game_path.filename().string().c_str());
++        lr_msg("PKG needs its license (zRIF or work.bin)", 600);
++        return result;
++    }
++    auto emuenv = std::make_unique<EmuEnvState>();
++    emuenv->pref_path = pref_path;
++    emuenv->cache_path = pref_path / "cache";
++    emuenv->cfg.sys_lang = sys_lang;
++    fs::create_directories(emuenv->cache_path);
++    lr_msg("Installing PKG (first start only)...", 600);
++    if (!install_pkg(game_path, *emuenv, zrif, [](float) {})) {
++        lr_log(RETRO_LOG_ERROR, "install_pkg failed for %s\n", game_path.generic_string().c_str());
++        lr_msg("PKG install failed: wrong license or broken file", 600);
++        return result;
++    }
++    const std::string title_id = emuenv->app_info.app_title_id;
++    if (title_id.empty() || !read_installed_title(pref_path / "ux0" / "app" / title_id, sys_lang, result)) {
++        lr_log(RETRO_LOG_ERROR, "PKG installed but no game found (title %s)\n", title_id.c_str());
++        lr_msg("PKG installed, but it is not a game (DLC / update?)", 600);
++        return result;
++    }
++    fs::create_directories(marker.parent_path());
++    std::ofstream(marker.native()) << title_id << "\n";
++    lr_log(RETRO_LOG_INFO, "PKG installed as %s\n", title_id.c_str());
++    return result;
++}
++
++static GameInstallResult ensure_game_installed_base(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
+     GameInstallResult result;
+ 
+     lr_log(RETRO_LOG_INFO, "=== Checking game installation ===\n");
+@@ -748,6 +828,9 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
+     // Validate extension for archive files
+     const auto extension = string_utils::tolower(game_path.extension().string());
+     lr_log(RETRO_LOG_DEBUG, "Game file extension: %s\n", extension.c_str());
++    if (extension == ".pkg") {
++        return handle_pkg_game(game_path, pref_path, sys_lang);
++    }
+     if (extension != ".vpk" && extension != ".zip") {
+         // Maybe it's an eboot.bin directly - check parent folder
+         if (game_path.filename() == "eboot.bin") {
+@@ -975,3 +1058,58 @@ GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::pat
+ 
+     return result;
+ }
++
++// Mini Emulator: update / DLC .pkg files the app queued for this game in
++// <pref>/pkg_queue/<TITLE ID>/ (each with "<file>.zrif" or "<file>.work.bin" beside it),
++// installed with install_pkg() before the game starts (an update goes into ux0/app, as Vita3K
++// does). Each result is a line in <pref>/pkg_installed/addons/<TITLE ID>.txt:
++// "ok <category> <version> <file>" or "fail - - <file>". A .pkg without a license stays queued.
++static void install_queued_pkgs(const fs::path &pref_path, const std::string &title_id, int sys_lang) {
++    const fs::path queue = pref_path / "pkg_queue" / title_id;
++    if (title_id.empty() || !fs::is_directory(queue))
++        return;
++    std::vector<fs::path> pkgs;
++    for (const auto &entry : fs::directory_iterator(queue)) {
++        if (fs::is_regular_file(entry.path()) && string_utils::tolower(entry.path().extension().string()) == ".pkg")
++            pkgs.push_back(entry.path());
++    }
++    std::sort(pkgs.begin(), pkgs.end());
++    const fs::path log_path = pref_path / "pkg_installed" / "addons" / (title_id + ".txt");
++    fs::create_directories(log_path.parent_path());
++    for (const auto &pkg : pkgs) {
++        const std::string name = pkg.filename().string();
++        std::string zrif = read_pkg_license(pkg);
++        if (zrif.empty()) {
++            lr_log(RETRO_LOG_WARN, "Queued PKG %s has no license; left queued\n", name.c_str());
++            continue;
++        }
++        auto emuenv = std::make_unique<EmuEnvState>();
++        emuenv->pref_path = pref_path;
++        emuenv->cache_path = pref_path / "cache";
++        emuenv->cfg.sys_lang = sys_lang;
++        fs::create_directories(emuenv->cache_path);
++        lr_msg("Installing update / DLC PKG...", 600);
++        const bool ok = install_pkg(pkg, *emuenv, zrif, [](float) {});
++        {
++            std::ofstream log(log_path.native(), std::ios::app);
++            if (ok)
++                log << "ok " << (emuenv->app_info.app_category.empty() ? "-" : emuenv->app_info.app_category) << " "
++                    << (emuenv->app_info.app_version.empty() ? "-" : emuenv->app_info.app_version) << " " << name << "\n";
++            else
++                log << "fail - - " << name << "\n";
++        }
++        lr_log(ok ? RETRO_LOG_INFO : RETRO_LOG_ERROR, "Queued PKG %s: %s\n", name.c_str(), ok ? "installed" : "failed");
++        if (!ok)
++            lr_msg("Update / DLC PKG failed: wrong license or broken file", 600);
++        fs::remove(pkg);
++        fs::remove(fs::path(pkg.string() + ".zrif"));
++        fs::remove(fs::path(pkg.string() + ".work.bin"));
++    }
++}
++
++GameInstallResult ensure_game_installed(const fs::path &game_path, const fs::path &pref_path, int sys_lang) {
++    GameInstallResult result = ensure_game_installed_base(game_path, pref_path, sys_lang);
++    if (result.success)
++        install_queued_pkgs(pref_path, result.title_id, sys_lang);
++    return result;
++}
+diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
+index 90c8184..fb69501 100644
+--- a/vita3k/libretro/libretro_vita3k.cpp
++++ b/vita3k/libretro/libretro_vita3k.cpp
+@@ -28,6 +28,8 @@
+ #include <config/state.h>
+ #include <config/version.h>
+ #include <display/functions.h>
++#include <dialog/state.h>
++#include <dialog/types.h>
+ #include <display/state.h>
+ #include <emuenv/state.h>
+ #include <gxm/state.h>
+@@ -810,8 +812,8 @@ static void request_guest_shutdown(EmuEnvState &emuenv, const char *reason) {
+         {
+             std::lock_guard<std::mutex> lock(emuenv.kernel.mutex);
+             for (auto &[id, thread] : emuenv.kernel.threads) {
+-                lr_log(RETRO_LOG_WARN, "Guest shutdown (%s): force-terminating stuck thread '{}' (id={})\n",
+-                    shutdown_reason, thread->name, id);
++                lr_log(RETRO_LOG_WARN, "Guest shutdown (%s): force-terminating stuck thread '%s' (id=%d)\n",
++                    shutdown_reason, thread->name.c_str(), static_cast<int>(id));
+                 thread->exit_delete(false);
+                 forced_count++;
+             }
+@@ -1273,6 +1275,63 @@ RETRO_API void retro_unload_game(void) {
+     libretro.installed_title.clear();
+ }
+ 
++// Mini Emulator: this build has no on-screen layer for the system dialogs a game opens
++// (the desktop build draws them with its GUI and the player answers), so a game waiting on
++// one waited forever (e.g. the trophy setup dialog at boot). They are answered here, each
++// frame, as a player most likely would: trophy setup done, a message's first button
++// (OK / YES), save data YES / OK or the first slot, text input as the game filled it in.
++// Dialogs without buttons (progress, "saving...") are left for the game to close.
++static void answer_common_dialogs(EmuEnvState &emuenv) {
++    auto &d = emuenv.common_dialog;
++    switch (d.type) {
++    case TROPHY_SETUP_DIALOG:
++        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
++            d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            lr_log(RETRO_LOG_INFO, "Dialog: trophy setup finished\n");
++        }
++        break;
++    case MESSAGE_DIALOG:
++        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING && d.msg.btn_num > 0) {
++            d.msg.status = d.msg.btn_val[0];
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: message \"%s\" answered with button %u\n", d.msg.message.c_str(), d.msg.btn_val[0]);
++        }
++        break;
++    case IME_DIALOG:
++        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
++            d.ime.status = SCE_IME_DIALOG_BUTTON_ENTER;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: text input entered as given\n");
++        }
++        break;
++    case SAVEDATA_DIALOG:
++        if (d.substatus != SCE_COMMON_DIALOG_STATUS_RUNNING)
++            break;
++        if (d.savedata.mode_to_display == SCE_SAVEDATA_DIALOG_MODE_LIST) {
++            d.savedata.selected_save = 0;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.substatus = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: save data list, first slot chosen\n");
++        } else if (d.savedata.btn_num > 0) {
++            uint32_t chosen = d.savedata.btn_val[0];
++            for (int i = 0; i < d.savedata.btn_num && i < 2; i++) {
++                if (d.savedata.btn_val[i] == SCE_SAVEDATA_DIALOG_BUTTON_ID_YES || d.savedata.btn_val[i] == SCE_SAVEDATA_DIALOG_BUTTON_ID_OK)
++                    chosen = d.savedata.btn_val[i];
++            }
++            d.savedata.button_id = chosen;
++            d.result = SCE_COMMON_DIALOG_RESULT_OK;
++            d.substatus = SCE_COMMON_DIALOG_STATUS_FINISHED;
++            lr_log(RETRO_LOG_INFO, "Dialog: save data \"%s\" answered with button %u\n", d.savedata.msg.c_str(), chosen);
++        }
++        break;
++    default:
++        break;
++    }
++}
++
+ RETRO_API void retro_run(void) {
+     if (!libretro.game_loaded || !libretro.emuenv)
+         return;
+@@ -1290,6 +1349,8 @@ RETRO_API void retro_run(void) {
+             libretro.render_thread ? 1 : 0);
+     }
+ 
++    answer_common_dialogs(*libretro.emuenv);
++
+     if (libretro.reset_requested.exchange(false)) {
+         lr_log(RETRO_LOG_INFO, "retro_run: processing deferred reset request\n");
+         if (!perform_core_reset()) {
+diff --git a/vita3k/modules/SceIme/SceIme.cpp b/vita3k/modules/SceIme/SceIme.cpp
+index ac6fdf5..c3ba069 100644
+--- a/vita3k/modules/SceIme/SceIme.cpp
++++ b/vita3k/modules/SceIme/SceIme.cpp
+@@ -45,7 +45,7 @@ EXPORT(SceInt32, sceImeClose) {
+     TRACY_FUNC(sceImeClose);
+     emuenv.ime.state = false;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     if (emuenv.cfg.enable_gamepad_overlay)
+         gui::set_controller_overlay_state(gui::get_overlay_display_mask(emuenv.cfg));
+ #endif
+@@ -93,7 +93,7 @@ EXPORT(SceInt32, sceImeOpen, SceImeParam *param) {
+     emuenv.ime.event_id = SCE_IME_EVENT_OPEN;
+     emuenv.ime.state = true;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     gui::set_controller_overlay_state(0);
+ #endif
+ 
+diff --git a/vita3k/motion/src/motion.cpp b/vita3k/motion/src/motion.cpp
+index 53795eb..750a749 100644
+--- a/vita3k/motion/src/motion.cpp
++++ b/vita3k/motion/src/motion.cpp
+@@ -58,7 +58,7 @@ enum DeviceRotation : int32_t {
+     ROTATION_270
+ };
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ 
+ #include <SDL3/SDL_system.h>
+ 
+diff --git a/vita3k/renderer/src/gl/renderer.cpp b/vita3k/renderer/src/gl/renderer.cpp
+index 014a981..b1e12cd 100644
+--- a/vita3k/renderer/src/gl/renderer.cpp
++++ b/vita3k/renderer/src/gl/renderer.cpp
+@@ -231,7 +231,7 @@ bool create(SDL_Window *window, std::unique_ptr<State> &state, const Config &con
+ 
+     int choosen_minor_version = 0;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+@@ -263,7 +263,7 @@ bool create(SDL_Window *window, std::unique_ptr<State> &state, const Config &con
+     if (!gl_state.context)
+         return false;
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+     gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress);
+ #else
+     gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress);
+diff --git a/vita3k/renderer/src/texture/replacement.cpp b/vita3k/renderer/src/texture/replacement.cpp
+index fbd3de0..258d094 100644
+--- a/vita3k/renderer/src/texture/replacement.cpp
++++ b/vita3k/renderer/src/texture/replacement.cpp
+@@ -28,7 +28,7 @@
+ #include <stb_image.h>
+ #include <stb_image_write.h>
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ // for message popup
+ #include <SDL3/SDL_system.h>
+ #endif
+@@ -510,7 +510,7 @@ bool TextureCache::import_configure_texture() {
+ 
+         if (gxm::is_bcn_format(base_format) && !support_dxt) {
+             LOG_ERROR_ONCE("BCn textures are not supported by this device");
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+             // this issue is most likely to happen on android
+             SDL_ShowAndroidToast("BCn textures are not supported by this device!", 1, -1, 0, 0);
+ #endif
+diff --git a/vita3k/renderer/src/vulkan/renderer.cpp b/vita3k/renderer/src/vulkan/renderer.cpp
+index cdc295f..65db40b 100644
+--- a/vita3k/renderer/src/vulkan/renderer.cpp
++++ b/vita3k/renderer/src/vulkan/renderer.cpp
+@@ -42,7 +42,9 @@
+ #endif
+ 
+ #ifdef __ANDROID__
++#ifndef BUILD_LIBRETRO
+ #include <SDL3/SDL_system.h>
++#endif
+ #include <adrenotools/bcenabler.h>
+ #include <adrenotools/driver.h>
+ #include <boost/range/iterator_range.hpp>
+@@ -325,7 +327,7 @@ bool VKState::init() {
+     return true;
+ }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ static void *load_custom_adreno_driver(const std::string &driver_name) {
+     const fs::path driver_path = fs::path(SDL_GetAndroidInternalStoragePath()) / "driver" / driver_name / "/";
+ 
+@@ -929,7 +931,7 @@ bool VKState::create(SDL_Window *window, std::unique_ptr<renderer::State> &state
+         support_memory_mapping = false;
+ #endif
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+         support_android_buffer_import &= SDL_GetAndroidSDKVersion() >= 26;
+         support_unix_fd_import &= SDL_GetAndroidSDKVersion() >= 26;
+ #endif
+@@ -1704,7 +1706,7 @@ void VKState::set_async_compilation(bool enable) {
+     pipeline_cache.set_async_compilation(enable);
+ }
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ std::vector<std::string> VKState::get_gpu_list() {
+     if (!support_custom_drivers())
+         return { physical_device_properties.deviceName.data() };
+diff --git a/vita3k/renderer/src/vulkan/screen_renderer.cpp b/vita3k/renderer/src/vulkan/screen_renderer.cpp
+index 564b00d..492b80d 100644
+--- a/vita3k/renderer/src/vulkan/screen_renderer.cpp
++++ b/vita3k/renderer/src/vulkan/screen_renderer.cpp
+@@ -25,7 +25,7 @@
+ #include "util/log.h"
+ #include "vkutil/vkutil.h"
+ 
+-#ifdef __ANDROID__
++#if defined(__ANDROID__) && !defined(BUILD_LIBRETRO)
+ #include <SDL3/SDL.h>
+ #include <jni.h>
+ 

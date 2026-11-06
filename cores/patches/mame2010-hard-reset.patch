@@ -1,0 +1,99 @@
+diff --git a/src/emu/machine.c b/src/emu/machine.c
+index cf6c6d4..697b014 100644
+--- a/src/emu/machine.c
++++ b/src/emu/machine.c
+@@ -438,7 +438,7 @@ void running_machine::retro_loop()
+        * stuck call.  Wind the machine down through the same exit phase
+        * schedule_hard_reset() uses, flag ENDEXEC so retro_main_loop()
+        * frees the machine and config, and return. */
+-      if (m_exit_pending && m_saveload_schedule == SLS_NONE)
++      if ((m_exit_pending || m_hard_reset_pending) && m_saveload_schedule == SLS_NONE)
+       {
+          /* and out via the exit phase */
+          m_current_phase = MACHINE_PHASE_EXIT;
+@@ -510,21 +510,10 @@ void running_machine::schedule_hard_reset()
+     
+ 	m_hard_reset_pending = true;
+ 
+-	/* if we're executing, abort out immediately */
++	/* if we're executing, abort out immediately; retro_loop() takes the
++	   machine out through the exit phase at the end of the timeslice and
++	   retro_main_loop() starts the same game on a new machine */
+ 	m_scheduler.eat_all_cycles();
+-
+-    /* and out via the exit phase */
+-    m_current_phase = MACHINE_PHASE_EXIT;
+-
+-    /* save the NVRAM and configuration */
+-    sound_mute(this, true);
+-    nvram_save(this);
+-    config_save_settings(this);
+-
+-    /* call all exit callbacks registered */
+-    call_notifiers(MACHINE_NOTIFY_EXIT);
+-
+-    ENDEXEC=1;
+ }
+ 
+ 
+diff --git a/src/emu/machine.h b/src/emu/machine.h
+index dee51a8..2e91e66 100644
+--- a/src/emu/machine.h
++++ b/src/emu/machine.h
+@@ -287,7 +287,8 @@ public:
+ 	bool paused() const { return m_paused || (m_current_phase != MACHINE_PHASE_RUNNING); }
+ 	bool scheduled_event_pending() const { return m_exit_pending || m_hard_reset_pending; }
+ 	bool save_or_load_pending() const { return (m_saveload_pending_file.len() != 0); }
+-	bool exit_pending() const { return m_exit_pending; }
++	bool exit_pending() const { return m_exit_pending; }
++	bool hard_reset_pending() const { return m_hard_reset_pending; }
+ 	bool new_driver_pending() const { return (m_new_driver_pending != NULL); }
+ 	const char *new_driver_name() const { return m_new_driver_pending->name; }
+ 	device_scheduler &scheduler() { return m_scheduler; }
+diff --git a/src/emu/mame.c b/src/emu/mame.c
+index 6ebf604..3cdd6a2 100644
+--- a/src/emu/mame.c
++++ b/src/emu/mame.c
+@@ -214,6 +214,7 @@ extern core_options *retro_global_options;
+ void retro_main_loop(void)
+ {
+ 	int new_driver;
++	bool hard_reset;
+ 
+ 	/* After a plain exit (content close) the machine is freed below and
+ 	   NOT relaunched; the frontend may still call retro_run() -- and thus
+@@ -228,7 +229,9 @@ void retro_main_loop(void)
+    {
+       // check the state of the machine
+       // Capture this BEFORE freeing the machine below.
+-      new_driver = retro_global_machine->new_driver_pending();
++      new_driver = retro_global_machine->new_driver_pending();
++      /* a hard reset, like a new driver, starts a new machine below */
++      hard_reset = retro_global_machine->hard_reset_pending();
+       if (new_driver)
+       {
+          options_set_string(retro_global_options, OPTION_GAMENAME, retro_global_machine->new_driver_name(), OPTION_PRIORITY_CMDLINE);
+@@ -280,7 +283,7 @@ void retro_main_loop(void)
+          options.  Driver switching (MAME's 'select new game' path) still
+          works: new_driver_pending() was latched above before the machine
+          was freed, and only that path re-enters mame_execute(). */
+-      if (new_driver)
++      if (new_driver || hard_reset)
+          retro_execute();
+ 
+    }
+diff --git a/src/osd/retro/retromain.c b/src/osd/retro/retromain.c
+index 5263bdd..849b5d5 100755
+--- a/src/osd/retro/retromain.c
++++ b/src/osd/retro/retromain.c
+@@ -675,7 +675,9 @@ void osd_update(running_machine *machine,int skip_redraw)
+ 
+    if (mame_reset == 1)
+    {
+-      machine->schedule_soft_reset();
++      /* A soft reset leaves some drivers' state behind (Tekken Tag
++         Tournament hangs on its first screen); start a new machine. */
++      machine->schedule_hard_reset();
+       mame_reset = -1;
+    }
+ 

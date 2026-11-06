@@ -1,0 +1,57 @@
+name: Build PCEE2 core
+
+# PCEE2 (PCSX2 for libretro) takes far longer to build than the rest of the app, so
+# it is built here and kept in the Actions cache; the APK build only restores it.
+# Run this (or push a change to the script) before a release that needs a new core.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - cores/build-pcee2.sh
+      - cores/patches/pcee2-*.patch
+      - .github/workflows/pcee2.yml
+  workflow_dispatch:
+
+jobs:
+  pcee2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore PCEE2 core
+        id: pcee2-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so
+            app/src/main/assets/pcsx2_resources.zip
+          key: pcee2-${{ hashFiles('cores/build-pcee2.sh', 'cores/patches/pcee2-*.patch') }}
+
+      - name: Install build tools
+        if: steps.pcee2-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build zip
+          df -h .
+
+      - name: Build PCEE2 core
+        if: steps.pcee2-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./cores/build-pcee2.sh
+
+      - name: Save PCEE2 core
+        if: steps.pcee2-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so
+            app/src/main/assets/pcsx2_resources.zip
+          key: pcee2-${{ hashFiles('cores/build-pcee2.sh', 'cores/patches/pcee2-*.patch') }}
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pcee2-logs
+          path: cores/build/*.log

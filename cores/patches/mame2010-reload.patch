@@ -1,0 +1,16 @@
+diff --git a/src/osd/retro/retromain.c b/src/osd/retro/retromain.c
+index 5263bdd..2b24276 100755
+--- a/src/osd/retro/retromain.c
++++ b/src/osd/retro/retromain.c
+@@ -549,6 +549,11 @@ int mmain(int argc, const char *argv)
+ 
+ bool retro_load_game(const struct retro_game_info *info)
+ {
++	/* retro_unload_game leaves pauseg at -1 so the machine exits; a game loaded
++	   again in the same process would otherwise exit as soon as it starts. */
++	pauseg = 0;
++	mame_reset = -1;
++
+ 	strncpy(libretro_content_directory, info->path, sizeof(libretro_content_directory) - 1);
+ 	libretro_content_directory[sizeof(libretro_content_directory) - 1] = '\0';
+ 	path_basedir(libretro_content_directory);
