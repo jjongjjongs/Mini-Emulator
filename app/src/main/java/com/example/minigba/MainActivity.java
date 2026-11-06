@@ -15853,7 +15853,7 @@ public final class MainActivity extends Activity {
             // Every disk of a game the app grouped (its other versions: originals of patched ones).
             for (File file : files == null ? new File[0] : files) {
                 java.util.regex.Matcher m = PC98_SPLIT_DISK.matcher(splitSourceName(file));
-                if (m.matches() && games.contains((m.group(1).trim() + " " + m.group(3).trim()).trim().replaceAll("\\s+", " "))) {
+                if (m.matches() && games.contains(pc98GameKey(splitSourceName(file), files))) {
                     names.add(file.getName());
                 }
             }
@@ -15872,7 +15872,7 @@ public final class MainActivity extends Activity {
             String source = splitSourceName(file);
             java.util.regex.Matcher m = PC98_SPLIT_DISK.matcher(source);
             if (!file.isFile() || !m.matches()) continue;
-            String game = (m.group(1).trim() + " " + m.group(3).trim()).trim().replaceAll("\\s+", " ");
+            String game = pc98GameKey(source, files);
             int number = pc98DiskNumber(m.group(2));
             if (game.isEmpty() || number <= 0) continue;
             Map<Integer, File> byNumber = games.get(game);
@@ -15914,6 +15914,28 @@ public final class MainActivity extends Activity {
             }
         }
         this.pc98Grouped = null;
+    }
+
+    // The game a split disk belongs to: its name around the number ("Name (Disk 1) [v2]" →
+    // "Name [v2]"); or, when the disks of that name carry different tags after the number (a
+    // translated Disk 1 next to an untouched Disk 2), the name before it, as long as no disk
+    // number comes twice under it.
+    private String pc98GameKey(String source, File[] files) {
+        java.util.regex.Matcher m = PC98_SPLIT_DISK.matcher(source);
+        if (!m.matches()) return "";
+        String base = m.group(1).trim().replaceAll("\\s+", " ");
+        String full = (base + " " + m.group(3).trim()).trim().replaceAll("\\s+", " ");
+        java.util.Set<Integer> numbers = new java.util.HashSet<>();
+        java.util.Set<String> fulls = new java.util.HashSet<>();
+        for (File other : files) {
+            String name = splitSourceName(other);
+            java.util.regex.Matcher o = PC98_SPLIT_DISK.matcher(name);
+            if (!other.isFile() || !o.matches() || !o.group(1).trim().replaceAll("\\s+", " ").equalsIgnoreCase(base)) continue;
+            if (!splitSourceName(other).equals(other.getName())) continue;   // a patched copy stands in for its original
+            if (!numbers.add(pc98DiskNumber(o.group(2)))) return full;    // two disks with one number: versions apart
+            fulls.add((base + " " + o.group(3).trim()).trim().replaceAll("\\s+", " "));
+        }
+        return fulls.size() > 1 ? base : full;
     }
 
     // Whether before's disks are the first ones of after (a disk added at the end).

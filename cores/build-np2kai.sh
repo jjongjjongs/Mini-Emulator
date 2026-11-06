@@ -41,7 +41,8 @@ sed -i 's/+= (NP21_INCFLAGS)/+= $(NP21_INCFLAGS)/' "$SRC/jni/Android.mk"
 grep -q ymzadpcmc "$SRC/jni/Android.mk" || sed -i 's|^SOURCES_CXX += $(NP21_SOURCES_CXX)|SOURCES_C += $(NP2_PATH)/sound/ymzadpcmc.c $(NP2_PATH)/sound/ymzadpcmg.c\n\n&|' "$SRC/jni/Android.mk"
 
 echo "== building np2kai"
-"$NDK/ndk-build" -C "$SRC/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 \
+# APP_STL=c++_static: the app ships no libc++_shared.so (0.0.318 asked for it and did not load).
+"$NDK/ndk-build" -C "$SRC/jni" APP_ABI=arm64-v8a APP_PLATFORM=android-24 APP_STL=c++_static \
     NP2KAI_VERSION=rev.22 NP2KAI_HASH="${COMMIT:0:7}" \
     "APP_LDFLAGS=-Wl,-z,max-page-size=16384" -j"$JOBS" > "$WORK/np2kai.log" 2>&1 || {
     tail -n 80 "$WORK/np2kai.log"
@@ -49,6 +50,10 @@ echo "== building np2kai"
 }
 mkdir -p "$OUT"
 cp "$SRC/libs/arm64-v8a/libretro.so" "$OUT/libnp2kai_libretro_android.so"
+if readelf -d "$OUT/libnp2kai_libretro_android.so" | grep -q 'libc++_shared'; then
+    echo "libnp2kai still needs libc++_shared.so" >&2
+    exit 1
+fi
 echo "   -> $OUT/libnp2kai_libretro_android.so ($(du -h "$OUT/libnp2kai_libretro_android.so" | cut -f1))"
 
 echo "== making the PC-98 font"
