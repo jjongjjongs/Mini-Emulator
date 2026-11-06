@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
             {MODE_MSX, "bluemsx", ".rom,.mx1,.mx2,.ri,.dsk,.cas,.m3u", ".rom / .dsk / .cas / .zip", "roms_msx", "1071"},
             // PC-98 on NP2kai (0.0.317): floppy images (.hdm .fdi .d88 …), hard disk images, and
             // the .cmd the app writes for games on several floppies. Runs on its built-in BIOS.
-            {MODE_PC98, "np2kai", ".hdm,.fdi,.d88,.88d,.d98,.98d,.xdf,.dup,.2hd,.tfd,.nfd,.fdd,.hdi,.thd,.nhd,.vhd,.hdn,.cmd", ".hdm / .fdi / .d88 / .hdi", "roms_pc98", "1081"},
+            {MODE_PC98, "np2kai", ".hdm,.fdi,.d88,.88d,.d98,.98d,.xdf,.dup,.2hd,.tfd,.nfd,.fdd,.hdi,.thd,.nhd,.vhd,.hdn,.cmd,.hfe,.scp", ".hdm / .fdi / .d88 / .hdi", "roms_pc98", "1081"},
             // MS-DOS games on DOSBox Pure: the game's folder as a zip (kept whole, never
             // unpacked), CD images, floppy/hard disk images.
             {MODE_DOS, "dosbox_pure", ".zip,.dosz,.exe,.com,.bat,.iso,.cue,.chd,.img,.ima,.vhd", ".zip (게임 폴더) / .iso / .img", "roms_dos", "1069"},
@@ -4665,6 +4665,7 @@ public final class MainActivity extends Activity {
         }
         if (MODE_PC98.equals(this.currentMode)) {
             groupPc98Disks();
+            this.romList.post(this::promptPc98FluxImports);
         }
         File[] listFiles = currentRomDir().listFiles(this::isRomFile);
         if (listFiles == null || listFiles.length == 0) {
@@ -4709,6 +4710,10 @@ public final class MainActivity extends Activity {
         }
         if (romDirFor(MODE_PC98).equals(dir) && pc98GroupedNames(dir).contains(file.getName())) {
             return false;
+        }
+        if (romDirFor(MODE_PC98).equals(dir) && romPrefs().getString("pc98_flux_done:" + file.getName(), null) != null
+                && new File(dir, romPrefs().getString("pc98_flux_done:" + file.getName(), "")).isFile()) {
+            return false;   // an .hfe / .scp kept after converting: its disk is listed instead
         }
         if (romDirFor(MODE_NAOMI).equals(dir) && !file.getName().toLowerCase(Locale.US).endsWith(".zip")) {
             return false;
@@ -5566,6 +5571,7 @@ public final class MainActivity extends Activity {
             hanParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60), "한글패치 덮어쓰기 (패치 zip의 파일을 디스크 안에)",
                     () -> pickPc98FilePatch(file)), hanParams);
+            addPc98FluxRecordRows(panel, dialog, disks.isEmpty() ? java.util.Collections.singletonList(file) : disks);
             File hdd = pc98Hdd(disks);
             if (hdd != null) {
                 LinearLayout.LayoutParams hddParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -14501,6 +14507,10 @@ public final class MainActivity extends Activity {
     }
 
     private void launchGame(File file) {
+        if (MODE_PC98.equals(modeForFile(file)) && Pc98Flux.isFluxImage(file.getName().toLowerCase(Locale.ROOT))) {
+            showPc98FluxPrompt(file);   // .hfe / .scp: converted first (0.0.320)
+            return;
+        }
         this.cloudAfterGame = true;
         if (!file.exists()) {
             showError("ROM 실행 실패: 가져온 ROM 파일이 없습니다");
@@ -16256,6 +16266,333 @@ public final class MainActivity extends Activity {
                         + (group ? "\n묶음이 바뀐 디스크로 켜져요 (빠른 저장은 처음부터)." : "\n\"" + displayGameNameFor(game) + " (한글)\"로 추가했어요."));
             });
         }, "pc98-patch").start();
+    }
+
+    // ---- .hfe / .scp: converted to a sector image (0.0.320) ----
+    private boolean pc98FluxShowing;
+    private final java.util.Set<String> pc98FluxDeclined = new java.util.HashSet<>();
+
+    // New .hfe / .scp files in the PC-98 list: asked about one at a time.
+    private void promptPc98FluxImports() {
+        if (this.pc98FluxShowing || !MODE_PC98.equals(this.currentMode) || isFinishing()) return;
+        File[] files = romDirFor(MODE_PC98).listFiles();
+        if (files == null) return;
+        java.util.Arrays.sort(files);
+        for (File file : files) {
+            if (!Pc98Flux.isFluxImage(file.getName().toLowerCase(Locale.ROOT)) || this.pc98FluxDeclined.contains(file.getName())) continue;
+            if (romPrefs().getString("pc98_flux_done:" + file.getName(), null) != null) continue;
+            showPc98FluxPrompt(file);
+            return;
+        }
+    }
+
+    private TextView pc98Option(String title, String note) {
+        TextView view = new TextView(this);
+        view.setText(android.text.Html.fromHtml("<b>" + android.text.TextUtils.htmlEncode(title) + "</b><br><small>" + android.text.TextUtils.htmlEncode(note) + "</small>", 0));
+        view.setTextSize(13f);
+        view.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        view.setPadding(dp(12), dp(9), dp(12), dp(9));
+        return view;
+    }
+
+    private void markPc98Option(TextView view, boolean on) {
+        int teal = MODE_COLORS[modeIndex(MODE_PC98)];
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setCornerRadius(dp(12));
+        shape.setColor(Theme.bg(on ? Color.rgb(240, 253, 250) : Color.rgb(246, 247, 249)));
+        if (on) shape.setStroke(dp(2), teal);
+        view.setBackground(shape);
+    }
+
+    private void showPc98FluxPrompt(File file) {
+        Pc98Flux.Info info;
+        try {
+            info = Pc98Flux.probe(file);
+        } catch (IOException e) {
+            this.pc98FluxDeclined.add(file.getName());
+            showError(file.getName() + ": " + e.getMessage());
+            return;
+        }
+        this.pc98FluxShowing = true;
+        int teal = MODE_COLORS[modeIndex(MODE_PC98)];
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.IMPORT, teal, "변환해서 넣을까요?", file.getName() + " · " + formatSize(file.length()));
+        panel.addView(noteBox(".hfe(HxC) · .scp(SuperCard Pro)는 디스크의 자기 신호를 그대로 담은 파일이라 엔진이 바로 못 읽어요. 앱이 섹터를 읽어 내서 엔진이 읽는 디스크로 바꿔 넣어요.",
+                Color.rgb(240, 253, 250), Color.rgb(17, 94, 89)), spaced(10));
+        panel.addView(noteBox("형식: " + info.format + "\n디스크: " + info.cylinders + "트랙 × " + info.heads + "면" + (info.rpm > 0 ? " · " + info.rpm + "rpm" : ""),
+                Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)), spaced(8));
+        final boolean[] d88 = {true};
+        final boolean[] keep = {true};
+        TextView optD88 = pc98Option(".d88로 (추천)", "섹터 번호 · 크기가 특이한 트랙도 그대로 · 삭제 표시 · 오류 표시 유지");
+        TextView optHdm = pc98Option(".hdm으로", "보통 2HD 디스크만 · 모든 트랙이 같은 모양일 때 (아니면 .d88로)");
+        TextView optKeep = pc98Option("원본도 남겨 두기: 켬", "다시 변환할 수 있게 · 끄면 변환 후 원본을 지워요 (🔗 연결이면 연결만)");
+        Runnable paint = () -> {
+            markPc98Option(optD88, d88[0]);
+            markPc98Option(optHdm, !d88[0]);
+            markPc98Option(optKeep, keep[0]);
+            optKeep.setText(android.text.Html.fromHtml("<b>원본도 남겨 두기: " + (keep[0] ? "켬" : "끔") + "</b><br><small>다시 변환할 수 있게 · 끄면 변환 후 원본을 지워요 (🔗 연결이면 연결만)</small>", 0));
+        };
+        optD88.setOnClickListener(v -> { d88[0] = true; paint.run(); });
+        optHdm.setOnClickListener(v -> { d88[0] = false; paint.run(); });
+        optKeep.setOnClickListener(v -> { keep[0] = !keep[0]; paint.run(); });
+        paint.run();
+        panel.addView(optD88, spaced(10));
+        panel.addView(optHdm, spaced(6));
+        panel.addView(optKeep, spaced(10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = sheetButton("취소", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        cancel.setOnClickListener(v -> {
+            this.pc98FluxDeclined.add(file.getName());
+            dialog.dismiss();
+        });
+        TextView go = sheetButton("변환해서 넣기", teal, Color.WHITE);
+        go.setOnClickListener(v -> {
+            dialog.dismiss();
+            convertPc98Flux(file, d88[0], keep[0], null);
+        });
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        goParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(go, goParams);
+        panel.addView(buttons, spaced(14));
+        dialog.setOnDismissListener(d -> {
+            if (!this.pc98FluxConverting) this.pc98FluxShowing = false;
+        });
+        dialog.show();
+    }
+
+    private boolean pc98FluxConverting;
+
+    // The tracks as small squares: read, odd, unreadable, not yet.
+    private static final class TrackGridView extends View {
+        int[] states = new int[0];
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        TrackGridView(android.content.Context context) {
+            super(context);
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            int columns = 22;
+            float gap = getResources().getDisplayMetrics().density * 2;
+            float size = (getWidth() - gap * (columns - 1)) / columns;
+            for (int i = 0; i < states.length; i++) {
+                int s = states[i];
+                paint.setColor(s == Pc98Flux.TRACK_OK ? Color.rgb(20, 184, 166) : s == Pc98Flux.TRACK_ODD ? Color.rgb(245, 158, 11)
+                        : s == Pc98Flux.TRACK_ERROR ? Color.rgb(225, 29, 72) : s == Pc98Flux.TRACK_EMPTY ? Color.rgb(203, 213, 225) : Color.rgb(229, 231, 235));
+                float x = (i % columns) * (size + gap);
+                float y = (i / columns) * (size + gap);
+                canvas.drawRoundRect(x, y, x + size, y + size, size / 5, size / 5, paint);
+            }
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec);
+            int columns = 22;
+            float gap = getResources().getDisplayMetrics().density * 2;
+            float size = (width - gap * (columns - 1)) / columns;
+            int rows = Math.max(1, (states.length + columns - 1) / columns);
+            setMeasuredDimension(width, (int) (rows * (size + gap)));
+        }
+    }
+
+    // replace: the disk an earlier conversion made (다시 변환), or null.
+    private void convertPc98Flux(File source, boolean d88, boolean keep, File replace) {
+        int teal = MODE_COLORS[modeIndex(MODE_PC98)];
+        this.pc98FluxConverting = true;
+        this.pc98FluxShowing = true;
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        dialog.setCancelable(false);
+        cardHeader(panel, RoundIconView.SWAP, teal, "변환하는 중…", source.getName() + " → " + (d88 ? ".d88" : ".hdm"));
+        TextView status = new TextView(this);
+        status.setTextSize(12f);
+        status.setTextColor(Theme.text(Color.rgb(51, 65, 85)));
+        status.setText("트랙을 읽는 중…");
+        panel.addView(status, spaced(10));
+        TrackGridView grid = new TrackGridView(this);
+        panel.addView(grid, spaced(8));
+        panel.addView(noteBox(source.getName().toLowerCase(Locale.ROOT).endsWith(".scp")
+                        ? ".scp는 한 트랙을 여러 바퀴 떠 놓아서, 바퀴마다 읽어 보고 오류 검사(CRC)가 맞는 쪽을 골라요. 몇 초 ~ 수십 초 걸려요."
+                        : "트랙마다 섹터 표시(A1 A1 A1)를 찾아 섹터를 읽어 내요.",
+                Color.rgb(248, 250, 252), Color.rgb(71, 85, 105)), spaced(10));
+        dialog.show();
+        new Thread(() -> {
+            Pc98Flux.Result result = null;
+            String error = null;
+            File out = null;
+            try {
+                result = Pc98Flux.read(source, (index, count, state) -> runOnUiThread(() -> {
+                    if (grid.states.length != count) {
+                        grid.states = new int[count];
+                        grid.requestLayout();
+                    }
+                    grid.states[index] = state;
+                    status.setText("트랙 " + (index + 1) + " / " + count);
+                    grid.invalidate();
+                }));
+                String base = source.getName().replaceAll("\\.[^.]+$", "");
+                File dir = source.getParentFile();
+                out = replace != null ? new File(dir, replace.getName().replaceAll("\\.[^.]+$", "") + (d88 ? ".d88" : ".hdm"))
+                        : uniqueFile(dir, base + (d88 ? ".d88" : ".hdm"));
+                File part = new File(dir, out.getName() + ".part");
+                if (d88) {
+                    Pc98Flux.writeD88(result, part, base);
+                } else {
+                    Pc98Flux.writeHdm(result, part);
+                }
+                if (out.exists() && !out.delete()) throw new IOException("이전 디스크를 지우지 못했어요");
+                if (!part.renameTo(out)) throw new IOException("디스크를 저장하지 못했어요");
+            } catch (IOException | OutOfMemoryError e) {
+                error = e instanceof OutOfMemoryError ? "메모리가 부족해요" : e.getMessage();
+            }
+            final Pc98Flux.Result done = result;
+            final String why = error;
+            final File made = out;
+            runOnUiThread(() -> {
+                this.pc98FluxConverting = false;
+                this.pc98FluxShowing = false;
+                dialog.dismiss();
+                if (isFinishing() || isDestroyed()) return;
+                if (why != null) {
+                    this.pc98FluxDeclined.add(source.getName());
+                    showError("변환하지 못했어요 — " + why);
+                    return;
+                }
+                if (replace != null && !replace.getName().equals(made.getName())) {
+                    // 다시 변환 into the other format: the old disk goes, and a group the app keeps
+                    // as made points at the new one.
+                    replace.delete();
+                    File[] cmds = source.getParentFile().listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(".cmd"));
+                    for (File cmd : cmds == null ? new File[0] : cmds) {
+                        List<File> disks = pc98CmdDisks(cmd);
+                        if (!pc98CmdAdded(cmd)) continue;
+                        boolean changed = false;
+                        for (int k = 0; k < disks.size(); k++) {
+                            if (disks.get(k).getName().equals(replace.getName())) {
+                                disks.set(k, made);
+                                changed = true;
+                            }
+                        }
+                        String text = changed ? pc98CmdText(disks, true) : null;
+                        if (text != null) {
+                            try (FileOutputStream o = new FileOutputStream(cmd)) {
+                                o.write(text.getBytes(StandardCharsets.UTF_8));
+                            } catch (IOException ignored) {
+                            }
+                        }
+                    }
+                    romPrefs().edit().remove("pc98_flux:" + replace.getName()).apply();
+                }
+                String record = source.getName() + "\n" + done.info.format + "\n" + Pc98Flux.summaryLine(done) + "\n" + System.currentTimeMillis()
+                        + "\n" + android.text.TextUtils.join("\n", done.notes.subList(0, Math.min(40, done.notes.size())));
+                romPrefs().edit().putString("pc98_flux:" + made.getName(), record).putString("pc98_flux_done:" + source.getName(), made.getName()).apply();
+                if (!keep) {
+                    source.delete();
+                }
+                refreshLibrary();
+                showPc98FluxResult(made, done);
+            });
+        }, "pc98-flux").start();
+    }
+
+    private void showPc98FluxResult(File made, Pc98Flux.Result r) {
+        int teal = MODE_COLORS[modeIndex(MODE_PC98)];
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.STAR, teal, "변환 끝", made.getName() + " · " + formatSize(made.length()));
+        int used = r.ok + r.odd + r.errors;
+        panel.addView(noteBox("정상 트랙 " + r.ok + " / " + used + "\n특이한 트랙 " + r.odd + "개\n읽기 오류 트랙 " + r.errors + "개 (섹터 " + r.badSectors + "개)",
+                Color.rgb(246, 247, 249), Color.rgb(31, 41, 51)), spaced(10));
+        if (r.odd > 0) {
+            panel.addView(noteBox("특이한 트랙은 복사 방지일 수 있어요. .d88은 그 모양을 그대로 담지만, 엔진(NP2kai)이 흉내 내지 못하는 보호도 있어서 게임이 \"디스크가 다르다\"며 멈출 수 있어요.",
+                    Color.rgb(255, 251, 235), Color.rgb(146, 64, 14)), spaced(8));
+        }
+        if (r.errors > 0) {
+            panel.addView(noteBox("읽기 오류는 원래 디스크가 상했거나 덤프가 불완전한 곳이에요. 그 부분을 읽는 장면에서 멈출 수 있어요 — 다른 덤프가 있으면 그걸로.",
+                    Color.rgb(255, 241, 242), Color.rgb(159, 18, 57)), spaced(8));
+        }
+        LinearLayout buttons = new LinearLayout(this);
+        TextView log = sheetButton("기록 보기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        log.setOnClickListener(v -> showPc98FluxRecord(made));
+        TextView run = sheetButton("실행", teal, Color.WHITE);
+        run.setOnClickListener(v -> {
+            dialog.dismiss();
+            File group = pc98GroupOf(made);
+            launchGame(group != null ? group : made);
+        });
+        buttons.addView(log, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        LinearLayout.LayoutParams runParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        runParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(run, runParams);
+        panel.addView(buttons, spaced(14));
+        dialog.setOnDismissListener(d -> this.romList.post(this::promptPc98FluxImports));
+        dialog.show();
+    }
+
+    // The app's group a disk is in, if any.
+    private File pc98GroupOf(File disk) {
+        File[] cmds = disk.getParentFile().listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(".cmd"));
+        for (File cmd : cmds == null ? new File[0] : cmds) {
+            for (File f : pc98CmdDisks(cmd)) {
+                if (f.getName().equals(disk.getName())) return cmd;
+            }
+        }
+        return null;
+    }
+
+    private void showPc98FluxRecord(File made) {
+        String record = romPrefs().getString("pc98_flux:" + made.getName(), null);
+        if (record == null) return;
+        String[] lines = record.split("\n");
+        StringBuilder text = new StringBuilder();
+        text.append("원본: ").append(lines[0]).append('\n');
+        if (lines.length > 1) text.append("형식: ").append(lines[1]).append('\n');
+        if (lines.length > 2) text.append(lines[2]).append('\n');
+        if (lines.length > 3) {
+            try {
+                text.append("변환한 때: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.KOREA).format(new java.util.Date(Long.parseLong(lines[3])))).append('\n');
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        for (int k = 4; k < lines.length; k++) text.append("· ").append(lines[k]).append('\n');
+        new AppDialog.Builder(this).setTitle("변환 기록 · " + made.getName()).setMessage(text.toString().trim()).setPositiveButton("닫기", null).show();
+    }
+
+    // Long press: the disks this game was converted into, and 다시 변환 while the source is there.
+    private void addPc98FluxRecordRows(LinearLayout panel, Dialog menu, List<File> disks) {
+        for (File disk : disks) {
+            String record = romPrefs().getString("pc98_flux:" + disk.getName(), null);
+            if (record == null) continue;
+            String[] lines = record.split("\n");
+            File source = new File(disk.getParentFile(), lines[0]);
+            String summary = lines.length > 2 ? lines[2] : "";
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+            params.setMargins(0, dp(8), 0, 0);
+            panel.addView(createMenuActionRow(menu, RoundIconView.SWAP, MODE_COLORS[modeIndex(MODE_PC98)],
+                    pc98DiskShort(disk) + " · " + lines[0] + " → " + disk.getName().substring(disk.getName().lastIndexOf('.')) + " · " + summary
+                            + (source.isFile() ? " (누르면 다시 변환)" : " (원본 없음 · 기록만)"),
+                    () -> {
+                        if (!source.isFile()) {
+                            showPc98FluxRecord(disk);
+                            return;
+                        }
+                        boolean nowD88 = disk.getName().toLowerCase(Locale.ROOT).endsWith(".d88");
+                        CharSequence[] kinds = {".d88로 다시 변환" + (nowD88 ? " (지금과 같음)" : ""), ".hdm으로 다시 변환" + (nowD88 ? "" : " (지금과 같음)"), "기록만 보기"};
+                        new AppDialog.Builder(this).setTitle("다시 변환 · " + disk.getName())
+                                .setMessage("게임이 이 디스크에 저장한 내용은 사라져요 (원본 " + lines[0] + "에서 새로 만들어요).")
+                                .setItems(kinds, (d, which) -> {
+                                    if (which == 2) {
+                                        showPc98FluxRecord(disk);
+                                    } else {
+                                        convertPc98Flux(source, which == 0, true, disk);
+                                    }
+                                }).setNegativeButton("취소", null).show();
+                    }), params);
+        }
     }
 
     private void showPc98BlankDiskDialog(File file) {
