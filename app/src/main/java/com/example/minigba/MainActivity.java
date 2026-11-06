@@ -5630,7 +5630,7 @@ public final class MainActivity extends Activity {
     private File patchRom;
 
     private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP,
-            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC};
+            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS};
 
     // Cartridge games, and PS1 (BIN/CUE, ISO), PSP and PS2 (ISO) discs. Compressed images
     // (CHD, CSO, PBP) would have to be unpacked first; arcade sets are not patched here.
@@ -5652,6 +5652,11 @@ public final class MainActivity extends Activity {
         }
         if (isDcChd(file, mode)) {
             return true;  // unpacked to GDI / CUE / ISO first
+        }
+        if (MODE_N3DS.equals(mode)) {
+            // A decrypted cartridge or executable image (0.0.312); an installed title's .app
+            // is not a game file to patch.
+            return name.endsWith(".3ds") || name.endsWith(".cci") || name.endsWith(".cxi");
         }
         return !(name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp") || name.endsWith(".m3u") || name.endsWith(".7z")
                 || name.endsWith(".ccd") || name.endsWith(".mds"));

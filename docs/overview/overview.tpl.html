@@ -369,6 +369,12 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>컴퓨터에서 확인한 것: ISO · WBFS · RVZ 디스크 ID와 Wii/GameCube 구분, .wua 게임 ID, Cemu가 쓰는 팩 설정 이름(FNV 해시)이 같은 방식의 계산과 일치, 팩 프리셋 · loadiine 감싸기, Riivolution 항목 · 지역 판정과 설정 파일 내용, Dolphin 엔진 패치가 다른 패치들과 함께 원본 소스에 적용됨. 실제 게임 · 기기에서는 확인 전입니다.</li>
 </ul>
 <figure><img src="img/overlay2.jpg" alt="Wii U 그래픽 팩 · Riivolution 시안"><figcaption>Wii U 그래픽 팩 · Wii Riivolution 시안 (0.0.257).</figcaption></figure>
+<h3>3DS xdelta 패치 (0.0.312)</h3>
+<ul>
+<li>3DS 게임도 길게 눌러 <b>한글 패치 적용</b>으로 IPS · BPS · xdelta 같은 파일 패치를 쓸 수 있습니다(다른 게임기와 같은 패치 창, 원본은 그대로 두고 패치한 게임을 새로 추가). 큰 게임(4GB)도 됩니다.</li>
+<li>대상은 암호가 풀린 <code>.3ds</code> · <code>.cci</code> · <code>.cxi</code>입니다. CIA로 설치한 게임은 파일이 없어 해당하지 않고, romfs 폴더 · code.ips로 된 패치는 지금처럼 "덧씌우는 한글 패치"(LayeredFS)로 넣습니다.</li>
+<li>패치가 만들어진 덤프(트림 여부 등)와 다르면 "원본이 맞지 않아요"가 뜹니다.</li>
+</ul>
 <h3>덧씌우는 한글 패치 · 3DS LayeredFS · PS2 .pnach (0.0.256)</h3>
 <ul>
 <li>게임 메뉴(3DS · PS2)에 <b>🧩 덧씌우는 한글 패치</b> 줄이 생겼습니다. 원본 롬은 그대로 두고, 켜 둔 패치만 게임을 켤 때 엔진이 덧씌워 읽습니다. 게임마다 패치를 여러 개 넣고 켜기 · 끄기 · 순서(아래쪽이 우선) · 지우기를 할 수 있고, 목록에 "🧩 한글 패치"로 표시됩니다.</li>
