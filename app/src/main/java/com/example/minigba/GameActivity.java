@@ -6159,8 +6159,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         MainActivity.sharedSettings(this).edit().remove("fresh_start:" + this.saveBaseName).apply();
                         autoStateFile().delete();
                     }
-                    // A crash while on Vulkan turns it off for that engine for good (MainActivity).
-                    NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId));
+                    if (isDreamcast()) {
+                        NativeGba.setDosOptions(new String[]{"dc-alpha"}, new String[]{dcAlphaExact() ? "per-pixel" : "default"}, "");
+                    }
+                    // A crash while on Vulkan turns it off for that engine for good (MainActivity);
+                    // a Dreamcast game can also be set to OpenGL (그래픽).
+                    NativeGba.setVulkan(!MainActivity.vulkanOff(MainActivity.sharedSettings(this), this.coreId) && !(isDreamcast() && dcOpenGl()));
                     // A Dreamcast game on several discs starts on the disc it was left on, so
                     // the scene saved with it comes back with the same disc in the drive.
                     NativeGba.setInitialDisk(isDiscGroup() ? MainActivity.sharedSettings(this).getInt("disc:" + this.saveBaseName, -1) : -1);
@@ -8051,6 +8055,154 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // 성능 탭: power, the readout, render scale, 속도 우선 and heat.
+    // ---- Dreamcast 그래픽 (0.0.311), per game: transparency sorted per pixel (Flycast's
+    // "per-pixel"; overlapped see-through pieces such as a face's eyes and mouth in order),
+    // and OpenGL instead of Vulkan to compare. Applied by starting the game again. ----
+    private static final int DC_COLOR = Color.rgb(202, 138, 4);
+
+    private boolean dcAlphaExact() {
+        return MainActivity.sharedSettings(this).getBoolean("dc_alpha:" + this.saveBaseName, false);
+    }
+
+    private boolean dcOpenGl() {
+        return MainActivity.sharedSettings(this).getBoolean("dc_gl:" + this.saveBaseName, false);
+    }
+
+    private String dcGraphicsSummary() {
+        return (dcAlphaExact() ? "반투명 정확하게" : "반투명 빠르게") + " · " + (dcOpenGl() ? "OpenGL" : "Vulkan");
+    }
+
+    private LinearLayout createDcGraphicsRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.PALETTE, DC_COLOR, "그래픽 (이 게임)", dcGraphicsSummary(), view -> showDcGraphicsDialog(menu));
+    }
+
+    private TextView dcChoice(String title, String note, boolean on) {
+        TextView choice = new TextView(this);
+        choice.setText(title + "\n" + note);
+        choice.setGravity(17);
+        choice.setTextSize(12.5f);
+        choice.setLineSpacing(0, 1.1f);
+        choice.setPadding(dp(6), dp(9), dp(6), dp(9));
+        choice.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        choice.setTextColor(on ? Color.WHITE : Theme.text(Color.rgb(55, 65, 81)));
+        choice.setBackground(roundRect(on ? DC_COLOR : Color.rgb(241, 243, 245), dp(11)));
+        return choice;
+    }
+
+    private TextView dcNote(String text, int background, int color) {
+        TextView note = new TextView(this);
+        note.setText(text);
+        note.setTextSize(11.5f);
+        note.setLineSpacing(0, 1.15f);
+        note.setTextColor(Theme.text(color));
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(roundRect(background, dp(12)));
+        return note;
+    }
+
+    private void showDcGraphicsDialog(android.app.Dialog menu) {
+        final boolean[] exact = {dcAlphaExact()};
+        final boolean[] gl = {dcOpenGl()};
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(roundRect(Color.WHITE, dp(24)));
+        TextView title = new TextView(this);
+        title.setText("그래픽 (이 게임)");
+        title.setTextSize(17f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        LinearLayout[] rows = new LinearLayout[2];
+        Runnable[] render = new Runnable[1];
+        String[][][] texts = {
+                {{"빠르게", "삼각형 단위 · 기본"}, {"정확하게", "픽셀 단위 · 조금 무거움"}},
+                {{"Vulkan", "기본 · 빠름"}, {"OpenGL", "다르게 보이면 비교용"}}};
+        String[] labels = {"반투명 처리", "그리기 방식"};
+        String[] notes = {"겹쳐 그리는 반투명 조각(얼굴의 눈 · 입, 연기, 유리)의 앞뒤를 픽셀마다 정해요. 조각 사이로 검은 틈이나 엉뚱한 색이 보이면 켜 보세요.",
+                "그려지는 결과가 엔진마다 조금 달라요. 반투명 정확하게로 안 나아지면 이쪽도 바꿔 보세요."};
+        int[][] noteColors = {{Color.rgb(255, 251, 235), Color.rgb(146, 64, 14)}, {Color.rgb(241, 245, 249), Color.rgb(51, 65, 85)}};
+        for (int g = 0; g < 2; g++) {
+            TextView label = new TextView(this);
+            label.setText(labels[g]);
+            label.setTextSize(13f);
+            label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            label.setTextColor(Theme.text(Color.rgb(51, 65, 85)));
+            label.setPadding(0, dp(12), 0, dp(6));
+            panel.addView(label);
+            rows[g] = new LinearLayout(this);
+            panel.addView(rows[g]);
+            LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+            noteParams.setMargins(0, dp(8), 0, 0);
+            panel.addView(dcNote(notes[g], noteColors[g][0], noteColors[g][1]), noteParams);
+        }
+        render[0] = () -> {
+            for (int g = 0; g < 2; g++) {
+                rows[g].removeAllViews();
+                for (int k = 0; k < 2; k++) {
+                    boolean on = (g == 0 ? exact[0] : gl[0]) == (k == 1);
+                    TextView choice = dcChoice(texts[g][k][0], texts[g][k][1], on);
+                    final int group = g;
+                    final int which = k;
+                    choice.setOnClickListener(v -> {
+                        if (group == 0) {
+                            exact[0] = which == 1;
+                        } else {
+                            gl[0] = which == 1;
+                        }
+                        render[0].run();
+                    });
+                    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1f);
+                    params.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+                    rows[g].addView(choice, params);
+                }
+            }
+        };
+        render[0].run();
+        LinearLayout.LayoutParams infoParams = new LinearLayout.LayoutParams(-1, -2);
+        infoParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(dcNote("바꾸면 게임이 다시 켜져요 — 지금 장면을 저장했다가 이어서 시작해요. 이 게임에만 적용.", Color.rgb(239, 246, 255), Color.rgb(30, 58, 138)), infoParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = dcChoice("취소", "", false);
+        cancel.setText("취소");
+        cancel.setTextSize(15f);
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        TextView apply = dcChoice("적용 (다시 켜기)", "", true);
+        apply.setText("적용 (다시 켜기)");
+        apply.setTextSize(15f);
+        apply.setOnClickListener(v -> {
+            if (exact[0] == dcAlphaExact() && gl[0] == dcOpenGl()) {
+                dialog.dismiss();
+                return;
+            }
+            MainActivity.sharedSettings(this).edit().putBoolean("dc_alpha:" + this.saveBaseName, exact[0])
+                    .putBoolean("dc_gl:" + this.saveBaseName, gl[0]).commit();
+            dialog.dismiss();
+            if (menu != null) {
+                menu.dismiss();
+            }
+            relaunchGame();
+        });
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+        applyParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(400)), -2);
+        }
+        dialog.show();
+    }
+
     // ---- Dreamcast games on several discs (the app's .m3u, 0.0.303) ----
     private boolean isDiscGroup() {
         return isDreamcast() && this.romPath != null && this.romPath.toLowerCase(java.util.Locale.ROOT).endsWith(".m3u");
@@ -8100,6 +8252,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         panel.addView(createPowerRow(dialog), tabRowParams(panel));
         panel.addView(createPerfRow(), tabRowParams(panel));
+        if (isDreamcast()) {
+            panel.addView(createDcGraphicsRow(dialog), tabRowParams(panel));
+        }
         panel.addView(createLogSaveRow(), tabRowParams(panel));
         if (isPsp()) {
             panel.addView(createScaleRow(dialog), tabRowParams(panel));

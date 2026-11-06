@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <strings.h>
 #include <deque>
 #include <fstream>
 #include <map>
@@ -424,6 +425,8 @@ struct Core {
     std::string sramPath;
     std::string statePath;
     std::unordered_map<std::string, std::string> variables;
+    std::unordered_map<std::string, std::string> variableChoices;  // "a|b|c" per option
+    std::string pickedChoice;
 
     unsigned pixelFormat = RETRO_PIXEL_FORMAT_RGB565;
     double fps = kDefaultFps;
@@ -1917,6 +1920,7 @@ void storeDefaultVariables(Core* core, const retro_variable* vars) {
         const char* bar = strchr(start, '|');
         std::string value = bar != nullptr ? std::string(start, bar - start) : std::string(start);
         core->variables[vars->key] = value;
+        core->variableChoices[vars->key] = start;   // "a|b|c", to pick one by its start
     }
 }
 
@@ -2090,6 +2094,26 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         case RETRO_ENVIRONMENT_GET_VARIABLE: {
             auto* var = static_cast<retro_variable*>(data);
             if (var == nullptr || var->key == nullptr) return false;
+            // Dreamcast 그래픽 (0.0.311): transparency sorted per pixel for this game, as the
+            // core names that choice ("per-pixel (...)").
+            if (strcmp(var->key, "reicast_alpha_sorting") == 0 && dos::option("dc-alpha") != nullptr && strcmp(dos::option("dc-alpha"), "per-pixel") == 0) {
+                auto it = core->variableChoices.find(var->key);
+                if (it != core->variableChoices.end()) {
+                    size_t at = 0;
+                    const std::string& all = it->second;
+                    while (at <= all.size()) {
+                        size_t end = all.find('|', at);
+                        std::string choice = all.substr(at, end == std::string::npos ? std::string::npos : end - at);
+                        if (strncasecmp(choice.c_str(), "per-pixel", 9) == 0) {
+                            core->pickedChoice = choice;
+                            var->value = core->pickedChoice.c_str();
+                            return true;
+                        }
+                        if (end == std::string::npos) break;
+                        at = end + 1;
+                    }
+                }
+            }
             if (const char* fixed = fixedVariable(var->key)) {
                 var->value = fixed;
                 return true;
