@@ -20,6 +20,15 @@
 #include <vulkan/vulkan.h>
 
 #include "libretro_vulkan.h"
+// Older NDK headers: the raster-order extension under its ARM name, or not at all.
+#ifndef VK_EXT_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_EXTENSION_NAME
+#ifdef VK_ARM_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_EXTENSION_NAME
+#define VK_EXT_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_EXTENSION_NAME "VK_EXT_rasterization_order_attachment_access"
+#define VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_FEATURES_EXT \
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_FEATURES_ARM
+typedef VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesARM VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT;
+#endif
+#endif
 
 // Older NDK headers stop at Vulkan 1.3.
 #ifndef VK_API_VERSION_1_4
@@ -338,6 +347,7 @@ public:
     retro_hw_render_callback hw{};
     const retro_hw_render_context_negotiation_interface_vulkan* negotiation = nullptr;
     retro_hw_render_interface_vulkan iface{};
+    bool fullDevice = false;
 
     VkPhysicalDevice gpu = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
@@ -941,6 +951,107 @@ bool makeDevice(Host* h) {
         info.pQueueCreateInfos = &queueInfo;
         info.enabledExtensionCount = 1;
         info.ppEnabledExtensionNames = required;
+        // Vita3K (no negotiation interface): the optional extensions and features its own
+        // build enables, where the GPU has them. Without them its buffer device addresses,
+        // standard-layout uniforms, FP16 and raster-order access are used un-enabled, which a
+        // newer Adreno driver refuses (vma createBuffer: ErrorInitializationFailed).
+        std::vector<const char*> extensions(required, required + 1);
+        VkPhysicalDeviceFeatures enabled{};
+        VkPhysicalDeviceBufferDeviceAddressFeatures bda{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+        VkPhysicalDeviceUniformBufferStandardLayoutFeatures layout{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES};
+        VkPhysicalDeviceShaderFloat16Int8Features f16{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+        VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT rasterOrder{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_FEATURES_EXT};
+        VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT interlock{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT};
+        if (h->fullDevice) {
+            auto getFeatures = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures>(vkGetInstanceProcAddr(gInstance, "vkGetPhysicalDeviceFeatures"));
+            auto getFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(vkGetInstanceProcAddr(gInstance, "vkGetPhysicalDeviceFeatures2"));
+            uint32_t count = 0;
+            vkEnumerateDeviceExtensionProperties(gGpu, nullptr, &count, nullptr);
+            std::vector<VkExtensionProperties> have(count);
+            vkEnumerateDeviceExtensionProperties(gGpu, nullptr, &count, have.data());
+            auto has = [&](const char* name) {
+                for (const auto& e : have) {
+                    if (strcmp(e.extensionName, name) == 0) return true;
+                }
+                return false;
+            };
+            const char* wanted[] = {
+                    VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+                    VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME, VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+                    VK_KHR_DEVICE_GROUP_EXTENSION_NAME, VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME,
+                    VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME,
+                    VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME, VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME,
+                    VK_EXT_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_EXTENSION_NAME, VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+                    VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME, VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+#ifdef VK_ANDROID_external_memory_android_hardware_buffer
+                    VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+#endif
+                    VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+            };
+            for (const char* name : wanted) {
+                if (has(name)) extensions.push_back(name);
+            }
+            if (getFeatures != nullptr) {
+                VkPhysicalDeviceFeatures supported{};
+                getFeatures(gGpu, &supported);
+                enabled.depthClamp = supported.depthClamp;
+                enabled.fillModeNonSolid = supported.fillModeNonSolid;
+                enabled.wideLines = supported.wideLines;
+                enabled.samplerAnisotropy = supported.samplerAnisotropy;
+                enabled.occlusionQueryPrecise = supported.occlusionQueryPrecise;
+                enabled.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
+                enabled.shaderStorageImageExtendedFormats = supported.shaderStorageImageExtendedFormats;
+                enabled.shaderInt16 = supported.shaderInt16;
+                info.pEnabledFeatures = &enabled;
+            }
+            if (getFeatures2 != nullptr) {
+                // Ask for each feature the GPU has; chain only those it has.
+                VkPhysicalDeviceBufferDeviceAddressFeatures qBda{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES};
+                VkPhysicalDeviceUniformBufferStandardLayoutFeatures qLayout{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFORM_BUFFER_STANDARD_LAYOUT_FEATURES};
+                VkPhysicalDeviceShaderFloat16Int8Features qF16{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES};
+                VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT qOrder{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_FEATURES_EXT};
+                VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT qLock{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT};
+                qBda.pNext = &qLayout;
+                qLayout.pNext = &qF16;
+                qF16.pNext = has(VK_EXT_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_EXTENSION_NAME) ? static_cast<void*>(&qOrder) : nullptr;
+                qOrder.pNext = has(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME) ? static_cast<void*>(&qLock) : nullptr;
+                if (qF16.pNext == nullptr && has(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME)) qF16.pNext = &qLock;
+                VkPhysicalDeviceFeatures2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                query.pNext = &qBda;
+                getFeatures2(gGpu, &query);
+                void* chain = nullptr;
+                if (qLock.fragmentShaderSampleInterlock && has(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME)) {
+                    interlock.fragmentShaderSampleInterlock = VK_TRUE;
+                    interlock.pNext = chain;
+                    chain = &interlock;
+                }
+                if (qOrder.rasterizationOrderColorAttachmentAccess && has(VK_EXT_RASTERIZATION_ORDER_ATTACHMENT_ACCESS_EXTENSION_NAME)) {
+                    rasterOrder.rasterizationOrderColorAttachmentAccess = VK_TRUE;
+                    rasterOrder.pNext = chain;
+                    chain = &rasterOrder;
+                }
+                if (qF16.shaderFloat16) {
+                    f16.shaderFloat16 = VK_TRUE;
+                    f16.pNext = chain;
+                    chain = &f16;
+                }
+                if (qLayout.uniformBufferStandardLayout) {
+                    layout.uniformBufferStandardLayout = VK_TRUE;
+                    layout.pNext = chain;
+                    chain = &layout;
+                }
+                if (qBda.bufferDeviceAddress) {
+                    bda.bufferDeviceAddress = VK_TRUE;
+                    bda.pNext = chain;
+                    chain = &bda;
+                }
+                info.pNext = chain;
+                VLOGI("Vita3K device: bda %d, std layout %d, fp16 %d, raster order %d, %zu extensions", qBda.bufferDeviceAddress,
+                      qLayout.uniformBufferStandardLayout, qF16.shaderFloat16, qOrder.rasterizationOrderColorAttachmentAccess, extensions.size());
+            }
+            info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+            info.ppEnabledExtensionNames = extensions.data();
+        }
         if (vkCreateDevice(gGpu, &info, nullptr, &h->device) != VK_SUCCESS) {
             return false;
         }
@@ -1064,6 +1175,10 @@ Host* create(const retro_hw_render_callback& hw) {
     auto* host = new Host();
     host->hw = hw;
     return host;
+}
+
+void setFullDevice(Host* host, bool full) {
+    host->fullDevice = full;
 }
 
 void setNegotiation(Host* host, const retro_hw_render_context_negotiation_interface* iface) {

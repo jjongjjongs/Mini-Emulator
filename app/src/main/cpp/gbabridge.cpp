@@ -2282,6 +2282,7 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
                 if (core->vk == nullptr) {
                     return false;
                 }
+                vkhw::setFullDevice(core->vk, core->coreId == "vita3k");
                 if (core->pendingNegotiation != nullptr) {
                     vkhw::setNegotiation(core->vk, core->pendingNegotiation);
                     core->pendingNegotiation = nullptr;

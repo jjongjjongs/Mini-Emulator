@@ -20,6 +20,9 @@ class Host;
 Host* create(const retro_hw_render_callback& hw);
 // The core's SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE, if it sends one.
 void setNegotiation(Host* host, const retro_hw_render_context_negotiation_interface* iface);
+// Vita3K: make the device with the extensions and features it uses (it reads what the GPU
+// supports and uses them as if enabled; 0.0.325).
+void setFullDevice(Host* host, bool full);
 // Makes the device (through the core's create_device when it negotiates). On the
 // emulation thread, before context_reset.
 bool init(Host* host);
