@@ -1,8 +1,8 @@
 diff --git a/vita3k/renderer/src/vulkan/screen_renderer.cpp b/vita3k/renderer/src/vulkan/screen_renderer.cpp
-index 564b00d..c0aedc2 100644
+index 564b00d..2639f7c 100644
 --- a/vita3k/renderer/src/vulkan/screen_renderer.cpp
 +++ b/vita3k/renderer/src/vulkan/screen_renderer.cpp
-@@ -563,7 +563,12 @@ void ScreenRenderer::create_surface_image() {
+@@ -563,7 +563,25 @@ void ScreenRenderer::create_surface_image() {
          .usage = vk::BufferUsageFlagBits::eTransferSrc,
          .sharingMode = vk::SharingMode::eExclusive
      };
@@ -11,6 +11,19 @@ index 564b00d..c0aedc2 100644
 +        std::tie(vita_surface_staging, vita_surface_staging_alloc) = state.allocator.createBuffer(buffer_info, vkutil::vma_mapped_alloc, vita_surface_staging_info);
 +    } catch (const std::exception &e) {
 +        LOG_ERROR("create_surface_image: staging createBuffer failed: {}", e.what());
++        // What the driver says this buffer needs (VMA refuses a requirement of size 0).
++        try {
++            vk::Buffer probe = state.device.createBuffer(buffer_info);
++            vk::MemoryRequirements req = state.device.getBufferMemoryRequirements(probe);
++            vk::StructureChain<vk::MemoryRequirements2, vk::MemoryDedicatedRequirements> req2
++                = state.device.getBufferMemoryRequirements2<vk::MemoryRequirements2, vk::MemoryDedicatedRequirements>(vk::BufferMemoryRequirementsInfo2{ .buffer = probe });
++            LOG_ERROR("create_surface_image: driver requirements: size {} align {} types 0x{:X}; v2 size {} types 0x{:X}",
++                req.size, req.alignment, req.memoryTypeBits, req2.get<vk::MemoryRequirements2>().memoryRequirements.size,
++                req2.get<vk::MemoryRequirements2>().memoryRequirements.memoryTypeBits);
++            state.device.destroyBuffer(probe);
++        } catch (const std::exception &e2) {
++            LOG_ERROR("create_surface_image: probe failed too: {}", e2.what());
++        }
 +        throw;
 +    }
  }
