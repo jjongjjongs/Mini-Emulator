@@ -6134,8 +6134,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                     if (isVita()) {
                         int scale = vitaScale();
-                        NativeGba.setDosOptions(new String[]{"vita3k_backend_renderer", "vita3k_resolution_multiplier", "vita3k_async_pipeline", "vita3k_v_sync"},
-                                new String[]{"Vulkan", String.valueOf(scale), "enabled", "disabled"}, "");
+                        vitaFallbackAfterCrash();
+                        NativeGba.setDosOptions(new String[]{"vita3k_backend_renderer", "vita3k_resolution_multiplier", "vita3k_async_pipeline", "vita3k_v_sync",
+                                        "vita3k_memory_mapping"},
+                                new String[]{"Vulkan", String.valueOf(scale), "enabled", "disabled", VITA_MM_VALUES[vitaMemoryMapping()]}, "");
                     }
                     if (isMsx()) {
                         // The machine type and screen / sound the player picked for this game.
@@ -8343,6 +8345,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isVita()) {
             panel.addView(createVitaScaleRow(dialog), tabRowParams(panel));
+            panel.addView(createVitaMemoryRow(dialog), tabRowParams(panel));
             TextView vitaNote = new TextView(this);
             vitaNote.setText("PS Vita는 엔진이 장면을 저장하지 못해서 이어하기 · 되감기 · 세이브 슬롯이 없어요. 게임 안에서 저장해 주세요.\n앞면 터치 = 게임 화면 누르기 · 뒷면 터치 = L2를 누른 채 화면 누르기");
             vitaNote.setTextSize(12f);
@@ -14117,6 +14120,59 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private int vitaScale() {
         int value = MainActivity.sharedSettings(this).getInt("vita_scale:" + this.saveBaseName, 1);
         return value >= 1 && value <= 3 ? value : 1;
+    }
+
+    // GPU 메모리 매핑 (0.0.324): how Vita3K shares the game's memory with the GPU. Its default
+    // (double buffer) makes one GPU buffer per region the game maps; some games ask for one the
+    // phone's driver refuses and Vita3K stops ("vma::Allocator::createBuffer"). Off copies
+    // instead: slower, works everywhere.
+    private static final String[] VITA_MM_NAMES = {"기본 (Double Buffer)", "끔 (호환성 우선)", "Page Table"};
+    private static final String[] VITA_MM_VALUES = {"double-buffer", "disabled", "page-table"};
+
+    private int vitaMemoryMapping() {
+        int value = MainActivity.sharedSettings(this).getInt("vita_mm:" + this.saveBaseName, 0);
+        return value >= 0 && value < VITA_MM_VALUES.length ? value : 0;
+    }
+
+    // The last run of this game stopped on a GPU buffer the driver refused: memory mapping off.
+    private void vitaFallbackAfterCrash() {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        boolean sameGame = this.saveBaseName.equals(prefs.getString("vita_last_game", null));
+        prefs.edit().putString("vita_last_game", this.saveBaseName).apply();
+        if (!sameGame || prefs.contains("vita_mm:" + this.saveBaseName)) {
+            return;
+        }
+        String tail = readTail(new File(getFilesDir(), "engine_log.txt"), 256 * 1024) + CrashReports.readGameLog(this);
+        if (tail.contains("vma::Allocator::createBuffer") || tail.contains("InitializationFailedError")) {
+            prefs.edit().putInt("vita_mm:" + this.saveBaseName, 1).apply();
+            runOnUiThread(() -> Toast.makeText(this, "지난번에 그래픽 메모리 오류로 멈춰서, 이 게임은 GPU 메모리 매핑을 끄고 켜요 (메뉴 → 성능에서 바꿀 수 있어요)",
+                    Toast.LENGTH_LONG).show());
+        }
+    }
+
+    private static String readTail(File file, int max) {
+        if (!file.isFile()) return "";
+        try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(file, "r")) {
+            long start = Math.max(0, in.length() - max);
+            byte[] data = new byte[(int) (in.length() - start)];
+            in.seek(start);
+            in.readFully(data);
+            return new String(data, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private LinearLayout createVitaMemoryRow(android.app.Dialog menu) {
+        String[] notes = {"Vita3K 기본 · 빠름", "게임이 켜지다 \"그래픽 메모리\" 오류로 멈출 때 · 조금 느릴 수 있어요", "다른 방식 · 기기에 따라 더 빠르거나 안 될 수 있어요"};
+        return createSettingRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "GPU 메모리 매핑", VITA_MM_NAMES[vitaMemoryMapping()],
+                view -> showChoiceDialog(RoundIconView.PERF, RoundIconView.COLOR_PERF, "GPU 메모리 매핑", VITA_MM_NAMES, notes, vitaMemoryMapping(),
+                        "게임 메모리를 GPU와 나누는 방식이에요. 켜자마자 엔진 오류로 멈추는 게임은 \"끔\"으로 해 보세요. 이 게임에만 적용되고, 바꾸면 다시 켜져요.",
+                        Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용 (다시 시작)", choice -> {
+                            MainActivity.sharedSettings(this).edit().putInt("vita_mm:" + this.saveBaseName, choice).apply();
+                            if (menu != null) menu.dismiss();
+                            relaunchGame();
+                        }));
     }
 
     private LinearLayout createVitaScaleRow(android.app.Dialog menu) {
