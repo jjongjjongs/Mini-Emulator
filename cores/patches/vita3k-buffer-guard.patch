@@ -1,0 +1,49 @@
+diff --git a/vita3k/renderer/src/vulkan/screen_renderer.cpp b/vita3k/renderer/src/vulkan/screen_renderer.cpp
+index 564b00d..c0aedc2 100644
+--- a/vita3k/renderer/src/vulkan/screen_renderer.cpp
++++ b/vita3k/renderer/src/vulkan/screen_renderer.cpp
+@@ -563,7 +563,12 @@ void ScreenRenderer::create_surface_image() {
+         .usage = vk::BufferUsageFlagBits::eTransferSrc,
+         .sharingMode = vk::SharingMode::eExclusive
+     };
+-    std::tie(vita_surface_staging, vita_surface_staging_alloc) = state.allocator.createBuffer(buffer_info, vkutil::vma_mapped_alloc, vita_surface_staging_info);
++    try {
++        std::tie(vita_surface_staging, vita_surface_staging_alloc) = state.allocator.createBuffer(buffer_info, vkutil::vma_mapped_alloc, vita_surface_staging_info);
++    } catch (const std::exception &e) {
++        LOG_ERROR("create_surface_image: staging createBuffer failed: {}", e.what());
++        throw;
++    }
+ }
+ 
+ bool ScreenRenderer::rebuild_swapchain_if_visible() {
+diff --git a/vita3k/vkutil/src/objects.cpp b/vita3k/vkutil/src/objects.cpp
+index 8f1f002..2659702 100644
+--- a/vita3k/vkutil/src/objects.cpp
++++ b/vita3k/vkutil/src/objects.cpp
+@@ -161,13 +161,25 @@ Buffer::~Buffer() {
+ }
+ 
+ void Buffer::init_buffer(vk::BufferUsageFlags usage_flags, const vma::AllocationCreateInfo &alloc_create_info) {
++    // Mini Emulator: VMA refuses a buffer of size 0 (ErrorInitializationFailed); a tiny
++    // one does no harm where nothing is written to it.
++    if (size == 0) {
++        LOG_WARN("init_buffer: zero-size buffer requested (usage 0x{:X}), using 16 bytes", static_cast<uint32_t>(usage_flags));
++        size = 16;
++    }
+     vk::BufferCreateInfo buffer_info{
+         .size = size,
+         .usage = usage_flags,
+         .sharingMode = vk::SharingMode::eExclusive
+     };
+     vma::AllocationInfo alloc_info;
+-    std::tie(buffer, allocation) = allocator.createBuffer(buffer_info, alloc_create_info, alloc_info);
++    try {
++        std::tie(buffer, allocation) = allocator.createBuffer(buffer_info, alloc_create_info, alloc_info);
++    } catch (const std::exception &e) {
++        LOG_ERROR("init_buffer: createBuffer failed (size {}, usage 0x{:X}, alloc flags 0x{:X}, usage {}): {}", size,
++            static_cast<uint32_t>(usage_flags), static_cast<uint32_t>(alloc_create_info.flags), static_cast<int>(alloc_create_info.usage), e.what());
++        throw;
++    }
+     mapped_data = alloc_info.pMappedData;
+ }
+ 

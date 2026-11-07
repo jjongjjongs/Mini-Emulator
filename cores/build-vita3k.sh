@@ -62,5 +62,5 @@ echo "== building vita3k_libretro"
 }
 mkdir -p "$OUT"
 SO="$(find "$BUILD" -name 'vita3k_libretro*.so' -print -quit)"
-"$NDK"/toolchains/llvm/prebuilt/*/bin/llvm-strip --strip-all -o "$OUT/libvita3k_libretro_android.so" "$SO"
+"$NDK"/toolchains/llvm/prebuilt/*/bin/llvm-strip --strip-debug -o "$OUT/libvita3k_libretro_android.so" "$SO"
 echo "   -> $OUT/libvita3k_libretro_android.so ($(du -h "$OUT/libvita3k_libretro_android.so" | cut -f1))"
