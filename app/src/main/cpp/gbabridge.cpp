@@ -3627,8 +3627,9 @@ void runLoop(Core* core) {
             } else if (powerMode == 0) {
                 unpinCores();
             }
-            if ((nowMode == 2) != (powerMode == 2)) {
-                // mGBA's own frame skipping follows 절전.
+            if ((nowMode == 2) != (powerMode == 2) && core->coreId == "gba") {
+                // mGBA's own frame skipping follows 절전 (other cores have nothing to re-read;
+                // Vita3K would rebuild its screen filter and stop).
                 gVariablesUpdated.store(true);
             }
             powerMode = nowMode;
@@ -4924,6 +4925,7 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPointer(
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCoreOptions(
         JNIEnv* env, jclass /*cls*/, jobjectArray keys, jobjectArray values, jboolean clear) {
     std::lock_guard<std::mutex> lock(gOptionOverridesMutex);
+    std::unordered_map<std::string, std::string> before = gOptionOverrides;
     if (clear == JNI_TRUE) {
         gOptionOverrides.clear();
     }
@@ -4937,7 +4939,13 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCoreOptions(
         if (key != nullptr) env->DeleteLocalRef(key);
         if (value != nullptr) env->DeleteLocalRef(value);
     }
-    gVariablesUpdated.store(true);
+    // Only a real change tells the core to read its options again: Vita3K rebuilds its
+    // screen filter then, which in the libretro build (no swapchain) made a buffer of size 0
+    // and stopped every PS Vita game at start (0.0.316-0.0.326, from the empty reset each
+    // game start does).
+    if (gOptionOverrides != before) {
+        gVariablesUpdated.store(true);
+    }
 }
 
 // The options the running core listed whose key starts with prefix, as {key, description,

@@ -6134,7 +6134,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                     if (isVita()) {
                         int scale = vitaScale();
-                        vitaFallbackAfterCrash();
+                        vitaResetMappingOnce();
                         NativeGba.setDosOptions(new String[]{"vita3k_backend_renderer", "vita3k_resolution_multiplier", "vita3k_async_pipeline", "vita3k_v_sync",
                                         "vita3k_memory_mapping"},
                                 new String[]{"Vulkan", String.valueOf(scale), "enabled", "disabled", VITA_MM_VALUES[vitaMemoryMapping()]}, "");
@@ -14134,7 +14134,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return value >= 0 && value < VITA_MM_VALUES.length ? value : 0;
     }
 
-    // The last run of this game stopped on a GPU buffer the driver refused: memory mapping off.
+    // 0.0.324-0.0.326 turned memory mapping off after a crash that turned out to have another
+    // cause (the screen filter rebuilt on an option refresh); those games get the default back.
+    private void vitaResetMappingOnce() {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        if (prefs.getBoolean("vita_mm_reset_327", false)) {
+            return;
+        }
+        android.content.SharedPreferences.Editor edit = prefs.edit();
+        for (String key : prefs.getAll().keySet()) {
+            if (key.startsWith("vita_mm:")) {
+                edit.remove(key);
+            }
+        }
+        edit.remove("vita_last_game").putBoolean("vita_mm_reset_327", true).apply();
+    }
+
+    // (Unused since 0.0.327.) The last run of this game stopped on a GPU buffer the driver
+    // refused: memory mapping off.
     private void vitaFallbackAfterCrash() {
         android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
         boolean sameGame = this.saveBaseName.equals(prefs.getString("vita_last_game", null));
