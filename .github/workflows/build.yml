@@ -590,6 +590,11 @@ jobs:
           if [ -f ownership/build/outputs/apk/release/ownership-release.apk ]; then
             cp ownership/build/outputs/apk/release/ownership-release.apk "dist/release/Mini-Emulator-ownership-proof.apk"
           fi
+          # The PS Vita core with its symbol table (the APK's copy is stripped), to name
+          # the functions in crash reports.
+          if [ -f app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so ]; then
+            gzip -9 -c app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so > "dist/release/vita3k-symbols-$version.so.gz"
+          fi
           ls -lR dist
 
       - uses: actions/upload-artifact@v4
@@ -612,6 +617,8 @@ jobs:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
           name: Mini Emulator ${{ inputs.release_tag || github.ref_name }}
-          # Only the signed APK; the debug build cannot update an installed copy.
-          files: dist/release/Mini-Emulator-*.apk
-          fail_on_unmatched_files: true
+          # Only the signed APK (and the PS Vita core's symbols); the debug build cannot update an installed copy.
+          files: |
+            dist/release/Mini-Emulator-*.apk
+            dist/release/vita3k-symbols-*.so.gz
+          fail_on_unmatched_files: false
