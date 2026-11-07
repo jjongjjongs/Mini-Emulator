@@ -47,6 +47,14 @@ jobs:
             app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
           key: vita3k-${{ hashFiles('cores/build-vita3k.sh', 'cores/patches/vita3k-*.patch') }}
 
+      # The core with its symbol table (the APK packaging strips it), to name crash offsets.
+      - name: Upload core with symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: vita3k-core-symbols
+          path: app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+          retention-days: 30
+
       - name: Upload build logs
         if: failure()
         uses: actions/upload-artifact@v4
