@@ -300,6 +300,25 @@ final class VitaPatch {
             for (ZipEntry e : patches) {
                 String name = baseName(e.getName().replace('\\', '/'));
                 String fileName = name.substring(0, name.lastIndexOf('.'));
+                // A patch named after the release ("grand-kingdom-…-data00.xdelta"): the file
+                // it was made from, as xdelta3 wrote it in its header, or the name's last part
+                // that is a file of the game (0.0.332).
+                if (findIn(byNameUpdate, byName, fileName) == null) {
+                    String fromHeader;
+                    try (InputStream in = zip.getInputStream(e)) {
+                        fromHeader = vcdiffSourceName(in);
+                    }
+                    if (fromHeader != null && findIn(byNameUpdate, byName, fromHeader) != null) {
+                        fileName = fromHeader;
+                    } else {
+                        String bySuffix = suffixMatch(fileName, byNameUpdate, byName);
+                        if (bySuffix != null) {
+                            fileName = bySuffix;
+                        } else if (fromHeader != null) {
+                            fileName = fromHeader;
+                        }
+                    }
+                }
                 Item item = new Item();
                 item.patchEntry = e.getName();
                 Item sum = sums.get(fileName.toLowerCase(Locale.ROOT));
@@ -347,6 +366,74 @@ final class VitaPatch {
             plan.error = "zip을 읽지 못했어요: " + e.getMessage();
         }
         return plan;
+    }
+
+    private static List<File> findIn(Map<String, List<File>> first, Map<String, List<File>> second, String name) {
+        String key = name.toLowerCase(Locale.ROOT);
+        List<File> found = first.get(key);
+        return found != null ? found : second.get(key);
+    }
+
+    // The game file whose name ends the patch's name after a '-', '_', '.' or space
+    // ("…-ko-v0.9-data00" → "data00", or "data00.psarc" for "…-data00").
+    private static String suffixMatch(String patchName, Map<String, List<File>> first, Map<String, List<File>> second) {
+        String lower = patchName.toLowerCase(Locale.ROOT);
+        String best = null;
+        for (Map<String, List<File>> map : java.util.Arrays.asList(first, second)) {
+            for (String file : map.keySet()) {
+                if (map.get(file).size() != 1) continue;
+                String stem = file.contains(".") ? file.substring(0, file.lastIndexOf('.')) : file;
+                for (String candidate : new String[]{file, stem}) {
+                    if (candidate.length() < 3 || !lower.endsWith(candidate)) continue;
+                    int at = lower.length() - candidate.length();
+                    if (at > 0 && "-_. ".indexOf(lower.charAt(at - 1)) < 0) continue;
+                    if (best == null || file.length() > best.length()) best = file;
+                }
+            }
+            if (best != null) return best;
+        }
+        return null;
+    }
+
+    // xdelta3 writes "target//source/" (with compression marks) in the VCDIFF application
+    // header; the source's file name, or null.
+    static String vcdiffSourceName(InputStream in) throws IOException {
+        byte[] head = new byte[4096];
+        int n = 0;
+        while (n < head.length) {
+            int r = in.read(head, n, head.length - n);
+            if (r < 0) break;
+            n += r;
+        }
+        if (n < 6 || (head[0] & 0xFF) != 0xD6 || (head[1] & 0xFF) != 0xC3 || (head[2] & 0xFF) != 0xC4) return null;
+        int indicator = head[4] & 0xFF;
+        int at = 5;
+        if ((indicator & 0x01) != 0) at++;                       // secondary compressor id
+        if ((indicator & 0x02) != 0) {                            // code table: skip its length
+            long[] len = varint(head, at, n);
+            if (len == null) return null;
+            at = (int) len[1] + (int) len[0];
+        }
+        if ((indicator & 0x04) == 0) return null;
+        long[] len = varint(head, at, n);
+        if (len == null || len[0] <= 0 || len[1] + len[0] > n) return null;
+        String app = new String(head, (int) len[1], (int) len[0], StandardCharsets.UTF_8);
+        String[] parts = app.split("/", -1);
+        String source = parts.length >= 3 ? parts[2] : null;
+        if (source == null || source.isEmpty()) return null;
+        source = baseName(source.replace('\\', '/'));
+        return source.isEmpty() ? null : source;
+    }
+
+    // {value, next position} of a VCDIFF varint, or null.
+    private static long[] varint(byte[] d, int at, int end) {
+        long v = 0;
+        for (int i = 0; i < 9 && at < end; i++) {
+            int b = d[at++] & 0xFF;
+            v = (v << 7) | (b & 0x7F);
+            if ((b & 0x80) == 0) return new long[]{v, at};
+        }
+        return null;
     }
 
     private static void index(File dir, Map<String, List<File>> out, int depth) {
