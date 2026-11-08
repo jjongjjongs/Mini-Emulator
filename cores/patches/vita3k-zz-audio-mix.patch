@@ -1,16 +1,17 @@
 diff --git a/vita3k/audio/src/impl/libretro_audio.cpp b/vita3k/audio/src/impl/libretro_audio.cpp
-index 0df3c81..92340eb 100644
+index 0df3c81..f83ccad 100644
 --- a/vita3k/audio/src/impl/libretro_audio.cpp
 +++ b/vita3k/audio/src/impl/libretro_audio.cpp
-@@ -23,6 +23,7 @@
+@@ -23,6 +23,8 @@
  
  #include <algorithm>
  #include <cstring>
++#include <chrono>
 +#include <unordered_map>
  
  static constexpr int NUM_AUDIO_BUFFERS = 8;
  
-@@ -85,51 +86,111 @@ int LibretroAudioAdapter::get_rest_sample(AudioOutPort &out_port) {
+@@ -85,51 +87,124 @@ int LibretroAudioAdapter::get_rest_sample(AudioOutPort &out_port) {
      return port.nb_buffers_ready * port.len;
  }
  
@@ -32,8 +33,21 @@ index 0df3c81..92340eb 100644
 +
  int libretro_audio_drain(AudioState &audio, std::vector<int16_t> &out_buffer) {
 -    out_buffer.clear();
-+    constexpr int kOutFrames = 800;
 +    constexpr int kOutRate = 48000;
++    // The audio of the real time since the last call, at least one 60 fps frame's worth: when
++    // the engine runs slower than 60 frames a second, a fixed 800 left gaps the player hears
++    // as crackles (the game's audio threads keep their own time). At most three frames' worth.
++    static std::chrono::steady_clock::time_point last;
++    static double carry = 0.0;
++    const auto now = std::chrono::steady_clock::now();
++    double want = 800.0;
++    if (last.time_since_epoch().count() != 0) {
++        const double elapsed = std::chrono::duration<double>(now - last).count();
++        want = std::clamp(elapsed * kOutRate + carry, 800.0, 2400.0);
++    }
++    last = now;
++    const int kOutFrames = static_cast<int>(want);
++    carry = std::min(want - kOutFrames, 1.0);
 +    std::vector<int32_t> acc(kOutFrames * 2, 0);
  
      const std::lock_guard<std::mutex> lock(audio.mutex);
