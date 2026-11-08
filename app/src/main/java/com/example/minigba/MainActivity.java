@@ -13281,6 +13281,14 @@ public final class MainActivity extends Activity {
     // size is swapped for the link (freeing its space). Returns bytes freed, or -1 when a
     // different file has the name.
     private long linkGame(File game, String mode) throws IOException {
+        if (game.isDirectory()) {
+            VitaFolder folder = MODE_VITA.equals(mode) ? readVitaFolder(game) : null;
+            if (folder == null) {
+                throw new IOException(game.getName() + "은(는) 게임 폴더가 아니에요.");
+            }
+            addVitaFolderGame(folder);
+            return 0;
+        }
         File dir = romDirFor(mode);
         if (!dir.isDirectory() && !dir.mkdirs()) {
             throw new IOException("ROM 폴더를 만들 수 없어요.");
@@ -13342,7 +13350,9 @@ public final class MainActivity extends Activity {
                 continue;
             }
             if (file.isDirectory()) {
-                if (depth > 0 && !file.getName().equals("Android")) {
+                if (MODE_VITA.equals(mode) && isVitaGameFolder(file)) {
+                    out.add(file);  // a dumped game folder (app/<ID>): linked as a .vitadir
+                } else if (depth > 0 && !file.getName().equals("Android")) {
                     findLinkableGames(file, mode, depth - 1, out);
                 }
             } else if (isLinkableGame(file, mode)) {
@@ -13470,8 +13480,20 @@ public final class MainActivity extends Activity {
                     count++;
                 }
             }
-            LinearLayout row = browserRow("📁", folder.getName(), count > 0 ? "게임 " + count + "개" : "폴더", true, null);
+            final boolean vitaGame = MODE_VITA.equals(mode) && isVitaGameFolder(folder);
+            LinearLayout row = browserRow(vitaGame ? "🎮" : "📁", folder.getName(), vitaGame ? "PS Vita 게임 폴더 · 눌러서 넣기" : count > 0 ? "게임 " + count + "개" : "폴더", true, null);
             row.setOnClickListener(view -> {
+                if (vitaGame) {
+                    VitaFolder game = readVitaFolder(folder);
+                    if (game != null) {
+                        long[] sum = new long[2];
+                        measureFolder(game.content, sum, 0);
+                        game.size = sum[0];
+                        game.files = (int) sum[1];
+                        showVitaFolderConfirm(dialog, game);
+                        return;
+                    }
+                }
                 dialog.dismiss();
                 showLinkBrowser(mode, folderMode, folder, picked);
             });
@@ -13636,14 +13658,15 @@ public final class MainActivity extends Activity {
             final int index = k;
             File game = games.get(k);
             File inApp = new File(appDir, game.getName());
-            boolean linked = isLink(inApp) && game.getAbsolutePath().equals(String.valueOf(linkTarget(inApp)));
-            boolean copy = inApp.exists() && !isLink(inApp) && inApp.length() == game.length();
+            boolean folderGame = game.isDirectory();
+            boolean linked = folderGame ? vitaPointerFor(game) != null : isLink(inApp) && game.getAbsolutePath().equals(String.valueOf(linkTarget(inApp)));
+            boolean copy = !folderGame && inApp.exists() && !isLink(inApp) && inApp.length() == game.length();
             checked[k] = !linked && !copy;
             String rel = game.getAbsolutePath().substring(Math.min(game.getAbsolutePath().length(), base.length() + 1)).replace("/", " / ");
-            String detail = formatSize(romBytes(game)) + (linked ? " · 이미 연결됨" : copy ? " · 이미 앱 안에 복사본 · 연결로 바꾸면 " + formatSize(inApp.length()) + " 확보" : "");
+            String detail = (folderGame ? "게임 폴더" : formatSize(romBytes(game))) + (linked ? " · 이미 연결됨" : copy ? " · 이미 앱 안에 복사본 · 연결로 바꾸면 " + formatSize(inApp.length()) + " 확보" : "");
             final boolean[] on = {checked[k]};
             final LinearLayout[] holder = new LinearLayout[1];
-            holder[0] = browserRow(game.getName().substring(game.getName().lastIndexOf('.') + 1).toUpperCase(Locale.ROOT), rel, detail, false, on);
+            holder[0] = browserRow(folderGame ? "VITA" : game.getName().substring(game.getName().lastIndexOf('.') + 1).toUpperCase(Locale.ROOT), rel, detail, false, on);
             if (linked) {
                 holder[0].setAlpha(0.5f);
             } else {
@@ -13749,7 +13772,7 @@ public final class MainActivity extends Activity {
                     }
                     for (File game : findLinkableGames(dir, mode, 6, new ArrayList<>())) {
                         File inApp = new File(romDirFor(mode), game.getName());
-                        if (inApp.exists() || isLink(inApp)) {
+                        if (game.isDirectory() ? vitaPointerFor(game) != null : inApp.exists() || isLink(inApp)) {
                             continue;
                         }
                         try {
@@ -24640,6 +24663,21 @@ public final class MainActivity extends Activity {
                         }, null));
                     }
                     int games = 0;
+                    if (isVitaGameFolder(dir)) {
+                        // Opened the game folder itself: it can go in from here too.
+                        final VitaFolder self = readVitaFolder(dir);
+                        if (self != null) {
+                            games++;
+                            list.addView(unzipBrowserRow("🎮", VITA_FOLDER_COLOR, "이 폴더 넣기 · " + dir.getName(), self.title + " (" + self.id + ")",
+                                    unzipTag("게임 폴더", Color.rgb(220, 252, 231), Color.rgb(22, 101, 52)), null, v -> {
+                                        long[] sum = new long[2];
+                                        measureFolder(self.content, sum, 0);
+                                        self.size = sum[0];
+                                        self.files = (int) sum[1];
+                                        showVitaFolderConfirm(dialog, self);
+                                    }, null));
+                        }
+                    }
                     for (Object row : rows) {
                         if (row instanceof VitaFolder) {
                             final VitaFolder game = (VitaFolder) row;
@@ -24778,6 +24816,25 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
+    // A folder holding a game itself: eboot.bin and sce_sys/param.sfo.
+    private static boolean isVitaGameFolder(File dir) {
+        return new File(dir, "eboot.bin").isFile() && new File(dir, "sce_sys/param.sfo").isFile();
+    }
+
+    // The .vitadir entry already pointing at this folder (or the game inside it), or null.
+    private File vitaPointerFor(File folder) {
+        File[] existing = romDirFor(MODE_VITA).listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(VitaPatch.FOLDER_EXT));
+        File content = VitaPatch.folderContent(folder);
+        for (File other : existing == null ? new File[0] : existing) {
+            File target = VitaPatch.folderOf(other);
+            if (target.getAbsolutePath().equals(folder.getAbsolutePath())
+                    || (content != null && content.equals(VitaPatch.folderContent(target)))) {
+                return other;
+            }
+        }
+        return null;
+    }
+
     // Writes "<title> (<ID>).vitadir" (the folder's path) into the PS Vita list.
     private File addVitaFolderGame(VitaFolder game) throws IOException {
         File dir = romDirFor(MODE_VITA);
@@ -24787,11 +24844,9 @@ public final class MainActivity extends Activity {
         String name = (game.title + " (" + game.id + ")").replaceAll("[\\\\/:*?\"<>|\\x00-\\x1f]", "_").trim();
         File pointer = new File(dir, name + VitaPatch.FOLDER_EXT);
         // The same folder already in: keep that entry (its saves go with its name).
-        File[] existing = dir.listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(VitaPatch.FOLDER_EXT));
-        for (File other : existing == null ? new File[0] : existing) {
-            if (VitaPatch.folderOf(other).getAbsolutePath().equals(game.folder.getAbsolutePath())) {
-                return other;
-            }
+        File other = vitaPointerFor(game.folder);
+        if (other != null) {
+            return other;
         }
         try (FileOutputStream out = new FileOutputStream(pointer)) {
             out.write((game.folder.getAbsolutePath() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
