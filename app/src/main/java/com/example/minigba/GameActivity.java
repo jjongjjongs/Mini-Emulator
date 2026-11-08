@@ -6184,7 +6184,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     // A Dreamcast game on several discs starts on the disc it was left on, so
                     // the scene saved with it comes back with the same disc in the drive.
                     NativeGba.setInitialDisk(isDiscGroup() ? MainActivity.sharedSettings(this).getInt("disc:" + this.saveBaseName, -1) : -1);
-                    handle = NativeGba.create(surface, this.romPath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
+                    // A PS Vita game folder in the list (.vitadir): the engine gets the folder itself.
+                    String corePath = isVita() && VitaPatch.isFolderGame(new File(this.romPath))
+                            ? VitaPatch.folderOf(new File(this.romPath)).getAbsolutePath() : this.romPath;
+                    handle = NativeGba.create(surface, corePath, savePath, systemPath, this.saveBaseName, this.coreId, this.audioSink);
                 } catch (RuntimeException e3) {
                     error = e3.getMessage() == null ? "ROM 실행 실패" : e3.getMessage();
                 } catch (UnsatisfiedLinkError e4) {

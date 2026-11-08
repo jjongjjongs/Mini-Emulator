@@ -132,7 +132,7 @@ public final class MainActivity extends Activity {
             // player adds go to <system>/Machines/Shared Roms.
             // PS Vita on Vita3K (libretro port): .vpk packages, installed on first start into
             // <system>/vita3k; the player adds the system software (firmware) themselves.
-            {MODE_VITA, "vita3k", ".vpk,.pkg", ".vpk / .pkg", "roms_vita", "1075"},
+            {MODE_VITA, "vita3k", ".vpk,.pkg,.vitadir", ".vpk / .pkg", "roms_vita", "1075"},
             {MODE_MSX, "bluemsx", ".rom,.mx1,.mx2,.ri,.dsk,.cas,.m3u", ".rom / .dsk / .cas / .zip", "roms_msx", "1071"},
             // PC-98 on NP2kai (0.0.317): floppy images (.hdm .fdi .d88 …), hard disk images, and
             // the .cmd the app writes for games on several floppies. Runs on its built-in BIOS.
@@ -193,7 +193,7 @@ public final class MainActivity extends Activity {
     private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
     private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi+트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
     private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
@@ -3806,6 +3806,15 @@ public final class MainActivity extends Activity {
                     showBrokenLinks(mode);
                 }));
             }
+            if (MODE_VITA.equals(mode)) {
+                panel.addView(createChoiceRow(RoundIconView.DLC, VITA_FOLDER_COLOR, "게임 폴더로 넣기", "app/게임ID 폴더(본체 덤프) · 복사 없이 연결 · 처음 실행 때 설치", () -> {
+                    dialog.dismiss();
+                    withAllFilesAccess(() -> {
+                        String last = settingsPrefs().getString(PREF_VITA_FOLDER_LAST, "");
+                        showVitaFolderBrowser(!last.isEmpty() && new File(last).isDirectory() ? new File(last) : downloadDir());
+                    });
+                }));
+            }
             panel.addView(addSectionLabel("📥 앱 안에 복사해서 가져오기", Color.rgb(100, 116, 139)));
         }
         panel.addView(createChoiceRow(RoundIconView.CARD, MODE_COLORS[modeIndex(mode)], "파일 고르기", files + " 파일을 하나 또는 여러 개 골라서 가져오기", () -> {
@@ -4834,6 +4843,11 @@ public final class MainActivity extends Activity {
         }
         if (isVitaPkg(file) && MODE_VITA.equals(modeForFile(file))) {
             sb.append("  |  PKG · ").append(vitaLicensePresent(file) ? (vitaPkgInstalled(file) ? "설치됨" : "라이선스 ✓ · 처음 실행 때 설치") : "라이선스가 필요해요");
+        }
+        if (VitaPatch.isFolderGame(file) && MODE_VITA.equals(modeForFile(file))) {
+            File folder = VitaPatch.folderOf(file);
+            String id = vitaTitleId(file);
+            sb.append("  |  📁 게임 폴더 · ").append(!folder.isDirectory() ? "폴더를 찾을 수 없어요" : id != null && vitaGameInstalled(id) ? "설치됨" : "처음 실행 때 설치");
         }
         if (MODE_VITA.equals(modeForFile(file))) {
             sb.append(vitaExtraDetail(file));
@@ -14583,12 +14597,18 @@ public final class MainActivity extends Activity {
                 showVitaFirmwareSheet();
                 return;
             }
+            if (VitaPatch.isFolderGame(file) && VitaPatch.folderContent(VitaPatch.folderOf(file)) == null) {
+                showError("게임 폴더를 찾을 수 없어요: " + phonePath(VitaPatch.folderOf(file)) + "\n옮겼으면 ROM 추가 › 게임 폴더로 넣기로 새 자리를 다시 넣어 주세요.");
+                return;
+            }
             if (isVitaPkg(file) && !vitaLicensePresent(file)) {
                 showVitaLicenseSheet(file);
                 return;
             }
             if (isVitaPkg(file) && !vitaPkgInstalled(file)) {
                 Toast.makeText(this, "PKG를 처음 설치하는 중이에요 (암호 풀기 · 몇 분). 화면이 잠시 멈춰 있어도 기다려 주세요.", Toast.LENGTH_LONG).show();
+            } else if (VitaPatch.isFolderGame(file) && !vitaGameInstalled(vitaTitleId(file))) {
+                Toast.makeText(this, "게임 폴더에서 처음 설치하는 중이에요 (몇 분). 화면이 잠시 멈춰 있어도 기다려 주세요.", Toast.LENGTH_LONG).show();
             } else {
                 String vitaId = vitaTitleId(file);
                 if (vitaId != null) {
@@ -24421,6 +24441,38 @@ public final class MainActivity extends Activity {
             panel.addView(unzipRow(outcome.archive.name, why,
                     unzipTag(outcome.cancelled ? "취소" : "건너뜀", Color.rgb(254, 226, 226), Color.rgb(153, 27, 27))), spaced(6));
         }
+        // PS Vita game folders that came out (app/<ID>/ with eboot.bin): one tap into the list.
+        final List<VitaFolder> vitaGames = new ArrayList<>();
+        java.util.Set<String> seenGames = new java.util.HashSet<>();
+        for (UnzipOutcome outcome : outcomes) {
+            for (File out : outcome.written) {
+                File sys = out.getParentFile();
+                if (out.getName().equalsIgnoreCase("param.sfo") && sys != null && sys.getName().equalsIgnoreCase("sce_sys")
+                        && sys.getParentFile() != null && seenGames.add(sys.getParentFile().getAbsolutePath())) {
+                    VitaFolder game = readVitaFolder(sys.getParentFile());
+                    if (game != null) {
+                        vitaGames.add(game);
+                    }
+                }
+            }
+        }
+        for (final VitaFolder game : vitaGames) {
+            TextView add = new TextView(this);
+            add.setText("🎮  PS Vita 목록에 넣기 · " + game.title + " (" + game.id + ")");
+            add.setTextSize(13.5f);
+            add.setTypeface(Typeface.DEFAULT_BOLD);
+            add.setTextColor(Color.WHITE);
+            add.setPadding(dp(12), dp(11), dp(12), dp(11));
+            add.setBackground(rounded(VITA_FOLDER_COLOR, dp(13)));
+            add.setOnClickListener(view -> {
+                long[] sum = new long[2];
+                measureFolder(game.content, sum, 0);
+                game.size = sum[0];
+                game.files = (int) sum[1];
+                showVitaFolderConfirm(null, game);
+            });
+            panel.addView(add, spaced(10));
+        }
         LinearLayout buttons = new LinearLayout(this);
         TextView close = new TextView(this);
         close.setText("닫기");
@@ -24432,6 +24484,360 @@ public final class MainActivity extends Activity {
         close.setOnClickListener(view -> dialog.dismiss());
         buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
         panel.addView(buttons, spaced(14));
+        dialog.show();
+    }
+
+    // ---- PS Vita 게임 폴더로 넣기: a dumped game folder (app/<TITLE ID>/) into the list without
+    // copying: a small .vitadir file points at it; the engine installs it on the first start
+    // (decrypting a NoNpDrm dump with its sce_sys/package/work.bin) ----
+
+    private static final int VITA_FOLDER_COLOR = Color.rgb(217, 119, 6);
+    private static final String PREF_VITA_FOLDER_LAST = "vita_folder_last";
+
+    /** A game folder found in the browser. */
+    private static final class VitaFolder {
+        File folder;       // what the user picks (and the engine is given)
+        File content;      // the folder with eboot.bin and sce_sys
+        String id;
+        String title;
+        boolean license;   // sce_sys/package/work.bin
+        long size = -1;
+        int files;
+    }
+
+    private VitaFolder readVitaFolder(File folder) {
+        File content = VitaPatch.folderContent(folder);
+        if (content == null || !new File(content, "eboot.bin").isFile()) {
+            return null;
+        }
+        Map<String, String> sfo = VitaPatch.folderSfo(content);
+        if (sfo == null || sfo.get("TITLE_ID") == null) {
+            return null;
+        }
+        VitaFolder game = new VitaFolder();
+        game.folder = folder;
+        game.content = content;
+        game.id = sfo.get("TITLE_ID");
+        String title = sfo.get("TITLE");
+        game.title = title == null || title.trim().isEmpty() ? game.id : title.replace('\n', ' ').trim();
+        game.license = new File(content, "sce_sys/package/work.bin").isFile();
+        return game;
+    }
+
+    private static void measureFolder(File dir, long[] sum, int depth) {
+        File[] files = dir.listFiles();
+        for (File f : files == null ? new File[0] : files) {
+            if (f.isDirectory()) {
+                if (depth < 20) {
+                    measureFolder(f, sum, depth + 1);
+                }
+            } else {
+                sum[0] += f.length();
+                sum[1]++;
+            }
+        }
+    }
+
+    private android.graphics.Bitmap vitaFolderIcon(VitaFolder game) {
+        File icon = new File(game.content, "sce_sys/icon0.png");
+        if (!icon.isFile()) {
+            return null;
+        }
+        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+        options.inSampleSize = 2;
+        try {
+            return android.graphics.BitmapFactory.decodeFile(icon.getAbsolutePath(), options);
+        } catch (RuntimeException | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    private void showVitaFolderBrowser(File start) {
+        final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_Light_NoActionBar);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(1);
+        root.setBackgroundColor(Theme.bg(Color.WHITE));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(1);
+        top.setPadding(dp(14), dp(14), dp(14), dp(6));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(16);
+        TextView back = new TextView(this);
+        back.setText("←");
+        back.setTextSize(20.0f);
+        back.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        back.setPadding(0, 0, dp(12), 0);
+        back.setOnClickListener(view -> dialog.dismiss());
+        titleRow.addView(back);
+        TextView title = new TextView(this);
+        title.setText("PS Vita 게임 폴더 고르기");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
+        titleRow.addView(title);
+        top.addView(titleRow);
+        final TextView crumb = new TextView(this);
+        crumb.setTextSize(12.0f);
+        crumb.setTextColor(Theme.text(Color.rgb(14, 116, 144)));
+        crumb.setPadding(0, dp(6), 0, 0);
+        top.addView(crumb);
+        android.widget.HorizontalScrollView chipScroll = new android.widget.HorizontalScrollView(this);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        chipScroll.addView(chips);
+        LinearLayout.LayoutParams chipScrollParams = new LinearLayout.LayoutParams(-1, -2);
+        chipScrollParams.setMargins(0, dp(8), 0, 0);
+        top.addView(chipScroll, chipScrollParams);
+        root.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        list.setPadding(dp(10), 0, dp(10), dp(16));
+        final ScrollView scroll = new ScrollView(this);
+        scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        final File[] current = {start};
+        final Runnable[] open = new Runnable[1];
+        open[0] = () -> {
+            final File dir = current[0];
+            settingsPrefs().edit().putString(PREF_VITA_FOLDER_LAST, dir.getAbsolutePath()).apply();
+            crumb.setText(crumbOf(dir));
+            list.removeAllViews();
+            TextView loading = new TextView(this);
+            loading.setText("여는 중…");
+            loading.setTextSize(13.0f);
+            loading.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+            loading.setPadding(dp(8), dp(16), 0, dp(16));
+            list.addView(loading);
+            new Thread(() -> {
+                File[] subs = dir.listFiles(f -> f.isDirectory() && !f.getName().startsWith("."));
+                List<File> folders = new ArrayList<>(Arrays.asList(subs == null ? new File[0] : subs));
+                folders.sort((x, y) -> x.getName().compareToIgnoreCase(y.getName()));
+                final List<Object> rows = new ArrayList<>();
+                final Map<VitaFolder, android.graphics.Bitmap> icons = new HashMap<>();
+                for (File sub : folders) {
+                    VitaFolder game = readVitaFolder(sub);
+                    if (game != null) {
+                        long[] sum = new long[2];
+                        measureFolder(game.content, sum, 0);
+                        game.size = sum[0];
+                        game.files = (int) sum[1];
+                        icons.put(game, vitaFolderIcon(game));
+                        rows.add(game);
+                    } else {
+                        rows.add(sub);
+                    }
+                }
+                runOnUiThread(() -> {
+                    if (current[0] != dir || !dialog.isShowing()) {
+                        return;
+                    }
+                    list.removeAllViews();
+                    File parent = dir.getParentFile();
+                    if (parent != null && parent.canRead()) {
+                        list.addView(unzipBrowserRow("⬆", Color.rgb(100, 116, 139), "상위 폴더", null, null, null, view -> {
+                            current[0] = parent;
+                            open[0].run();
+                        }, null));
+                    }
+                    int games = 0;
+                    for (Object row : rows) {
+                        if (row instanceof VitaFolder) {
+                            final VitaFolder game = (VitaFolder) row;
+                            games++;
+                            String meta = game.title + " · " + formatSize(game.size) + " · " + (game.license ? "work.bin 있음" : "work.bin 없음");
+                            TextView tag = game.license ? unzipTag("게임 폴더", Color.rgb(220, 252, 231), Color.rgb(22, 101, 52))
+                                    : unzipTag("라이선스?", Color.rgb(254, 243, 199), Color.rgb(146, 64, 14));
+                            View view = unzipBrowserRow("🎮", Color.rgb(67, 56, 202), game.folder.getName(), meta, tag, null,
+                                    v -> showVitaFolderConfirm(dialog, game), null);
+                            android.graphics.Bitmap icon = icons.get(game);
+                            if (icon != null) {
+                                // The game's own icon in place of the badge.
+                                LinearLayout line = (LinearLayout) ((LinearLayout) view).getChildAt(0);
+                                ImageView image = new ImageView(this);
+                                image.setImageBitmap(icon);
+                                image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                                image.setClipToOutline(true);
+                                image.setBackground(rounded(Color.BLACK, dp(10)));
+                                line.removeViewAt(0);
+                                line.addView(image, 0, new LinearLayout.LayoutParams(dp(34), dp(34)));
+                            }
+                            list.addView(view);
+                        } else {
+                            final File sub = (File) row;
+                            list.addView(unzipBrowserRow("📁", Color.rgb(59, 130, 246), sub.getName(), null, null, null, view -> {
+                                current[0] = sub;
+                                open[0].run();
+                            }, null));
+                        }
+                    }
+                    if (rows.isEmpty()) {
+                        TextView empty = new TextView(this);
+                        empty.setText("이 폴더에는 다른 폴더가 없어요.");
+                        empty.setTextSize(13.0f);
+                        empty.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+                        empty.setGravity(17);
+                        empty.setPadding(0, dp(30), 0, dp(30));
+                        list.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+                    }
+                    TextView hint = new TextView(this);
+                    hint.setText("게임 폴더 = 안에 eboot.bin과 sce_sys/param.sfo가 있는 폴더예요 (본체 덤프의 app/게임ID). "
+                            + (games == 0 ? "게임 폴더가 든 폴더(예: app)를 열어 주세요." : "눌러서 넣어요."));
+                    hint.setTextSize(11.0f);
+                    hint.setTextColor(Theme.text(Color.rgb(156, 163, 175)));
+                    hint.setPadding(dp(6), dp(12), dp(6), 0);
+                    list.addView(hint);
+                    scroll.scrollTo(0, 0);
+                });
+            }, "vita-folders").start();
+        };
+        List<String[]> places = new ArrayList<>();
+        places.add(new String[]{"📱 내 폰", phoneRoot().getAbsolutePath()});
+        places.add(new String[]{"⬇ Download", downloadDir().getAbsolutePath()});
+        for (File sd : sdRoots()) {
+            places.add(new String[]{"💾 SD 카드", sd.getAbsolutePath()});
+        }
+        String recent = settingsPrefs().getString(PREF_LINK_RECENT, "");
+        if (!recent.isEmpty() && new File(recent).isDirectory()) {
+            places.add(new String[]{"🔗 최근 연결 폴더", recent});
+        }
+        for (final String[] place : places) {
+            TextView chip = multiDeleteChip(place[0]);
+            chip.setOnClickListener(view -> {
+                current[0] = new File(place[1]);
+                open[0].run();
+            });
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(0, 0, dp(6), 0);
+            chips.addView(chip, chipParams);
+        }
+        dialog.setContentView(root);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.getAction() == android.view.KeyEvent.ACTION_UP) {
+                File parent = current[0].getParentFile();
+                if (parent != null && parent.canRead() && !current[0].equals(phoneRoot())) {
+                    current[0] = parent;
+                    open[0].run();
+                    return true;
+                }
+            }
+            return false;
+        });
+        dialog.show();
+        open[0].run();
+    }
+
+    private void showVitaFolderConfirm(final Dialog browser, final VitaFolder game) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.DLC, VITA_FOLDER_COLOR, "게임 폴더로 넣기", game.title + " (" + game.id + ")");
+        panel.addView(unzipRow(game.folder.getName() + "/", (game.files > 0 ? "파일 " + game.files + "개 · " : "") + formatSize(game.size) + " · " + phonePath(game.folder),
+                game.license ? unzipTag("work.bin 있음", Color.rgb(220, 252, 231), Color.rgb(22, 101, 52))
+                        : unzipTag("work.bin 없음", Color.rgb(254, 243, 199), Color.rgb(146, 64, 14))), spaced(12));
+        panel.addView(noteBox("복사 없이 연결해요: 목록에는 이 폴더를 가리키는 작은 파일만 생겨요 (늘어나는 용량 0). "
+                + "처음 실행할 때 엔진이 이 폴더에서 게임을 설치해요" + (game.license ? " (work.bin으로 암호를 풀며 · 몇 분)" : "")
+                + ". 그때 게임 크기만큼 공간이 필요하고(남은 공간 " + formatSize(vitaPrefDir().getUsableSpace()) + "), 설치가 끝나면 폴더를 옮기거나 지워도 게임은 남아요."
+                + (game.license ? "" : "\n\nwork.bin이 없어요. 복호된 덤프면 그대로 되고, 암호화된 덤프라면 본인 PS Vita의 work.bin을 이 폴더의 sce_sys/package/ 안에 넣은 뒤 실행하세요.")
+                + (new File(game.content.getParentFile() == null ? game.content : game.content.getParentFile().getParentFile(), "patch/" + game.id).isDirectory()
+                        ? "\n\n옆의 patch/" + game.id + " 폴더(업데이트)도 함께 설치돼요." : ""),
+                Color.rgb(239, 246, 255), Color.rgb(30, 64, 175)), spaced(10));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("뒤로");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setGravity(17);
+        cancel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        cancel.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView go = new TextView(this);
+        go.setText("넣기");
+        go.setTextSize(15.0f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setGravity(17);
+        go.setTextColor(Color.WHITE);
+        go.setBackground(rounded(VITA_FOLDER_COLOR, dp(14)));
+        go.setOnClickListener(view -> {
+            File added;
+            try {
+                added = addVitaFolderGame(game);
+            } catch (IOException e) {
+                showError(e.getMessage() == null ? "목록에 넣지 못했어요." : e.getMessage());
+                return;
+            }
+            dialog.dismiss();
+            if (browser != null) {
+                browser.dismiss();
+            }
+            showVitaFolderAdded(added, game);
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        goParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(go, goParams);
+        panel.addView(buttons, spaced(12));
+        dialog.show();
+    }
+
+    // Writes "<title> (<ID>).vitadir" (the folder's path) into the PS Vita list.
+    private File addVitaFolderGame(VitaFolder game) throws IOException {
+        File dir = romDirFor(MODE_VITA);
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            throw new IOException("ROM 폴더를 만들 수 없어요.");
+        }
+        String name = (game.title + " (" + game.id + ")").replaceAll("[\\\\/:*?\"<>|\\x00-\\x1f]", "_").trim();
+        File pointer = new File(dir, name + VitaPatch.FOLDER_EXT);
+        // The same folder already in: keep that entry (its saves go with its name).
+        File[] existing = dir.listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(VitaPatch.FOLDER_EXT));
+        for (File other : existing == null ? new File[0] : existing) {
+            if (VitaPatch.folderOf(other).getAbsolutePath().equals(game.folder.getAbsolutePath())) {
+                return other;
+            }
+        }
+        try (FileOutputStream out = new FileOutputStream(pointer)) {
+            out.write((game.folder.getAbsolutePath() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        romPrefs().edit().remove("vitatid:" + pointer.getName() + ":" + pointer.length()).apply();
+        return pointer;
+    }
+
+    private void showVitaFolderAdded(final File added, VitaFolder game) {
+        if (MODE_VITA.equals(this.currentMode)) {
+            refreshLibrary();
+        } else if (this.currentMode == null) {
+            showModePicker();
+        }
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.DLC, Color.rgb(22, 163, 74), "PS Vita 목록에 넣었어요", game.title + " (" + game.id + ")");
+        panel.addView(unzipRow("🔗 게임 폴더 연결", phonePath(game.folder), null), spaced(12));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = new TextView(this);
+        close.setText("닫기");
+        close.setTextSize(15.0f);
+        close.setTypeface(Typeface.DEFAULT_BOLD);
+        close.setGravity(17);
+        close.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        close.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        close.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView play = new TextView(this);
+        play.setText("실행");
+        play.setTextSize(15.0f);
+        play.setTypeface(Typeface.DEFAULT_BOLD);
+        play.setGravity(17);
+        play.setTextColor(Color.WHITE);
+        play.setBackground(rounded(VITA_FOLDER_COLOR, dp(14)));
+        play.setOnClickListener(view -> {
+            dialog.dismiss();
+            if (!MODE_VITA.equals(this.currentMode)) {
+                onModePicked(MODE_VITA);
+            }
+            launchGame(added);
+        });
+        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        playParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(play, playParams);
+        panel.addView(buttons, spaced(12));
         dialog.show();
     }
 

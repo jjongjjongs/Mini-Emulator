@@ -87,6 +87,10 @@ final class VitaPatch {
     static String titleId(File game) {
         String lower = game.getName().toLowerCase(Locale.ROOT);
         try {
+            if (lower.endsWith(FOLDER_EXT)) {
+                Map<String, String> sfo = folderSfo(folderContent(folderOf(game)));
+                return sfo == null ? null : sfo.get("TITLE_ID");
+            }
             if (lower.endsWith(".pkg")) {
                 String content = pkgContentId(game);
                 return content != null && content.length() >= 16 ? content.substring(7, 16) : null;
@@ -119,7 +123,68 @@ final class VitaPatch {
     }
 
     // The game's param.sfo in a .vpk / .zip (the "gd" one when there are several).
+    // ---- A game folder (PS Vita dump: app/<TITLE ID>/ with eboot.bin and sce_sys/param.sfo)
+    // in the list: a small "<name>.vitadir" file holding the folder's path; the engine is given
+    // the folder and installs (and for NoNpDrm dumps decrypts) it from there. ----
+
+    static final String FOLDER_EXT = ".vitadir";
+
+    static boolean isFolderGame(File game) {
+        return game.getName().toLowerCase(Locale.ROOT).endsWith(FOLDER_EXT);
+    }
+
+    /** The folder a .vitadir file points at (may be gone). */
+    static File folderOf(File pointer) {
+        try {
+            byte[] data = java.nio.file.Files.readAllBytes(pointer.toPath());
+            String path = new String(data, java.nio.charset.StandardCharsets.UTF_8).trim();
+            int line = path.indexOf('\n');
+            return new File(line >= 0 ? path.substring(0, line).trim() : path);
+        } catch (IOException | RuntimeException e) {
+            return new File("/nonexistent");
+        }
+    }
+
+    /** The game's own folder inside: itself, app/<ID>/, or a sub folder — as the engine finds it. */
+    static File folderContent(File folder) {
+        if (new File(folder, "sce_sys/param.sfo").isFile()) {
+            return folder;
+        }
+        File[] apps = new File(folder, "app").listFiles(File::isDirectory);
+        for (File app : apps == null ? new File[0] : apps) {
+            if (new File(app, "sce_sys/param.sfo").isFile()) {
+                return app;
+            }
+        }
+        File[] subs = folder.listFiles(File::isDirectory);
+        for (File sub : subs == null ? new File[0] : subs) {
+            if (new File(sub, "sce_sys/param.sfo").isFile()) {
+                return sub;
+            }
+        }
+        return null;
+    }
+
+    /** param.sfo of a game folder (the content folder from folderContent), or null. */
+    static Map<String, String> folderSfo(File content) {
+        if (content == null) {
+            return null;
+        }
+        File sfo = new File(content, "sce_sys/param.sfo");
+        if (!sfo.isFile() || sfo.length() > (1 << 20)) {
+            return null;
+        }
+        try {
+            return parseSfo(java.nio.file.Files.readAllBytes(sfo.toPath()));
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
     static Map<String, String> archiveSfo(File archive) throws IOException {
+        if (isFolderGame(archive)) {
+            return folderSfo(folderContent(folderOf(archive)));
+        }
         Map<String, String> first = null;
         try (ZipFile zip = new ZipFile(archive)) {
             Enumeration<? extends ZipEntry> entries = zip.entries();
