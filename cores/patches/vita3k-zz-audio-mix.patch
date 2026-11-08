@@ -1,5 +1,5 @@
 diff --git a/vita3k/audio/src/impl/libretro_audio.cpp b/vita3k/audio/src/impl/libretro_audio.cpp
-index 0df3c81..f83ccad 100644
+index 0df3c81..84ade47 100644
 --- a/vita3k/audio/src/impl/libretro_audio.cpp
 +++ b/vita3k/audio/src/impl/libretro_audio.cpp
 @@ -23,6 +23,8 @@
@@ -11,16 +11,17 @@ index 0df3c81..f83ccad 100644
  
  static constexpr int NUM_AUDIO_BUFFERS = 8;
  
-@@ -85,51 +87,124 @@ int LibretroAudioAdapter::get_rest_sample(AudioOutPort &out_port) {
+@@ -85,51 +87,123 @@ int LibretroAudioAdapter::get_rest_sample(AudioOutPort &out_port) {
      return port.nb_buffers_ready * port.len;
  }
  
 +// Mini Emulator: the game's ports mixed into one 48 kHz stream, one video frame (800 stereo
 +// frames at 60 fps) per retro_run. Each port's chunks go to a queue of its own (so its ring
 +// frees and the game keeps writing), are resampled from the port's rate and added up. A port
-+// starts after a short buffer (about 50 ms) and waits again after it runs dry; one far ahead
-+// drops its oldest audio (more than about 200 ms). The upstream drain appended the ports
-+// one after another and ignored their rates: sound played fast and broken.
++// starts after a short buffer (about 50 ms) and waits again after it runs dry. Chunks are
++// taken only as needed, so the game waits on a full ring as on the console. The upstream
++// drain appended the ports one after another and ignored their rates: sound played fast
++// and broken.
 +namespace {
 +struct PortMix {
 +    std::vector<int16_t> fifo; // stereo, at the port's rate
@@ -57,9 +58,7 @@ index 0df3c81..f83ccad 100644
          LibretroAudioOutPort *port = static_cast<LibretroAudioOutPort *>(it->second.get());
          if (!port)
              continue;
-+        PortMix &mix = g_port_mix[port];
-+        seen[port] = true;
- 
+-
 -        std::unique_lock<std::mutex> plock(port->mutex);
 -        while (port->nb_buffers_ready > 0) {
 -            const std::vector<uint8_t> &buf = port->audio_buffers[port->next_read_buffer];
@@ -67,6 +66,16 @@ index 0df3c81..f83ccad 100644
 -            const int16_t *samples = reinterpret_cast<const int16_t *>(buf.data());
 -
 -            // Apply volume scaling
++        PortMix &mix = g_port_mix[port];
++        seen[port] = true;
++
++        const int rate = port->freq > 0 ? port->freq : kOutRate;
++        const double step = static_cast<double>(rate) / kOutRate;
++        // Take chunks from the game only until this call's audio and a little more (40 ms) are
++        // here: the ring then stays full and the game's audio thread waits on it, which is
++        // what keeps movies and music at their speed. (Emptying it every frame let the game
++        // run ahead: movies too fast, and the audio dropped for running ahead crackled.)
++        const size_t target_frames = static_cast<size_t>(kOutFrames * step) + static_cast<size_t>(rate / 25) + 2;
 +        {
 +            std::unique_lock<std::mutex> plock(port->mutex);
              const float vol_l = static_cast<float>(port->left_channel_volume) / static_cast<float>(SCE_AUDIO_OUT_MAX_VOL);
@@ -87,7 +96,7 @@ index 0df3c81..f83ccad 100644
 -                    int16_t s = static_cast<int16_t>(std::clamp(static_cast<int>(samples[i] * vol_l * vol), -32768, 32767));
 -                    out_buffer.push_back(s);
 -                    out_buffer.push_back(s);
-+            while (port->nb_buffers_ready > 0) {
++            while (port->nb_buffers_ready > 0 && (mix.fifo.size() - mix.head) / 2 < target_frames) {
 +                const std::vector<uint8_t> &buf = port->audio_buffers[port->next_read_buffer];
 +                const int num_samples = port->len_bytes / static_cast<int>(sizeof(int16_t));
 +                const int16_t *samples = reinterpret_cast<const int16_t *>(buf.data());
@@ -113,22 +122,13 @@ index 0df3c81..f83ccad 100644
 -        plock.unlock();
          port->cond_var.notify_all();
 +
-+        const int rate = port->freq > 0 ? port->freq : kOutRate;
 +        size_t avail = (mix.fifo.size() - mix.head) / 2;
-+        // Far ahead of the output: drop the oldest.
-+        const size_t max_frames = static_cast<size_t>(rate / 5);
-+        if (avail > max_frames) {
-+            mix.head += (avail - max_frames / 2) * 2;
-+            mix.pos = 0.0;
-+            avail = (mix.fifo.size() - mix.head) / 2;
-+        }
 +        if (!mix.primed) {
 +            if (avail < static_cast<size_t>(rate / 20))
 +                continue;
 +            mix.primed = true;
 +        }
 +
-+        const double step = static_cast<double>(rate) / kOutRate;
 +        for (int i = 0; i < kOutFrames; i++) {
 +            const size_t idx = static_cast<size_t>(mix.pos);
 +            if (idx + 1 >= avail) {
