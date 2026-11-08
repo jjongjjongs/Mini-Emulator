@@ -24201,19 +24201,6 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
-    // The consoles a folder holds games for: its own, or a folder above it (linked folders are
-    // searched a few levels down).
-    private static java.util.Set<String> modesNear(File dir, Map<String, java.util.Set<String>> folders) {
-        java.util.Set<String> modes = new java.util.LinkedHashSet<>();
-        for (int up = 0; dir != null && up < 7; up++, dir = dir.getParentFile()) {
-            java.util.Set<String> here = folders.get(dir.getAbsolutePath());
-            if (here != null) {
-                modes.addAll(here);
-            }
-        }
-        return modes;
-    }
-
     private TextView unzipTag(String text, int bg, int fg) {
         TextView tag = new TextView(this);
         tag.setText(text);
@@ -24376,7 +24363,7 @@ public final class MainActivity extends Activity {
             final Map<File, String> fileModes = new HashMap<>();
             for (UnzipOutcome outcome : outcomes) {
                 for (File out : outcome.written) {
-                    String mode = unzipModeFor(out, gameDirs);
+                    String mode = unzipModeFor(out, outcome.archive.dir, outcome.archive.target(), gameDirs);
                     if (mode == null) {
                         continue;
                     }
@@ -24406,18 +24393,29 @@ public final class MainActivity extends Activity {
         }, "unzip").start();
     }
 
-    // The console a file that came out of an archive is a game for: one its folder holds games
-    // for, else the only console that takes its kind of file. Null when not a game or unclear.
-    private String unzipModeFor(File file, Map<String, java.util.Set<String>> folders) {
-        for (String mode : modesNear(file.getParentFile(), folders)) {
-            if (!isArcadeMode(mode) && isLinkableGame(file, mode)) {
+    // The console a file that came out of an archive is a game for: one the archive's folder
+    // holds games for, else the only console that takes its kind of file. Only files at the top
+    // or one folder down count (not the insides of a game folder), never archives themselves
+    // (an inner .zip is rarely an arcade set), and never arcade · NAOMI · DOS by guessing.
+    // Null when not a game or unclear.
+    private String unzipModeFor(File file, File archiveDir, File target, Map<String, java.util.Set<String>> folders) {
+        String rel = file.getAbsolutePath().substring(Math.min(file.getAbsolutePath().length(), target.getAbsolutePath().length() + 1));
+        if (rel.indexOf('/') != rel.lastIndexOf('/')) {
+            return null;
+        }
+        String lower = file.getName().toLowerCase(Locale.US);
+        if (ArchiveExtract.isArchiveName(lower)) {
+            return null;
+        }
+        java.util.Set<String> here = folders.get(archiveDir.getAbsolutePath());
+        for (String mode : here == null ? java.util.Collections.<String>emptySet() : here) {
+            if (!isArcadeMode(mode) && !MODE_NAOMI.equals(mode) && isLinkableGame(file, mode)) {
                 return mode;
             }
         }
-        String lower = file.getName().toLowerCase(Locale.US);
         String only = null;
         for (String mode : MODE_IDS) {
-            if (isArcadeMode(mode) || MODE_DOS.equals(mode) || (MODE_PC98.equals(mode) && lower.endsWith(".bmp"))) {
+            if (isArcadeMode(mode) || MODE_DOS.equals(mode) || MODE_NAOMI.equals(mode) || (MODE_PC98.equals(mode) && lower.endsWith(".bmp"))) {
                 continue;
             }
             if (isRomNameFor(mode, lower)) {
