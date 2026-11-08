@@ -49,6 +49,7 @@ final class RoundIconView extends View {
     static final int DS = 34;
     static final int DLC = 35;
     static final int WARN = 36;
+    static final int ZIP = 37;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -447,6 +448,19 @@ final class RoundIconView extends View {
                 Paint dot = new Paint(line);
                 dot.setStyle(Paint.Style.FILL);
                 canvas.drawCircle(12, 18.5f, 1.6f, dot);
+                break;
+            }
+            case ZIP: {
+                // A file with a zipper down its middle: an archive.
+                path.addRoundRect(new android.graphics.RectF(5, 3.5f, 19, 20.5f), 2, 2, Path.Direction.CW);
+                for (float y = 5.5f; y < 13; y += 2.5f) {
+                    path.moveTo(10.5f, y);
+                    path.lineTo(12, y);
+                    path.moveTo(12, y + 1.25f);
+                    path.lineTo(13.5f, y + 1.25f);
+                }
+                path.addRoundRect(new android.graphics.RectF(10, 13.5f, 14, 18), 1, 1, Path.Direction.CW);
+                canvas.drawPath(path, line);
                 break;
             }
             case DLC: {

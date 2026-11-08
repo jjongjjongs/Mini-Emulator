@@ -123,6 +123,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_RarReader_extract(
     long long reported = 0;
     std::string error;
     size_t left = wanted.size();
+    bool cancelled = false;
     std::vector<char> buffer(1 << 18);
     while (left > 0 && ((r = archive_read_next_header(a, &e)) == ARCHIVE_OK || r == ARCHIVE_WARN)) {
         auto it = wanted.find(entryName(e));
@@ -152,7 +153,19 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_example_minigba_RarReader_extract(
             if (onProgress != nullptr && done - reported >= (8 << 20)) {
                 reported = done;
                 env->CallVoidMethod(progress, onProgress, (jlong) done);
+                if (env->ExceptionCheck()) {
+                    // The Java side threw: stop here (the caller asked to cancel).
+                    env->ExceptionClear();
+                    cancelled = true;
+                    break;
+                }
             }
+        }
+        if (cancelled) {
+            fclose(out);
+            remove(it->second.c_str());
+            error = "취소했어요";
+            break;
         }
         if (fclose(out) != 0 || n < 0) {
             const char* why = n < 0 ? archive_error_string(a) : nullptr;
