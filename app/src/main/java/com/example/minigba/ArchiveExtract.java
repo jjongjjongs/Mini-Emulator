@@ -47,6 +47,33 @@ final class ArchiveExtract {
         List<Entry> entries;      // after inspect()
         long unpacked;
         boolean done;             // every file is already there, same size
+        File out;                 // where to unpack; null: the folder the archive is in
+
+        File target() {
+            return out != null ? out : dir;
+        }
+
+        /** The name without the archive extension: a folder name to unpack into. */
+        String stem() {
+            String n = name.replaceAll("(?i)\\.(7z|zip|rar)$", "").trim();
+            return n.isEmpty() ? "압축 풀기" : n;
+        }
+
+        /** Whether every file is there already (same size) in the target folder. */
+        void recheck() {
+            if (problem != null || entries == null || entries.isEmpty()) {
+                done = false;
+                return;
+            }
+            for (Entry e : entries) {
+                File f = new File(target(), e.path);
+                if (!f.isFile() || (e.size >= 0 && f.length() != e.size)) {
+                    done = false;
+                    return;
+                }
+            }
+            done = true;
+        }
 
         String partsLabel() {
             if (!split) {
@@ -276,7 +303,7 @@ final class ArchiveExtract {
                 }
                 encrypted |= e.encrypted;
                 total += Math.max(0, e.size);
-                File out = new File(a.dir, e.path);
+                File out = new File(a.target(), e.path);
                 if (!out.isFile() || (e.size >= 0 && out.length() != e.size)) {
                     done = false;
                 }
@@ -331,7 +358,7 @@ final class ArchiveExtract {
         if (a.problem == null && a.entries != null && !a.entries.isEmpty()) {
             boolean done = true;
             for (Entry e : a.entries) {
-                File out = new File(a.dir, e.path);
+                File out = new File(a.target(), e.path);
                 if (!out.isFile() || (e.size >= 0 && out.length() != e.size)) {
                     done = false;
                     break;
@@ -401,7 +428,7 @@ final class ArchiveExtract {
         Map<String, Entry> wanted = new LinkedHashMap<>();
         long total = 0;
         for (Entry e : a.entries) {
-            File out = new File(a.dir, e.path);
+            File out = new File(a.target(), e.path);
             if (out.isFile() && e.size >= 0 && out.length() == e.size) {
                 continue;
             }
@@ -454,7 +481,7 @@ final class ArchiveExtract {
                     }
                     left--;
                     try (InputStream in = seven.getInputStream(e)) {
-                        copy(in, a.dir, x, buffer, done, total, progress, written);
+                        copy(in, a.target(), x, buffer, done, total, progress, written);
                     }
                 }
             }
@@ -472,7 +499,7 @@ final class ArchiveExtract {
                         throw new IOException(x.name + ": 이 압축 방식은 풀 수 없어요.");
                     }
                     try (InputStream in = zip.getInputStream(e)) {
-                        copy(in, a.dir, x, buffer, done, total, progress, written);
+                        copy(in, a.target(), x, buffer, done, total, progress, written);
                     }
                 }
             }
@@ -518,7 +545,7 @@ final class ArchiveExtract {
         List<File> temps = new ArrayList<>();
         List<File> outs = new ArrayList<>();
         for (Entry x : wanted.values()) {
-            File out = new File(a.dir, x.path);
+            File out = new File(a.target(), x.path);
             names.add(x.name);
             outs.add(out);
             temps.add(temp(out));

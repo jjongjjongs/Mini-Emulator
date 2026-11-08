@@ -465,7 +465,6 @@ public final class MainActivity extends Activity {
         this.wiiOnlineStatusView = null;
         this.naomiBiosStatusView = null;
         this.naomiBanner = null;
-        this.unzipBadge = null;
     }
 
     private void showModePicker() {
@@ -3145,8 +3144,6 @@ public final class MainActivity extends Activity {
             onPc98FilePatchPicked(intent);
         } else if (i == REQUEST_PC98_FONT) {
             onPc98FontPicked(intent);
-        } else if (i == REQUEST_UNZIP_FOLDER) {
-            onUnzipFolderPicked(intent);
         } else if (i == REQUEST_VITA_FIRMWARE) {
             onVitaFirmwarePicked(intent);
         } else if (i == REQUEST_ARC_PATCH) {
@@ -23659,129 +23656,36 @@ public final class MainActivity extends Activity {
         return (int) ((i * getResources().getDisplayMetrics().density) + 0.5f);
     }
 
-    // ---- 압축 풀기 (home): the archives in the folders games come from, unpacked where they are ----
+    // ---- 압축 풀기 (home): archives the user picks in the app's browser, unpacked where they
+    // are (or into a new folder named after them) ----
 
-    private static final int REQUEST_UNZIP_FOLDER = 1085;
-    private static final String PREF_UNZIP_DIRS = "unzip_dirs";
     private static final String PREF_UNZIP_DELETE = "unzip_delete";
+    private static final String PREF_UNZIP_LAST = "unzip_last";
+    private static final String PREF_UNZIP_NEW_FOLDER = "unzip_new_folder";
     private static final int UNZIP_COLOR = Color.rgb(217, 119, 6);
-    private TextView unzipBadge;
-
-    /** What a look through the folders found. */
-    private static final class UnzipScan {
-        final Map<String, java.util.Set<String>> folders = new HashMap<>();   // folder → consoles it holds games for
-        final java.util.Set<String> linked = new java.util.HashSet<>();      // files games are linked to
-        final List<ArchiveExtract.Archive> archives = new ArrayList<>();
-    }
 
     private File downloadDir() {
         return new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS);
     }
 
-    private List<String> unzipExtraDirs() {
-        List<String> dirs = new ArrayList<>();
-        for (String path : settingsPrefs().getString(PREF_UNZIP_DIRS, "").split("\n")) {
-            if (!path.isEmpty() && !dirs.contains(path)) {
-                dirs.add(path);
-            }
-        }
-        return dirs;
-    }
-
-    // The consoles a folder holds games for: its own, or a folder above it (linked folders are
-    // searched a few levels down).
-    private static java.util.Set<String> modesNear(File dir, Map<String, java.util.Set<String>> folders) {
-        java.util.Set<String> modes = new java.util.LinkedHashSet<>();
-        for (int up = 0; dir != null && up < 7; up++, dir = dir.getParentFile()) {
-            java.util.Set<String> here = folders.get(dir.getAbsolutePath());
-            if (here != null) {
-                modes.addAll(here);
-            }
-        }
-        return modes;
-    }
-
-    // Runs off the main thread.
-    private UnzipScan scanArchives() {
-        UnzipScan scan = new UnzipScan();
+    // Folder → the consoles it holds games for: linked folders and the folders of linked games.
+    private Map<String, java.util.Set<String>> gameFolders() {
+        Map<String, java.util.Set<String>> folders = new HashMap<>();
         for (String mode : MODE_IDS) {
             for (String path : settingsPrefs().getString(PREF_LINK_DIRS + mode, "").split("\n")) {
                 if (!path.isEmpty()) {
-                    scan.folders.computeIfAbsent(path, k -> new java.util.HashSet<>()).add(mode);
+                    folders.computeIfAbsent(path, k -> new java.util.HashSet<>()).add(mode);
                 }
             }
             File[] files = romDirFor(mode).listFiles();
             for (File file : files == null ? new File[0] : files) {
                 File target = isLink(file) ? linkTarget(file) : null;
                 if (target != null && target.getParentFile() != null) {
-                    scan.folders.computeIfAbsent(target.getParentFile().getAbsolutePath(), k -> new java.util.HashSet<>()).add(mode);
-                    scan.linked.add(target.getAbsolutePath());
+                    folders.computeIfAbsent(target.getParentFile().getAbsolutePath(), k -> new java.util.HashSet<>()).add(mode);
                 }
             }
         }
-        java.util.LinkedHashMap<String, Integer> roots = new java.util.LinkedHashMap<>();
-        for (String path : scan.folders.keySet()) {
-            roots.put(path, 2);
-        }
-        roots.put(downloadDir().getAbsolutePath(), 3);
-        for (String path : unzipExtraDirs()) {
-            roots.put(path, 3);
-        }
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (Map.Entry<String, Integer> root : roots.entrySet()) {
-            collectArchives(new File(root.getKey()), root.getValue(), scan, seen);
-        }
-        for (ArchiveExtract.Archive archive : scan.archives) {
-            ArchiveExtract.inspectCached(archive);
-        }
-        return scan;
-    }
-
-    private void collectArchives(File dir, int depth, UnzipScan scan, java.util.Set<String> seen) {
-        String key;
-        try {
-            key = dir.getCanonicalPath();
-        } catch (IOException e) {
-            key = dir.getAbsolutePath();
-        }
-        if (!dir.isDirectory() || !seen.add(key) || scan.archives.size() >= 300) {
-            return;
-        }
-        java.util.Set<String> modes = modesNear(dir, scan.folders);
-        for (ArchiveExtract.Archive archive : ArchiveExtract.inFolder(dir)) {
-            if (scan.linked.contains(archive.parts.get(0).getAbsolutePath())) {
-                continue;  // a game itself (arcade sets, DOS games …)
-            }
-            boolean game = false;
-            String lower = archive.parts.get(0).getName().toLowerCase(Locale.US);
-            for (String mode : modes) {
-                if (isArcadeMode(mode) || isRomNameFor(mode, lower)) {
-                    game = true;
-                }
-            }
-            if (!game) {
-                scan.archives.add(archive);
-            }
-        }
-        if (depth <= 0) {
-            return;
-        }
-        File[] subs = dir.listFiles(File::isDirectory);
-        if (subs == null) {
-            return;
-        }
-        Arrays.sort(subs, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
-        for (File sub : subs) {
-            if (!sub.getName().startsWith(".") && !sub.getName().equals("Android")) {
-                collectArchives(sub, depth - 1, scan, seen);
-            }
-        }
-    }
-
-    private String phonePath(File dir) {
-        String root = phoneRoot().getAbsolutePath();
-        String path = dir.getAbsolutePath();
-        return path.startsWith(root) ? (path.length() == root.length() ? "/ (내 폰)" : path.substring(root.length())) : path;
+        return folders;
     }
 
     private View createUnzipTool() {
@@ -23802,66 +23706,512 @@ public final class MainActivity extends Activity {
         title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         words.addView(title);
         TextView sub = new TextView(this);
-        sub.setText("zip · 7z · rar · 분할 압축도 그 자리에 풀어요");
+        sub.setText("풀 파일을 골라요 · zip · 7z · rar · 분할 압축");
         sub.setTextSize(11.5f);
         sub.setTextColor(Theme.text(Color.rgb(120, 113, 108)));
         words.addView(sub);
         LinearLayout.LayoutParams wordsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
         wordsParams.setMargins(dp(10), 0, dp(8), 0);
         tool.addView(words, wordsParams);
-        final TextView badge = new TextView(this);
-        badge.setTextSize(12.0f);
-        badge.setTypeface(Typeface.DEFAULT_BOLD);
-        badge.setTextColor(Color.WHITE);
-        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
-        badge.setBackground(rounded(UNZIP_COLOR, dp(12)));
-        badge.setVisibility(View.GONE);
-        tool.addView(badge, new LinearLayout.LayoutParams(-2, -2));
-        this.unzipBadge = badge;
+        TextView arrow = new TextView(this);
+        arrow.setText("›");
+        arrow.setTextSize(22.0f);
+        arrow.setTextColor(Theme.text(UNZIP_COLOR));
+        tool.addView(arrow);
         tool.setClickable(true);
-        tool.setOnClickListener(view -> withAllFilesAccess(this::showUnzipSheet));
+        tool.setOnClickListener(view -> withAllFilesAccess(() -> {
+            String last = settingsPrefs().getString(PREF_UNZIP_LAST, "");
+            File start = !last.isEmpty() && new File(last).isDirectory() ? new File(last) : downloadDir();
+            showUnzipBrowser(start, new java.util.LinkedHashMap<>());
+        }));
         tool.setContentDescription("압축 풀기");
-        if (hasAllFilesAccess()) {
-            new Thread(() -> {
-                int count = 0;
-                try {
-                    for (ArchiveExtract.Archive archive : scanArchives().archives) {
-                        if (archive.problem == null && !archive.done) {
-                            count++;
-                        }
-                    }
-                } catch (RuntimeException ignored) {
-                    return;
-                }
-                final int found = count;
-                runOnUiThread(() -> {
-                    if (this.unzipBadge == badge && found > 0) {
-                        badge.setText(found + "개");
-                        badge.setVisibility(View.VISIBLE);
-                    }
-                });
-            }, "unzip-count").start();
-        }
         return tool;
     }
 
-    private void showUnzipSheet() {
-        final Dialog busy = progressCard(RoundIconView.ZIP, UNZIP_COLOR, "압축 파일 찾는 중", "연결한 폴더 · 다운로드 폴더");
-        new Thread(() -> {
-            UnzipScan scan;
-            try {
-                scan = scanArchives();
-            } catch (RuntimeException e) {
-                scan = new UnzipScan();
+    private String phonePath(File dir) {
+        String root = phoneRoot().getAbsolutePath();
+        String path = dir.getAbsolutePath();
+        return path.startsWith(root) ? (path.length() == root.length() ? "/ (내 폰)" : path.substring(root.length())) : path;
+    }
+
+    private String crumbOf(File dir) {
+        String root = phoneRoot().getAbsolutePath();
+        String path = dir.getAbsolutePath();
+        if (path.startsWith(root)) {
+            return "📱 내 폰" + path.substring(root.length()).replace("/", " › ");
+        }
+        for (File sd : sdRoots()) {
+            if (path.startsWith(sd.getAbsolutePath())) {
+                return "💾 SD 카드" + path.substring(sd.getAbsolutePath().length()).replace("/", " › ");
             }
-            final UnzipScan found = scan;
-            runOnUiThread(() -> {
-                busy.dismiss();
-                if (!isFinishing()) {
-                    showUnzipList(found);
+        }
+        return path;
+    }
+
+    /** The app's browser for archives: folders and archives only, picks kept across folders. */
+    private void showUnzipBrowser(File start, final java.util.LinkedHashMap<String, ArchiveExtract.Archive> picked) {
+        final Dialog dialog = new Dialog(this, android.R.style.Theme_Material_Light_NoActionBar);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(1);
+        root.setBackgroundColor(Theme.bg(Color.WHITE));
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(1);
+        top.setPadding(dp(14), dp(14), dp(14), dp(6));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(16);
+        TextView back = new TextView(this);
+        back.setText("←");
+        back.setTextSize(20.0f);
+        back.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        back.setPadding(0, 0, dp(12), 0);
+        back.setOnClickListener(view -> dialog.dismiss());
+        titleRow.addView(back);
+        TextView title = new TextView(this);
+        title.setText("풀 압축 파일 고르기");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(17, 24, 39)));
+        titleRow.addView(title);
+        top.addView(titleRow);
+        final TextView crumb = new TextView(this);
+        crumb.setTextSize(12.0f);
+        crumb.setTextColor(Theme.text(Color.rgb(14, 116, 144)));
+        crumb.setPadding(0, dp(6), 0, 0);
+        top.addView(crumb);
+        android.widget.HorizontalScrollView chipScroll = new android.widget.HorizontalScrollView(this);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        chipScroll.addView(chips);
+        LinearLayout.LayoutParams chipScrollParams = new LinearLayout.LayoutParams(-1, -2);
+        chipScrollParams.setMargins(0, dp(8), 0, 0);
+        top.addView(chipScroll, chipScrollParams);
+        root.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        final LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        list.setPadding(dp(10), 0, dp(10), dp(10));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list, new FrameLayout.LayoutParams(-1, -2));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(16);
+        bottom.setPadding(dp(16), dp(10), dp(14), dp(12));
+        bottom.setBackgroundColor(Theme.bg(Color.rgb(248, 250, 252)));
+        LinearLayout counts = new LinearLayout(this);
+        counts.setOrientation(1);
+        final TextView count = new TextView(this);
+        count.setTextSize(14.0f);
+        count.setTypeface(Typeface.DEFAULT_BOLD);
+        count.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        counts.addView(count);
+        final TextView need = new TextView(this);
+        need.setTextSize(11.5f);
+        need.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        counts.addView(need);
+        bottom.addView(counts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        final TextView next = new TextView(this);
+        next.setText("다음");
+        next.setTextSize(15.0f);
+        next.setTypeface(Typeface.DEFAULT_BOLD);
+        next.setGravity(17);
+        next.setTextColor(Color.WHITE);
+        next.setBackground(rounded(UNZIP_COLOR, dp(14)));
+        next.setPadding(dp(22), 0, dp(22), 0);
+        bottom.addView(next, new LinearLayout.LayoutParams(-2, dp(46)));
+        root.addView(bottom, new LinearLayout.LayoutParams(-1, -2));
+        final Runnable updateBottom = () -> {
+            long sum = 0;
+            for (ArchiveExtract.Archive archive : picked.values()) {
+                sum += archive.unpacked;
+            }
+            count.setText(picked.isEmpty() ? "고른 것 없음" : picked.size() + "개 고름");
+            need.setText(picked.isEmpty() ? "압축 파일을 눌러 고르세요 · 다른 폴더에서도 고를 수 있어요"
+                    : "풀면 약 " + formatSize(sum) + " · 남은 공간 " + formatSize(phoneRoot().getUsableSpace()));
+            next.setAlpha(picked.isEmpty() ? 0.45f : 1.0f);
+        };
+        final File[] current = {start};
+        final Runnable[] open = new Runnable[1];
+        open[0] = () -> {
+            final File dir = current[0];
+            settingsPrefs().edit().putString(PREF_UNZIP_LAST, dir.getAbsolutePath()).apply();
+            crumb.setText(crumbOf(dir));
+            list.removeAllViews();
+            TextView loading = new TextView(this);
+            loading.setText("여는 중…");
+            loading.setTextSize(13.0f);
+            loading.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+            loading.setPadding(dp(8), dp(16), 0, dp(16));
+            list.addView(loading);
+            new Thread(() -> {
+                File[] subs = dir.listFiles(f -> f.isDirectory() && !f.getName().startsWith("."));
+                final List<File> folders = new ArrayList<>(Arrays.asList(subs == null ? new File[0] : subs));
+                folders.sort((x, y) -> x.getName().compareToIgnoreCase(y.getName()));
+                final Map<File, Integer> inside = new HashMap<>();
+                for (File sub : folders) {
+                    String[] names = sub.list();
+                    int n = 0;
+                    for (String name : names == null ? new String[0] : names) {
+                        if (ArchiveExtract.isArchiveName(name) && !name.toLowerCase(Locale.ROOT).matches(".*\\.(r\\d\\d|\\d{3,})$|.*\\.part0*([2-9]|\\d{2,})\\.rar$")) {
+                            n++;
+                        }
+                    }
+                    inside.put(sub, n);
                 }
+                final List<ArchiveExtract.Archive> archives = ArchiveExtract.inFolder(dir);
+                for (ArchiveExtract.Archive archive : archives) {
+                    ArchiveExtract.inspectCached(archive);
+                }
+                runOnUiThread(() -> {
+                    if (current[0] != dir || !dialog.isShowing()) {
+                        return;
+                    }
+                    list.removeAllViews();
+                    File parent = dir.getParentFile();
+                    if (parent != null && parent.canRead()) {
+                        list.addView(unzipBrowserRow("⬆", Color.rgb(100, 116, 139), "상위 폴더", null, null, null, view -> {
+                            current[0] = parent;
+                            open[0].run();
+                        }, null));
+                    }
+                    for (final File sub : folders) {
+                        int n = inside.get(sub);
+                        list.addView(unzipBrowserRow("📁", Color.rgb(59, 130, 246), sub.getName(), n > 0 ? "압축 파일 " + n + "개" : null, null, null, view -> {
+                            current[0] = sub;
+                            open[0].run();
+                        }, null));
+                    }
+                    for (final ArchiveExtract.Archive found : archives) {
+                        final String key = found.parts.get(0).getAbsolutePath();
+                        final ArchiveExtract.Archive archive = picked.containsKey(key) ? picked.get(key) : found;
+                        String size = archive.unpacked > 0 ? formatSize(archive.packed) + " → 풀면 " + formatSize(archive.unpacked) : formatSize(archive.packed);
+                        String meta = archive.split ? archive.partsLabel() + " · " + size : size;
+                        TextView tag = null;
+                        if (archive.problem != null) {
+                            meta = archive.problem;
+                            String word = archive.problem.contains("조각") ? "조각 빠짐" : archive.problem.contains("암호") ? "암호" : "못 풀어요";
+                            tag = unzipTag(word, Color.rgb(254, 226, 226), Color.rgb(153, 27, 27));
+                        } else if (archive.done) {
+                            meta = size + " · 이미 풀려 있어요";
+                            tag = unzipTag("풀림", Color.rgb(220, 252, 231), Color.rgb(22, 101, 52));
+                        } else if (archive.split) {
+                            tag = unzipTag("분할", Color.rgb(219, 234, 254), Color.rgb(30, 64, 175));
+                        }
+                        final TextView check = new TextView(this);
+                        final boolean usable = archive.problem == null;
+                        final Runnable paint = () -> {
+                            boolean on = picked.containsKey(key);
+                            check.setText(on ? "✓" : "");
+                            check.setGravity(17);
+                            check.setTextSize(13.0f);
+                            check.setTypeface(Typeface.DEFAULT_BOLD);
+                            check.setTextColor(Color.WHITE);
+                            GradientDrawable box = rounded(on ? UNZIP_COLOR : Color.TRANSPARENT, dp(6));
+                            if (!on) {
+                                box.setStroke(dp(2), Theme.line(usable ? Color.rgb(156, 163, 175) : Color.rgb(209, 213, 219)));
+                            }
+                            check.setBackground(box);
+                        };
+                        paint.run();
+                        View row = unzipBrowserRow("🗜", Color.rgb(217, 119, 6), archive.name, meta, tag, check, view -> {
+                            if (!usable) {
+                                showMessage(archive.name + "\n\n" + archive.problem);
+                                return;
+                            }
+                            if (picked.remove(key) == null) {
+                                picked.put(key, archive);
+                            }
+                            paint.run();
+                            updateBottom.run();
+                        }, view -> {
+                            showUnzipPreview(archive);
+                            return true;
+                        });
+                        if (!usable) {
+                            row.setAlpha(0.7f);
+                        }
+                        list.addView(row);
+                    }
+                    if (folders.isEmpty() && archives.isEmpty()) {
+                        TextView empty = new TextView(this);
+                        empty.setText("이 폴더에는 폴더도 압축 파일도 없어요.");
+                        empty.setTextSize(13.0f);
+                        empty.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+                        empty.setGravity(17);
+                        empty.setPadding(0, dp(30), 0, dp(30));
+                        list.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+                    }
+                    TextView hint = new TextView(this);
+                    hint.setText("게임 · 사진 같은 다른 파일은 숨겨요. 압축 파일을 길게 누르면 안에 든 파일을 미리 봐요.");
+                    hint.setTextSize(11.0f);
+                    hint.setTextColor(Theme.text(Color.rgb(156, 163, 175)));
+                    hint.setPadding(dp(6), dp(12), dp(6), 0);
+                    list.addView(hint);
+                    scroll.scrollTo(0, 0);
+                });
+            }, "unzip-browse").start();
+        };
+        List<String[]> places = new ArrayList<>();
+        places.add(new String[]{"📱 내 폰", phoneRoot().getAbsolutePath()});
+        places.add(new String[]{"⬇ Download", downloadDir().getAbsolutePath()});
+        for (File sd : sdRoots()) {
+            places.add(new String[]{"💾 SD 카드", sd.getAbsolutePath()});
+        }
+        String recent = settingsPrefs().getString(PREF_LINK_RECENT, "");
+        if (!recent.isEmpty() && new File(recent).isDirectory()) {
+            places.add(new String[]{"🔗 최근 연결 폴더", recent});
+        }
+        for (final String[] place : places) {
+            TextView chip = multiDeleteChip(place[0]);
+            chip.setOnClickListener(view -> {
+                current[0] = new File(place[1]);
+                open[0].run();
             });
-        }, "unzip-scan").start();
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(0, 0, dp(6), 0);
+            chips.addView(chip, chipParams);
+        }
+        next.setOnClickListener(view -> {
+            if (!picked.isEmpty()) {
+                showUnzipConfirm(dialog, new ArrayList<>(picked.values()));
+            }
+        });
+        dialog.setContentView(root);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            // Back goes up a folder first, like a file manager.
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.getAction() == android.view.KeyEvent.ACTION_UP) {
+                File parent = current[0].getParentFile();
+                if (parent != null && parent.canRead() && !current[0].equals(phoneRoot())) {
+                    current[0] = parent;
+                    open[0].run();
+                    return true;
+                }
+            }
+            return false;
+        });
+        updateBottom.run();
+        dialog.show();
+        open[0].run();
+    }
+
+    private View unzipBrowserRow(String icon, int iconColor, String name, String meta, TextView tag, TextView check,
+                                 View.OnClickListener onClick, View.OnLongClickListener onLongClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(6), dp(10), dp(6), dp(10));
+        if (check != null) {
+            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+            checkParams.setMargins(0, 0, dp(10), 0);
+            row.addView(check, checkParams);
+        }
+        TextView badge = new TextView(this);
+        badge.setText(icon);
+        badge.setTextSize(15.0f);
+        badge.setGravity(17);
+        badge.setTextColor(Color.WHITE);
+        badge.setBackground(rounded(iconColor, dp(10)));
+        row.addView(badge, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(1);
+        TextView title = new TextView(this);
+        title.setText(name);
+        title.setTextSize(14.0f);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        words.addView(title);
+        if (meta != null) {
+            TextView sub = new TextView(this);
+            sub.setText(meta);
+            sub.setTextSize(11.5f);
+            sub.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+            words.addView(sub);
+        }
+        LinearLayout.LayoutParams wordsParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+        wordsParams.setMargins(dp(10), 0, 0, 0);
+        row.addView(words, wordsParams);
+        if (tag != null) {
+            LinearLayout.LayoutParams tagParams = new LinearLayout.LayoutParams(-2, -2);
+            tagParams.setMargins(dp(8), 0, 0, 0);
+            row.addView(tag, tagParams);
+        }
+        row.setClickable(true);
+        row.setOnClickListener(onClick);
+        if (onLongClick != null) {
+            row.setOnLongClickListener(onLongClick);
+        }
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(1);
+        wrap.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        View divider = new View(this);
+        divider.setBackgroundColor(Theme.bg(Color.rgb(240, 241, 243)));
+        wrap.addView(divider, new LinearLayout.LayoutParams(-1, Math.max(1, dp(1) / 2)));
+        return wrap;
+    }
+
+    // What is inside an archive (long press in the browser).
+    private void showUnzipPreview(ArchiveExtract.Archive archive) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        int n = archive.entries == null ? 0 : archive.entries.size();
+        cardHeader(panel, RoundIconView.ZIP, UNZIP_COLOR, archive.name,
+                archive.problem != null ? archive.problem : "파일 " + n + "개 · 풀면 " + formatSize(archive.unpacked));
+        if (archive.entries != null) {
+            StringBuilder text = new StringBuilder();
+            int shown = 0;
+            for (ArchiveExtract.Entry e : archive.entries) {
+                if (shown++ >= 60) {
+                    text.append("… 외 ").append(n - 60).append("개\n");
+                    break;
+                }
+                text.append(e.path).append("  ").append(e.size >= 0 ? formatSize(e.size) : "").append('\n');
+            }
+            TextView files = new TextView(this);
+            files.setText(text.toString().trim());
+            files.setTextSize(11.5f);
+            files.setTypeface(Typeface.MONOSPACE);
+            files.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+            files.setPadding(dp(10), dp(8), dp(10), dp(8));
+            files.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+            panel.addView(files, spaced(12));
+        }
+        TextView close = new TextView(this);
+        close.setText("닫기");
+        close.setTextSize(15.0f);
+        close.setTypeface(Typeface.DEFAULT_BOLD);
+        close.setGravity(17);
+        close.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        close.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        close.setOnClickListener(view -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.show();
+    }
+
+    // The chosen archives once more, where to put them, and go.
+    private void showUnzipConfirm(final Dialog browser, final List<ArchiveExtract.Archive> chosen) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.ZIP, UNZIP_COLOR, chosen.size() + "개 풀기", "고른 압축 파일");
+        long sum = 0;
+        for (ArchiveExtract.Archive archive : chosen) {
+            sum += archive.unpacked;
+            String size = archive.split ? archive.partsLabel() + " · " + formatSize(archive.unpacked) : formatSize(archive.unpacked);
+            panel.addView(unzipRow(archive.name, size + " → " + phonePath(archive.dir),
+                    archive.split ? unzipTag("분할", Color.rgb(219, 234, 254), Color.rgb(30, 64, 175)) : null), spaced(6));
+        }
+        final long total = sum;
+        panel.addView(sectionLabel("풀 곳"));
+        final boolean[] newFolder = {settingsPrefs().getBoolean(PREF_UNZIP_NEW_FOLDER, false)};
+        final TextView sameCheck = new TextView(this);
+        final TextView newCheck = new TextView(this);
+        final Runnable paint = () -> {
+            for (int i = 0; i < 2; i++) {
+                TextView check = i == 0 ? sameCheck : newCheck;
+                boolean on = (i == 1) == newFolder[0];
+                check.setText(on ? "✓" : "");
+                check.setGravity(17);
+                check.setTextSize(13.0f);
+                check.setTypeface(Typeface.DEFAULT_BOLD);
+                check.setTextColor(Color.WHITE);
+                GradientDrawable box = rounded(on ? UNZIP_COLOR : Color.TRANSPARENT, dp(11));
+                if (!on) {
+                    box.setStroke(dp(2), Theme.line(Color.rgb(156, 163, 175)));
+                }
+                check.setBackground(box);
+            }
+        };
+        String example = chosen.get(0).stem();
+        LinearLayout same = unzipRow("압축 파일이 있던 폴더", "안의 폴더 구조 그대로", null);
+        LinearLayout fresh = unzipRow("압축 파일 이름으로 새 폴더 만들어 넣기", "예: …/" + chosen.get(0).dir.getName() + "/" + example + "/", null);
+        LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(22), dp(22));
+        checkParams.setMargins(0, 0, dp(10), 0);
+        same.addView(sameCheck, 0, checkParams);
+        fresh.addView(newCheck, 0, new LinearLayout.LayoutParams(checkParams));
+        same.setOnClickListener(view -> {
+            newFolder[0] = false;
+            settingsPrefs().edit().putBoolean(PREF_UNZIP_NEW_FOLDER, false).apply();
+            paint.run();
+        });
+        fresh.setOnClickListener(view -> {
+            newFolder[0] = true;
+            settingsPrefs().edit().putBoolean(PREF_UNZIP_NEW_FOLDER, true).apply();
+            paint.run();
+        });
+        paint.run();
+        panel.addView(same, spaced(4));
+        panel.addView(fresh, spaced(6));
+        final boolean[] delete = {settingsPrefs().getBoolean(PREF_UNZIP_DELETE, false)};
+        LinearLayout option = new LinearLayout(this);
+        option.setOrientation(0);
+        option.setGravity(16);
+        option.setPadding(dp(12), dp(6), dp(8), dp(6));
+        option.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        TextView label = new TextView(this);
+        label.setText("다 풀면 압축 파일 지우기");
+        label.setTextSize(13.0f);
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        option.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.Switch toggle = new android.widget.Switch(this);
+        toggle.setChecked(delete[0]);
+        toggle.setOnCheckedChangeListener((button, on) -> {
+            delete[0] = on;
+            settingsPrefs().edit().putBoolean(PREF_UNZIP_DELETE, on).apply();
+        });
+        option.addView(toggle);
+        panel.addView(option, spaced(10));
+        final long free = chosen.get(0).dir.getUsableSpace();
+        TextView space = new TextView(this);
+        space.setText("필요한 공간 약 " + formatSize(total) + " · 남은 공간 " + formatSize(free));
+        space.setTextSize(11.5f);
+        space.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        space.setPadding(dp(2), 0, 0, 0);
+        panel.addView(space, spaced(8));
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("뒤로");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setGravity(17);
+        cancel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        cancel.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView go = new TextView(this);
+        go.setText("풀기");
+        go.setTextSize(15.0f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setGravity(17);
+        go.setTextColor(Color.WHITE);
+        go.setBackground(rounded(UNZIP_COLOR, dp(14)));
+        go.setOnClickListener(view -> {
+            if (total > free) {
+                showError("공간이 모자라요. 풀려면 약 " + formatSize(total) + "가 필요한데 " + formatSize(free) + "만 남았어요.");
+                return;
+            }
+            for (ArchiveExtract.Archive archive : chosen) {
+                archive.out = newFolder[0] ? new File(archive.dir, ArchiveExtract.safePath(archive.stem()) == null ? "압축 풀기" : ArchiveExtract.safePath(archive.stem()).replace('/', '_')) : null;
+            }
+            dialog.dismiss();
+            browser.dismiss();
+            runUnzip(chosen, delete[0]);
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
+        goParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(go, goParams);
+        panel.addView(buttons, spaced(12));
+        dialog.show();
+    }
+
+    // The consoles a folder holds games for: its own, or a folder above it (linked folders are
+    // searched a few levels down).
+    private static java.util.Set<String> modesNear(File dir, Map<String, java.util.Set<String>> folders) {
+        java.util.Set<String> modes = new java.util.LinkedHashSet<>();
+        for (int up = 0; dir != null && up < 7; up++, dir = dir.getParentFile()) {
+            java.util.Set<String> here = folders.get(dir.getAbsolutePath());
+            if (here != null) {
+                modes.addAll(here);
+            }
+        }
+        return modes;
     }
 
     private TextView unzipTag(String text, int bg, int fg) {
@@ -23905,222 +24255,6 @@ public final class MainActivity extends Activity {
         return row;
     }
 
-    private void showUnzipList(final UnzipScan scan) {
-        LinearLayout panel = new LinearLayout(this);
-        final Dialog dialog = cardDialog(panel);
-        java.util.LinkedHashMap<File, List<ArchiveExtract.Archive>> byDir = new java.util.LinkedHashMap<>();
-        for (ArchiveExtract.Archive archive : scan.archives) {
-            byDir.computeIfAbsent(archive.dir, k -> new ArrayList<>()).add(archive);
-        }
-        cardHeader(panel, RoundIconView.ZIP, UNZIP_COLOR, "압축 풀기",
-                scan.archives.isEmpty() ? "찾은 압축 파일이 없어요" : "압축 파일 " + scan.archives.size() + "개 · 폴더 " + byDir.size() + "곳");
-        final List<ArchiveExtract.Archive> chosen = new ArrayList<>();
-        final TextView space = new TextView(this);
-        final TextView go = new TextView(this);
-        final Runnable update = () -> {
-            long need = 0;
-            for (ArchiveExtract.Archive archive : chosen) {
-                need += archive.unpacked;
-            }
-            space.setText("필요한 공간 약 " + formatSize(need) + " · 남은 공간 " + formatSize(phoneRoot().getUsableSpace()));
-            go.setText(chosen.isEmpty() ? "고른 것 없음" : chosen.size() + "개 풀기");
-            go.setAlpha(chosen.isEmpty() ? 0.5f : 1.0f);
-        };
-        if (scan.archives.isEmpty()) {
-            panel.addView(noteBox("각 게임기에 연결한 폴더와 다운로드 폴더(그 아래 폴더까지)를 찾아봤어요. 다른 곳에 있으면 아래 \"폴더 더 고르기\"로 넣어 주세요.",
-                    Color.rgb(241, 245, 249), Color.rgb(51, 65, 85)), spaced(12));
-        } else {
-            panel.addView(noteBox("고른 파일을 그 압축 파일이 있던 폴더에 풀어요. 안에 폴더가 있으면 그 구조 그대로 만들어요.",
-                    Color.rgb(239, 246, 255), Color.rgb(30, 64, 175)), spaced(12));
-        }
-        for (Map.Entry<File, List<ArchiveExtract.Archive>> group : byDir.entrySet()) {
-            panel.addView(sectionLabel("📁 " + phonePath(group.getKey())));
-            for (final ArchiveExtract.Archive archive : group.getValue()) {
-                String size = archive.unpacked > 0 ? formatSize(archive.packed) + " → 풀면 " + formatSize(archive.unpacked) : formatSize(archive.packed);
-                String meta = archive.split ? archive.partsLabel() + " · " + size : size;
-                TextView tag = null;
-                if (archive.problem != null) {
-                    meta = archive.problem;
-                    String word = archive.problem.contains("조각") ? "조각 빠짐" : archive.problem.contains("암호") ? "암호" : "못 풀어요";
-                    tag = unzipTag(word, Color.rgb(254, 226, 226), Color.rgb(153, 27, 27));
-                } else if (archive.done) {
-                    meta = "이미 풀려 있어요 (같은 이름 · 크기의 파일 있음)";
-                    tag = unzipTag("풀림", Color.rgb(220, 252, 231), Color.rgb(22, 101, 52));
-                } else if (archive.split) {
-                    tag = unzipTag("분할", Color.rgb(219, 234, 254), Color.rgb(30, 64, 175));
-                }
-                LinearLayout row = unzipRow(archive.name, meta, tag);
-                final TextView check = new TextView(this);
-                check.setGravity(17);
-                check.setTextSize(13.0f);
-                check.setTypeface(Typeface.DEFAULT_BOLD);
-                final boolean usable = archive.problem == null;
-                final Runnable paint = () -> {
-                    boolean on = chosen.contains(archive);
-                    check.setText(on ? "✓" : "");
-                    check.setTextColor(Color.WHITE);
-                    GradientDrawable box = rounded(on ? UNZIP_COLOR : Color.TRANSPARENT, dp(6));
-                    if (!on) {
-                        box.setStroke(dp(2), Theme.line(usable ? Color.rgb(156, 163, 175) : Color.rgb(209, 213, 219)));
-                    }
-                    check.setBackground(box);
-                };
-                if (usable && !archive.done) {
-                    chosen.add(archive);
-                }
-                paint.run();
-                LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(22), dp(22));
-                checkParams.setMargins(0, 0, dp(10), 0);
-                row.addView(check, 0, checkParams);
-                if (usable) {
-                    row.setClickable(true);
-                    row.setOnClickListener(view -> {
-                        if (!chosen.remove(archive)) {
-                            chosen.add(archive);
-                        }
-                        paint.run();
-                        update.run();
-                    });
-                } else {
-                    row.setAlpha(0.75f);
-                }
-                panel.addView(row, spaced(6));
-            }
-        }
-        final boolean[] delete = {settingsPrefs().getBoolean(PREF_UNZIP_DELETE, false)};
-        if (!scan.archives.isEmpty()) {
-            LinearLayout option = new LinearLayout(this);
-            option.setOrientation(0);
-            option.setGravity(16);
-            option.setPadding(dp(12), dp(6), dp(8), dp(6));
-            option.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
-            TextView label = new TextView(this);
-            label.setText("다 풀면 압축 파일 지우기");
-            label.setTextSize(13.0f);
-            label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
-            option.addView(label, new LinearLayout.LayoutParams(0, -2, 1.0f));
-            android.widget.Switch toggle = new android.widget.Switch(this);
-            toggle.setChecked(delete[0]);
-            toggle.setOnCheckedChangeListener((button, on) -> {
-                delete[0] = on;
-                settingsPrefs().edit().putBoolean(PREF_UNZIP_DELETE, on).apply();
-            });
-            option.addView(toggle);
-            panel.addView(option, spaced(10));
-            space.setTextSize(11.5f);
-            space.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
-            space.setPadding(dp(2), 0, 0, 0);
-            panel.addView(space, spaced(8));
-        }
-        TextView more = new TextView(this);
-        more.setText("＋ 폴더 더 고르기");
-        more.setTextSize(13.0f);
-        more.setTypeface(Typeface.DEFAULT_BOLD);
-        more.setTextColor(Theme.text(UNZIP_COLOR));
-        more.setPadding(dp(2), dp(8), dp(2), dp(4));
-        more.setOnClickListener(view -> {
-            dialog.dismiss();
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            try {
-                startActivityForResult(intent, REQUEST_UNZIP_FOLDER);
-            } catch (Exception e) {
-                showError("폴더를 고르는 화면을 열 수 없어요.");
-            }
-        });
-        panel.addView(more, spaced(4));
-        List<String> extra = unzipExtraDirs();
-        if (!extra.isEmpty()) {
-            TextView extraView = new TextView(this);
-            StringBuilder text = new StringBuilder("더 고른 폴더: ");
-            for (int i = 0; i < extra.size(); i++) {
-                text.append(i == 0 ? "" : ", ").append(phonePath(new File(extra.get(i))));
-            }
-            text.append("  (빼기)");
-            extraView.setText(text.toString());
-            extraView.setTextSize(11.0f);
-            extraView.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
-            extraView.setPadding(dp(2), 0, dp(2), 0);
-            extraView.setOnClickListener(view -> {
-                settingsPrefs().edit().remove(PREF_UNZIP_DIRS).apply();
-                dialog.dismiss();
-                showUnzipSheet();
-            });
-            panel.addView(extraView);
-        }
-        LinearLayout buttons = new LinearLayout(this);
-        TextView cancel = new TextView(this);
-        cancel.setText(scan.archives.isEmpty() ? "닫기" : "취소");
-        cancel.setTextSize(15.0f);
-        cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setGravity(17);
-        cancel.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
-        cancel.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
-        cancel.setOnClickListener(view -> dialog.dismiss());
-        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
-        if (!scan.archives.isEmpty()) {
-            go.setTextSize(15.0f);
-            go.setTypeface(Typeface.DEFAULT_BOLD);
-            go.setGravity(17);
-            go.setTextColor(Color.WHITE);
-            go.setBackground(rounded(UNZIP_COLOR, dp(14)));
-            go.setOnClickListener(view -> {
-                if (chosen.isEmpty()) {
-                    return;
-                }
-                long need = 0;
-                for (ArchiveExtract.Archive archive : chosen) {
-                    need += archive.unpacked;
-                }
-                long free = chosen.get(0).dir.getUsableSpace();
-                if (need > free) {
-                    showError("공간이 모자라요. 풀려면 약 " + formatSize(need) + "가 필요한데 " + formatSize(free) + "만 남았어요.");
-                    return;
-                }
-                dialog.dismiss();
-                List<ArchiveExtract.Archive> order = new ArrayList<>();
-                for (ArchiveExtract.Archive archive : scan.archives) {
-                    if (chosen.contains(archive)) {
-                        order.add(archive);
-                    }
-                }
-                runUnzip(order, delete[0], scan);
-            });
-            LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
-            goParams.setMargins(dp(10), 0, 0, 0);
-            buttons.addView(go, goParams);
-            update.run();
-        }
-        panel.addView(buttons, spaced(12));
-        dialog.show();
-    }
-
-    private void onUnzipFolderPicked(Intent intent) {
-        Uri tree = intent.getData();
-        File dir = null;
-        if (tree != null) {
-            try {
-                String id = DocumentsContract.getTreeDocumentId(tree);
-                int colon = id.indexOf(':');
-                String volume = colon >= 0 ? id.substring(0, colon) : id;
-                String rest = colon >= 0 ? id.substring(colon + 1) : "";
-                File base = "primary".equalsIgnoreCase(volume) ? phoneRoot() : new File("/storage", volume);
-                dir = rest.isEmpty() ? base : new File(base, rest);
-            } catch (RuntimeException ignored) {
-                dir = null;
-            }
-        }
-        if (dir == null || !dir.isDirectory()) {
-            showError("이 폴더는 열 수 없어요. 내 폰이나 SD 카드의 폴더를 골라 주세요.");
-            return;
-        }
-        List<String> dirs = unzipExtraDirs();
-        if (!dirs.contains(dir.getAbsolutePath())) {
-            dirs.add(dir.getAbsolutePath());
-        }
-        settingsPrefs().edit().putString(PREF_UNZIP_DIRS, android.text.TextUtils.join("\n", dirs)).apply();
-        withAllFilesAccess(this::showUnzipSheet);
-    }
-
     /** What happened to one archive. */
     private static final class UnzipOutcome {
         ArchiveExtract.Archive archive;
@@ -24129,7 +24263,8 @@ public final class MainActivity extends Activity {
         boolean cancelled;
     }
 
-    private void runUnzip(final List<ArchiveExtract.Archive> archives, final boolean delete, final UnzipScan scan) {
+    private void runUnzip(final List<ArchiveExtract.Archive> archives, final boolean delete) {
+        final Map<String, java.util.Set<String>> gameDirs = gameFolders();
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
         dialog.setCancelable(false);
@@ -24241,7 +24376,7 @@ public final class MainActivity extends Activity {
             final Map<File, String> fileModes = new HashMap<>();
             for (UnzipOutcome outcome : outcomes) {
                 for (File out : outcome.written) {
-                    String mode = unzipModeFor(out, scan.folders);
+                    String mode = unzipModeFor(out, gameDirs);
                     if (mode == null) {
                         continue;
                     }
@@ -24327,7 +24462,7 @@ public final class MainActivity extends Activity {
         java.util.LinkedHashMap<File, java.util.LinkedHashMap<String, long[]>> tops = new java.util.LinkedHashMap<>();
         java.util.Map<String, String> topMode = new HashMap<>();
         for (UnzipOutcome outcome : outcomes) {
-            File dir = outcome.archive.dir;
+            File dir = outcome.archive.target();
             for (File out : outcome.written) {
                 String rel = out.getAbsolutePath().substring(dir.getAbsolutePath().length() + 1);
                 int slash = rel.indexOf('/');
