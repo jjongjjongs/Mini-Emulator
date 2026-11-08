@@ -477,6 +477,9 @@ struct Core {
     std::atomic<bool> wiimmfiRunning{false};
     // Cemu (cores/patches/cemu-mini-layout.patch): where the TV and GamePad pictures go.
     void (*cemuSetLayout)(int, int, const float*, const float*) = nullptr;
+    // PS Vita: text the game asks for (name entry …), typed on the phone (core patch).
+    int (*vitaTextRequest)(char*, int, char*, int) = nullptr;
+    void (*vitaTextAnswer)(const char*, int) = nullptr;
     // A negotiation interface handed over before SET_HW_RENDER made the Vulkan host.
     const retro_hw_render_context_negotiation_interface* pendingNegotiation = nullptr;
     // While a restored quick save is still on trial, the frame its marker comes off at.
@@ -704,6 +707,10 @@ bool loadCoreSymbols(Core* core) {
     void* lib = core->library;
     if (core->coreId == "pcee2") {
         core->pcee2HasPicture = reinterpret_cast<bool (*)()>(dlsym(lib, "retro_pcee2_has_picture"));
+    }
+    if (core->coreId == "vita3k") {
+        core->vitaTextRequest = reinterpret_cast<int (*)(char*, int, char*, int)>(dlsym(lib, "mini_vita_text_request"));
+        core->vitaTextAnswer = reinterpret_cast<void (*)(const char*, int)>(dlsym(lib, "mini_vita_text_answer"));
     }
     if (core->coreId == "cemu") {
         core->cemuSetLayout = reinterpret_cast<void (*)(int, int, const float*, const float*)>(dlsym(lib, "retro_mini_set_layout"));
@@ -4994,6 +5001,36 @@ JNIEXPORT jobjectArray JNICALL Java_com_example_minigba_NativeGba_coreOptions(
         env->DeleteLocalRef(s);
     }
     return array;
+}
+
+// PS Vita: what the game asks to be typed, {kind | max << 8, title, text}, or null.
+JNIEXPORT jobjectArray JNICALL Java_com_example_minigba_NativeGba_vitaTextRequest(JNIEnv* env, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || core->vitaTextRequest == nullptr) {
+        return nullptr;
+    }
+    std::vector<char> title(512, 0);
+    std::vector<char> text(4096, 0);
+    int kind = core->vitaTextRequest(title.data(), (int) title.size(), text.data(), (int) text.size());
+    if (kind == 0) {
+        return nullptr;
+    }
+    jobjectArray array = env->NewObjectArray(3, env->FindClass("java/lang/String"), nullptr);
+    std::string head = std::to_string(kind);
+    env->SetObjectArrayElement(array, 0, env->NewStringUTF(head.c_str()));
+    env->SetObjectArrayElement(array, 1, env->NewStringUTF(title.data()));
+    env->SetObjectArrayElement(array, 2, env->NewStringUTF(text.data()));
+    return array;
+}
+
+// PS Vita: the typed text (ok) or a cancel, for the request above.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_vitaTextAnswer(JNIEnv* env, jclass /*cls*/, jlong handle, jstring text, jboolean ok) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || core->vitaTextAnswer == nullptr) {
+        return;
+    }
+    std::string value = text == nullptr ? "" : jstringToString(env, text);
+    core->vitaTextAnswer(value.c_str(), ok ? 1 : 0);
 }
 
 // PC-98 MIDI: the SoundFont to play the game's MIDI music on (empty: none), before create().

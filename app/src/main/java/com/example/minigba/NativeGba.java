@@ -210,6 +210,12 @@ final class NativeGba {
     // clear drops the earlier ones. FBNeo .ini cheats are options "fbneo-cheat-...".
     static native void setCoreOptions(String[] keys, String[] values, boolean clear);
 
+    // PS Vita: text the game asks for — {kind | maxLength << 8, title, initial text} — or null.
+    static native String[] vitaTextRequest(long handle);
+
+    // PS Vita: the text typed for that request (ok), or cancelled.
+    static native void vitaTextAnswer(long handle, String text, boolean ok);
+
     // PC-98 MIDI music on this SoundFont (empty: off), before create(); false when it can't be read.
     static native boolean setMidiSoundfont(String path);
 

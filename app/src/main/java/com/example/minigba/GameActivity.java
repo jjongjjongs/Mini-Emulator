@@ -6219,6 +6219,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         this.nativeHandle = handle;
+        if (isVita()) {
+            startVitaTextPoll();
+        }
         refreshPlayers(false);
         startAdhocBeaconIfHosting();
         shareVpnInviteIfPending();
@@ -14206,6 +14209,90 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                             if (menu != null) menu.dismiss();
                             relaunchGame();
                         }));
+    }
+
+    // ---- PS Vita text input: a game asking for a name / password opens the system text box,
+    // which this engine build can't draw; the phone's own text box answers it instead. ----
+    private boolean vitaTextShowing;
+    private final Runnable vitaTextPoll = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            long handle = GameActivity.this.nativeHandle;
+            if (handle != 0 && !GameActivity.this.vitaTextShowing) {
+                String[] ask = NativeGba.vitaTextRequest(handle);
+                if (ask != null && ask.length == 3) {
+                    showVitaTextInput(handle, ask);
+                }
+            }
+            getWindow().getDecorView().postDelayed(this, 400);
+        }
+    };
+
+    private void startVitaTextPoll() {
+        getWindow().getDecorView().removeCallbacks(this.vitaTextPoll);
+        getWindow().getDecorView().postDelayed(this.vitaTextPoll, 400);
+    }
+
+    private void showVitaTextInput(final long handle, String[] ask) {
+        int head;
+        try {
+            head = Integer.parseInt(ask[0]);
+        } catch (NumberFormatException e) {
+            return;
+        }
+        int max = head >> 8;
+        this.vitaTextShowing = true;
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setText(ask[2]);
+        input.setSelection(input.getText().length());
+        if (max > 0) {
+            input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(max)});
+        }
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad / 2, pad, 0);
+        box.addView(input);
+        String title = ask[1] == null || ask[1].trim().isEmpty() ? "글자 입력" : ask[1].trim();
+        final boolean[] answered = {false};
+        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(max > 0 ? "게임이 글자를 입력해 달라고 해요 (최대 " + max + "자)" : "게임이 글자를 입력해 달라고 해요")
+                .setView(box)
+                .setPositiveButton("확인", (d, which) -> {
+                    answered[0] = true;
+                    NativeGba.vitaTextAnswer(handle, input.getText().toString(), true);
+                })
+                .setNegativeButton("취소", (d, which) -> {
+                    answered[0] = true;
+                    NativeGba.vitaTextAnswer(handle, "", false);
+                })
+                .create();
+        dialog.setOnDismissListener(d -> {
+            if (!answered[0]) {
+                NativeGba.vitaTextAnswer(handle, "", false);
+            }
+            this.vitaTextShowing = false;
+        });
+        input.setOnEditorActionListener((view, action, event) -> {
+            if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                answered[0] = true;
+                NativeGba.vitaTextAnswer(handle, input.getText().toString(), true);
+                dialog.dismiss();
+                return true;
+            }
+            return false;
+        });
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+        dialog.show();
+        input.requestFocus();
     }
 
     private boolean noStates() {
