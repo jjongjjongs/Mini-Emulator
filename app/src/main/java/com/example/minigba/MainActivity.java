@@ -23668,26 +23668,6 @@ public final class MainActivity extends Activity {
         return new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS);
     }
 
-    // Folder → the consoles it holds games for: linked folders and the folders of linked games.
-    private Map<String, java.util.Set<String>> gameFolders() {
-        Map<String, java.util.Set<String>> folders = new HashMap<>();
-        for (String mode : MODE_IDS) {
-            for (String path : settingsPrefs().getString(PREF_LINK_DIRS + mode, "").split("\n")) {
-                if (!path.isEmpty()) {
-                    folders.computeIfAbsent(path, k -> new java.util.HashSet<>()).add(mode);
-                }
-            }
-            File[] files = romDirFor(mode).listFiles();
-            for (File file : files == null ? new File[0] : files) {
-                File target = isLink(file) ? linkTarget(file) : null;
-                if (target != null && target.getParentFile() != null) {
-                    folders.computeIfAbsent(target.getParentFile().getAbsolutePath(), k -> new java.util.HashSet<>()).add(mode);
-                }
-            }
-        }
-        return folders;
-    }
-
     private View createUnzipTool() {
         LinearLayout tool = new LinearLayout(this);
         tool.setOrientation(0);
@@ -24251,7 +24231,6 @@ public final class MainActivity extends Activity {
     }
 
     private void runUnzip(final List<ArchiveExtract.Archive> archives, final boolean delete) {
-        final Map<String, java.util.Set<String>> gameDirs = gameFolders();
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
         dialog.setCancelable(false);
@@ -24358,25 +24337,6 @@ public final class MainActivity extends Activity {
                 }
                 before += archive.unpacked;
             }
-            // Games that came out: into their console's list (linked, not copied).
-            final Map<String, Integer> linkedModes = new java.util.LinkedHashMap<>();
-            final Map<File, String> fileModes = new HashMap<>();
-            for (UnzipOutcome outcome : outcomes) {
-                for (File out : outcome.written) {
-                    String mode = unzipModeFor(out, outcome.archive.dir, outcome.archive.target(), gameDirs);
-                    if (mode == null) {
-                        continue;
-                    }
-                    try {
-                        if (linkGame(out, mode) >= 0) {
-                            fileModes.put(out, mode);
-                            linkedModes.merge(mode, 1, Integer::sum);
-                        }
-                    } catch (IOException ignored) {
-                        // Left out of the list; the file is still there.
-                    }
-                }
-            }
             runOnUiThread(() -> {
                 getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 dialog.dismiss();
@@ -24388,56 +24348,12 @@ public final class MainActivity extends Activity {
                 } else {
                     refreshLibrary();
                 }
-                showUnzipResult(outcomes, fileModes, linkedModes);
+                showUnzipResult(outcomes);
             });
         }, "unzip").start();
     }
 
-    // The console a file that came out of an archive is a game for: one the archive's folder
-    // holds games for, else the only console that takes its kind of file. Only files at the top
-    // or one folder down count (not the insides of a game folder), never archives themselves
-    // (an inner .zip is rarely an arcade set), and never arcade · NAOMI · DOS by guessing.
-    // Null when not a game or unclear.
-    private String unzipModeFor(File file, File archiveDir, File target, Map<String, java.util.Set<String>> folders) {
-        String rel = file.getAbsolutePath().substring(Math.min(file.getAbsolutePath().length(), target.getAbsolutePath().length() + 1));
-        if (rel.indexOf('/') != rel.lastIndexOf('/')) {
-            return null;
-        }
-        String lower = file.getName().toLowerCase(Locale.US);
-        if (ArchiveExtract.isArchiveName(lower)) {
-            return null;
-        }
-        java.util.Set<String> here = folders.get(archiveDir.getAbsolutePath());
-        for (String mode : here == null ? java.util.Collections.<String>emptySet() : here) {
-            if (!isArcadeMode(mode) && !MODE_NAOMI.equals(mode) && isLinkableGame(file, mode)) {
-                return mode;
-            }
-        }
-        String only = null;
-        for (String mode : MODE_IDS) {
-            if (isArcadeMode(mode) || MODE_DOS.equals(mode) || MODE_NAOMI.equals(mode) || (MODE_PC98.equals(mode) && lower.endsWith(".bmp"))) {
-                continue;
-            }
-            if (isRomNameFor(mode, lower)) {
-                if (only != null) {
-                    return null;
-                }
-                only = mode;
-            }
-        }
-        return only != null && isLinkableGame(file, only) ? only : null;
-    }
-
-    private boolean isGameName(String lower) {
-        for (String mode : MODE_IDS) {
-            if (!isArcadeMode(mode) && isRomNameFor(mode, lower)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void showUnzipResult(List<UnzipOutcome> outcomes, Map<File, String> fileModes, Map<String, Integer> linkedModes) {
+    private void showUnzipResult(List<UnzipOutcome> outcomes) {
         int good = 0;
         int files = 0;
         long bytes = 0;
@@ -24458,7 +24374,6 @@ public final class MainActivity extends Activity {
         cardHeader(panel, RoundIconView.ZIP, good > 0 ? Color.rgb(22, 163, 74) : Color.rgb(220, 38, 38), title,
                 files > 0 ? "파일 " + files + "개 · " + formatSize(bytes) : "새로 풀린 파일 없음");
         java.util.LinkedHashMap<File, java.util.LinkedHashMap<String, long[]>> tops = new java.util.LinkedHashMap<>();
-        java.util.Map<String, String> topMode = new HashMap<>();
         for (UnzipOutcome outcome : outcomes) {
             File dir = outcome.archive.target();
             for (File out : outcome.written) {
@@ -24468,10 +24383,6 @@ public final class MainActivity extends Activity {
                 long[] sum = tops.computeIfAbsent(dir, k -> new java.util.LinkedHashMap<>()).computeIfAbsent(top, k -> new long[2]);
                 sum[0]++;
                 sum[1] += out.length();
-                String mode = fileModes.get(out);
-                if (mode != null) {
-                    topMode.putIfAbsent(dir.getAbsolutePath() + "/" + top, mode);
-                }
             }
         }
         int rows = 0;
@@ -24487,14 +24398,7 @@ public final class MainActivity extends Activity {
                 String name = item.getKey();
                 boolean folder = name.endsWith("/");
                 String meta = (folder ? "폴더 · 파일 " + item.getValue()[0] + "개 · " : "") + formatSize(item.getValue()[1]);
-                String mode = topMode.get(group.getKey().getAbsolutePath() + "/" + name);
-                TextView tag = null;
-                if (mode != null) {
-                    tag = unzipTag(MODE_NAMES[modeIndex(mode)], Color.rgb(219, 234, 254), Color.rgb(30, 64, 175));
-                } else if (!folder && !isGameName(name.toLowerCase(Locale.US))) {
-                    tag = unzipTag("게임 아님", Color.rgb(254, 243, 199), Color.rgb(146, 64, 14));
-                }
-                panel.addView(unzipRow(name, meta, tag), spaced(6));
+                panel.addView(unzipRow(name, meta, null), spaced(6));
             }
         }
         if (hidden > 0) {
@@ -24517,15 +24421,6 @@ public final class MainActivity extends Activity {
             panel.addView(unzipRow(outcome.archive.name, why,
                     unzipTag(outcome.cancelled ? "취소" : "건너뜀", Color.rgb(254, 226, 226), Color.rgb(153, 27, 27))), spaced(6));
         }
-        if (!linkedModes.isEmpty()) {
-            StringBuilder text = new StringBuilder("게임 목록에 연결했어요 (복사 없음): ");
-            boolean first = true;
-            for (Map.Entry<String, Integer> entry : linkedModes.entrySet()) {
-                text.append(first ? "" : ", ").append(MODE_NAMES[modeIndex(entry.getKey())]).append(" ").append(entry.getValue()).append("개");
-                first = false;
-            }
-            panel.addView(noteBox(text.toString(), Color.rgb(239, 246, 255), Color.rgb(30, 64, 175)), spaced(10));
-        }
         LinearLayout buttons = new LinearLayout(this);
         TextView close = new TextView(this);
         close.setText("닫기");
@@ -24536,23 +24431,6 @@ public final class MainActivity extends Activity {
         close.setBackground(rounded(Color.rgb(241, 243, 245), dp(14)));
         close.setOnClickListener(view -> dialog.dismiss());
         buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
-        if (linkedModes.size() == 1) {
-            final String mode = linkedModes.keySet().iterator().next();
-            TextView open = new TextView(this);
-            open.setText(MODE_NAMES[modeIndex(mode)] + " 목록 열기");
-            open.setTextSize(15.0f);
-            open.setTypeface(Typeface.DEFAULT_BOLD);
-            open.setGravity(17);
-            open.setTextColor(Color.WHITE);
-            open.setBackground(rounded(UNZIP_COLOR, dp(14)));
-            open.setOnClickListener(view -> {
-                dialog.dismiss();
-                onModePicked(mode);
-            });
-            LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(0, dp(48), 1.5f);
-            openParams.setMargins(dp(10), 0, 0, 0);
-            buttons.addView(open, openParams);
-        }
         panel.addView(buttons, spaced(14));
         dialog.show();
     }
