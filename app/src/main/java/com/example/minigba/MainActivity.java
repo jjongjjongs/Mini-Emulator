@@ -21730,7 +21730,7 @@ public final class MainActivity extends Activity {
             VitaPatch.Plan plan = null;
             try {
                 copyUriToFile(data.getData(), zip);
-                plan = VitaPatch.analyze(zip, vitaAppDir(id));
+                plan = VitaPatch.analyze(zip, vitaAppDir(id), new File(vitaPrefDir(), "ux0/patch/" + id));
                 if (plan.error == null) {
                     VitaPatch.check(plan, new VitaPatch.Progress() {
                         public void update(int file, int files, String name, String step, int permille) {

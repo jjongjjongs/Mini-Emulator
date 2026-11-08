@@ -258,6 +258,12 @@ final class VitaPatch {
 
     // Finds where each patch goes; the hashing (slow for big files) is in check().
     static Plan analyze(File zipFile, File gameDir) {
+        return analyze(zipFile, gameDir, null);
+    }
+
+    // updateDir: the installed update (ux0:patch/<title>), searched first: an updated game runs
+    // its files from there, and many Korean patches are made for the updated files (0.0.331).
+    static Plan analyze(File zipFile, File gameDir, File updateDir) {
         Plan plan = new Plan();
         plan.zip = zipFile;
         plan.gameDir = gameDir;
@@ -285,6 +291,11 @@ final class VitaPatch {
             }
             plan.checksums = !sums.isEmpty();
             Map<String, List<File>> byName = new HashMap<>();
+            Map<String, List<File>> byNameUpdate = new HashMap<>();
+            boolean haveUpdate = updateDir != null && updateDir.isDirectory();
+            if (haveUpdate) {
+                index(updateDir, byNameUpdate, 0);
+            }
             index(gameDir, byName, 0);
             for (ZipEntry e : patches) {
                 String name = baseName(e.getName().replace('\\', '/'));
@@ -298,10 +309,14 @@ final class VitaPatch {
                     item.originalSha = sum.originalSha;
                     item.patchedSize = sum.patchedSize;
                     item.patchedSha = sum.patchedSha;
-                    item.target = new File(gameDir, sum.path);
+                    item.target = haveUpdate && new File(updateDir, sum.path).isFile() ? new File(updateDir, sum.path) : new File(gameDir, sum.path);
                 } else {
+                    List<File> inUpdate = byNameUpdate.get(fileName.toLowerCase(Locale.ROOT));
                     List<File> found = byName.get(fileName.toLowerCase(Locale.ROOT));
-                    if (found != null && found.size() == 1) {
+                    if (inUpdate != null && inUpdate.size() == 1) {
+                        item.target = inUpdate.get(0);
+                        item.path = "업데이트/" + updateDir.toURI().relativize(item.target.toURI()).getPath();
+                    } else if (found != null && found.size() == 1) {
                         item.target = found.get(0);
                         item.path = gameDir.toURI().relativize(item.target.toURI()).getPath();
                     } else {
@@ -313,7 +328,20 @@ final class VitaPatch {
                 plan.items.add(item);
             }
             if (plan.count(MATCH) == 0) {
-                plan.error = "패치할 파일이 설치된 게임에 없어요. 이 게임의 패치인지 확인해 주세요.";
+                StringBuilder names = new StringBuilder();
+                int shown = 0;
+                for (Item item : plan.items) {
+                    if (shown++ < 6) {
+                        names.append("\n · ").append(item.path);
+                    }
+                }
+                if (plan.items.size() > 6) {
+                    names.append("\n · … 모두 ").append(plan.items.size()).append("개");
+                }
+                plan.error = "패치할 파일이 설치된 게임에 없어요. 이 패치가 찾는 파일:" + names
+                        + "\n\n· 다른 지역판(예: 아시아판 PCSH · 북미판 PCSE)이나 다른 게임의 패치일 수 있어요."
+                        + (haveUpdate ? "" : "\n· 업데이트를 설치한 게임용 패치일 수 있어요. 이 게임에는 설치된 업데이트가 없어요 (게임 길게 누르기 → 업데이트 · DLC PKG).")
+                        + "\n· 파일 이름이 다르게 붙은 패치라면, 패치 설명서에 적힌 대상 파일 이름으로 xdelta 이름을 바꿔 zip에 넣어 보세요 (예: eboot.bin.xdelta).";
             }
         } catch (IOException e) {
             plan.error = "zip을 읽지 못했어요: " + e.getMessage();
