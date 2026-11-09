@@ -223,6 +223,8 @@ final class NativeGba {
 
     static native void setCitraAsync(boolean on);
 
+    static native void setPs2Patches(boolean widescreen, boolean noInterlacing);
+
     static native void setN3dsLayout(long handle, String spec, boolean swap);
 
     static native void setDsLayout(long handle, int[] spec);

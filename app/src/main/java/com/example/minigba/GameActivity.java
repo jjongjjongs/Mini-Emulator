@@ -6001,6 +6001,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             vkParams.setMargins(0, 0, 0, dp(8));
             panel.addView(createN3dsGraphicsRow(), vkParams);
         }
+        if ("pcee2".equals(this.coreId)) {
+            LinearLayout.LayoutParams wsParams = new LinearLayout.LayoutParams(-1, dp(52));
+            wsParams.setMargins(0, 0, 0, dp(8));
+            panel.addView(createPs2WidescreenRow(), wsParams);
+        }
         if (isN3ds() || isNds()) {
             LinearLayout.LayoutParams layParams = new LinearLayout.LayoutParams(-1, dp(52));
             layParams.setMargins(0, 0, 0, dp(8));
@@ -6548,6 +6553,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setDosOptions(options[0], options[1], start);
                     }
                     NativeGba.setCitraVulkan(isN3ds() && n3dsVulkan());
+                    NativeGba.setPs2Patches(ps2Widescreen() && ps2WidescreenFound(), ps2NoInterlacing());
                     NativeGba.setCitraAsync(n3dsAsync());
                     NativeGba.setRotationMode(arcadeRotationMode());
                     NativeGba.setTurbo(turboActiveMask(), turboRate());
@@ -16846,6 +16852,307 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // ---- PS2 와이드스크린 (0.0.364): PCSX2's own widescreen (and no-interlacing) patches,
+    // from the patch collection PCSX2 ships (PCSX2/pcsx2_patches), fetched from there when
+    // first turned on and kept as <system>/pcsx2/resources/patches.zip. Per game. ----
+
+    static final String PS2_PATCHES_URL = "https://github.com/PCSX2/pcsx2_patches/releases/download/latest/patches.zip";
+
+    private File ps2PatchesZip() {
+        return new File(new File(new File(getFilesDir(), "system"), "pcsx2"), "resources/patches.zip");
+    }
+
+    private boolean ps2Widescreen() {
+        return "pcee2".equals(this.coreId) && MainActivity.sharedSettings(this).getBoolean("ps2ws:" + this.saveBaseName, false);
+    }
+
+    // Whether this game has a widescreen patch (found when the sheet looked).
+    private boolean ps2WidescreenFound() {
+        return MainActivity.sharedSettings(this).getBoolean("ps2wsok:" + this.saveBaseName, false);
+    }
+
+    private boolean ps2NoInterlacing() {
+        return "pcee2".equals(this.coreId) && MainActivity.sharedSettings(this).getBoolean("ps2ni:" + this.saveBaseName, false);
+    }
+
+    private boolean ps2Stretch() {
+        return "pcee2".equals(this.coreId) && MainActivity.sharedSettings(this).getBoolean("ps2stretch:" + this.saveBaseName, false);
+    }
+
+    // The picture is 16:9 with a widescreen patch on, or when stretched on purpose.
+    private boolean ps2Wide() {
+        return (ps2Widescreen() && ps2WidescreenFound()) || ps2Stretch();
+    }
+
+    // What the collection has for this game: {widescreen, no-interlacing}, or null when it
+    // can't be read. CRC is the game's (as PCSX2 names the files "<serial>_<CRC>.pnach").
+    static boolean[] ps2PatchesFor(File zip, long crc) {
+        String tail = String.format(Locale.US, "%08X.PNACH", crc);
+        boolean[] found = {false, false};
+        try (java.util.zip.ZipFile file = new java.util.zip.ZipFile(zip)) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = file.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry e = entries.nextElement();
+                String name = e.getName();
+                int slash = name.lastIndexOf('/');
+                String base = (slash >= 0 ? name.substring(slash + 1) : name).toUpperCase(Locale.US);
+                if (!(base.equals(tail) || base.endsWith("_" + tail)) || e.getSize() > (1 << 20)) {
+                    continue;
+                }
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                try (java.io.InputStream in = file.getInputStream(e)) {
+                    byte[] buffer = new byte[8192];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        bytes.write(buffer, 0, n);
+                    }
+                }
+                for (String line : new String(bytes.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).split("\\r?\\n")) {
+                    String l = line.trim().toLowerCase(Locale.US);
+                    if (l.startsWith("[widescreen")) {
+                        found[0] = true;
+                    } else if (l.startsWith("[no-interlacing") || l.startsWith("[no interlacing")) {
+                        found[1] = true;
+                    }
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        return found;
+    }
+
+    // Fetches the collection into place (a temporary file first, checked, then renamed).
+    static String ps2DownloadPatches(File target) {
+        File temp = new File(target.getParentFile(), "patches.zip.part");
+        try {
+            File parent = target.getParentFile();
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                return "폴더를 만들지 못했어요";
+            }
+            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(PS2_PATCHES_URL).openConnection();
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(true);
+            int code = connection.getResponseCode();
+            if (code != 200) {
+                return "GitHub 서버 응답 " + code;
+            }
+            try (java.io.InputStream in = connection.getInputStream(); java.io.FileOutputStream out = new java.io.FileOutputStream(temp)) {
+                byte[] buffer = new byte[1 << 16];
+                int n;
+                long total = 0;
+                while ((n = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, n);
+                    total += n;
+                    if (total > (64L << 20)) {
+                        return "받은 파일이 너무 커요";
+                    }
+                }
+            } finally {
+                connection.disconnect();
+            }
+            int count;
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(temp)) {
+                count = zip.size();
+            }
+            if (count < 100) {
+                return "받은 파일이 패치 모음이 아니에요";
+            }
+            if (!temp.renameTo(target)) {
+                return "파일을 저장하지 못했어요";
+            }
+            return null;
+        } catch (IOException | RuntimeException e) {
+            return "받지 못했어요 (" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + ")";
+        } finally {
+            temp.delete();
+        }
+    }
+
+    private LinearLayout createPs2WidescreenRow() {
+        String shown = ps2Widescreen() ? (ps2WidescreenFound() ? "켬 · 16:9" : "켬 · 이 게임은 패치 없음") : ps2Stretch() ? "늘려 보기 16:9" : "끔 (4:3)";
+        return createSettingRow(RoundIconView.HD, Color.rgb(37, 99, 235), "와이드스크린 (16:9)", shown, view -> showPs2WidescreenSheet());
+    }
+
+    private void showPs2WidescreenSheet() {
+        final File zip = ps2PatchesZip();
+        if (!zip.isFile()) {
+            showPs2PatchesDownload(zip);
+            return;
+        }
+        final long crc = OverlayPatches.ps2IsoCrc(romFile());
+        final android.app.Dialog busy = new AppDialog.Builder(this).setTitle("와이드스크린").setMessage("이 게임용 패치를 찾는 중…").show();
+        new Thread(() -> {
+            boolean[] found = crc < 0 ? null : ps2PatchesFor(zip, crc);
+            runOnUiThread(() -> {
+                busy.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                showPs2WidescreenChoices(zip, crc, found);
+            });
+        }, "ps2-patches").start();
+    }
+
+    private void showPs2PatchesDownload(File zip) {
+        new AppDialog.Builder(this).setTitle("와이드스크린 패치 모음 받기")
+                .setMessage("PS2 게임을 16:9로 바꾸는 패치는 게임마다 따로 있어요. PCSX2가 쓰는 공개 패치 모음(게임 약 4,700개 · 약 2MB)을 PCSX2 공식 저장소(github.com/PCSX2/pcsx2_patches)에서 받아 와서 이 게임 것을 찾아요.\n\n"
+                        + "패치는 여러 사람이 만든 것을 PCSX2가 모아 배포해요. 패치에 따라 일부 장면(동영상 · 메뉴)이 늘어나 보이거나 화면 끝이 잘릴 수 있어요. 이상하면 끄면 원래대로예요.")
+                .setNegativeButton("취소", null)
+                .setPositiveButton("받기", (d, w) -> {
+                    final android.app.Dialog busy = new AppDialog.Builder(this).setTitle("받는 중").setMessage("PCSX2 패치 모음 (약 2MB)").show();
+                    new Thread(() -> {
+                        String error = ps2DownloadPatches(zip);
+                        runOnUiThread(() -> {
+                            busy.dismiss();
+                            if (isFinishing() || isDestroyed()) {
+                                return;
+                            }
+                            if (error != null) {
+                                new AppDialog.Builder(this).setTitle("패치 모음을 받지 못했어요").setMessage(error + "\n인터넷 연결을 확인하고 다시 해 주세요.")
+                                        .setPositiveButton("닫기", null).show();
+                                return;
+                            }
+                            showPs2WidescreenSheet();
+                        });
+                    }, "ps2-patches-get").start();
+                }).show();
+    }
+
+    private void showPs2WidescreenChoices(File zip, long crc, boolean[] found) {
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        final boolean hasWs = found != null && found[0];
+        final boolean hasNi = found != null && found[1];
+        prefs.edit().putBoolean("ps2wsok:" + this.saveBaseName, hasWs).apply();
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("와이드스크린 · 이 게임만");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(this.gameTitle + (crc >= 0 ? String.format(Locale.US, " · CRC %08X", crc) : ""));
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        sub.setPadding(0, dp(4), 0, dp(8));
+        panel.addView(sub);
+        final boolean[] ws = {ps2Widescreen() && hasWs};
+        final boolean[] ni = {ps2NoInterlacing() && hasNi};
+        final boolean[] stretch = {ps2Stretch()};
+        if (hasWs) {
+            panel.addView(ps2Switch("와이드스크린 패치 (16:9)", "게임 카메라를 옆으로 넓혀요 · 비율은 그대로", ws[0], on -> ws[0] = on));
+            panel.addView(ps2Note("✓ 이 게임용 와이드 패치가 있어요 (PCSX2 패치 모음)", Color.rgb(220, 252, 231), Color.rgb(22, 101, 52)));
+        } else {
+            panel.addView(ps2Note(found == null ? "이 게임의 번호(CRC)를 읽지 못했거나 패치 모음을 읽지 못했어요."
+                    : "이 게임용 와이드 패치가 모음에 없어요. 다른 지역판(북미 · 유럽)에는 있을 수 있어요.\n직접 구한 와이드 pnach는 치트 › pnach 넣기로 쓸 수 있어요.",
+                    Color.rgb(254, 243, 199), Color.rgb(146, 64, 14)));
+            panel.addView(ps2Switch("대신 16:9로 늘려 보기", "화면 모양을 16:9로 (그림이 옆으로 늘어나요)", stretch[0], on -> stretch[0] = on));
+        }
+        if (hasNi) {
+            panel.addView(ps2Switch("인터레이스 줄무늬 없애기", "화면이 떨리거나 가로줄이 보이는 게임용 패치", ni[0], on -> ni[0] = on));
+        }
+        String date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM, Locale.KOREA).format(new java.util.Date(zip.lastModified()));
+        TextView again = new TextView(this);
+        again.setText("패치 모음 · PCSX2 공식 · " + date + " 받음 · 새로 받기 ›");
+        again.setTextSize(12.0f);
+        again.setTextColor(Theme.text(Color.rgb(37, 99, 235)));
+        again.setPadding(dp(4), dp(12), 0, dp(2));
+        again.setOnClickListener(v -> {
+            dialog.dismiss();
+            showPs2PatchesDownload(zip);
+        });
+        panel.addView(again);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        TextView apply = dialogButton("적용 (다시 켜기)", Color.rgb(37, 99, 235), Color.WHITE);
+        apply.setOnClickListener(v -> {
+            boolean changed = ws[0] != ps2Widescreen() || ni[0] != ps2NoInterlacing() || stretch[0] != ps2Stretch();
+            prefs.edit().putBoolean("ps2ws:" + this.saveBaseName, ws[0]).putBoolean("ps2ni:" + this.saveBaseName, ni[0])
+                    .putBoolean("ps2stretch:" + this.saveBaseName, stretch[0]).commit();
+            dialog.dismiss();
+            if (changed) {
+                if (this.pauseDialog != null) {
+                    this.pauseDialog.dismiss();
+                }
+                relaunchGame();
+            }
+        });
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(46), 1.5f);
+        applyParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    private TextView ps2Note(String text, int background, int color) {
+        TextView note = new TextView(this);
+        note.setText(text);
+        note.setTextSize(12.0f);
+        note.setTextColor(color);
+        note.setLineSpacing(0, 1.15f);
+        note.setPadding(dp(10), dp(8), dp(10), dp(8));
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(background);
+        shape.setCornerRadius(dp(12));
+        note.setBackground(shape);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(8), 0, 0);
+        note.setLayoutParams(params);
+        return note;
+    }
+
+    private LinearLayout ps2Switch(String title, String note, boolean checked, FilterToggle onChange) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(8), dp(8));
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(Theme.bg(Color.rgb(246, 247, 249)));
+        shape.setCornerRadius(dp(12));
+        row.setBackground(shape);
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(1);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(13.0f);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        words.addView(t);
+        TextView n = new TextView(this);
+        n.setText(note);
+        n.setTextSize(11.0f);
+        n.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        words.addView(n);
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.Switch toggle = new android.widget.Switch(this);
+        toggle.setChecked(checked);
+        toggle.setOnCheckedChangeListener((b, on) -> onChange.set(on));
+        row.addView(toggle);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(8), 0, 0);
+        row.setLayoutParams(params);
+        return row;
+    }
+
     // ---- 3DS 그래픽 (0.0.347): OpenGL (default) or Vulkan with background shader building,
     // per game. A crash on Vulkan turns it off for the 3DS engine (vulkan_off:citra). ----
     private boolean n3dsVulkan() {
@@ -17574,6 +17881,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isPc98() && MainActivity.sharedSettings(this).getBoolean("pc98_pixel", false)) {
             return 640.0f / 400.0f;   // pixels as they are (the monitor showed 4:3)
+        }
+        if (ps2Wide()) {
+            return 16.0f / 9.0f;   // PS2 와이드스크린 패치 or 늘려 보기
         }
         return this.coreId.equals("gba") ? 1.5f : 1.3333334f;
     }

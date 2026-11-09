@@ -1603,6 +1603,9 @@ std::atomic<bool> gVulkanAllowed{true};
 std::atomic<bool> gCitraVulkan{false};
 // Vulkan only: build new shaders in the background (true) or wait for them (0.0.355).
 std::atomic<bool> gCitraAsync{true};
+// PS2 (PCSX2): the widescreen and no-interlacing patches of resources/patches.zip (0.0.364).
+std::atomic<bool> gPs2Widescreen{false};
+std::atomic<bool> gPs2NoInterlacing{false};
 bool vulkanFor(const std::string& coreId) {
     // Cemu has no OpenGL ES renderer, so it takes Vulkan whatever the setting.
     if (coreId == "cemu") return vkhw::available();
@@ -1835,6 +1838,8 @@ const char* fixedVariable(const char* key) {
     }
     // PS2: VU1 on a thread of its own (the core's default, stated so it stays that way).
     if (strcmp(key, "pcsx2_mtvu") == 0) return "enabled";
+    if (strcmp(key, "pcsx2_widescreen_patches") == 0) return gPs2Widescreen.load() ? "enabled" : "disabled";
+    if (strcmp(key, "pcsx2_no_interlacing_patches") == 0) return gPs2NoInterlacing.load() ? "enabled" : "disabled";
     // PS2: native resolution; Play! is heavy enough on phones as it is.
     if (strcmp(key, "play_res_multi") == 0) return "1x";
     // "Fit Screen" letterboxes games whose picture is smaller than the output (GTA San
@@ -4712,6 +4717,11 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsLayout(
     if (changed && fromHandle(handle) != nullptr) {
         gVariablesUpdated.store(true);
     }
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPs2Patches(JNIEnv* /*env*/, jclass /*cls*/, jboolean widescreen, jboolean noInterlacing) {
+    gPs2Widescreen.store(widescreen == JNI_TRUE);
+    gPs2NoInterlacing.store(noInterlacing == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCitraAsync(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
