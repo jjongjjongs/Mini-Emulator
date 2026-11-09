@@ -3214,7 +3214,39 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Finds the controls just built, names them (kind, button bit, n-th of the same) so a saved
     // layout still fits when another button comes or goes, and applies the saved moves.
+    // 0.0.352-0.0.360: with a 3DS · DS 화면 배치 of their own in landscape, the picture spans
+    // the whole area, and the check that moves edited things off the top corner buttons
+    // moved it down and saved that, so the usual picture came out lower afterwards. The
+    // saved move of the picture is dropped once (0.0.361).
+    private void repairDualScreenEdits() {
+        if (!isN3ds() && !isNds()) {
+            return;
+        }
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        String flag = "screen_edit_fix361:" + layoutConsole();
+        if (prefs.getBoolean(flag, false)) {
+            return;
+        }
+        android.content.SharedPreferences.Editor editor = prefs.edit().putBoolean(flag, true);
+        for (String style : new String[]{"full", "frame"}) {
+            String key = "layout:" + layoutConsole() + ":L:" + style;
+            String text = prefs.getString(key, null);
+            if (text == null || !text.contains(SCREEN_LAYOUT_ID + "=")) {
+                continue;
+            }
+            StringBuilder kept = new StringBuilder();
+            for (String part : text.split(";")) {
+                if (!part.isEmpty() && !part.startsWith(SCREEN_LAYOUT_ID + "=")) {
+                    kept.append(part).append(';');
+                }
+            }
+            editor.putString(key, kept.toString());
+        }
+        editor.apply();
+    }
+
     private void applyLayoutEdits(View root) {
+        repairDualScreenEdits();
         this.contentRoot = root;
         // Views that stay across a rebuild of part of the controls (DOS pages) keep the
         // position they had before any edit.
@@ -3230,7 +3262,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         java.util.Map<String, Integer> seen = new java.util.HashMap<>();
         // The game screen's frame first, so it is an item of the editor too (not in the
         // controller-only screen, which has no frame).
-        if (this.screenArea != null && !isPadScreen()) {
+        // Not while a 3DS · DS 화면 배치 of its own places the screens (the picture then fills
+        // the area; moving or enlarging it would push the screens off).
+        if (this.screenArea != null && !isPadScreen() && !n3dsOwnLayout()) {
             this.layoutControls.add(this.screenArea);
             this.layoutIds.add(SCREEN_LAYOUT_ID);
             float[] keep = oldBase.get(this.screenArea);
