@@ -75,7 +75,7 @@ index 22d6799..ff04f98 100644
  
  } // namespace LibRetro
 diff --git a/src/citra_libretro/emu_window/libretro_window.cpp b/src/citra_libretro/emu_window/libretro_window.cpp
-index cdd7fb8..91d4941 100644
+index cdd7fb8..0f7777a 100644
 --- a/src/citra_libretro/emu_window/libretro_window.cpp
 +++ b/src/citra_libretro/emu_window/libretro_window.cpp
 @@ -7,6 +7,7 @@
@@ -91,7 +91,7 @@ index cdd7fb8..91d4941 100644
          auto current_state = OpenGL::OpenGLState::GetCurState();
          ResetGLState();
 -        if (enableEmulatedPointer) {
-+        if (enableEmulatedPointer && useOpenGL) {
++        if (enableEmulatedPointer && useOpenGL && tracker != nullptr) {
              tracker->Render(width, height);
          }
          LibRetro::UploadVideoFrame(RETRO_HW_FRAME_BUFFER_VALID, static_cast<unsigned>(width),
@@ -100,7 +100,7 @@ index cdd7fb8..91d4941 100644
      // TODO: Poll for right click for motion emu
  
 -    if (enableEmulatedPointer) {
-+    if (enableEmulatedPointer && GetFramebufferLayout().bottom_screen_enabled) {
++    if (enableEmulatedPointer && tracker != nullptr && GetFramebufferLayout().bottom_screen_enabled) {
          tracker->Update(width, height, GetFramebufferLayout().bottom_screen);
  
          if (tracker->IsPressed()) {
@@ -122,6 +122,56 @@ index cdd7fb8..91d4941 100644
      case Settings::LayoutOption::SingleScreen:
          if (swapped) { // Bottom screen visible
              baseX = Core::kScreenBottomWidth;
+@@ -227,9 +234,8 @@ bool EmuWindow_LibRetro::HasSubmittedFrame() {
+ }
+ 
+ void EmuWindow_LibRetro::CreateContext() {
+-    if (useOpenGL) {
+-        tracker = std::make_unique<LibRetro::Input::MouseTracker>();
+-    }
++    // The touch screen is read with Vulkan too; only OpenGL draws the pointer.
++    tracker = std::make_unique<LibRetro::Input::MouseTracker>(useOpenGL);
+ 
+     doCleanFrame = true;
+ }
+diff --git a/src/citra_libretro/input/mouse_tracker.cpp b/src/citra_libretro/input/mouse_tracker.cpp
+index 22cd834..2f8af90 100644
+--- a/src/citra_libretro/input/mouse_tracker.cpp
++++ b/src/citra_libretro/input/mouse_tracker.cpp
+@@ -17,7 +17,19 @@ namespace LibRetro {
+ 
+ namespace Input {
+ 
+-MouseTracker::MouseTracker() {
++MouseTracker::MouseTracker(bool gl) {
++    x = 0;
++    y = 0;
++    lastMouseX = -1;
++    lastMouseY = -1;
++    projectedX = 0;
++    projectedY = 0;
++    renderRatio = 1;
++    isPressed = false;
++    if (!gl) {
++        // Vulkan: only the input side (no shader to draw the pointer with).
++        return;
++    }
+     // Could potentially also use Citra's built-in shaders, if they can be
+     //  wrangled to cooperate.
+ 
+diff --git a/src/citra_libretro/input/mouse_tracker.h b/src/citra_libretro/input/mouse_tracker.h
+index eaecf0e..ba6b3f2 100644
+--- a/src/citra_libretro/input/mouse_tracker.h
++++ b/src/citra_libretro/input/mouse_tracker.h
+@@ -16,7 +16,7 @@ namespace Input {
+ ///  for a touch-screen device.
+ class MouseTracker {
+ public:
+-    MouseTracker();
++    explicit MouseTracker(bool gl = true);
+     ~MouseTracker();
+ 
+     /// Called whenever a mouse moves.
 diff --git a/src/core/frontend/framebuffer_layout.cpp b/src/core/frontend/framebuffer_layout.cpp
 index 40b86fb..bf4f3f6 100644
 --- a/src/core/frontend/framebuffer_layout.cpp
