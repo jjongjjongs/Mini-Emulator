@@ -17530,8 +17530,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 this.gunLastY = y;
             }
         } else if (action != android.view.MotionEvent.ACTION_UP && action != android.view.MotionEvent.ACTION_CANCEL) {
+            // 조준점 띄우기 (0.0.377): aim a set distance above the finger so it doesn't hide the crosshair.
+            float lift = GUN_LIFT_MM[gunLift()] * getResources().getDisplayMetrics().ydpi / 25.4f;
             this.gunAimX = Math.max(0f, Math.min(1f, x / width));
-            this.gunAimY = Math.max(0f, Math.min(1f, y / height));
+            this.gunAimY = Math.max(0f, Math.min(1f, (y - lift) / height));
         }
         sendGunAim();
         return true;
@@ -17741,6 +17743,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private static final String[] GUN_AIM_NAMES = {"누른 곳으로", "끌어서 (트랙패드)"};
+    // 조준점 띄우기 (0.0.377), per game under gun_lift: how far above the finger the aim sits.
+    private static final String[] GUN_LIFT_NAMES = {"안 띄움", "조금", "보통", "많이"};
+    private static final float[] GUN_LIFT_MM = {0f, 6f, 9f, 13f};
+
+    private int gunLift() {
+        int value = gunInt("gun_lift", 2);
+        return value >= 0 && value < GUN_LIFT_MM.length ? value : 2;
+    }
 
     private LinearLayout createGunRow() {
         GunSetup gun = gunSetup();
@@ -17766,6 +17776,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final int[] dx = {gunInt("gun_dx", 0)};
         final int[] dy = {gunInt("gun_dy", 0)};
         final int[] sens = {gunInt("gun_sens", 100)};
+        final int[] lift = {gunLift()};
         final boolean wasKeys = prefs.getBoolean("gun_keys:" + base, true);
         final boolean[] keysOn = {wasKeys};
         final java.util.Map<Integer, Integer> keyChosen = new java.util.HashMap<>();
@@ -17834,6 +17845,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }));
             if (aim[0] == 1) {
                 body.addView(gunSlider("끌기 속도", sens, 50, 250, "%"));
+            } else {
+                body.addView(backgroundChips("조준점 띄우기 · 손가락 위로", GUN_LIFT_NAMES, lift[0], red, i -> {
+                    lift[0] = i;
+                    render[0].run();
+                }));
+                body.addView(ps2Note("누른 곳보다 위를 겨눠서 조준점이 손가락에 안 가려요 (조금 약 6mm · 보통 약 9mm · 많이 약 13mm, 폰 크기와 상관없이 같은 거리)."
+                        + "\n화면 맨 아래를 쏘려면 손가락을 게임 화면 아래 여백까지 내려도 돼요. 게임 화면에서 누르기 시작했으면 밖으로 나가도 조준이 따라가요.",
+                        Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
             }
             body.addView(ps2Switch("조준점 보이기", "손가락이 가려도 어디를 겨누는지 보여요", cross[0], v -> cross[0] = v));
             body.addView(gunSlider("조준 맞추기 · 좌우", dx, -15, 15, "%"));
@@ -17895,7 +17914,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         apply.setOnClickListener(v -> {
             prefs.edit().putBoolean("gun_on:" + base, on[0]).putInt("gun_aim:" + base, aim[0]).putInt("gun_type:" + base, type[0])
                     .putInt("gun_port:" + base, port[0]).putBoolean("gun_cross:" + base, cross[0]).putInt("gun_dx:" + base, dx[0])
-                    .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).putBoolean("gun_keys:" + base, keysOn[0]).commit();
+                    .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).putInt("gun_lift:" + base, lift[0]).putBoolean("gun_keys:" + base, keysOn[0]).commit();
             GunSetup appliedGun = gunSetupFor(type[0], port[0]);
             if (appliedGun != null && keysOn[0] && gunKeysPossible(appliedGun, keyChoices)) {
                 int[] functions = gunKeyFunctions(appliedGun);
