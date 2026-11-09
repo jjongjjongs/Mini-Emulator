@@ -15798,7 +15798,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             for (int k = 0; k < 8; k++) {
                 out[k] = Math.round(c[k] * (k % 2 == 0 ? w : h));
             }
-        } else {
+            // saved before 0.0.363 for a frame of another shape, the two may overlap: then
+            // the plain layout until it is edited again
+            if (android.graphics.Rect.intersects(new android.graphics.Rect(out[0], out[1], out[2], out[3]),
+                    new android.graphics.Rect(out[4], out[5], out[6], out[7]))) {
+                c = null;
+            }
+        }
+        if (c == null) {
+            if ("custom".equals(preset)) {
+                java.util.Arrays.fill(out, 0);
+            }
             float[] u = n3dsUnitLayout("custom".equals(preset) ? "default" : preset);
             float scale = Math.min(w / u[0], h / u[1]);
             float dx = (w - u[0] * scale) / 2.0f;
@@ -15810,7 +15820,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // each screen kept in its own shape inside its place (a frame of another shape than
         // the one a layout was edited in)
         float[] aspects = {layTopW() / layTopH(), layBotW() / layBotH(), layTopW() / layTopH()};
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < 3 && c == null; s++) {
             int o = s * 4;
             if (!n3dsHas(out, o)) {
                 continue;
@@ -16521,7 +16531,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         barParams.setMargins(0, 0, 0, dp(14) + insetBottom);
         overlay.addView(bar, barParams);
         TextView tip = new TextView(this);
-        tip.setText("게임 화면 칸(점선) 안에서 끌어 옮기고 모서리 ●로 크기 조절 · 가운데와 가장자리에 붙어요");
+        tip.setText("게임 화면 칸(점선) 안에서 끌어 옮겨요 · 모서리 ●는 원래 비율로 크기 조절, 옆 ■는 가로나 세로만 늘이기 · 두 화면은 겹치지 않게");
         tip.setTextSize(11.5f);
         tip.setTextColor(Color.rgb(226, 232, 240));
         tip.setGravity(Gravity.CENTER);
@@ -16545,7 +16555,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         private final java.util.List<android.graphics.Rect> controls;
         private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private int active = -1;
-        private int corner = -1;           // 0 tl, 1 tr, 2 bl, 3 br; -1 moving
+        private int corner = -1;           // 0 tl, 1 tr, 2 bl, 3 br (in the screen's shape);
+                                           // 4 left, 5 right, 6 top, 7 bottom edge (stretch); -1 moving
         private float lastX;
         private float lastY;
 
@@ -16563,11 +16574,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         private void set(int[] r) {
             for (int s = 0; s < 2; s++) {
                 int o = s * 4;
+                // as given (a screen may be stretched on purpose, 0.0.363)
                 RectFromFrame(this.screens[s], r[o], r[o + 1], r[o + 2], r[o + 3]);
-                // keep the screen's shape (a stretched start would draw stretched)
-                float w = this.screens[s].width();
-                this.screens[s].bottom = this.screens[s].top + w / this.aspects[s];
                 clamp(s);
+            }
+            // two screens over each other (a layout saved for a frame of another shape):
+            // start from the plain one instead
+            if (r != this.resetRects && android.graphics.RectF.intersects(this.screens[0], this.screens[1])) {
+                set(this.resetRects);
+                return;
             }
             invalidate();
         }
@@ -16630,10 +16645,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
         private void clamp(int s) {
             android.graphics.RectF r = this.screens[s];
-            float maxW = Math.min(this.frame.width(), this.frame.height() * this.aspects[s]);
-            if (r.width() > maxW) {
-                r.right = r.left + maxW;
-                r.bottom = r.top + maxW / this.aspects[s];
+            if (r.width() > this.frame.width()) {
+                r.right = r.left + this.frame.width();
+            }
+            if (r.height() > this.frame.height()) {
+                r.bottom = r.top + this.frame.height();
             }
             float dx = r.left < this.frame.left ? this.frame.left - r.left : r.right > this.frame.right ? this.frame.right - r.right : 0;
             float dy = r.top < this.frame.top ? this.frame.top - r.top : r.bottom > this.frame.bottom ? this.frame.bottom - r.bottom : 0;
@@ -16665,6 +16681,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     }
                     for (int pass = 0; pass < 2 && this.active < 0; pass++) {
                         int s = pass == 0 ? first : 1 - first;
+                        android.graphics.RectF r = this.screens[s];
+                        float[][] edges = {{r.left, r.centerY()}, {r.right, r.centerY()}, {r.centerX(), r.top}, {r.centerX(), r.bottom}};
+                        for (int e = 0; e < 4; e++) {
+                            if (Math.abs(x - edges[e][0]) < reach && Math.abs(y - edges[e][1]) < reach) {
+                                this.active = s;
+                                this.corner = 4 + e;
+                                break;
+                            }
+                        }
+                    }
+                    for (int pass = 0; pass < 2 && this.active < 0; pass++) {
+                        int s = pass == 0 ? first : 1 - first;
                         if (this.screens[s].contains(x, y)) {
                             this.active = s;
                         }
@@ -16678,11 +16706,23 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         return true;
                     }
                     android.graphics.RectF r = this.screens[this.active];
+                    android.graphics.RectF other = this.screens[1 - this.active];
+                    android.graphics.RectF before = new android.graphics.RectF(r);
+                    boolean apart = !android.graphics.RectF.intersects(before, other);
                     float aspect = this.aspects[this.active];
                     if (this.corner < 0) {
                         r.offset(x - this.lastX, y - this.lastY);
                         clamp(this.active);
                         snap(r);
+                    } else if (this.corner >= 4) {
+                        // one side only: stretched wider or taller, inside the frame
+                        float min = dp(48);
+                        switch (this.corner) {
+                            case 4: r.left = Math.max(this.frame.left, Math.min(x, r.right - min)); break;
+                            case 5: r.right = Math.min(this.frame.right, Math.max(x, r.left + min)); break;
+                            case 6: r.top = Math.max(this.frame.top, Math.min(y, r.bottom - min)); break;
+                            default: r.bottom = Math.min(this.frame.bottom, Math.max(y, r.top + min)); break;
+                        }
                     } else {
                         // the opposite corner stays where it is
                         float ax = this.corner == 0 || this.corner == 2 ? r.right : r.left;
@@ -16704,6 +16744,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         }
                         r.set(left, top, left + w, top + h);
                         clamp(this.active);
+                    }
+                    // the two screens don't go over each other
+                    if (apart && android.graphics.RectF.intersects(r, other)) {
+                        r.set(before);
                     }
                     this.lastX = x;
                     this.lastY = y;
@@ -16775,7 +16819,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 this.paint.setTextAlign(android.graphics.Paint.Align.LEFT);
                 this.paint.setFakeBoldText(true);
                 boolean over = overControls(r);
-                canvas.drawText(labels[s] + (over ? " · 버튼과 겹침" : ""), r.left + 6 * d, r.top + 16 * d, this.paint);
+                boolean stretched = Math.abs(r.width() / Math.max(1.0f, r.height()) - this.aspects[s]) > this.aspects[s] * 0.03f;
+                canvas.drawText(labels[s] + (stretched ? " · 늘림" : "") + (over ? " · 버튼과 겹침" : ""), r.left + 6 * d, r.top + 16 * d, this.paint);
                 this.paint.setFakeBoldText(false);
                 this.paint.setStyle(android.graphics.Paint.Style.STROKE);
                 this.paint.setStrokeWidth(2 * d);
@@ -16788,6 +16833,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     canvas.drawCircle(c[0], c[1], 7 * d, this.paint);
                     this.paint.setColor(Color.rgb(14, 165, 233));
                     canvas.drawCircle(c[0], c[1], 4 * d, this.paint);
+                }
+                // side handles: stretch one way
+                float[][] edges = {{r.left, r.centerY()}, {r.right, r.centerY()}, {r.centerX(), r.top}, {r.centerX(), r.bottom}};
+                for (float[] c : edges) {
+                    this.paint.setColor(Color.WHITE);
+                    canvas.drawRect(c[0] - 6 * d, c[1] - 6 * d, c[0] + 6 * d, c[1] + 6 * d, this.paint);
+                    this.paint.setColor(Color.rgb(249, 115, 22));
+                    canvas.drawRect(c[0] - 3.5f * d, c[1] - 3.5f * d, c[0] + 3.5f * d, c[1] + 3.5f * d, this.paint);
                 }
             }
         }
