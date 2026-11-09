@@ -199,6 +199,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenArea = frameLayout;
         addMotionBadges(frameLayout);
         addGcLanBadge(frameLayout);
+        addTurboPill(frameLayout);
         addN3dsNetBadge(frameLayout);
         addWiimmfiBadge(frameLayout);
         addPlayerBadges(frameLayout);
@@ -251,6 +252,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenArea = frameLayout2;
         addMotionBadges(frameLayout2);
         addGcLanBadge(frameLayout2);
+        addTurboPill(frameLayout2);
         addN3dsNetBadge(frameLayout2);
         addWiimmfiBadge(frameLayout2);
         addPlayerBadges(frameLayout2);
@@ -438,7 +440,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // Side margin and height of the portrait screen for a side margin and vertical padding.
     private int[] portraitScreen(int side, int padding) {
         int screenWidth = Math.max(dp(200), getResources().getDisplayMetrics().widthPixels - side * 2);
-        if (isGameBoy() || isGameGear() || isNeoGeoPocket() || (isWonderSwan() && wonderSwanTall())) {
+        if (isGameBoy() || isGameGear() || isNeoGeoPocket() || (isWonderSwan() && wonderSwanTall()) || arcadeUpright()) {
             // A nearly square (or upright) screen would push the controls off a short phone.
             int widest = Math.round(dp(isWonderSwan() ? 330 : 250) * screenAspect());
             if (screenWidth > widest) {
@@ -5612,6 +5614,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isSwan()) {
             addSwanQualityRows(panel, refresh);
         }
+        if (isRotatingArcadeCore() && arcadeVerticalKnown()) {
+            LinearLayout.LayoutParams tateParams = new LinearLayout.LayoutParams(-1, dp(52));
+            tateParams.setMargins(0, 0, 0, dp(8));
+            panel.addView(createArcadeRotationRow(refresh), tateParams);
+        }
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
         filterParams.setMargins(0, 0, 0, 0);
         boolean threeD = is3d();
@@ -5673,6 +5680,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // 조작 탭: vibration, combos, sticks, rewind and game controllers.
     private void addControlTabRows(LinearLayout panel, Runnable refresh) {
         addMotionRows(panel, this.pauseDialog, refresh);
+        if (!isPadScreen()) {
+            LinearLayout.LayoutParams turboParams = new LinearLayout.LayoutParams(-1, dp(52));
+            turboParams.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
+            panel.addView(createTurboRow(refresh), turboParams);
+        }
         if (!isPadScreen()) {
             LinearLayout.LayoutParams hapticParams = new LinearLayout.LayoutParams(-1, dp(52));
             hapticParams.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
@@ -6138,6 +6150,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName, new File(systemPath));
                         NativeGba.setDosOptions(options[0], options[1], start);
                     }
+                    NativeGba.setRotationMode(arcadeRotationMode());
+                    NativeGba.setTurbo(turboActiveMask(), turboRate());
                     if (isSwan()) {
                         String[][] swan = swanOptions();
                         NativeGba.setDosOptions(swan[0], swan[1], "");
@@ -6235,6 +6249,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isN3ds()) {
             startN3dsNet(handle);
         }
+        if (isRotatingArcadeCore()) {
+            checkArcadeVertical(handle);
+        }
+        applyTurbo();
         refreshPlayers(false);
         startAdhocBeaconIfHosting();
         shareVpnInviteIfPending();
@@ -13817,6 +13835,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // The screen pad (and 1P's pad) to port 1, or to port 2 for games that read only that.
     private void sendMainInput(long handle) {
         int mask = isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask;
+        mask = turboToggleFilter(mask);
         if (isPc98()) {
             sendPc98Pad(handle, mask);
         }
@@ -14696,6 +14715,381 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }));
     }
 
+    // ---- 세로 화면 게임 (0.0.346): vertical arcade games stood up. FBNeo and MAME ask the
+    // frontend to turn the picture (SET_ROTATION); the bridge turns the copied frame and the
+    // layout gives the screen a 3:4 frame. Per game: upright, on its side, upright reversed. ----
+    private static final String[] TATE_NAMES = {"세워서 보기 (추천)", "눕혀서 보기", "반대로 세우기"};
+    private static final String[] TATE_NOTES = {"세로 폰에서 크게 · 가로 폰에선 가운데", "엔진이 그리는 그대로. 폰을 돌려 들고 할 때", "화면이 거꾸로 나오는 게임 (칵테일 기판)"};
+
+    private boolean isRotatingArcadeCore() {
+        return "fbneo".equals(this.coreId) || "mame2003plus".equals(this.coreId) || "mame2010".equals(this.coreId) || "mame2015".equals(this.coreId);
+    }
+
+    private int arcadeRotationMode() {
+        int value = MainActivity.sharedSettings(this).getInt("tate:" + this.saveBaseName, 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    // Learned from the core the first time the game ran (it asks for a quarter turn).
+    private boolean arcadeVerticalKnown() {
+        return MainActivity.sharedSettings(this).getBoolean("tate_v:" + this.saveBaseName, false);
+    }
+
+    private boolean arcadeUpright() {
+        return isRotatingArcadeCore() && arcadeVerticalKnown() && arcadeRotationMode() != 1;
+    }
+
+    private void checkArcadeVertical(final long handle) {
+        getWindow().getDecorView().postDelayed(() -> {
+            if (this.destroyed || this.nativeHandle != handle) {
+                return;
+            }
+            int turn = NativeGba.arcadeRotation(handle);
+            boolean vertical = turn == 1 || turn == 3;
+            if (vertical != arcadeVerticalKnown()) {
+                MainActivity.sharedSettings(this).edit().putBoolean("tate_v:" + this.saveBaseName, vertical).apply();
+                rebuildContent();
+                if (vertical) {
+                    Toast.makeText(this, "세로 화면 게임이라 세워서 보여 줘요 · 메뉴 › 화면 › 세로 게임 화면에서 바꿀 수 있어요", Toast.LENGTH_LONG).show();
+                }
+            }
+        }, 1500);
+    }
+
+    private LinearLayout createArcadeRotationRow(Runnable refresh) {
+        final int color = Color.rgb(13, 148, 136);
+        final int current = arcadeRotationMode();
+        return createSettingRow(RoundIconView.ROTATE, color, "세로 게임 화면", TATE_NAMES[current].replace(" (추천)", ""),
+                view -> showChoiceDialog(RoundIconView.ROTATE, color, "세로 게임 화면 · 이 게임만", TATE_NAMES, TATE_NOTES, current,
+                        "세로 모니터용 아케이드 게임이에요. 세워서 보면 세로 폰에서 화면이 크게 나와요.", Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용", choice -> {
+                    if (choice == current) {
+                        return;
+                    }
+                    MainActivity.sharedSettings(this).edit().putInt("tate:" + this.saveBaseName, choice).apply();
+                    NativeGba.setRotationMode(choice);
+                    if (this.pauseDialog != null) {
+                        this.pauseDialog.dismiss();
+                    }
+                    rebuildContent();
+                }));
+    }
+
+    // ---- 연사 (0.0.346): chosen buttons fire repeatedly while held (or from one press to the
+    // next), for every system. The bridge clears them on the off frames. ----
+    private static final int[] TURBO_RATES = {8, 12, 15, 20, 30};
+    private int turboLatched;
+    private int turboLastRaw;
+
+    private String turboKey(String name) {
+        return "turbo:" + this.saveBaseName + ":" + name;
+    }
+
+    private int turboMask() {
+        return MainActivity.sharedSettings(this).getInt(turboKey("mask"), 0);
+    }
+
+    private int turboRate() {
+        int index = MainActivity.sharedSettings(this).getInt(turboKey("rate"), 1);
+        return TURBO_RATES[Math.max(0, Math.min(TURBO_RATES.length - 1, index))];
+    }
+
+    private boolean turboToggleMode() {
+        return MainActivity.sharedSettings(this).getBoolean(turboKey("toggle"), false);
+    }
+
+    private boolean turboEnabled() {
+        return MainActivity.sharedSettings(this).getBoolean(turboKey("on"), true);
+    }
+
+    private int turboActiveMask() {
+        return turboEnabled() ? turboMask() : 0;
+    }
+
+    private void applyTurbo() {
+        int mask = turboActiveMask();
+        NativeGba.setTurbo(mask, turboRate());
+        TouchButton.turboMask = mask;
+        if (mask == 0) {
+            this.turboLatched = 0;
+        }
+        View root = getWindow().getDecorView();
+        java.util.ArrayDeque<View> views = new java.util.ArrayDeque<>();
+        views.add(root);
+        while (!views.isEmpty()) {
+            View view = views.poll();
+            if (view instanceof TouchButton) {
+                view.invalidate();
+            } else if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup group = (android.view.ViewGroup) view;
+                for (int k = 0; k < group.getChildCount(); k++) {
+                    views.add(group.getChildAt(k));
+                }
+            }
+        }
+        updateTurboPill();
+    }
+
+    // 한 번 눌러 켜기: a press of a turbo button starts it, the next stops it.
+    private int turboToggleFilter(int mask) {
+        int turbo = turboActiveMask();
+        if (turbo == 0 || !turboToggleMode()) {
+            this.turboLastRaw = mask;
+            return mask;
+        }
+        int pressedNow = mask & turbo & ~this.turboLastRaw;
+        this.turboLatched ^= pressedNow;
+        this.turboLastRaw = mask;
+        return (mask & ~turbo) | this.turboLatched;
+    }
+
+    // The face buttons on screen: {label, bit}, without the D-pad, START and SELECT.
+    private java.util.List<Object[]> turboCandidates() {
+        java.util.List<Object[]> list = new java.util.ArrayList<>();
+        java.util.Set<Integer> seen = new java.util.HashSet<>();
+        java.util.ArrayDeque<View> views = new java.util.ArrayDeque<>();
+        views.add(getWindow().getDecorView());
+        while (!views.isEmpty()) {
+            View view = views.poll();
+            if (view instanceof TouchButton) {
+                TouchButton button = (TouchButton) view;
+                int bit = button.buttonMask();
+                if (bit != 0 && Integer.bitCount(bit) == 1 && (bit & 0xFC) == 0 && seen.add(bit)) {
+                    list.add(new Object[]{button.label(), bit});
+                }
+            } else if (view instanceof android.view.ViewGroup) {
+                android.view.ViewGroup group = (android.view.ViewGroup) view;
+                for (int k = 0; k < group.getChildCount(); k++) {
+                    views.add(group.getChildAt(k));
+                }
+            }
+        }
+        if (list.isEmpty()) {
+            String[] names = {"A", "B", "C", "D", "L", "R"};
+            int[] bits = {1, 2, 1024, 2048, 512, 256};
+            for (int k = 0; k < names.length; k++) {
+                list.add(new Object[]{names[k], bits[k]});
+            }
+        }
+        return list;
+    }
+
+    private String turboShown() {
+        int mask = turboMask();
+        if (mask == 0) {
+            return "끔";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Object[] c : turboCandidates()) {
+            if ((mask & (Integer) c[1]) != 0) {
+                sb.append(sb.length() == 0 ? "" : " · ").append(c[0]);
+            }
+        }
+        return (sb.length() == 0 ? "켬" : sb) + " · 초당 " + turboRate() + (turboEnabled() ? "" : " (꺼 둠)");
+    }
+
+    private LinearLayout createTurboRow(Runnable refresh) {
+        return createSettingRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "연사 (터보)", turboShown(), view -> showTurboSheet(refresh));
+    }
+
+    private void showTurboSheet(Runnable refresh) {
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("연사 (터보) · 이 게임만");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("연사로 할 버튼을 고르세요. 누르고 있으면 빠르게 연타해요. 블루투스 · USB 게임패드도 똑같이 돼요.");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        sub.setPadding(0, dp(4), 0, dp(10));
+        panel.addView(sub);
+        final int amber = Color.rgb(217, 119, 6);
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(0);
+        android.widget.HorizontalScrollView chipScroll = new android.widget.HorizontalScrollView(this);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        chipScroll.addView(chips);
+        panel.addView(chipScroll);
+        for (Object[] c : turboCandidates()) {
+            final int bit = (Integer) c[1];
+            final TextView chip = new TextView(this);
+            chip.setText(String.valueOf(c[0]));
+            chip.setTextSize(14.0f);
+            chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(dp(14), dp(8), dp(14), dp(8));
+            final Runnable paint = () -> {
+                boolean on = (turboMask() & bit) != 0;
+                android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+                shape.setColor(Theme.bg(on ? Color.rgb(254, 249, 195) : Color.rgb(243, 244, 246)));
+                shape.setCornerRadius(dp(10));
+                shape.setStroke(dp(2), Theme.line(on ? Color.rgb(234, 179, 8) : Color.TRANSPARENT));
+                chip.setBackground(shape);
+                chip.setTextColor(Theme.text(on ? Color.rgb(113, 63, 18) : Color.rgb(75, 85, 99)));
+            };
+            paint.run();
+            chip.setOnClickListener(v -> {
+                prefs.edit().putInt(turboKey("mask"), turboMask() ^ bit).apply();
+                paint.run();
+                applyTurbo();
+            });
+            LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+            chipParams.setMargins(0, 0, dp(6), 0);
+            chips.addView(chip, chipParams);
+        }
+        // Speed.
+        TextView speedLabel = new TextView(this);
+        speedLabel.setText("속도 (초당 누르는 횟수) · 12~15 추천");
+        speedLabel.setTextSize(12.0f);
+        speedLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        speedLabel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+        speedLabel.setPadding(dp(2), dp(14), 0, dp(6));
+        panel.addView(speedLabel);
+        LinearLayout speeds = new LinearLayout(this);
+        final TextView[] speedViews = new TextView[TURBO_RATES.length];
+        for (int k = 0; k < TURBO_RATES.length; k++) {
+            final int index = k;
+            TextView speed = new TextView(this);
+            speed.setText(String.valueOf(TURBO_RATES[k]));
+            speed.setTextSize(13.0f);
+            speed.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            speed.setGravity(Gravity.CENTER);
+            speedViews[k] = speed;
+            speed.setOnClickListener(v -> {
+                prefs.edit().putInt(turboKey("rate"), index).apply();
+                for (int j = 0; j < speedViews.length; j++) {
+                    boolean on = TURBO_RATES[j] == turboRate();
+                    android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+                    shape.setColor(Theme.bg(on ? amber : Color.rgb(229, 231, 235)));
+                    shape.setCornerRadius(dp(9));
+                    speedViews[j].setBackground(shape);
+                    speedViews[j].setTextColor(on ? Color.WHITE : Theme.text(Color.rgb(75, 85, 99)));
+                }
+                applyTurbo();
+            });
+            LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(0, dp(36), 1.0f);
+            speedParams.setMargins(k == 0 ? 0 : dp(5), 0, 0, 0);
+            speeds.addView(speed, speedParams);
+        }
+        panel.addView(speeds);
+        speedViews[0].post(() -> {
+            for (int j = 0; j < speedViews.length; j++) {
+                boolean on = TURBO_RATES[j] == turboRate();
+                android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+                shape.setColor(Theme.bg(on ? amber : Color.rgb(229, 231, 235)));
+                shape.setCornerRadius(dp(9));
+                speedViews[j].setBackground(shape);
+                speedViews[j].setTextColor(on ? Color.WHITE : Theme.text(Color.rgb(75, 85, 99)));
+            }
+        });
+        // Mode and the on-screen switch.
+        panel.addView(turboSwitchRow("한 번 눌러 켜기", "누르면 손을 떼도 계속 연타, 다시 누르면 멈춤 (끄면: 누르는 동안만)", "toggle", false));
+        panel.addView(turboSwitchRow("화면에 연사 켜고 끄기 버튼", "게임 화면 위쪽에 ⚡ 버튼 · 연사를 잠깐 끌 때", "button", false));
+        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.setContentView(panel);
+        dialog.setOnDismissListener(d -> {
+            applyTurbo();
+            if (MainActivity.sharedSettings(this).getBoolean(turboKey("button"), false) != (this.turboPill != null)) {
+                rebuildContent();
+            }
+            refresh.run();
+        });
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    private LinearLayout turboSwitchRow(String title, String note, String key, boolean fallback) {
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(8), dp(8));
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(Theme.bg(Color.rgb(246, 247, 249)));
+        shape.setCornerRadius(dp(12));
+        row.setBackground(shape);
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(1);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(13.0f);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        words.addView(t);
+        TextView n = new TextView(this);
+        n.setText(note);
+        n.setTextSize(11.0f);
+        n.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        words.addView(n);
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.Switch toggle = new android.widget.Switch(this);
+        toggle.setChecked(prefs.getBoolean(turboKey(key), fallback));
+        toggle.setOnCheckedChangeListener((b, on) -> {
+            prefs.edit().putBoolean(turboKey(key), on).apply();
+            this.turboLatched = 0;
+        });
+        row.addView(toggle);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(8), 0, 0);
+        row.setLayoutParams(params);
+        return row;
+    }
+
+    // "⚡ 연사 켬 / 끔" over the picture, when chosen.
+    private TextView turboPill;
+
+    private void addTurboPill(FrameLayout screenFrame) {
+        this.turboPill = null;
+        if (!MainActivity.sharedSettings(this).getBoolean(turboKey("button"), false) || turboMask() == 0) {
+            return;
+        }
+        TextView pill = new TextView(this);
+        pill.setTextSize(11.0f);
+        pill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pill.setPadding(dp(10), dp(4), dp(10), dp(4));
+        pill.setOnClickListener(v -> {
+            MainActivity.sharedSettings(this).edit().putBoolean(turboKey("on"), !turboEnabled()).apply();
+            applyTurbo();
+        });
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        params.setMargins(0, dp(8), dp(8), 0);
+        screenFrame.addView(pill, params);
+        this.turboPill = pill;
+        updateTurboPill();
+    }
+
+    private void updateTurboPill() {
+        TextView pill = this.turboPill;
+        if (pill == null) {
+            return;
+        }
+        boolean on = turboEnabled();
+        pill.setText(on ? "⚡ 연사 켬" : "⚡ 연사 끔");
+        pill.setTextColor(on ? Color.rgb(113, 63, 18) : Color.WHITE);
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(on ? Color.argb(235, 254, 240, 138) : Color.argb(200, 55, 65, 81));
+        shape.setCornerRadius(dp(12));
+        pill.setBackground(shape);
+    }
+
     private boolean noStates() {
         return isWiiU() || isVita();
     }
@@ -15341,6 +15735,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private float baseScreenAspect() {
+        if (arcadeUpright()) {
+            return 3.0f / 4.0f;  // a vertical arcade game stood up, as its cabinet showed it
+        }
         if (isVita()) {
             return 960.0f / 544.0f;
         }

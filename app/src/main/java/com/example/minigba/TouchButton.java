@@ -104,6 +104,34 @@ final class TouchButton extends View {
         setFocusable(false);
     }
 
+    // 연사: buttons set to fire repeatedly get a small "T" (the game's choice, for every button).
+    static volatile int turboMask;
+
+    @Override
+    public void draw(Canvas canvas) {
+        super.draw(canvas);
+        int turbo = turboMask;
+        if (turbo == 0 || (this.button & turbo) == 0 || (this.button & 0xFC) != 0) {
+            return;
+        }
+        float size = Math.min(getWidth(), getHeight());
+        float r = Math.max(7.0f, size * 0.15f);
+        float cx = getWidth() - r - size * 0.02f;
+        float cy = r + size * 0.02f;
+        Paint badge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        badge.setColor(Color.rgb(250, 204, 21));
+        canvas.drawCircle(cx, cy, r, badge);
+        badge.setColor(Color.rgb(17, 24, 39));
+        badge.setTextAlign(Paint.Align.CENTER);
+        badge.setFakeBoldText(true);
+        badge.setTextSize(r * 1.3f);
+        canvas.drawText("T", cx, cy + r * 0.45f, badge);
+    }
+
+    int buttonMask() {
+        return this.button;
+    }
+
     // Clear jelly look: tinted see-through plastic with light pooling at the bottom, a thin
     // bright rim, a small reflection and a coloured glow under it. Pressing sinks it a little.
     @Override

@@ -218,6 +218,15 @@ final class NativeGba {
 
     static native void n3dsNetStop(long handle);
 
+    // Vertical arcade games: 0 upright, 1 as the core draws it, 2 upright reversed (any time).
+    static native void setRotationMode(int mode);
+
+    // The quarter turn the running arcade core asked for, -1 none.
+    static native int arcadeRotation(long handle);
+
+    // 연사: these button bits fire `rate` times a second while held (0: off).
+    static native void setTurbo(int mask, int rate);
+
     // PS Vita: text the game asks for — {kind | maxLength << 8, title, initial text} — or null.
     static native String[] vitaTextRequest(long handle);
 

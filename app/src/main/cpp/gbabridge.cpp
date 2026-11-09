@@ -539,6 +539,8 @@ struct Core {
     std::mutex frameMutex;
     std::condition_variable frameCv;
     std::vector<uint8_t> pendingFrame, shownFrame;
+    std::vector<uint8_t> rotateScratch;
+    std::atomic<int> requestedRotation{-1};  // SET_ROTATION from an arcade core, -1 none
     unsigned pendingWidth = 0, pendingHeight = 0, shownWidth = 0, shownHeight = 0;
     int pendingFormat = WINDOW_FORMAT_RGB_565, shownFormat = WINDOW_FORMAT_RGB_565;
     bool frameNew = false;
@@ -1609,6 +1611,13 @@ std::atomic<int> gN3dsScale{1};
 // WonderSwan games made to be held upright: the core turns the picture (and the pad) for
 // them. Set per game before it starts.
 std::atomic<bool> gWsTall{false};
+// Vertical arcade games (FBNeo / MAME ask the frontend to turn the picture with
+// SET_ROTATION): 0 upright as the cabinet showed it, 1 as the core draws it (on its side),
+// 2 upright the other way round. The rotation itself is done on the copied frame.
+std::atomic<int> gRotationMode{0};
+// 연사: these button bits are let through only on the "on" frames, `rate` presses a second.
+std::atomic<int> gTurboMask{0};
+std::atomic<int> gTurboRate{12};
 // N64 games built from small 2D tiles that GLideN64 leaves thin black lines between when
 // it draws them above native resolution (StarCraft 64); they run at the N64's own
 // 320x240, with texture reads kept inside each tile. Set from the ROM header before the game starts.
@@ -2288,6 +2297,14 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         // Plain 51 without the experimental flag, as accepted by the original build.
         case 51:
             return true;
+        case RETRO_ENVIRONMENT_SET_ROTATION: {
+            // Arcade cores (software frames): the app turns the frame itself. Others keep
+            // drawing as before (they are told the frontend can't).
+            bool arcade = core->coreId == "fbneo" || core->coreId == "mame2003plus" || core->coreId == "mame2010" || core->coreId == "mame2015";
+            if (!arcade || data == nullptr) return false;
+            core->requestedRotation.store(static_cast<int>(*static_cast<const unsigned*>(data) & 3u));
+            return true;
+        }
         case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
             // SwanStation tries desktop OpenGL first unless told the frontend prefers ES (it
             // would take the compatibility context we accept and load desktop GL on an ES one).
@@ -2737,6 +2754,25 @@ void stopPresenter(Core* core) {
 
 // Converts one frame for the presenter: 16-bit cores stay RGB565, 32-bit cores (the DS)
 // keep their full colour instead of being cut down to 16 bits.
+// Turns a w×h frame by turn quarters counter-clockwise (1: 90°, 2: 180°, 3: 270°).
+template <typename Pixel>
+void rotateFrame(const Pixel* in, Pixel* out, unsigned w, unsigned h, int turn) {
+    if (turn == 2) {
+        size_t n = static_cast<size_t>(w) * h;
+        for (size_t i = 0; i < n; ++i) out[n - 1 - i] = in[i];
+        return;
+    }
+    // The result is h wide and w tall.
+    for (unsigned y = 0; y < h; ++y) {
+        const Pixel* row = in + static_cast<size_t>(y) * w;
+        for (unsigned x = 0; x < w; ++x) {
+            unsigned nx = turn == 1 ? y : h - 1 - y;
+            unsigned ny = turn == 1 ? w - 1 - x : x;
+            out[static_cast<size_t>(ny) * h + nx] = row[x];
+        }
+    }
+}
+
 void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsigned height, size_t pitch) {
     Core* core = gCore;
     if (core != nullptr && core->hwRender) {
@@ -2776,9 +2812,18 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
             core->presenterRunning = true;
             core->presenter = std::thread(presenterLoop, core);
         }
-        core->pendingFrame.resize(rowBytes * height);
+        // The turn this frame needs (counter-clockwise quarters), from the core's request
+        // and the player's choice.
+        int requested = core->requestedRotation.load();
+        int turn = 0;
+        if (requested > 0) {
+            int mode = gRotationMode.load();
+            turn = mode == 1 ? 0 : (requested + (mode == 2 ? 2 : 0)) & 3;
+        }
+        std::vector<uint8_t>& target = turn == 0 ? core->pendingFrame : core->rotateScratch;
+        target.resize(rowBytes * height);
         const auto* src = static_cast<const uint8_t*>(data);
-        uint8_t* dst = core->pendingFrame.data();
+        uint8_t* dst = target.data();
         for (unsigned y = 0; y < height; ++y, src += pitch, dst += rowBytes) {
             if (core->pixelFormat == RETRO_PIXEL_FORMAT_RGB565) {
                 memcpy(dst, src, rowBytes);
@@ -2797,6 +2842,17 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
                     uint16_t p = in[x];
                     out[x] = static_cast<uint16_t>(((p << 1) & 0xFFC0) | (p & 0x001F));
                 }
+            }
+        }
+        if (turn != 0) {
+            core->pendingFrame.resize(rowBytes * height);
+            if (wide) {
+                rotateFrame(reinterpret_cast<const uint32_t*>(core->rotateScratch.data()), reinterpret_cast<uint32_t*>(core->pendingFrame.data()), width, height, turn);
+            } else {
+                rotateFrame(reinterpret_cast<const uint16_t*>(core->rotateScratch.data()), reinterpret_cast<uint16_t*>(core->pendingFrame.data()), width, height, turn);
+            }
+            if (turn != 2) {
+                std::swap(width, height);
             }
         }
         core->pendingWidth = width;
@@ -2953,6 +3009,14 @@ constexpr int kMinHoldFrames = 4;
 
 // Whether a joypad id is down for a player's button bits.
 int16_t joypadPressed(Core* core, int mask, unsigned id) {
+    int turbo = gTurboMask.load();
+    if (turbo != 0 && (mask & turbo) != 0) {
+        // Off for the second half of each press period (60 frames a second).
+        uint64_t rate = static_cast<uint64_t>(gTurboRate.load());
+        if (((core->framesRun * rate * 2) / 60) & 1) {
+            mask &= ~turbo;
+        }
+    }
     int bit;
     if (core->coreId == "mame2010" || core->coreId == "mame2015") {
         bit = mame2010ButtonBitFor(id);
@@ -4490,6 +4554,21 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiControl(JNIEnv* 
     // 0 remote + nunchuk, 1 remote sideways, 2 classic controller
     int device = type == 1 ? ((2 << 8) | RETRO_DEVICE_JOYPAD) : type == 2 ? ((4 << 8) | RETRO_DEVICE_JOYPAD) : ((3 << 8) | RETRO_DEVICE_JOYPAD);
     gWiiDevice.store(device);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setTurbo(JNIEnv* /*env*/, jclass /*cls*/, jint mask, jint rate) {
+    gTurboMask.store(mask);
+    gTurboRate.store(rate < 1 ? 1 : rate > 30 ? 30 : rate);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setRotationMode(JNIEnv* /*env*/, jclass /*cls*/, jint mode) {
+    gRotationMode.store(mode >= 0 && mode <= 2 ? mode : 0);
+}
+
+// The quarter turn the running arcade core asked for (SET_ROTATION), -1 when none.
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_arcadeRotation(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    return core == nullptr ? -1 : core->requestedRotation.load();
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIEnv* /*env*/, jclass /*cls*/, jboolean tall) {
