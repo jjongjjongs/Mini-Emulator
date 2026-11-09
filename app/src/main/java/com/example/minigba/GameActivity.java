@@ -6557,6 +6557,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setCitraAsync(n3dsAsync());
                     NativeGba.setRotationMode(arcadeRotationMode());
                     NativeGba.setTurbo(turboActiveMask(), turboRate());
+                    NativeGba.setFixedTurbo(turboEnabled());
+                    TouchButton.fixedTurboMask = turboEnabled() ? fixedTurboBits() : 0;
+                    TouchButton.turboRate = turboRate();
                     if (isSwan()) {
                         String[][] swan = swanOptions();
                         NativeGba.setDosOptions(swan[0], swan[1], "");
@@ -15207,11 +15210,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private int turboMask() {
-        return MainActivity.sharedSettings(this).getInt(turboKey("mask"), 0);
+        // TA/TB are turbo by themselves, not chosen
+        return MainActivity.sharedSettings(this).getInt(turboKey("mask"), 0) & ~fixedTurboBits();
+    }
+
+    // 패미컴 TA/TB · PC엔진 TI/TII: turbo buttons of their own, at the 연사 speed (0.0.365).
+    private int fixedTurboBits() {
+        return isNes() || isPcEngine() ? 1024 | 2048 : 0;
     }
 
     private int turboRate() {
-        int index = MainActivity.sharedSettings(this).getInt(turboKey("rate"), 1);
+        // 15 for the consoles whose TA/TB fired 15 a second before
+        int index = MainActivity.sharedSettings(this).getInt(turboKey("rate"), fixedTurboBits() != 0 ? 2 : 1);
         return TURBO_RATES[Math.max(0, Math.min(TURBO_RATES.length - 1, index))];
     }
 
@@ -15230,7 +15240,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void applyTurbo() {
         int mask = turboActiveMask();
         NativeGba.setTurbo(mask, turboRate());
+        NativeGba.setFixedTurbo(turboEnabled());
         TouchButton.turboMask = mask;
+        TouchButton.fixedTurboMask = turboEnabled() ? fixedTurboBits() : 0;
+        TouchButton.turboRate = turboRate();
         if (mask == 0) {
             this.turboLatched = 0;
         }
@@ -15253,7 +15266,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 한 번 눌러 켜기: a press of a turbo button starts it, the next stops it.
     private int turboToggleFilter(int mask) {
-        int turbo = turboActiveMask();
+        int turbo = turboActiveMask() | (turboEnabled() ? fixedTurboBits() : 0);
         if (turbo == 0 || !turboToggleMode()) {
             this.turboLastRaw = mask;
             return mask;
@@ -15275,7 +15288,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (view instanceof TouchButton) {
                 TouchButton button = (TouchButton) view;
                 int bit = button.buttonMask();
-                if (bit != 0 && Integer.bitCount(bit) == 1 && (bit & 0xFC) == 0 && seen.add(bit)) {
+                if (bit != 0 && Integer.bitCount(bit) == 1 && (bit & 0xFC) == 0 && (bit & fixedTurboBits()) == 0 && seen.add(bit)) {
                     list.add(new Object[]{button.label(), bit});
                 }
             } else if (view instanceof android.view.ViewGroup) {
@@ -15297,10 +15310,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private String turboShown() {
         int mask = turboMask();
-        if (mask == 0) {
+        if (mask == 0 && fixedTurboBits() == 0) {
             return "끔";
         }
         StringBuilder sb = new StringBuilder();
+        if (fixedTurboBits() != 0) {
+            String[] labels = turboLabels();
+            sb.append(labels[2]).append(" · ").append(labels[3]);
+        }
         for (Object[] c : turboCandidates()) {
             if ((mask & (Integer) c[1]) != 0) {
                 sb.append(sb.length() == 0 ? "" : " · ").append(c[0]);
@@ -15331,7 +15348,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
         TextView sub = new TextView(this);
-        sub.setText("연사로 할 버튼을 고르세요. 누르고 있으면 빠르게 연타해요. 블루투스 · USB 게임패드도 똑같이 돼요.");
+        sub.setText(fixedTurboBits() != 0
+                ? "연사로 할 버튼을 더 고르세요. " + turboLabels()[2] + " · " + turboLabels()[3] + "는 원래부터 연사 버튼이라 늘 켜져 있고, 아래 속도 · 한 번 눌러 켜기 · ⚡ 끄기가 같이 적용돼요."
+                : "연사로 할 버튼을 고르세요. 누르고 있으면 빠르게 연타해요. 블루투스 · USB 게임패드도 똑같이 돼요.");
         sub.setTextSize(12.0f);
         sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         sub.setPadding(0, dp(4), 0, dp(10));
@@ -15343,6 +15362,26 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         chipScroll.setHorizontalScrollBarEnabled(false);
         chipScroll.addView(chips);
         panel.addView(chipScroll);
+        if (fixedTurboBits() != 0) {
+            // TA/TB (TI/TII): always turbo, shown first and not chosen
+            for (String fixedLabel : new String[]{turboLabels()[2], turboLabels()[3]}) {
+                TextView chip = new TextView(this);
+                chip.setText(fixedLabel + " ⚡");
+                chip.setTextSize(14.0f);
+                chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                chip.setGravity(Gravity.CENTER);
+                chip.setPadding(dp(14), dp(8), dp(14), dp(8));
+                android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+                shape.setColor(Theme.bg(Color.rgb(253, 230, 138)));
+                shape.setCornerRadius(dp(10));
+                shape.setStroke(dp(2), Theme.line(Color.rgb(217, 119, 6)), dp(5), dp(3));
+                chip.setBackground(shape);
+                chip.setTextColor(Theme.text(Color.rgb(113, 63, 18)));
+                LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(-2, -2);
+                chipParams.setMargins(0, 0, dp(6), 0);
+                chips.addView(chip, chipParams);
+            }
+        }
         for (Object[] c : turboCandidates()) {
             final int bit = (Integer) c[1];
             final TextView chip = new TextView(this);
@@ -15480,7 +15519,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private void addTurboPill(FrameLayout screenFrame) {
         this.turboPill = null;
-        if (!MainActivity.sharedSettings(this).getBoolean(turboKey("button"), false) || turboMask() == 0) {
+        if (!MainActivity.sharedSettings(this).getBoolean(turboKey("button"), false) || (turboMask() == 0 && fixedTurboBits() == 0)) {
             return;
         }
         TextView pill = new TextView(this);
@@ -15504,7 +15543,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         boolean on = turboEnabled();
-        pill.setText(on ? "⚡ 연사 켬" : "⚡ 연사 끔");
+        pill.setText(on ? "⚡ 연사 켬 · " + turboRate() : "⚡ 연사 끔");
         pill.setTextColor(on ? Color.rgb(113, 63, 18) : Color.WHITE);
         android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
         shape.setColor(on ? Color.argb(235, 254, 240, 138) : Color.argb(200, 55, 65, 81));

@@ -240,6 +240,8 @@ final class NativeGba {
     // 연사: these button bits fire `rate` times a second while held (0: off).
     static native void setTurbo(int mask, int rate);
 
+    static native void setFixedTurbo(boolean on);
+
     // PS Vita: text the game asks for — {kind | maxLength << 8, title, initial text} — or null.
     static native String[] vitaTextRequest(long handle);
 

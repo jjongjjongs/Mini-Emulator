@@ -106,12 +106,17 @@ final class TouchButton extends View {
 
     // 연사: buttons set to fire repeatedly get a small "T" (the game's choice, for every button).
     static volatile int turboMask;
+    // Buttons that are turbo by themselves (패미컴 TA/TB, PC엔진 TI/TII; 0.0.365): their badge
+    // shows the speed while 연사 is on.
+    static volatile int fixedTurboMask;
+    static volatile int turboRate;
 
     @Override
     public void draw(Canvas canvas) {
         super.draw(canvas);
         int turbo = turboMask;
-        if (turbo == 0 || (this.button & turbo) == 0 || (this.button & 0xFC) != 0) {
+        boolean fixed = (this.button & fixedTurboMask) != 0 && (this.button & 0xFC) == 0;
+        if (!fixed && (turbo == 0 || (this.button & turbo) == 0 || (this.button & 0xFC) != 0)) {
             return;
         }
         float size = Math.min(getWidth(), getHeight());
@@ -125,7 +130,11 @@ final class TouchButton extends View {
         badge.setTextAlign(Paint.Align.CENTER);
         badge.setFakeBoldText(true);
         badge.setTextSize(r * 1.3f);
-        canvas.drawText("T", cx, cy + r * 0.45f, badge);
+        String mark = fixed ? String.valueOf(turboRate) : "T";
+        if (fixed) {
+            badge.setTextSize(r * (mark.length() > 1 ? 1.05f : 1.3f));
+        }
+        canvas.drawText(mark, cx, cy + r * 0.4f, badge);
     }
 
     int buttonMask() {

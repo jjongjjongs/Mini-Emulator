@@ -1636,6 +1636,7 @@ std::atomic<bool> gWsTall{false};
 std::atomic<int> gRotationMode{0};
 // 연사: these button bits are let through only on the "on" frames, `rate` presses a second.
 std::atomic<int> gTurboMask{0};
+std::atomic<bool> gFixedTurbo{true};
 std::atomic<int> gTurboRate{12};
 // N64 games built from small 2D tiles that GLideN64 leaves thin black lines between when
 // it draws them above native resolution (StarCraft 64); they run at the N64's own
@@ -1779,7 +1780,8 @@ const char* fixedVariable(const char* key) {
     // 절전 already skips every other picture in the bridge; the core draws them all.
     if (strcmp(key, "mgba_frameskip") == 0) return "disabled";
     // The Famicom pad's TA/TB buttons are FCEUmm's turbo A/B (the X/Y inputs).
-    if (strcmp(key, "fceumm_turbo_enable") == 0) return "Player 1";
+    // (0.0.365: the app fires them at the 연사 speed instead; the core's own turbo is off.)
+    if (strcmp(key, "fceumm_turbo_enable") == 0) return "None";
     // PSP: Vulkan where available, else OpenGL ES; render at the scale picked per game (2x by default).
     if (strcmp(key, "ppsspp_backend") == 0) return vulkanFor("ppsspp") ? "vulkan" : "opengl";
     if (strcmp(key, "ppsspp_internal_resolution") == 0) {
@@ -3110,11 +3112,12 @@ int16_t joypadPressed(Core* core, int mask, unsigned id) {
     int bit;
     if (core->coreId == "mame2010" || core->coreId == "mame2015") {
         bit = mame2010ButtonBitFor(id);
-    } else if (core->coreId == "pce_fast") {
-        // TI/TII (the C and D bits) fire I/II for 2 of every 4 frames while held; PC Engine
-        // games need a press to last 2 frames. The core's own turbo is an on/off toggle on
-        // X/Y, so those stay unpressed.
-        bool turbo = (core->framesRun % 4) < 2;
+    } else if (core->coreId == "pce_fast" || core->coreId == "fceumm") {
+        // TI/TII · TA/TB (the C and D bits) fire I/II · A/B at the 연사 speed while held
+        // (0.0.365; 15 a second, 2 frames on and 2 off, before), or press them plainly while
+        // 연사 is switched off. The cores' own turbo stays unused (X/Y unpressed).
+        uint64_t rate = static_cast<uint64_t>(gTurboRate.load());
+        bool turbo = !gFixedTurbo.load() || (((core->framesRun * rate * 2) / 60) & 1) == 0;
         if (id == RETRO_DEVICE_ID_JOYPAD_A) {
             return ((mask & kButtonA) != 0 || (turbo && (mask & kButtonC) != 0)) ? 1 : 0;
         }
@@ -4730,6 +4733,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCitraAsync(JNIEnv* 
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCitraVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
     gCitraVulkan.store(on == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFixedTurbo(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    gFixedTurbo.store(on == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setTurbo(JNIEnv* /*env*/, jclass /*cls*/, jint mask, jint rate) {
