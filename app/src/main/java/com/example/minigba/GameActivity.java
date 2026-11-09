@@ -15197,6 +15197,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return out;
     }
 
+    // Height : width of the portrait 직접 편집 frame.
+    private float n3dsPortRatio() {
+        return Math.max(0.4f, Math.min(1.6f, MainActivity.sharedSettings(this).getFloat(n3dsKey("ca:port"), 1.2f)));
+    }
+
     // Portrait: {W, H, top l,t,r,b, bottom l,t,r,b} in 3DS pixels; the screen frame gets W:H.
     private float[] n3dsUnitLayout(String preset) {
         float s = n3dsSmall();
@@ -15224,7 +15229,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "custom": {
                 float[] c = n3dsCustom("port");
                 if (c != null) {
-                    return new float[]{400, 480, c[0] * 400, c[1] * 480, c[2] * 400, c[3] * 480, c[4] * 400, c[5] * 480, c[6] * 400, c[7] * 480};
+                    // the frame's height as edited (it stops above the controls), 400:480 before 0.0.357
+                    float fh = 400.0f * n3dsPortRatio();
+                    return new float[]{400, fh, c[0] * 400, c[1] * fh, c[2] * 400, c[3] * fh, c[4] * 400, c[5] * fh, c[6] * 400, c[7] * fh};
                 }
                 // fall through
             }
@@ -15940,23 +15947,34 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int w = seen.width();
         int h = seen.height();
         if ("port".equals(ctx)) {
-            // the editor's frame is 400:480 (as the saved layout), as wide as the screen now
+            // as wide as the screen now, as tall as 400:480 but stopping above the controls
+            int below = Integer.MAX_VALUE;
+            for (android.graphics.Rect c : n3dsControlVisuals()) {
+                if (c.top > seen.top + seen.height() / 3 && c.bottom > seen.bottom - dp(4)) {
+                    below = Math.min(below, c.top);
+                }
+            }
             h = Math.round(w * 1.2f);
+            if (below != Integer.MAX_VALUE) {
+                h = Math.max(Math.round(w * 0.5f), Math.min(h, below - dp(6) - seen.top));
+            }
         }
+        final float portRatio = h / (float) w;
         final android.graphics.Rect frame = new android.graphics.Rect(seen.left, seen.top, seen.left + w, seen.top + h);
         // Start from the layout shown now (the stacked one for 기본).
         String preset = n3dsPreset(ctx);
         int[] start;
         if ("port".equals(ctx)) {
             float[] u = n3dsUnitLayout("default".equals(preset) ? "custom" : preset);
-            // fitted into the 400:480 frame, centred across and from the top
-            float scale = Math.min(400.0f / u[0], 480.0f / u[1]);
+            // fitted into the frame (400 wide), centred across and from the top
+            float fh = 400.0f * portRatio;
+            float scale = Math.min(400.0f / u[0], fh / u[1]);
             float dx = (400.0f - u[0] * scale) / 2;
             float dy = 0.0f;   // from the top, where the picture is now
             start = new int[8];
             for (int k = 0; k < 8; k++) {
                 float v = u[2 + k] * scale + (k % 2 == 0 ? dx : dy);
-                start[k] = Math.round(v * (k % 2 == 0 ? w / 400.0f : h / 480.0f));
+                start[k] = Math.round(v * (k % 2 == 0 ? w / 400.0f : h / fh));
             }
         } else {
             // in the surface's pixels, then as seen
@@ -15967,9 +15985,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 start[k] = Math.round(start[k] * (k % 2 == 0 ? w / (float) sw : h / (float) sh));
             }
         }
-        int[] reset = "port".equals(ctx)
-                ? new int[]{0, 0, w, h / 2, Math.round(w * 0.1f), h / 2, Math.round(w * 0.9f), h}
-                : n3dsRectsFor(ctx, "default", w, h, new java.util.ArrayList<>());
+        int[] reset;
+        if ("port".equals(ctx)) {
+            // stacked, as large as fits, centred across
+            android.graphics.Rect both = n3dsFit(new android.graphics.Rect(0, 0, w, h), 400.0f / 480.0f);
+            both.offsetTo(both.left, 0);
+            int mid = both.top + both.height() / 2;
+            int inset = Math.round(both.width() * 0.1f);
+            reset = new int[]{both.left, both.top, both.right, mid, both.left + inset, mid, both.right - inset, both.bottom};
+        } else {
+            reset = n3dsRectsFor(ctx, "default", w, h, new java.util.ArrayList<>());
+        }
         // a screen left out (one screen only) comes back small, to be placed
         if (!n3dsHas(start, 0)) {
             start[0] = start[4]; start[1] = start[5]; start[2] = start[4] + w / 3; start[3] = start[5] + Math.round(w / 3 * 0.6f);
@@ -16024,6 +16050,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                             sb.append(j == 0 ? "" : ",").append(String.format(Locale.US, "%.4f", f[j]));
                         }
                         MainActivity.sharedSettings(this).edit().putString(n3dsKey("c:" + ctx), sb.toString())
+                                .putFloat(n3dsKey("ca:" + ctx), portRatio)
                                 .putString(n3dsKey("p:" + ctx), "custom").apply();
                         close.run();
                         n3dsRelayout();
@@ -16038,7 +16065,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(Math.min(getResources().getDisplayMetrics().widthPixels - dp(24), dp(460)), -2,
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        barParams.setMargins(0, 0, 0, dp(18));
+        // above Android's navigation bar (and the tip below the status bar)
+        int insetBottom = 0;
+        int insetTop = 0;
+        if (android.os.Build.VERSION.SDK_INT >= 23 && decor.getRootWindowInsets() != null) {
+            android.view.WindowInsets insets = decor.getRootWindowInsets();
+            insetBottom = Math.max(insets.getSystemWindowInsetBottom(), insets.getStableInsetBottom());
+            insetTop = Math.max(insets.getSystemWindowInsetTop(), insets.getStableInsetTop());
+        }
+        barParams.setMargins(0, 0, 0, dp(14) + insetBottom);
         overlay.addView(bar, barParams);
         TextView tip = new TextView(this);
         tip.setText("화면을 끌어 옮기고 모서리 ●로 크기 조절 · 가운데와 가장자리에 붙어요" + ("land".equals(ctx) ? " · 흐린 것은 버튼 자리" : ""));
@@ -16051,7 +16086,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         tipShape.setCornerRadius(dp(10));
         tip.setBackground(tipShape);
         FrameLayout.LayoutParams tipParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        tipParams.setMargins(dp(16), dp(28), dp(16), 0);
+        tipParams.setMargins(dp(16), dp(10) + insetTop, dp(16), 0);
         overlay.addView(tip, tipParams);
         overlay.setClickable(true);
         decor.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
