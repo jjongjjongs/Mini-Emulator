@@ -393,10 +393,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         float aspect = screenAspect();
         int screenWidth = Math.min(width, Math.round(height * aspect));
         int screenHeight = Math.min(height, Math.round(screenWidth / aspect));
-        if (n3dsOwnLayout()) {
-            screenWidth = width;
-            screenHeight = height;
-        }
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) screen.getLayoutParams();
         if (params.width != screenWidth || params.height != screenHeight) {
             params.width = screenWidth;
@@ -706,20 +702,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         boolean full = i == 1;
-        if (n3dsOwnLayout()) {
-            // 3DS · DS 화면 배치: the picture spans the whole area, the screens placed in it
-            // around the controls.
-            FrameLayout.LayoutParams own = (FrameLayout.LayoutParams) frameLayout.getLayoutParams();
-            if (own.width != -1 || own.height != -1 || own.topMargin != 0 || own.bottomMargin != 0) {
-                own.width = -1;
-                own.height = -1;
-                own.topMargin = 0;
-                own.bottomMargin = 0;
-                own.gravity = Gravity.CENTER;
-                frameLayout.setLayoutParams(own);
-            }
-            return;
-        }
         if (isKeyboardPc()) {
             fitDosLandscape(frameLayout, width, height);
             return;
@@ -3262,9 +3244,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         java.util.Map<String, Integer> seen = new java.util.HashMap<>();
         // The game screen's frame first, so it is an item of the editor too (not in the
         // controller-only screen, which has no frame).
-        // Not while a 3DS · DS 화면 배치 of its own places the screens (the picture then fills
-        // the area; moving or enlarging it would push the screens off).
-        if (this.screenArea != null && !isPadScreen() && !n3dsOwnLayout()) {
+        if (this.screenArea != null && !isPadScreen()) {
             this.layoutControls.add(this.screenArea);
             this.layoutIds.add(SCREEN_LAYOUT_ID);
             float[] keep = oldBase.get(this.screenArea);
@@ -15807,128 +15787,41 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return fit.width() < dp(56) ? null : fit;
     }
 
-    // Where the screens go in a W x H view: top l,t,r,b, bottom l,t,r,b, extra l,t,r,b (an
-    // empty rectangle for a screen not shown; extra only for the DS hybrid).
+    // Where the screens go in the game screen as it is (W x H: its size as built, or as the
+    // 버튼 · 화면 배치 편집 made it — that frame is the limit, 0.0.362): top l,t,r,b, bottom
+    // l,t,r,b, extra l,t,r,b (an empty rectangle for a screen not shown; extra only for the
+    // DS hybrid). The layout is fitted into the frame, centred, each screen in its own shape.
     private int[] n3dsRectsFor(String ctx, String preset, int w, int h, java.util.List<android.graphics.Rect> controls) {
-        if ("custom".equals(preset) && !"port".equals(ctx)) {
-            float[] c = n3dsCustom(ctx);
-            if (c != null) {
-                return new int[]{Math.round(c[0] * w), Math.round(c[1] * h), Math.round(c[2] * w), Math.round(c[3] * h),
-                        Math.round(c[4] * w), Math.round(c[5] * h), Math.round(c[6] * w), Math.round(c[7] * h), 0, 0, 0, 0};
+        int[] out = new int[12];
+        float[] c = "custom".equals(preset) ? n3dsCustom(ctx) : null;
+        if (c != null) {
+            for (int k = 0; k < 8; k++) {
+                out[k] = Math.round(c[k] * (k % 2 == 0 ? w : h));
             }
-        }
-        if ("port".equals(ctx)) {
-            float[] u = n3dsUnitLayout(preset);
-            float sx = w / u[0];
-            float sy = h / u[1];
-            int[] out = new int[12];
+        } else {
+            float[] u = n3dsUnitLayout("custom".equals(preset) ? "default" : preset);
+            float scale = Math.min(w / u[0], h / u[1]);
+            float dx = (w - u[0] * scale) / 2.0f;
+            float dy = (h - u[1] * scale) / 2.0f;
             for (int k = 0; k < 12; k++) {
-                out[k] = Math.round(u[2 + k] * (k % 2 == 0 ? sx : sy));
-            }
-            return out;
-        }
-        float s = n3dsSmall();
-        int m = dp(6);
-        boolean pad = "pad".equals(ctx);
-        float topAspect = layTopW() / layTopH();
-        float botAspect = layBotW() / layBotH();
-        // With the touch controls: the column between them; with a controller: everything.
-        int side = pad ? 0 : Math.min(dp(188), w / 4);
-        android.graphics.Rect column = new android.graphics.Rect(side + (pad ? m : 0), m, w - side - (pad ? m : 0), h - m);
-        android.graphics.Rect empty = new android.graphics.Rect();
-        android.graphics.Rect top = empty;
-        android.graphics.Rect bottom = empty;
-        android.graphics.Rect extra = empty;
-        switch (preset) {
-            case "bigtop":
-            case "bigbot":
-            case "hybrid": {
-                boolean bigTop = !"bigbot".equals(preset);
-                boolean hybrid = "hybrid".equals(preset);
-                float bigAspect = bigTop ? topAspect : botAspect;
-                float smallAspect = bigTop ? botAspect : topAspect;
-                android.graphics.Rect big;
-                android.graphics.Rect small;
-                android.graphics.Rect small2 = null;
-                if (pad) {
-                    // the big one and the small one(s) beside it, as a group in the middle
-                    int bigW = Math.round(Math.min(column.height() * bigAspect, (column.width() - m) / (1.0f + s)));
-                    int bigH = Math.round(bigW / bigAspect);
-                    int smallW = Math.round(bigW * s);
-                    int smallH = Math.round(smallW / smallAspect);
-                    if (hybrid && smallH * 2 + m > bigH) {
-                        smallH = (bigH - m) / 2;
-                        smallW = Math.round(smallH * smallAspect);
-                    }
-                    int x0 = column.left + (column.width() - bigW - m - smallW) / 2;
-                    int y0 = column.top + (column.height() - bigH) / 2;
-                    big = new android.graphics.Rect(x0, y0, x0 + bigW, y0 + bigH);
-                    small = new android.graphics.Rect(x0 + bigW + m, y0 + bigH - smallH, x0 + bigW + m + smallW, y0 + bigH);
-                    if (hybrid) {
-                        small2 = new android.graphics.Rect(small.left, y0, small.right, y0 + smallH);
-                    }
-                } else {
-                    big = n3dsFit(column, bigAspect);
-                    int maxW = Math.round(big.width() * s);
-                    small = n3dsSideGap(w - side, w, h, smallAspect, maxW, controls);
-                    android.graphics.Rect left = n3dsSideGap(0, side, h, smallAspect, maxW, controls);
-                    if (small == null || (left != null && left.width() > small.width())) {
-                        small = left;
-                    }
-                    if (small == null) {
-                        // no room beside the controls: over the big one's corner
-                        int sw = maxW;
-                        int sh = Math.round(sw / smallAspect);
-                        small = new android.graphics.Rect(big.right - sw, big.bottom - sh, big.right, big.bottom);
-                    }
-                    if (hybrid) {
-                        // the other side's gap for the second small screen, if there is one
-                        boolean onRight = small.left >= w - side;
-                        small2 = onRight ? n3dsSideGap(0, side, h, smallAspect, maxW, controls) : n3dsSideGap(w - side, w, h, smallAspect, maxW, controls);
-                    }
-                }
-                if (hybrid) {
-                    // DS hybrid: the upper screen big, the lower one small, and a small copy of
-                    // the upper one beside it when there is room
-                    top = big;
-                    bottom = small;
-                    extra = small2 == null ? empty : small2;
-                } else {
-                    top = bigTop ? big : small;
-                    bottom = bigTop ? small : big;
-                }
-                break;
-            }
-            case "top":
-                top = n3dsFit(column, topAspect);
-                break;
-            case "bot":
-                bottom = n3dsFit(column, botAspect);
-                break;
-            case "side": {
-                float wAll = layTopW() + layBotW();
-                android.graphics.Rect both = n3dsFit(column, wAll / Math.max(layTopH(), layBotH()));
-                int split = both.left + Math.round(both.width() * layTopW() / wAll);
-                top = new android.graphics.Rect(both.left, both.top, split, both.bottom);
-                bottom = new android.graphics.Rect(split, both.top, both.right, both.bottom);
-                break;
-            }
-            default: {
-                // stacked (with the DS's gap for 틈 넓게), in the column; also the editor's start
-                float g = "gapwide".equals(preset) ? layTopH() * dsGap() : 0.0f;
-                float unitH = layTopH() + g + layBotH();
-                android.graphics.Rect both = n3dsFit(column, layTopW() / unitH);
-                float k = both.height() / unitH;
-                int topBottom = both.top + Math.round(layTopH() * k);
-                int botTop = both.top + Math.round((layTopH() + g) * k);
-                int inset = Math.round(both.width() * (1.0f - layBotW() / layTopW()) / 2.0f);
-                top = new android.graphics.Rect(both.left, both.top, both.right, topBottom);
-                bottom = new android.graphics.Rect(both.left + inset, botTop, both.right - inset, both.bottom);
-                break;
+                out[k] = Math.round(u[2 + k] * scale + (k % 2 == 0 ? dx : dy));
             }
         }
-        return new int[]{top.left, top.top, top.right, top.bottom, bottom.left, bottom.top, bottom.right, bottom.bottom,
-                extra.left, extra.top, extra.right, extra.bottom};
+        // each screen kept in its own shape inside its place (a frame of another shape than
+        // the one a layout was edited in)
+        float[] aspects = {layTopW() / layTopH(), layBotW() / layBotH(), layTopW() / layTopH()};
+        for (int s = 0; s < 3; s++) {
+            int o = s * 4;
+            if (!n3dsHas(out, o)) {
+                continue;
+            }
+            android.graphics.Rect fit = n3dsFit(new android.graphics.Rect(out[o], out[o + 1], out[o + 2], out[o + 3]), aspects[s]);
+            out[o] = fit.left;
+            out[o + 1] = fit.top;
+            out[o + 2] = fit.right;
+            out[o + 3] = fit.bottom;
+        }
+        return out;
     }
 
     // Works the layout out for the view as it is now and gives it to the engine (3DS) or the
@@ -16176,7 +16069,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
         TextView sub = new TextView(this);
-        sub.setText("세로 · 가로 · 컨트롤러를 따로 기억해요. 고르면 바로 바뀌어요. 아래 화면이 보이는 자리에서 터치돼요.");
+        sub.setText("게임 화면 칸(버튼 · 화면 배치 편집으로 정한 크기와 자리) 안에서 두 화면을 나눠요. 세로 · 가로 · 컨트롤러를 따로 기억하고, 고르면 바로 바뀌어요. 아래 화면이 보이는 자리에서 터치돼요.");
         sub.setTextSize(12.0f);
         sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         sub.setPadding(0, dp(4), 0, dp(10));
@@ -16214,7 +16107,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         sizeText.run();
         // Small screen position (portrait).
         final TextView posLabel = new TextView(this);
-        posLabel.setText("작은 화면 자리 (세로)");
+        posLabel.setText("작은 화면 자리");
         posLabel.setTextSize(12.0f);
         posLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         posLabel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
@@ -16354,9 +16247,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 cellParams.setMargins(dp(2), dp(2), dp(3), dp(4));
                 grid.addView(tile, cellParams);
             }
-            boolean port = "port".equals(tab[0]);
-            posLabel.setVisibility(port ? View.VISIBLE : View.GONE);
-            posRow.setVisibility(port ? View.VISIBLE : View.GONE);
+
             if (gapViews[0] != null) {
                 float gap = dsGap();
                 for (int k = 0; k < 3; k++) {
@@ -16446,47 +16337,28 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // After a change: portrait sizes its screen frame from the layout, landscape and the pad
     // screen fill the view for an own layout, so those are laid out again; otherwise only
     // the engine is told.
+    // After a change: the game screen keeps its place and size; the DS engine is told its
+    // layout (own layouts take its screens one above the other), and the screens are placed.
     private void n3dsRelayout() {
-        boolean own = n3dsOwnLayout();
-        boolean wasOwn = this.n3dsRects != null;
-        if (!this.landscapeMode && !isPadScreen() || own != wasOwn) {
-            rebuildContent();
-        } else {
-            applyN3dsLayout();
-        }
+        setNdsLayout(this.ndsLayout);
+        applyN3dsLayout();
     }
 
     // The thumbnail of a choice: rectangles in a small frame of that screen direction.
     private float[] n3dsThumbRects(String ctx, String preset) {
         if ("custom".equals(preset)) {
             float[] c = n3dsCustom(ctx);
-            float fw = "port".equals(ctx) ? layTopW() : 900;
-            float fh = "port".equals(ctx) ? layTopW() * n3dsPortRatio() : 405;
+            float fw = layTopW();
+            float fh = layTopH() + layBotH();
             if (c == null) {
                 return new float[]{fw, fh};
             }
             return new float[]{fw, fh, c[0] * fw, c[1] * fh, c[2] * fw, c[3] * fh, c[4] * fw, c[5] * fh, c[6] * fw, c[7] * fh, 1};
         }
-        if ("port".equals(ctx)) {
-            float[] u = n3dsUnitLayout(preset);
-            return u;
-        }
         if ("default".equals(preset) && "pad".equals(ctx)) {
             preset = "side";   // the engine's side by side
         }
-        int w = 900;
-        int h = 405;
-        java.util.List<android.graphics.Rect> mock = new java.util.ArrayList<>();
-        if ("land".equals(ctx)) {
-            // L/R on top, the pads in the middle of each side
-            int side = Math.min(dp(188), w / 4);
-            mock.add(new android.graphics.Rect(0, 0, side, h / 6));
-            mock.add(new android.graphics.Rect(w - side, 0, w, h / 6));
-            mock.add(new android.graphics.Rect(0, h / 3, side, h));
-            mock.add(new android.graphics.Rect(w - side, h / 3 + h / 10, w, h));
-        }
-        int[] r = n3dsRectsFor(ctx, preset, w, h, mock);
-        return new float[]{w, h, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11]};
+        return n3dsUnitLayout(preset);
     }
 
     // A small picture of a layout: the frame, the upper screen blue, the lower one yellow.
@@ -16556,59 +16428,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (seen == null) {
             return;
         }
+        // The game screen as it is (moved or sized by the 버튼 · 화면 배치 편집 or not) is the
+        // frame; the screens are placed inside it (0.0.362).
         int w = seen.width();
         int h = seen.height();
-        if ("port".equals(ctx)) {
-            // as wide as the screen now, as tall as 400:480 but stopping above the controls
-            int below = Integer.MAX_VALUE;
-            for (android.graphics.Rect c : n3dsControlVisuals()) {
-                if (c.top > seen.top + seen.height() / 3 && c.bottom > seen.bottom - dp(4)) {
-                    below = Math.min(below, c.top);
-                }
-            }
-            h = Math.round(w * (layTopH() + layBotH()) / layTopW());
-            if (below != Integer.MAX_VALUE) {
-                h = Math.max(Math.round(w * 0.5f), Math.min(h, below - dp(6) - seen.top));
-            }
-        }
         final float portRatio = h / (float) w;
-        final android.graphics.Rect frame = new android.graphics.Rect(seen.left, seen.top, seen.left + w, seen.top + h);
-        // Start from the layout shown now (the stacked one for 기본).
+        final android.graphics.Rect frame = new android.graphics.Rect(seen);
+        // Start from the layout shown now (the stacked one for 기본), in the surface's pixels,
+        // then as seen.
         String preset = n3dsPreset(ctx);
-        int[] start;
-        if ("port".equals(ctx)) {
-            float[] u = n3dsUnitLayout("default".equals(preset) ? "custom" : preset);
-            // fitted into the frame (as wide as the upper screen), centred across and from the top
-            float tw = layTopW();
-            float fh = tw * portRatio;
-            float scale = Math.min(tw / u[0], fh / u[1]);
-            float dx = (tw - u[0] * scale) / 2;
-            float dy = 0.0f;   // from the top, where the picture is now
-            start = new int[8];
-            for (int k = 0; k < 8; k++) {
-                float v = u[2 + k] * scale + (k % 2 == 0 ? dx : dy);
-                start[k] = Math.round(v * (k % 2 == 0 ? w / tw : h / fh));
-            }
-        } else {
-            // in the surface's pixels, then as seen
-            int sw = surface.getWidth();
-            int sh = surface.getHeight();
-            start = n3dsRectsFor(ctx, preset, sw, sh, "land".equals(ctx) ? n3dsControlBounds() : new java.util.ArrayList<>());
-            start = java.util.Arrays.copyOf(start, 8);
-            for (int k = 0; k < 8; k++) {
-                start[k] = Math.round(start[k] * (k % 2 == 0 ? w / (float) sw : h / (float) sh));
-            }
-        }
-        int[] reset;
-        if ("port".equals(ctx)) {
-            // stacked, as large as fits, centred across
-            android.graphics.Rect both = n3dsFit(new android.graphics.Rect(0, 0, w, h), layTopW() / (layTopH() + layBotH()));
-            both.offsetTo(both.left, 0);
-            int mid = both.top + Math.round(both.height() * layTopH() / (layTopH() + layBotH()));
-            int inset = Math.round(both.width() * (1.0f - layBotW() / layTopW()) / 2.0f);
-            reset = new int[]{both.left, both.top, both.right, mid, both.left + inset, mid, both.right - inset, both.bottom};
-        } else {
-            reset = n3dsRectsFor(ctx, "default", w, h, new java.util.ArrayList<>());
+        int sw = surface.getWidth();
+        int sh = surface.getHeight();
+        int[] start = java.util.Arrays.copyOf(n3dsRectsFor(ctx, preset, sw, sh, new java.util.ArrayList<>()), 8);
+        int[] reset = java.util.Arrays.copyOf(n3dsRectsFor(ctx, "default", sw, sh, new java.util.ArrayList<>()), 8);
+        for (int k = 0; k < 8; k++) {
+            start[k] = Math.round(start[k] * (k % 2 == 0 ? w / (float) sw : h / (float) sh));
+            reset[k] = Math.round(reset[k] * (k % 2 == 0 ? w / (float) sw : h / (float) sh));
         }
         // a screen left out (one screen only) comes back small, to be placed
         if (!n3dsHas(start, 0)) {
@@ -16623,7 +16458,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final N3dsEditorView editor = new N3dsEditorView(this, frame, start, reset, controls);
         overlay.addView(editor, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout bar = new LinearLayout(this);
-        String[] names = {"원래대로", "port".equals(ctx) ? "가운데 맞춤" : "버튼 피해 맞춤", "취소", "저장"};
+        String[] names = {"원래대로", "가운데 맞춤", "취소", "저장"};
         final Runnable close = () -> {
             decor.removeView(overlay);
             if (this.nativeHandle != 0) {
@@ -16648,11 +16483,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         editor.reset();
                         break;
                     case 1:
-                        if ("port".equals(ctx)) {
-                            editor.centre();
-                        } else {
-                            editor.avoidControls();
-                        }
+                        editor.centre();
                         break;
                     case 2:
                         close.run();
@@ -16690,7 +16521,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         barParams.setMargins(0, 0, 0, dp(14) + insetBottom);
         overlay.addView(bar, barParams);
         TextView tip = new TextView(this);
-        tip.setText("화면을 끌어 옮기고 모서리 ●로 크기 조절 · 가운데와 가장자리에 붙어요" + ("land".equals(ctx) ? " · 흐린 것은 버튼 자리" : ""));
+        tip.setText("게임 화면 칸(점선) 안에서 끌어 옮기고 모서리 ●로 크기 조절 · 가운데와 가장자리에 붙어요");
         tip.setTextSize(11.5f);
         tip.setTextColor(Color.rgb(226, 232, 240));
         tip.setGravity(Gravity.CENTER);
@@ -17661,11 +17492,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isWiiU()) {
             // The TV over the GamePad in portrait (both 16:9), one of them otherwise.
             return this.ndsLayout == 0 && wiiuView() == 0 ? 1280.0f / 1440.0f : 1280.0f / 720.0f;
-        }
-        if ((isN3ds() || isNds()) && !this.landscapeMode && !isPadScreen() && n3dsOwnLayout()) {
-            // 화면 배치 (0.0.352): the portrait frame takes the chosen layout's shape.
-            float[] u = n3dsUnitLayout(n3dsPreset("port"));
-            return u[0] / u[1];
         }
         if (isN3ds()) {
             // 400x240 over 320x240 as Citra lays them out, like the DS: stacked (the lower
