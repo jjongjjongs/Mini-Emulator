@@ -15949,10 +15949,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int[] start;
         if ("port".equals(ctx)) {
             float[] u = n3dsUnitLayout("default".equals(preset) ? "custom" : preset);
-            // fitted into the 400:480 frame, centred
+            // fitted into the 400:480 frame, centred across and from the top
             float scale = Math.min(400.0f / u[0], 480.0f / u[1]);
             float dx = (400.0f - u[0] * scale) / 2;
-            float dy = (480.0f - u[1] * scale) / 2;
+            float dy = 0.0f;   // from the top, where the picture is now
             start = new int[8];
             for (int k = 0; k < 8; k++) {
                 float v = u[2 + k] * scale + (k % 2 == 0 ? dx : dy);
