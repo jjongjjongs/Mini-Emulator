@@ -7,7 +7,7 @@
 set -euo pipefail
 
 DOSBOX_REPO=https://github.com/libretro/dosbox-pure.git
-DOSBOX_COMMIT=cdaea10ce8cac231bc341ca05d4c5e4e5fe0fbd5
+DOSBOX_COMMIT=e39497e7c2a32c67c26e6598dd14f6d58c384bfd  # 1.0-preview8, 2026-11-06
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
