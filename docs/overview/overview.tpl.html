@@ -635,6 +635,17 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>PS1 고화질 엔진 SwanStation (0.0.342)</h3>
+<p>PS1에 엔진을 하나 더 넣었습니다. <b>SwanStation</b>은 DuckStation(PS1 단독 에뮬레이터)을 바탕으로 한 libretro판으로, 지금 엔진(PCSX ReARMed)보다 화질 기능이 많습니다. 두 엔진 중 <b>게임마다</b> 고릅니다.</p>
+<ul>
+<li><b>PS1 엔진</b> (게임 중 메뉴 › 게임기 탭): SwanStation(추천 · 고화질) · PCSX ReARMed(가벼움). 바꾸면 그 엔진으로 다시 켭니다.</li>
+<li>처음 켜는 게임은 SwanStation, <b>이미 PCSX ReARMed로 장면(빠른 저장)이 있는 게임</b>은 그대로 PCSX ReARMed로 시작합니다. SwanStation은 <b>실제 PS1 BIOS가 있어야</b> 합니다 (PCSX ReARMed는 내장 BIOS로도 됨). BIOS가 없으면 PCSX ReARMed로 켭니다.</li>
+<li><b>메모리 카드 세이브는 두 엔진이 같은 파일</b>을 씁니다 (둘 다 128KB 표준 형식). 빠른 저장(장면) · 되감기는 엔진마다 따로입니다 — 바꾸기 전에 게임 안에서 메모리 카드에 저장하세요.</li>
+<li><b>화면 탭</b> (SwanStation일 때, 게임마다): PS1 해상도 1~4배(기본 2배) · 흔들림 보정 PGXP(기본 켬) · 24비트 색(기본 켬) · 텍스처 다듬기(끔 · 부드럽게 · JINC2 · xBR) · 와이드스크린 16:9 · MSAA · 그래픽(OpenGL 기본 · Vulkan). 그래픽만 다시 켜고, 나머지는 바로 적용됩니다. 게임별 호환 설정(알려진 문제 게임 자동 조정)은 늘 켜 둡니다.</li>
+<li>게임 목록에 "시스템: SwanStation · 2x · PGXP"처럼 엔진과 화질이 나옵니다.</li>
+<li>휴대폰에서는 아직 확인 전입니다. 화면이 깨지는 게임은 PGXP · 와이드스크린을 끄거나, 엔진을 PCSX ReARMed로 바꿔 주세요.</li>
+</ul>
+<figure><img src="img/ps1swan.jpg" alt="PS1 고화질 엔진 시안"><figcaption>PS1 고화질 엔진 시안 (게임 이름은 예시).</figcaption></figure>
 <h3>드림캐스트 .cue 게임 (0.0.341)</h3>
 <ul>
 <li>Redump 방식의 드림캐스트 덤프(<code>게임.cue</code> + <code>(Track 1).bin</code> · <code>(Track 2).bin</code> · <code>(Track 3).bin</code>)를 넣을 수 없었습니다. 드림캐스트 모드가 .gdi만 시트로 받고 .cue는 받지 않아서, 풀어 놓은 파일은 고를 게임이 없었고, 7z로 넣으면 .bin들을 "시트의 트랙"으로 보고 건너뛰어 아무것도 들어가지 않았습니다 ("추가됐어요"만 뜸).</li>
