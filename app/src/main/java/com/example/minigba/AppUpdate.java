@@ -206,6 +206,8 @@ final class AppUpdate {
         request.setMimeType("application/vnd.android.package-archive");
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, target.getName());
+        request.setAllowedOverMetered(true);
+        request.setAllowedOverRoaming(true);
         long id = manager.enqueue(request);
         prefs.edit().putLong(PREFS_DOWNLOAD, id).putString(PREFS_DOWNLOAD_VERSION, release.version).apply();
         return id;
@@ -223,18 +225,82 @@ final class AppUpdate {
         prefs.edit().remove(PREFS_DOWNLOAD).remove(PREFS_DOWNLOAD_VERSION).apply();
     }
 
-    // {status, bytes so far, total bytes}; status is a DownloadManager.STATUS_* (0 when unknown).
+    // {status, bytes so far, total bytes, reason}; status is a DownloadManager.STATUS_* (0 when
+    // unknown), reason DownloadManager's COLUMN_REASON (why it failed or waits).
     static long[] progress(Context context, long id) {
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         try (Cursor cursor = manager.query(new DownloadManager.Query().setFilterById(id))) {
             if (cursor == null || !cursor.moveToFirst()) {
-                return new long[]{0, 0, 0};
+                return new long[]{0, 0, 0, 0};
             }
             return new long[]{
                     cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
                     cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
-                    cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))};
+                    cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
+                    cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))};
+        } catch (RuntimeException e) {
+            return new long[]{0, 0, 0, 0};
         }
+    }
+
+    // Why a download failed, in words (0.0.353).
+    static String failureText(long status, long reason) {
+        if (status == 0) {
+            return "다운로드가 사라졌어요 (휴대폰의 다운로드 관리자에서 지워졌거나 멈췄어요).";
+        }
+        switch ((int) reason) {
+            case DownloadManager.ERROR_INSUFFICIENT_SPACE:
+                return "휴대폰 저장 공간이 모자라요. 앱 파일(약 200MB)과 설치할 자리를 합쳐 500MB쯤 비워 주세요.";
+            case DownloadManager.ERROR_DEVICE_NOT_FOUND:
+            case DownloadManager.ERROR_FILE_ERROR:
+            case DownloadManager.ERROR_FILE_ALREADY_EXISTS:
+                return "받은 파일을 저장하지 못했어요 (저장소 오류 " + reason + ").";
+            case DownloadManager.ERROR_HTTP_DATA_ERROR:
+                return "받는 중에 연결이 끊겼어요 (와이파이 · 데이터가 바뀌거나 약해졌을 때).";
+            case DownloadManager.ERROR_CANNOT_RESUME:
+                return "끊긴 곳부터 이어 받지 못했어요.";
+            case DownloadManager.ERROR_TOO_MANY_REDIRECTS:
+                return "GitHub 다운로드 주소로 연결하지 못했어요 (넘겨주기가 너무 많음).";
+            case DownloadManager.ERROR_UNHANDLED_HTTP_CODE:
+                return "GitHub 서버가 알 수 없는 응답을 보냈어요.";
+            default:
+                if (reason >= 400 && reason < 600) {
+                    return "GitHub 서버 오류예요 (HTTP " + reason + ")" + (reason >= 500 ? " — 잠깐 뒤에 다시 하면 대개 돼요." : ".");
+                }
+                return "알 수 없는 이유로 실패했어요 (코드 " + reason + ").";
+        }
+    }
+
+    // Why a download is waiting, or null.
+    static String pausedText(long status, long reason) {
+        if (status != DownloadManager.STATUS_PAUSED) {
+            return null;
+        }
+        switch ((int) reason) {
+            case DownloadManager.PAUSED_WAITING_FOR_NETWORK:
+                return "인터넷 연결을 기다리는 중";
+            case DownloadManager.PAUSED_QUEUED_FOR_WIFI:
+                return "와이파이를 기다리는 중 (큰 파일이라 모바일 데이터로는 안 받게 돼 있어요)";
+            case DownloadManager.PAUSED_WAITING_TO_RETRY:
+                return "연결이 끊겨 다시 시도하려고 기다리는 중";
+            default:
+                return "잠시 멈춤";
+        }
+    }
+
+    // Worth starting again with a fresh link (not for lack of space).
+    static boolean retryable(long status, long reason) {
+        return reason != DownloadManager.ERROR_INSUFFICIENT_SPACE && reason != DownloadManager.ERROR_DEVICE_NOT_FOUND;
+    }
+
+    static String releasePage(String version) {
+        return "https://github.com/jjongjjongs/Mini-Emulator/releases/tag/v" + version;
+    }
+
+    // Free room where the APK is saved, or -1 when unknown.
+    static long freeSpace(Context context) {
+        File dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        return dir == null ? -1 : dir.getUsableSpace();
     }
 
     static void cancel(Context context, long id) {

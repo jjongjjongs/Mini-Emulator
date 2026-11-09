@@ -1352,7 +1352,14 @@ public final class MainActivity extends Activity {
                 onUpdateDownloaded();
                 return;
             }
-            if (state[0] == 0 || state[0] == android.app.DownloadManager.STATUS_FAILED
+            if (state[0] == android.app.DownloadManager.STATUS_FAILED
+                    && AppUpdate.compare(AppUpdate.downloadVersion(settingsPrefs()), AppUpdate.currentVersion(this)) > 0) {
+                // Failed while the app was away: say why (0.0.353).
+                String why = AppUpdate.failureText(state[0], state[3]);
+                AppUpdate.cancel(this, id);
+                AppUpdate.clearDownload(settingsPrefs());
+                showUpdateFailure(null, why, false);
+            } else if (state[0] == 0 || state[0] == android.app.DownloadManager.STATUS_FAILED
                     || AppUpdate.compare(AppUpdate.downloadVersion(settingsPrefs()), AppUpdate.currentVersion(this)) <= 0) {
                 // Gone, failed, or already installed.
                 AppUpdate.clearDownload(settingsPrefs());
@@ -1576,7 +1583,7 @@ public final class MainActivity extends Activity {
         long id = AppUpdate.downloadId(settingsPrefs());
         if (id != -1 && updateDownloading()) {
             String version = AppUpdate.downloadVersion(settingsPrefs());
-            showUpdateProgress(id, new AppUpdate.Release(version, "", "", 0));
+            showUpdateProgress(id, new AppUpdate.Release(version, "", "", 0), UPDATE_RETRIES);
             return;
         }
         LinearLayout panel = new LinearLayout(this);
@@ -1701,6 +1708,17 @@ public final class MainActivity extends Activity {
     }
 
     private void startUpdateDownload(AppUpdate.Release release) {
+        startUpdateDownload(release, 0);
+    }
+
+    // attempt: 0 the first, 1-2 the automatic retries with a fresh link (0.0.353).
+    private void startUpdateDownload(AppUpdate.Release release, int attempt) {
+        long free = AppUpdate.freeSpace(this);
+        if (attempt == 0 && free >= 0 && release.size > 0 && free < release.size + (40L << 20)) {
+            showUpdateFailure(release, "휴대폰 저장 공간이 모자라요. 받으려면 " + AppUpdate.sizeText(release.size + (40L << 20))
+                    + "가 필요한데 " + AppUpdate.sizeText(free) + "만 남았어요. 설치할 자리까지 500MB쯤 비워 주세요.", false);
+            return;
+        }
         long id;
         try {
             id = AppUpdate.startDownload(this, settingsPrefs(), release);
@@ -1708,11 +1726,36 @@ public final class MainActivity extends Activity {
             showError("다운로드를 시작하지 못했어요: " + e.getMessage());
             return;
         }
-        showUpdateProgress(id, release);
+        showUpdateProgress(id, release, attempt);
         refreshUpdateIcon();
     }
 
-    private void showUpdateProgress(long id, AppUpdate.Release release) {
+    private static final int UPDATE_RETRIES = 2;
+
+    // Why it failed, with 다시 받기 and 브라우저로 받기 (the release page on GitHub).
+    private void showUpdateFailure(AppUpdate.Release release, String why, boolean retry) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        String version = release != null ? release.version : AppUpdate.downloadVersion(settingsPrefs());
+        AppDialog.Builder builder = new AppDialog.Builder(this).setTitle("업데이트를 받지 못했어요")
+                .setMessage(why + "\n\n안 되면 브라우저로 GitHub 릴리스 페이지에서 Mini-Emulator-" + version
+                        + ".apk를 받아 설치해도 돼요. 같은 서명이라 게임 · 세이브 · 설정은 그대로예요.")
+                .setNegativeButton("닫기", null)
+                .setNeutralButton("브라우저로 받기", (d, w) -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(AppUpdate.releasePage(version))));
+                    } catch (RuntimeException e) {
+                        showError("브라우저를 열 수 없어요: " + AppUpdate.releasePage(version));
+                    }
+                });
+        if (retry && release != null && release.url != null && !release.url.isEmpty()) {
+            builder.setPositiveButton("다시 받기", (d, w) -> startUpdateDownload(release, 0));
+        }
+        builder.show();
+    }
+
+    private void showUpdateProgress(long id, AppUpdate.Release release, int attempt) {
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(1);
         LinearLayout panel = new LinearLayout(this);
@@ -1777,31 +1820,52 @@ public final class MainActivity extends Activity {
             window.setBackgroundDrawable(new ColorDrawable(0));
             window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
         }
+        if (attempt > 0) {
+            sub.setText("Mini-Emulator-" + release.version + ".apk · GitHub · 다시 받는 중 (" + (attempt + 1) + "/" + (UPDATE_RETRIES + 1) + ")");
+        }
         final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
         final Runnable[] poll = new Runnable[1];
+        final boolean[] stopped = {false};
+        // Kept polling while hidden too, so a failure is retried and told (0.0.353).
         poll[0] = () -> {
-            if (!dialog.isShowing()) {
+            if (stopped[0] || isFinishing() || isDestroyed()) {
                 return;
             }
             long[] state = AppUpdate.progress(this, id);
             if (state[2] > 0) {
                 bar.setIndeterminate(false);
                 bar.setProgress((int) (1000L * state[1] / state[2]));
-                amount.setText(String.format(Locale.US, "%d / %dMB · %d%%", state[1] >> 20, state[2] >> 20, 100L * state[1] / state[2]));
             }
+            String waiting = AppUpdate.pausedText(state[0], state[3]);
+            String sizes = state[2] > 0 ? String.format(Locale.US, "%d / %dMB · %d%%", state[1] >> 20, state[2] >> 20, 100L * state[1] / state[2]) : "";
+            amount.setText(waiting == null ? sizes : (sizes.isEmpty() ? "" : sizes + " · ") + waiting);
             if (state[0] == android.app.DownloadManager.STATUS_SUCCESSFUL) {
                 dialog.dismiss();
                 return;
             }
             if (state[0] == android.app.DownloadManager.STATUS_FAILED || state[0] == 0) {
                 dialog.dismiss();
+                AppUpdate.cancel(this, id);
                 AppUpdate.clearDownload(settingsPrefs());
-                showError("받지 못했어요. 인터넷 연결을 확인하고 다시 해 주세요.");
+                String why = AppUpdate.failureText(state[0], state[3]);
+                boolean again = AppUpdate.retryable(state[0], state[3]);
+                if (again && attempt < UPDATE_RETRIES) {
+                    // a fresh link (GitHub's expire) after a short wait
+                    handler.postDelayed(() -> {
+                        if (!isFinishing() && !isDestroyed()) {
+                            startUpdateDownload(release, attempt + 1);
+                        }
+                    }, 3000);
+                    Toast.makeText(this, "받지 못해 다시 받아요 · " + why, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                showUpdateFailure(release, why + (attempt > 0 ? " (" + (attempt + 1) + "번 시도함)" : ""), again);
                 return;
             }
             handler.postDelayed(poll[0], 500);
         };
         stop.setOnClickListener(view -> {
+            stopped[0] = true;
             AppUpdate.cancel(this, id);
             AppUpdate.clearDownload(settingsPrefs());
             dialog.dismiss();
