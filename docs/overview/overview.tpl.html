@@ -635,6 +635,11 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>드림캐스트 .cue 게임 (0.0.341)</h3>
+<ul>
+<li>Redump 방식의 드림캐스트 덤프(<code>게임.cue</code> + <code>(Track 1).bin</code> · <code>(Track 2).bin</code> · <code>(Track 3).bin</code>)를 넣을 수 없었습니다. 드림캐스트 모드가 .gdi만 시트로 받고 .cue는 받지 않아서, 풀어 놓은 파일은 고를 게임이 없었고, 7z로 넣으면 .bin들을 "시트의 트랙"으로 보고 건너뛰어 아무것도 들어가지 않았습니다 ("추가됐어요"만 뜸).</li>
+<li>이제 드림캐스트도 <b>.cue + 트랙</b>을 받습니다 (복사 · 복사 없이 연결 · 압축 파일 안의 게임 모두). Flycast는 GD-ROM .cue(고밀도 영역 표시)를 그대로 읽습니다.</li>
+</ul>
 <h3>3DS 통신 (닌텐도 3DS · 0.0.340)</h3>
 <p>3DS 게임의 <b>로컬 통신</b>(가까운 3DS끼리 직접 하는 통신)을 같은 와이파이의 휴대폰끼리 합니다. 3DS 엔진(Citra)에 원래 있는 "방(Room)" 방식을 씁니다: 방장 휴대폰이 앱 안에서 방을 열고, 모든 휴대폰의 엔진이 그 방에 들어가 3DS 무선 패킷을 주고받습니다.</p>
 <ul>
