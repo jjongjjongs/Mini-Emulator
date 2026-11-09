@@ -44,6 +44,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "dslayout.h"
 #include "dsnet.h"
 #include "gclan.h"
 #include "libretro.h"
@@ -2678,10 +2679,55 @@ void presentHwFrame(Core* core) {
 // instead of being smoothed over.
 std::atomic<bool> gSharpScaling{false};
 
+// DS 화면 배치 (0.0.359): where the app put the two screens, in pixels of the view
+// (canvas W x H); empty when melonDS DS's own layout is shown as it is.
+std::mutex gDsLayoutMutex;
+unsigned gDsCanvasW = 0;
+unsigned gDsCanvasH = 0;
+std::vector<dslayout::Blit> gDsBlits;
+
+// The DS frame (both screens, top-bottom, no gap) spread over the canvas; false when the
+// layout is off or the frame isn't that shape (yet), and the frame is shown as usual.
+bool presentDsLayout(Core* core) {
+    unsigned viewW;
+    unsigned viewH;
+    std::vector<dslayout::Blit> blits;
+    {
+        std::lock_guard<std::mutex> lock(gDsLayoutMutex);
+        if (gDsBlits.empty() || gDsCanvasW < 16 || gDsCanvasH < 16) return false;
+        viewW = gDsCanvasW;
+        viewH = gDsCanvasH;
+        blits = gDsBlits;
+    }
+    if (core->shownWidth != 256 || core->shownHeight != 384) return false;
+    unsigned k = dslayout::canvasDivisor(viewW, viewH);
+    unsigned cw = viewW / k;
+    unsigned ch = viewH / k;
+    for (dslayout::Blit& b : blits) {
+        b.left /= static_cast<int>(k);
+        b.top /= static_cast<int>(k);
+        b.right /= static_cast<int>(k);
+        b.bottom /= static_cast<int>(k);
+    }
+    ANativeWindow_setBuffersGeometry(core->window, static_cast<int32_t>(cw), static_cast<int32_t>(ch), core->shownFormat);
+    ANativeWindow_Buffer buffer;
+    if (ANativeWindow_lock(core->window, &buffer, nullptr) != 0) return true;
+    size_t bpp = core->shownFormat == WINDOW_FORMAT_RGB_565 ? 2 : 4;
+    unsigned outW = static_cast<unsigned>(buffer.width) < cw ? static_cast<unsigned>(buffer.width) : cw;
+    unsigned outH = static_cast<unsigned>(buffer.height) < ch ? static_cast<unsigned>(buffer.height) : ch;
+    dslayout::compose(core->shownFrame.data(), core->shownWidth, core->shownHeight, core->shownWidth * bpp, bpp,
+                      static_cast<uint8_t*>(buffer.bits), outW, outH, static_cast<size_t>(buffer.stride) * bpp, blits);
+    ANativeWindow_unlockAndPost(core->window);
+    return true;
+}
+
 // Copies the frame the presenter holds into the window and shows it.
 void presentShownFrame(Core* core) {
     std::lock_guard<std::mutex> lock(core->videoMutex);
     if (core->window == nullptr || core->shownWidth == 0 || core->shownHeight == 0) {
+        return;
+    }
+    if (core->coreId == "melonds" && presentDsLayout(core)) {
         return;
     }
     unsigned scale = 1;
@@ -4573,6 +4619,43 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiControl(JNIEnv* 
     // 0 remote + nunchuk, 1 remote sideways, 2 classic controller
     int device = type == 1 ? ((2 << 8) | RETRO_DEVICE_JOYPAD) : type == 2 ? ((4 << 8) | RETRO_DEVICE_JOYPAD) : ((3 << 8) | RETRO_DEVICE_JOYPAD);
     gWiiDevice.store(device);
+}
+
+// [W, H, n, then n times source, left, top, right, bottom]; null or empty: off.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDsLayout(
+        JNIEnv* env, jclass /*cls*/, jlong handle, jintArray spec) {
+    std::vector<dslayout::Blit> blits;
+    unsigned w = 0;
+    unsigned h = 0;
+    jsize length = spec == nullptr ? 0 : env->GetArrayLength(spec);
+    if (length >= 3) {
+        std::vector<jint> v(static_cast<size_t>(length));
+        env->GetIntArrayRegion(spec, 0, length, v.data());
+        int n = v[2];
+        if (v[0] > 0 && v[1] > 0 && n > 0 && n <= 8 && length >= 3 + n * 5) {
+            w = static_cast<unsigned>(v[0]);
+            h = static_cast<unsigned>(v[1]);
+            for (int k = 0; k < n; ++k) {
+                const jint* b = &v[static_cast<size_t>(3 + k * 5)];
+                blits.push_back({b[0], b[1], b[2], b[3], b[4]});
+            }
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(gDsLayoutMutex);
+        gDsBlits = blits;
+        gDsCanvasW = blits.empty() ? 0 : w;
+        gDsCanvasH = blits.empty() ? 0 : h;
+    }
+    // Shown again at once (also while paused).
+    Core* core = fromHandle(handle);
+    if (core != nullptr) {
+        {
+            std::lock_guard<std::mutex> lock(core->frameMutex);
+            core->frameRedraw = true;
+        }
+        core->frameCv.notify_all();
+    }
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsLayout(
