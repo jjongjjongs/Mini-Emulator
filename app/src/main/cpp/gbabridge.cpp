@@ -528,6 +528,13 @@ struct Core {
     gl::GLuint turnProgram = 0;
     gl::GLint turnRegion = -1, turnBottomLeft = -1, turnFrame = -1, turnTurn = -1;
     bool turnFailed = false;
+    // 3D 다듬기 (0.0.369): FXAA while enlarging, and the last pass (FXAA after FSR,
+    // sharpening, colour) from postTexture (the window's size) onto the window.
+    gl::GLuint fxaaProgram = 0, postProgram = 0, postTarget = 0, postTexture = 0;
+    gl::GLint fxaaRegion = -1, fxaaBottomLeft = -1, fxaaFrame = -1, fxaaTurn = -1;
+    gl::GLint postImage = -1, postFxaa = -1, postSharp = -1, postGrade = -1;
+    bool fxFailed = false;
+    int postWidth = 0, postHeight = 0;
     bool fsrFailed = false;
     // RCAS: EASU draws into fsrTexture (the window's size), RCAS from it onto the window.
     gl::GLuint rcasProgram = 0, fsrTarget = 0, fsrTexture = 0;
@@ -2485,6 +2492,10 @@ private:
 // "FSR 업스케일" (screen filter 4) for the 3D cores: Vulkan's presentation pipeline (vkhw)
 // and the OpenGL pass below enlarge the picture with AMD FSR 1.0's EASU.
 std::atomic<bool> gFsr{false};
+// 3D 다듬기 (0.0.369): FXAA, sharpening 0..100 (0 off), colour 0..2 (as drawn, 자연스러운, 또렷한).
+std::atomic<bool> gFxaa3d{false};
+std::atomic<int> gSharp3d{0};
+std::atomic<int> gGrade3d{0};
 
 // uTurn turns the picture by quarters counter-clockwise (a Naomi game on its side,
 // SET_ROTATION; 0.0.366).
@@ -2518,7 +2529,69 @@ uniform float uBottomLeft;  // 1 when the texture's first row is the picture's b
 void main() {
     vec2 t = vUv;
     if (uBottomLeft > 0.5) t.y = 1.0 - t.y;
-    outColor = vec4(texture(uFrame, t * uRegion / vec2(textureSize(uFrame, 0))).rgb, 1.0);
+    // Kept half a texel inside the picture: the frame texture is bigger, and filtering at
+    // its edge would mix in what lies beyond it.
+    vec2 texel = clamp(t * uRegion, vec2(0.5), uRegion - 0.5);
+    outColor = vec4(texture(uFrame, texel / vec2(textureSize(uFrame, 0))).rgb, 1.0);
+}
+)GLSL";
+
+// 3D 다듬기 (0.0.369): FXAA while enlarging the frame (in place of the plain blit) and the last
+// pass from the window-sized image, with the body in fx3d.glsl.inc (as Vulkan's shaders).
+const char* const kFx3dBody =
+#include "fx3d.glsl.inc"
+    ;
+
+const char* const kFxaaFragmentHead = R"GLSL(#version 300 es
+precision highp float;
+precision highp int;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uFrame;
+uniform vec2 uRegion;       // the picture's size inside the frame texture
+uniform float uBottomLeft;  // 1 when the texture's first row is the picture's bottom
+vec2 lo;
+vec2 hi;
+vec3 fxSample(vec2 q) { return texture(uFrame, clamp(q, lo, hi)).rgb; }
+vec3 fxTexel(ivec2 p) { return texelFetch(uFrame, clamp(p, ivec2(0), ivec2(uRegion) - 1), 0).rgb; }
+)GLSL";
+
+const char* const kFxaaFragmentMain = R"GLSL(
+void main() {
+    vec2 r = 1.0 / vec2(textureSize(uFrame, 0));
+    lo = 0.5 * r;
+    hi = (uRegion - 0.5) * r;
+    vec2 t = vUv;
+    if (uBottomLeft > 0.5) t.y = 1.0 - t.y;
+    outColor = vec4(fxaa(t * uRegion * r, r), 1.0);
+}
+)GLSL";
+
+const char* const kPostFragmentHead = R"GLSL(#version 300 es
+precision highp float;
+precision highp int;
+out vec4 outColor;
+uniform sampler2D uImage;
+uniform int uFxaa;
+uniform float uSharp;
+uniform int uGrade;
+vec2 lo;
+vec2 hi;
+vec3 fxSample(vec2 q) { return texture(uImage, clamp(q, lo, hi)).rgb; }
+vec3 fxTexel(ivec2 p) { return texelFetch(uImage, clamp(p, ivec2(0), textureSize(uImage, 0) - 1), 0).rgb; }
+)GLSL";
+
+const char* const kPostFragmentMain = R"GLSL(
+void main() {
+    vec2 r = 1.0 / vec2(textureSize(uImage, 0));
+    lo = 0.5 * r;
+    hi = 1.0 - 0.5 * r;
+    ivec2 p = ivec2(gl_FragCoord.xy);
+    vec3 c = uFxaa != 0 ? fxaa((vec2(p) + 0.5) * r, r) : fxTexel(p);
+    if (uSharp > 0.0) {
+        c = cas(c, p, uSharp);
+    }
+    outColor = vec4(grade(c, uGrade), 1.0);
 }
 )GLSL";
 
@@ -2714,9 +2787,108 @@ bool makeTurnProgram(Core* core) {
     return true;
 }
 
-// Draws the frame onto the window (bound) through FSR, or turned by turn quarters without
-// it (fsr false), leaving the core's GL state as it was.
-bool drawFsr(Core* core, int width, int height, int turn = 0, bool fsr = true) {
+// Links a program from kFsrVertex and the fragment parts; 0 when it can't be made.
+gl::GLuint linkFxProgram(const char* const* fragmentParts, int count, const char* what) {
+    const char* vertexParts[] = {kFsrVertex};
+    gl::GLuint vertex = compileShader(gl::GL_VERTEX_SHADER, vertexParts, 1);
+    gl::GLuint fragment = compileShader(gl::GL_FRAGMENT_SHADER, fragmentParts, count);
+    if (vertex == 0 || fragment == 0) {
+        if (vertex != 0) gGl.DeleteShader(vertex);
+        if (fragment != 0) gGl.DeleteShader(fragment);
+        LOGE("%s shaders did not compile", what);
+        return 0;
+    }
+    gl::GLuint program = gGl.CreateProgram();
+    gGl.AttachShader(program, vertex);
+    gGl.AttachShader(program, fragment);
+    gGl.LinkProgram(program);
+    gGl.DeleteShader(vertex);
+    gGl.DeleteShader(fragment);
+    gl::GLint linked = 0;
+    gGl.GetProgramiv(program, gl::GL_LINK_STATUS, &linked);
+    if (!linked) {
+        LOGE("%s program did not link", what);
+        gGl.DeleteProgram(program);
+        return 0;
+    }
+    return program;
+}
+
+// 3D 다듬기's two programs, made on first use; false (and the effects left out) if they can't be.
+bool makeFxPrograms(Core* core) {
+    if (core->fxaaProgram != 0 && core->postProgram != 0) {
+        return true;
+    }
+    if (core->fxFailed || !gGl.shaders) {
+        return false;
+    }
+    core->fxFailed = true;
+    const char* fxaaParts[] = {kFxaaFragmentHead, kFx3dBody, kFxaaFragmentMain};
+    const char* postParts[] = {kPostFragmentHead, kFx3dBody, kPostFragmentMain};
+    gl::GLuint fxaa = linkFxProgram(fxaaParts, 3, "FXAA");
+    gl::GLuint post = fxaa != 0 ? linkFxProgram(postParts, 3, "3D post") : 0;
+    if (post == 0) {
+        if (fxaa != 0) gGl.DeleteProgram(fxaa);
+        return false;
+    }
+    core->fxaaProgram = fxaa;
+    core->fxaaRegion = gGl.GetUniformLocation(fxaa, "uRegion");
+    core->fxaaBottomLeft = gGl.GetUniformLocation(fxaa, "uBottomLeft");
+    core->fxaaFrame = gGl.GetUniformLocation(fxaa, "uFrame");
+    core->fxaaTurn = gGl.GetUniformLocation(fxaa, "uTurn");
+    core->postProgram = post;
+    core->postImage = gGl.GetUniformLocation(post, "uImage");
+    core->postFxaa = gGl.GetUniformLocation(post, "uFxaa");
+    core->postSharp = gGl.GetUniformLocation(post, "uSharp");
+    core->postGrade = gGl.GetUniformLocation(post, "uGrade");
+    if (core->fsrVao == 0) gGl.GenVertexArrays(1, &core->fsrVao);
+    core->fxFailed = false;
+    return true;
+}
+
+// The window-sized texture the picture goes into before 3D 다듬기's last pass; false if it can't be.
+bool postTargetFor(Core* core, int width, int height) {
+    if (core->postTarget != 0 && core->postWidth == width && core->postHeight == height) {
+        return true;
+    }
+    if (core->postTexture == 0) {
+        gGl.GenTextures(1, &core->postTexture);
+        gGl.GenFramebuffers(1, &core->postTarget);
+    }
+    gGl.BindTexture(gl::GL_TEXTURE_2D, core->postTexture);
+    gGl.TexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR);
+    gGl.TexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+    gGl.TexImage2D(gl::GL_TEXTURE_2D, 0, gl::GL_RGBA8, width, height, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, nullptr);
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, core->postTarget);
+    gGl.FramebufferTexture2D(gl::GL_DRAW_FRAMEBUFFER, gl::GL_COLOR_ATTACHMENT0, gl::GL_TEXTURE_2D, core->postTexture, 0);
+    bool complete = gGl.CheckFramebufferStatus(gl::GL_DRAW_FRAMEBUFFER) == gl::GL_FRAMEBUFFER_COMPLETE;
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
+    if (!complete) {
+        gGl.DeleteFramebuffers(1, &core->postTarget);
+        gGl.DeleteTextures(1, &core->postTexture);
+        core->postTarget = core->postTexture = 0;
+        core->fxFailed = true;
+        return false;
+    }
+    core->postWidth = width;
+    core->postHeight = height;
+    return true;
+}
+
+// How drawPicture enlarges the frame onto the window.
+enum class Enlarge { Fsr, Plain, Fxaa };
+
+// Draws the frame onto the window (bound): enlarged by FSR (EASU, then RCAS when it can),
+// plainly or with FXAA, turned by turn quarters, then through 3D 다듬기's last pass when post
+// is set (FXAA after FSR, sharpening, colour). Leaves the core's GL state as it was; false
+// when the program for the enlarging can't be made.
+bool drawPicture(Core* core, int width, int height, int turn, Enlarge enlarge, bool post) {
+    bool fsr = enlarge == Enlarge::Fsr;
+    bool fx = enlarge == Enlarge::Fxaa || post;
+    if (fx && !makeFxPrograms(core)) {
+        if (enlarge == Enlarge::Fxaa) return false;
+        post = false;
+    }
     if (fsr ? !makeFsrProgram(core) : !makeTurnProgram(core)) {
         return false;
     }
@@ -2737,25 +2909,41 @@ bool drawFsr(Core* core, int width, int height, int turn = 0, bool fsr = true) {
     }
     gGl.ColorMask(1, 1, 1, 1);
     gGl.Viewport(0, 0, width, height);
-    bool sharpen = fsr && fsrTargetFor(core, width, height);
-    if (sharpen) {
-        gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, core->fsrTarget);
+    if (post && !postTargetFor(core, width, height)) {
+        post = false;
     }
-    gGl.UseProgram(fsr ? core->fsrProgram : core->turnProgram);
+    gl::GLuint out = post ? core->postTarget : 0;
+    bool sharpen = fsr && fsrTargetFor(core, width, height);
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, sharpen ? core->fsrTarget : out);
+    gl::GLuint enlarging = fsr ? core->fsrProgram : enlarge == Enlarge::Fxaa ? core->fxaaProgram : core->turnProgram;
+    gGl.UseProgram(enlarging);
     gGl.BindTexture(gl::GL_TEXTURE_2D, core->fboTexture);
-    gGl.Uniform1i(fsr ? core->fsrFrame : core->turnFrame, 0);
-    gGl.Uniform2f(fsr ? core->fsrRegion : core->turnRegion, static_cast<float>(core->lastWidth), static_cast<float>(core->lastHeight));
-    gGl.Uniform1f(fsr ? core->fsrBottomLeft : core->turnBottomLeft, core->hw.bottom_left_origin ? 1.0f : 0.0f);
-    gGl.Uniform1i(fsr ? core->fsrTurn : core->turnTurn, turn & 3);
+    gGl.Uniform1i(fsr ? core->fsrFrame : enlarge == Enlarge::Fxaa ? core->fxaaFrame : core->turnFrame, 0);
+    gGl.Uniform2f(fsr ? core->fsrRegion : enlarge == Enlarge::Fxaa ? core->fxaaRegion : core->turnRegion,
+                  static_cast<float>(core->lastWidth), static_cast<float>(core->lastHeight));
+    gGl.Uniform1f(fsr ? core->fsrBottomLeft : enlarge == Enlarge::Fxaa ? core->fxaaBottomLeft : core->turnBottomLeft,
+                  core->hw.bottom_left_origin ? 1.0f : 0.0f);
+    gGl.Uniform1i(fsr ? core->fsrTurn : enlarge == Enlarge::Fxaa ? core->fxaaTurn : core->turnTurn, turn & 3);
     gGl.BindVertexArray(core->fsrVao);
     gGl.DrawArrays(gl::GL_TRIANGLES, 0, 3);
     if (sharpen) {
-        gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
+        gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, out);
         gGl.UseProgram(core->rcasProgram);
         gGl.BindTexture(gl::GL_TEXTURE_2D, core->fsrTexture);
         gGl.Uniform1i(core->rcasImage, 0);
         gGl.DrawArrays(gl::GL_TRIANGLES, 0, 3);
     }
+    if (post) {
+        gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
+        gGl.UseProgram(core->postProgram);
+        gGl.BindTexture(gl::GL_TEXTURE_2D, core->postTexture);
+        gGl.Uniform1i(core->postImage, 0);
+        gGl.Uniform1i(core->postFxaa, gFxaa3d.load() && fsr ? 1 : 0);
+        gGl.Uniform1f(core->postSharp, static_cast<float>(gSharp3d.load()) / 100.0f);
+        gGl.Uniform1i(core->postGrade, gGrade3d.load());
+        gGl.DrawArrays(gl::GL_TRIANGLES, 0, 3);
+    }
+    gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
     gGl.BindVertexArray(static_cast<gl::GLuint>(vao));
     gGl.UseProgram(static_cast<gl::GLuint>(program));
     gGl.BindTexture(gl::GL_TEXTURE_2D, static_cast<gl::GLuint>(texture));
@@ -2797,10 +2985,19 @@ void presentHwFrame(Core* core) {
     // The picture's size on the window: on its side when turned a quarter.
     int shownW = (turn & 1) != 0 ? h : w, shownH = (turn & 1) != 0 ? w : h;
     // FSR only when the picture is made bigger; the same size or smaller is blitted.
-    bool fsr = gFsr.load() && (width * 20 > shownW * 21 || height * 20 > shownH * 21) && drawFsr(core, width, height, turn);
-    // A turned picture is drawn with a shader (a blit can't turn it); unturned if that fails.
-    if (!fsr && turn != 0) {
-        fsr = drawFsr(core, width, height, turn, false);
+    bool useFsr = gFsr.load() && (width * 20 > shownW * 21 || height * 20 > shownH * 21);
+    // 3D 다듬기 (0.0.369): FXAA while enlarging (or in the last pass after FSR), and a last
+    // pass for sharpening and colour.
+    bool fxaa = gFxaa3d.load();
+    bool post = gSharp3d.load() > 0 || gGrade3d.load() != 0 || (fxaa && useFsr);
+    bool fsr = useFsr && drawPicture(core, width, height, turn, Enlarge::Fsr, post);
+    if (!fsr && fxaa) {
+        fsr = drawPicture(core, width, height, turn, Enlarge::Fxaa, post);
+    }
+    // A turned picture (or one going through the last pass) is drawn with a shader (a blit
+    // can't turn it); unturned and plain if that fails.
+    if (!fsr && (turn != 0 || post)) {
+        fsr = drawPicture(core, width, height, turn, Enlarge::Plain, post);
     }
     // Without bottom_left_origin the frame's first row is its top, so it is flipped
     // onto the window, whose first row is the bottom.
@@ -5127,6 +5324,17 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSpeedFirstStrong(JN
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFsr(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
     gFsr.store(on == JNI_TRUE);
     vkhw::setFsr(on == JNI_TRUE);
+}
+
+// 3D 다듬기 (0.0.369): FXAA, sharpening 0..100 (0 off) and colour (0 as drawn, 1 자연스러운,
+// 2 또렷한) for the 3D cores, through OpenGL or Vulkan.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setFx3d(JNIEnv* /*env*/, jclass /*cls*/, jboolean fxaa, jint sharp, jint grade) {
+    int s = sharp < 0 ? 0 : sharp > 100 ? 100 : sharp;
+    int g = grade >= 0 && grade <= 2 ? grade : 0;
+    gFxaa3d.store(fxaa == JNI_TRUE);
+    gSharp3d.store(s);
+    gGrade3d.store(g);
+    vkhw::setFx(fxaa == JNI_TRUE, s, g);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPowerMode(JNIEnv* /*env*/, jclass /*cls*/, jint mode) {

@@ -31,10 +31,13 @@ const retro_hw_render_interface* renderInterface(Host* host);
 // Follows the window Java hands over (null while there is none). Emulation thread.
 void setWindow(Host* host, ANativeWindow* window);
 // Shows the image last passed to set_image, stretched over the window and turned by turn
-// quarters counter-clockwise (SET_ROTATION, 0.0.366). Emulation thread.
-void present(Host* host, int turn = 0);
+// quarters counter-clockwise (SET_ROTATION, 0.0.366; -1 keeps the last turn). Emulation thread.
+void present(Host* host, int turn = -1);
 // "FSR 업스케일": the picture is enlarged with AMD FSR 1.0 (EASU) instead of bilinear.
 void setFsr(bool on);
+// 3D 다듬기 (0.0.369): FXAA, sharpening 0..100 (0 off) and colour (0 as drawn, 1 자연스러운,
+// 2 또렷한) on the shown picture.
+void setFx(bool fxaa, int sharp, int grade);
 // Waits for the GPU and frees the swapchain and surfaces. The device stays: the core
 // created it and the game process ends right after.
 void shutdown(Host* host);

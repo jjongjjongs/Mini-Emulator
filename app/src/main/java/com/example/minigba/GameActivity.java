@@ -5256,10 +5256,45 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return filterInt("curve", 50);
     }
 
+    // ---- 3D 다듬기 (0.0.369): FXAA, sharpening and colour for the 3D consoles, on top of the
+    // chosen filter. Kept as "fxaa,sharp,grade" per console (fx3d_con:<mode>) or, with
+    // 이 게임만 다르게, per game (fx3d_game:<game>). ----
+    private static final String[] FX3D_GRADES = {"원래대로", "자연스러운 색", "또렷한 색"};
+
+    private String fx3dKey() {
+        return filterPerGame() ? "fx3d_game:" + this.saveBaseName : "fx3d_con:" + this.gameMode;
+    }
+
+    private int[] fx3d() {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        String saved = filterPerGame() && prefs.contains("fx3d_game:" + this.saveBaseName)
+                ? prefs.getString("fx3d_game:" + this.saveBaseName, "") : prefs.getString("fx3d_con:" + this.gameMode, "");
+        int[] values = {0, 0, 0};
+        String[] parts = saved.split(",");
+        for (int k = 0; k < 3 && k < parts.length; k++) {
+            try {
+                values[k] = Integer.parseInt(parts[k].trim());
+            } catch (NumberFormatException e) {
+                values[k] = 0;
+            }
+        }
+        values[0] = values[0] == 1 ? 1 : 0;
+        values[1] = Math.max(0, Math.min(100, values[1]));
+        values[2] = values[2] >= 0 && values[2] <= 2 ? values[2] : 0;
+        return values;
+    }
+
+    private void saveFx3d(int[] values) {
+        MainActivity.sharedSettings(this).edit().putString(fx3dKey(), values[0] + "," + values[1] + "," + values[2]).apply();
+        applyScreenFilterToNative(screenFilter());
+    }
+
     private void applyScreenFilterToNative(int filter) {
         // whole-pixel enlarging so the lines drawn over the picture meet the game's pixels
         NativeGba.setSharpScaling((filter >= 1 && filter <= 3) || filter >= 5);
         NativeGba.setFsr(filter == 4);
+        int[] look = is3d() ? fx3d() : new int[]{0, 0, 0};
+        NativeGba.setFx3d(look[0] == 1, look[1], look[2]);
         int fx = filter == 5 || filter == 6 ? 1 : filter == 7 ? 2 : filter == 8 ? 3 : filter == 9 ? 4 : 0;
         NativeGba.setScreenFx(this.nativeHandle, softwareFrames() ? fx : 0, filter == 5 || filter == 6 ? filterBright() : filterStrength());
     }
@@ -5374,9 +5409,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             label.setText(names[k] + " · " + bar.getProgress());
             panel.addView(bar);
         }
+        if (is3d()) {
+            addFx3dRows(panel);
+        }
         panel.addView(filterSwitchRow("이 게임만 다르게", "끄면 " + consoleName() + "에 고른 필터를 따라요", "filter_game_on:" + this.saveBaseName, false, on -> {
             if (on && !prefs.contains(filterGameKey())) {
                 prefs.edit().putInt(filterGameKey(), screenFilter()).apply();
+            }
+            if (on && is3d() && !prefs.contains("fx3d_game:" + this.saveBaseName)) {
+                // The game starts from what the console has.
+                String console = prefs.getString("fx3d_con:" + this.gameMode, "0,0,0");
+                prefs.edit().putString("fx3d_game:" + this.saveBaseName, console).apply();
             }
             applyScreenFilterToNative(screenFilter());
             updateScreenFilters();
@@ -5428,6 +5471,69 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private interface FilterToggle {
         void set(boolean on);
+    }
+
+    // The 3D 다듬기 part of the 화면 필터 sheet: FXAA, 선명하게+ and colour, applied as they change.
+    private void addFx3dRows(LinearLayout panel) {
+        final int purple = Color.rgb(124, 58, 237);
+        TextView head = new TextView(this);
+        head.setText("3D 다듬기 · 고른 필터와 함께 켜져요");
+        head.setTextSize(13.0f);
+        head.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        head.setTextColor(Theme.text(Color.rgb(76, 29, 149)));
+        head.setPadding(dp(2), dp(16), 0, dp(2));
+        panel.addView(head);
+        final int[] fx = fx3d();
+        panel.addView(ps2Switch("계단 줄이기 (FXAA)", "3D 물체 모서리의 톱니를 부드럽게 · 가벼움", fx[0] == 1, on -> {
+            fx[0] = on ? 1 : 0;
+            saveFx3d(fx);
+        }));
+        final TextView sharpLabel = new TextView(this);
+        sharpLabel.setTextSize(12.0f);
+        sharpLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        sharpLabel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+        sharpLabel.setPadding(dp(2), dp(10), 0, 0);
+        sharpLabel.setText(fx[1] == 0 ? "선명하게+ · 끔" : "선명하게+ · " + fx[1]);
+        panel.addView(sharpLabel);
+        android.widget.SeekBar sharp = new android.widget.SeekBar(this);
+        sharp.setMax(100);
+        sharp.setProgress(fx[1]);
+        sharp.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(android.widget.SeekBar b, int progress, boolean user) {
+                sharpLabel.setText(progress == 0 ? "선명하게+ · 끔" : "선명하게+ · " + progress);
+            }
+
+            public void onStartTrackingTouch(android.widget.SeekBar b) {
+            }
+
+            public void onStopTrackingTouch(android.widget.SeekBar b) {
+                fx[1] = b.getProgress();
+                saveFx3d(fx);
+            }
+        });
+        panel.addView(sharp);
+        TextView sharpNote = new TextView(this);
+        sharpNote.setText("번진 3D를 또렷하게 (AMD CAS) · 0이면 끔");
+        sharpNote.setTextSize(11.0f);
+        sharpNote.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        sharpNote.setPadding(dp(2), 0, 0, 0);
+        panel.addView(sharpNote);
+        final LinearLayout gradeBox = new LinearLayout(this);
+        gradeBox.setOrientation(1);
+        gradeBox.setPadding(0, dp(8), 0, 0);
+        panel.addView(gradeBox);
+        final Runnable[] renderGrade = new Runnable[1];
+        renderGrade[0] = () -> {
+            gradeBox.removeAllViews();
+            LinearLayout chips = backgroundChips("색", FX3D_GRADES, fx[2], purple, i -> {
+                fx[2] = i;
+                saveFx3d(fx);
+                renderGrade[0].run();
+            });
+            chips.setPadding(0, 0, 0, 0);
+            gradeBox.addView(chips);
+        };
+        renderGrade[0].run();
     }
 
     private LinearLayout filterSwitchRow(String title, String note, String key, boolean fallback, FilterToggle onChange) {

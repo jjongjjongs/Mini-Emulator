@@ -100,6 +100,8 @@ final class NativeGba {
     // "FSR 업스케일" screen filter: 3D engines enlarge the picture with AMD FSR 1.0. Takes effect
     // at once.
     static native void setFsr(boolean on);
+    // 3D 다듬기: FXAA, sharpening 0..100 (0 off), colour 0..2 (as drawn, 자연스러운 색, 또렷한 색).
+    static native void setFx3d(boolean fxaa, int sharp, int grade);
 
     // "전원 모드" for the next game created: 0 성능, 1 균형, 2 절전.
     static native void setPowerMode(int mode);

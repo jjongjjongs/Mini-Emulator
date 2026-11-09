@@ -54,19 +54,20 @@ namespace vkhw {
 namespace {
 
 // Full-screen triangle sampling the core's image (blit.vert / blit.frag). The push
-// constant turns the picture by quarters counter-clockwise (a Naomi game on its side,
-// SET_ROTATION; 0.0.366); every pass uses this vertex shader.
+// constants (struct Push) turn the picture by quarters counter-clockwise (a Naomi game on
+// its side, SET_ROTATION; 0.0.366) and carry 3D 다듬기's choices for the post pass
+// (0.0.369); every pass uses this vertex shader.
 //   #version 450
-//   layout(push_constant) uniform Turn { int quarters; } turn;
+//   layout(push_constant) uniform Push { int turn; int fxaa; float sharp; int grade; } pc;
 //   layout(location = 0) out vec2 uv;
 //   void main() {
 //       vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
 //       gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
-//       if (turn.quarters == 1) {
+//       if (pc.turn == 1) {
 //           uv = vec2(1.0 - p.y, p.x);
-//       } else if (turn.quarters == 2) {
+//       } else if (pc.turn == 2) {
 //           uv = vec2(1.0 - p.x, 1.0 - p.y);
-//       } else if (turn.quarters == 3) {
+//       } else if (pc.turn == 3) {
 //           uv = vec2(p.y, 1.0 - p.x);
 //       } else {
 //           uv = p;
@@ -124,8 +125,58 @@ const uint32_t kFsrFrag[] = {
 const uint32_t kRcasFrag[] = {
 #include "rcas_frag.inc"
 };
+// 3D 다듬기 (0.0.369), with the body in fx3d.glsl.inc pasted in where marked:
+// FXAA while enlarging the core's image (in place of the blit),
+//   #version 450
+//   layout(location = 0) in vec2 uv;
+//   layout(location = 0) out vec4 color;
+//   layout(set = 0, binding = 0) uniform sampler2D frame;
+//   vec2 lo;
+//   vec2 hi;
+//   vec3 fxSample(vec2 q) { return texture(frame, clamp(q, lo, hi)).rgb; }
+//   vec3 fxTexel(ivec2 p) { return texelFetch(frame, clamp(p, ivec2(0), textureSize(frame, 0) - 1), 0).rgb; }
+//   <the body in fx3d.glsl.inc>
+//   void main() {
+//       vec2 r = 1.0 / vec2(textureSize(frame, 0));
+//       lo = 0.5 * r;
+//       hi = 1.0 - 0.5 * r;
+//       color = vec4(fxaa(uv, r), 1.0);
+//   }
+// and the last pass from the window-sized post image: FXAA (when FSR did the enlarging),
+// sharpening and colour,
+//   #version 450
+//   layout(push_constant) uniform Push { int turn; int fxaa; float sharp; int grade; } pc;
+//   layout(location = 0) out vec4 color;
+//   layout(set = 0, binding = 0) uniform sampler2D image;
+//   vec2 lo;
+//   vec2 hi;
+//   vec3 fxSample(vec2 q) { return texture(image, clamp(q, lo, hi)).rgb; }
+//   vec3 fxTexel(ivec2 p) { return texelFetch(image, clamp(p, ivec2(0), textureSize(image, 0) - 1), 0).rgb; }
+//   <the body in fx3d.glsl.inc>
+//   void main() {
+//       vec2 r = 1.0 / vec2(textureSize(image, 0));
+//       lo = 0.5 * r;
+//       hi = 1.0 - 0.5 * r;
+//       ivec2 p = ivec2(gl_FragCoord.xy);
+//       vec3 c = pc.fxaa != 0 ? fxaa((vec2(p) + 0.5) * r, r) : fxTexel(p);
+//       if (pc.sharp > 0.0) {
+//           c = cas(c, p, pc.sharp);
+//       }
+//       color = vec4(grade(c, pc.grade), 1.0);
+//   }
+// compiled with glslangValidator -V.
+const uint32_t kFxaaFrag[] = {
+#include "fxaa_frag.inc"
+};
+const uint32_t kPostFrag[] = {
+#include "post_frag.inc"
+};
 
 std::atomic<bool> gFsr{false};
+// 3D 다듬기: FXAA on/off, sharpening 0..100 (0 off), colour 0..2.
+std::atomic<bool> gFxaa{false};
+std::atomic<int> gSharp{0};
+std::atomic<int> gGrade{0};
 
 constexpr uint32_t kSlots = 3;
 
@@ -355,6 +406,24 @@ bool available() {
     return gAvailable == 1;
 }
 
+// A window-sized image a pass draws into (fsrPass) and the next one samples (set).
+struct Target {
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+    VkDescriptorSet set = VK_NULL_HANDLE;
+};
+
+// What every pass is pushed (vertex and fragment stages share it): the picture's turn and
+// 3D 다듬기's choices.
+struct Push {
+    int32_t turn = 0;
+    int32_t fxaa = 0;
+    float sharp = 0.0f;
+    int32_t grade = 0;
+};
+
 class Host {
 public:
     retro_hw_render_callback hw{};
@@ -388,6 +457,7 @@ public:
 
     // Presentation (emulation thread only).
     ANativeWindow* window = nullptr;
+    int lastTurn = 0;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_UNDEFINED;
@@ -405,11 +475,16 @@ public:
     VkPipeline rcasPipeline = VK_NULL_HANDLE;
     VkPipeline easuPipeline = VK_NULL_HANDLE;
     VkRenderPass fsrPass = VK_NULL_HANDLE;
-    VkImage fsrImage = VK_NULL_HANDLE;
-    VkDeviceMemory fsrMemory = VK_NULL_HANDLE;
-    VkImageView fsrView = VK_NULL_HANDLE;
-    VkFramebuffer fsrFramebuffer = VK_NULL_HANDLE;
-    VkDescriptorSet fsrSet = VK_NULL_HANDLE;
+    Target fsr;
+    // 3D 다듬기 (0.0.369): FXAA while enlarging (fxaaPipeline), and the last pass of
+    // sharpening · colour · FXAA after FSR (postPipeline) from the post image onto the
+    // window. The *Target pipelines draw into fsrPass's images instead of the window.
+    VkPipeline fxaaPipeline = VK_NULL_HANDLE;
+    VkPipeline postPipeline = VK_NULL_HANDLE;
+    VkPipeline blitTargetPipeline = VK_NULL_HANDLE;
+    VkPipeline fxaaTargetPipeline = VK_NULL_HANDLE;
+    VkPipeline rcasTargetPipeline = VK_NULL_HANDLE;
+    Target post;
     VkFormat pipelineFormat = VK_FORMAT_UNDEFINED;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
@@ -538,6 +613,12 @@ bool makePipeline(Host* h) {
         if (h->easuPipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(h->device, h->easuPipeline, nullptr);
             h->easuPipeline = VK_NULL_HANDLE;
+        }
+        for (VkPipeline* fx : {&h->fxaaPipeline, &h->postPipeline, &h->blitTargetPipeline, &h->fxaaTargetPipeline, &h->rcasTargetPipeline}) {
+            if (*fx != VK_NULL_HANDLE) {
+                vkDestroyPipeline(h->device, *fx, nullptr);
+                *fx = VK_NULL_HANDLE;
+            }
         }
         if (h->fsrPass != VK_NULL_HANDLE) {
             vkDestroyRenderPass(h->device, h->fsrPass, nullptr);
@@ -687,6 +768,30 @@ bool makePipeline(Host* h) {
         info.renderPass = h->renderPass;
         vkDestroyShaderModule(h->device, easu, nullptr);
     }
+    // 3D 다듬기 (0.0.369): each fragment shader for the window and, for the passes before
+    // the last, for fsrPass's images. Any that can't be made leaves its effect out.
+    auto variant = [&](const uint32_t* code, size_t bytes, VkRenderPass pass, VkPipeline& out) {
+        if (pass == VK_NULL_HANDLE || result != VK_SUCCESS) return;
+        VkShaderModule module = shaderModule(h->device, code, bytes);
+        if (module == VK_NULL_HANDLE) return;
+        stages[1].module = module;
+        info.renderPass = pass;
+        if (vkCreateGraphicsPipelines(h->device, VK_NULL_HANDLE, 1, &info, nullptr, &out) != VK_SUCCESS) {
+            out = VK_NULL_HANDLE;
+        }
+        info.renderPass = h->renderPass;
+        vkDestroyShaderModule(h->device, module, nullptr);
+    };
+    variant(kPostFrag, sizeof(kPostFrag), h->renderPass, h->postPipeline);
+    variant(kFxaaFrag, sizeof(kFxaaFrag), h->renderPass, h->fxaaPipeline);
+    variant(kFxaaFrag, sizeof(kFxaaFrag), h->fsrPass, h->fxaaTargetPipeline);
+    variant(kBlitFrag, sizeof(kBlitFrag), h->fsrPass, h->blitTargetPipeline);
+    variant(kRcasFrag, sizeof(kRcasFrag), h->fsrPass, h->rcasTargetPipeline);
+    if (h->blitTargetPipeline == VK_NULL_HANDLE) {
+        // Without the pass into the post image there is nothing for the post pass to read.
+        if (h->postPipeline != VK_NULL_HANDLE) vkDestroyPipeline(h->device, h->postPipeline, nullptr);
+        h->postPipeline = VK_NULL_HANDLE;
+    }
     if (vert != VK_NULL_HANDLE) vkDestroyShaderModule(h->device, vert, nullptr);
     if (frag != VK_NULL_HANDLE) vkDestroyShaderModule(h->device, frag, nullptr);
     if (result != VK_SUCCESS) {
@@ -697,23 +802,27 @@ bool makePipeline(Host* h) {
     return true;
 }
 
-void destroyFsrTarget(Host* h) {
-    if (h->fsrFramebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(h->device, h->fsrFramebuffer, nullptr);
-    if (h->fsrView != VK_NULL_HANDLE) vkDestroyImageView(h->device, h->fsrView, nullptr);
-    if (h->fsrImage != VK_NULL_HANDLE) vkDestroyImage(h->device, h->fsrImage, nullptr);
-    if (h->fsrMemory != VK_NULL_HANDLE) vkFreeMemory(h->device, h->fsrMemory, nullptr);
-    h->fsrFramebuffer = VK_NULL_HANDLE;
-    h->fsrView = VK_NULL_HANDLE;
-    h->fsrImage = VK_NULL_HANDLE;
-    h->fsrMemory = VK_NULL_HANDLE;
+// A window-sized image the passes draw into and the next one samples: EASU's output for
+// RCAS (fsr), and the picture before 3D 다듬기's last pass (post, 0.0.369). Both use fsrPass.
+void destroyTarget(Host* h, Target& t) {
+    if (t.framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(h->device, t.framebuffer, nullptr);
+    if (t.view != VK_NULL_HANDLE) vkDestroyImageView(h->device, t.view, nullptr);
+    if (t.image != VK_NULL_HANDLE) vkDestroyImage(h->device, t.image, nullptr);
+    if (t.memory != VK_NULL_HANDLE) vkFreeMemory(h->device, t.memory, nullptr);
+    t.framebuffer = VK_NULL_HANDLE;
+    t.view = VK_NULL_HANDLE;
+    t.image = VK_NULL_HANDLE;
+    t.memory = VK_NULL_HANDLE;
 }
 
-// The image EASU draws into for RCAS, the window's size. Without it FSR draws EASU straight
-// onto the window, unsharpened.
-void makeFsrTarget(Host* h) {
-    if (h->fsrPass == VK_NULL_HANDLE || h->easuPipeline == VK_NULL_HANDLE || h->rcasPipeline == VK_NULL_HANDLE ||
-        h->fsrSet == VK_NULL_HANDLE) {
-        return;
+void destroyFsrTarget(Host* h) {
+    destroyTarget(h, h->fsr);
+    destroyTarget(h, h->post);
+}
+
+bool makeTarget(Host* h, Target& t) {
+    if (h->fsrPass == VK_NULL_HANDLE || t.set == VK_NULL_HANDLE) {
+        return false;
     }
     VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     info.imageType = VK_IMAGE_TYPE_2D;
@@ -726,12 +835,12 @@ void makeFsrTarget(Host* h) {
     info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    if (vkCreateImage(h->device, &info, nullptr, &h->fsrImage) != VK_SUCCESS) {
-        h->fsrImage = VK_NULL_HANDLE;
-        return;
+    if (vkCreateImage(h->device, &info, nullptr, &t.image) != VK_SUCCESS) {
+        t.image = VK_NULL_HANDLE;
+        return false;
     }
     VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(h->device, h->fsrImage, &req);
+    vkGetImageMemoryRequirements(h->device, t.image, &req);
     VkPhysicalDeviceMemoryProperties mem;
     vkGetPhysicalDeviceMemoryProperties(h->gpu, &mem);
     VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
@@ -744,41 +853,53 @@ void makeFsrTarget(Host* h) {
             break;
         }
     }
-    if (alloc.memoryTypeIndex == UINT32_MAX || vkAllocateMemory(h->device, &alloc, nullptr, &h->fsrMemory) != VK_SUCCESS ||
-        vkBindImageMemory(h->device, h->fsrImage, h->fsrMemory, 0) != VK_SUCCESS) {
-        destroyFsrTarget(h);
-        return;
+    if (alloc.memoryTypeIndex == UINT32_MAX || vkAllocateMemory(h->device, &alloc, nullptr, &t.memory) != VK_SUCCESS ||
+        vkBindImageMemory(h->device, t.image, t.memory, 0) != VK_SUCCESS) {
+        destroyTarget(h, t);
+        return false;
     }
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    view.image = h->fsrImage;
+    view.image = t.image;
     view.viewType = VK_IMAGE_VIEW_TYPE_2D;
     view.format = h->format;
     view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(h->device, &view, nullptr, &t.view) != VK_SUCCESS) {
+        t.view = VK_NULL_HANDLE;
+        destroyTarget(h, t);
+        return false;
+    }
     VkFramebufferCreateInfo fb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     fb.renderPass = h->fsrPass;
     fb.attachmentCount = 1;
+    fb.pAttachments = &t.view;
     fb.width = h->extent.width;
     fb.height = h->extent.height;
     fb.layers = 1;
-    if (vkCreateImageView(h->device, &view, nullptr, &h->fsrView) != VK_SUCCESS) {
-        h->fsrView = VK_NULL_HANDLE;
-        destroyFsrTarget(h);
-        return;
+    if (vkCreateFramebuffer(h->device, &fb, nullptr, &t.framebuffer) != VK_SUCCESS) {
+        t.framebuffer = VK_NULL_HANDLE;
+        destroyTarget(h, t);
+        return false;
     }
-    fb.pAttachments = &h->fsrView;
-    if (vkCreateFramebuffer(h->device, &fb, nullptr, &h->fsrFramebuffer) != VK_SUCCESS) {
-        h->fsrFramebuffer = VK_NULL_HANDLE;
-        destroyFsrTarget(h);
-        return;
-    }
-    VkDescriptorImageInfo imageInfo{h->sampler, h->fsrView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo imageInfo{h->sampler, t.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    write.dstSet = h->fsrSet;
+    write.dstSet = t.set;
     write.dstBinding = 0;
     write.descriptorCount = 1;
     write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     write.pImageInfo = &imageInfo;
     vkUpdateDescriptorSets(h->device, 1, &write, 0, nullptr);
+    return true;
+}
+
+// The image EASU draws into for RCAS, the window's size (without it FSR draws EASU straight
+// onto the window, unsharpened), and 3D 다듬기's (without it the effects are left out).
+void makeFsrTarget(Host* h) {
+    if (h->easuPipeline != VK_NULL_HANDLE && h->rcasPipeline != VK_NULL_HANDLE) {
+        makeTarget(h, h->fsr);
+    }
+    if (h->postPipeline != VK_NULL_HANDLE) {
+        makeTarget(h, h->post);
+    }
 }
 
 void destroySwapchain(Host* h) {
@@ -1106,16 +1227,17 @@ bool makeResources(Host* h) {
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts = &h->setLayout;
-    VkPushConstantRange turnRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(int32_t)};
+    VkPushConstantRange turnRange{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push)};
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &turnRange;
     if (vkCreatePipelineLayout(h->device, &layoutInfo, nullptr, &h->layout) != VK_SUCCESS) {
         return false;
     }
-    // One set per slot for the core's image, and one for FSR's upscaled image.
-    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSlots + 1};
+    // One set per slot for the core's image, one for FSR's upscaled image and one for
+    // 3D 다듬기's.
+    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSlots + 2};
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    poolInfo.maxSets = kSlots + 1;
+    poolInfo.maxSets = kSlots + 2;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &size;
     if (vkCreateDescriptorPool(h->device, &poolInfo, nullptr, &h->pool) != VK_SUCCESS) {
@@ -1131,8 +1253,11 @@ bool makeResources(Host* h) {
         return false;
     }
     allocInfo.descriptorSetCount = 1;
-    if (vkAllocateDescriptorSets(h->device, &allocInfo, &h->fsrSet) != VK_SUCCESS) {
-        h->fsrSet = VK_NULL_HANDLE;
+    if (vkAllocateDescriptorSets(h->device, &allocInfo, &h->fsr.set) != VK_SUCCESS) {
+        h->fsr.set = VK_NULL_HANDLE;
+    }
+    if (vkAllocateDescriptorSets(h->device, &allocInfo, &h->post.set) != VK_SUCCESS) {
+        h->post.set = VK_NULL_HANDLE;
     }
     VkCommandPoolCreateInfo poolCreate{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     poolCreate.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -1262,6 +1387,11 @@ void present(Host* h, int turn) {
     if (h->device == VK_NULL_HANDLE || h->surface == VK_NULL_HANDLE) {
         return;
     }
+    // A redraw for a new window (turn -1) keeps the turn of the frames before it.
+    if (turn < 0) {
+        turn = h->lastTurn;
+    }
+    h->lastTurn = turn;
     if ((h->swapchain == VK_NULL_HANDLE || h->rebuild) && !makeSwapchain(h)) {
         return;
     }
@@ -1330,21 +1460,58 @@ void present(Host* h, int turn) {
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkViewport viewport{0.0f, 0.0f, static_cast<float>(h->extent.width), static_cast<float>(h->extent.height), 0.0f, 1.0f};
     VkRect2D scissor{{0, 0}, h->extent};
-    int32_t quarters = turn & 3;
+    Push push;
+    push.turn = turn & 3;
+    push.fxaa = gFxaa.load() ? 1 : 0;
+    push.sharp = static_cast<float>(gSharp.load()) / 100.0f;
+    push.grade = gGrade.load();
+    const VkShaderStageFlags pushStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     bool fsr = haveImage && gFsr.load() && h->fsrPipeline != VK_NULL_HANDLE;
-    bool sharpen = fsr && h->fsrFramebuffer != VK_NULL_HANDLE;
+    bool sharpen = fsr && h->fsr.framebuffer != VK_NULL_HANDLE;
+    // 3D 다듬기 (0.0.369): FXAA in the enlarging pass when FSR isn't the one enlarging,
+    // otherwise in the last pass with sharpening and colour, which then needs the picture
+    // drawn into the post image first.
+    bool fxaaScale = haveImage && push.fxaa != 0 && !fsr && h->fxaaPipeline != VK_NULL_HANDLE;
+    bool post = haveImage && h->postPipeline != VK_NULL_HANDLE && h->post.framebuffer != VK_NULL_HANDLE &&
+                (push.sharp > 0.0f || push.grade != 0 || (push.fxaa != 0 && fsr)) &&
+                (!sharpen || h->rcasTargetPipeline != VK_NULL_HANDLE) && (!fsr || sharpen || h->easuPipeline != VK_NULL_HANDLE) &&
+                (!fxaaScale || h->fxaaTargetPipeline != VK_NULL_HANDLE);
+    if (!post) {
+        push.sharp = 0.0f;
+        push.grade = 0;
+    }
     if (sharpen) {
-        // FSR in two passes: EASU into fsrImage here, RCAS onto the window below.
+        // FSR in two passes: EASU into the fsr image here, RCAS onto the window (or the post
+        // image) below.
         VkRenderPassBeginInfo easu{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         easu.renderPass = h->fsrPass;
-        easu.framebuffer = h->fsrFramebuffer;
+        easu.framebuffer = h->fsr.framebuffer;
         easu.renderArea = {{0, 0}, h->extent};
         vkCmdBeginRenderPass(cmd, &easu, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->easuPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, &h->sets[slot], 0, nullptr);
-        vkCmdPushConstants(cmd, h->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(int32_t), &quarters);
+        vkCmdPushConstants(cmd, h->layout, pushStages, 0, sizeof(Push), &push);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+    }
+    if (post) {
+        // The enlarged picture into the post image; the post pass puts it on the window.
+        VkRenderPassBeginInfo into{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        into.renderPass = h->fsrPass;
+        into.framebuffer = h->post.framebuffer;
+        into.renderArea = {{0, 0}, h->extent};
+        vkCmdBeginRenderPass(cmd, &into, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          sharpen ? h->rcasTargetPipeline : fsr ? h->easuPipeline : fxaaScale ? h->fxaaTargetPipeline : h->blitTargetPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, sharpen ? &h->fsr.set : &h->sets[slot], 0, nullptr);
+        // RCAS reads EASU's output (already turned) pixel for pixel.
+        Push enlarge = push;
+        enlarge.turn = sharpen ? 0 : push.turn;
+        vkCmdPushConstants(cmd, h->layout, pushStages, 0, sizeof(Push), &enlarge);
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRenderPass(cmd);
     }
@@ -1358,11 +1525,20 @@ void present(Host* h, int turn) {
     if (haveImage) {
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sharpen ? h->rcasPipeline : fsr ? h->fsrPipeline : h->pipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, sharpen ? &h->fsrSet : &h->sets[slot], 0, nullptr);
-        // RCAS reads EASU's output (already turned) pixel for pixel.
-        int32_t drawn = sharpen ? 0 : quarters;
-        vkCmdPushConstants(cmd, h->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(int32_t), &drawn);
+        Push shown = push;
+        if (post) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->postPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, &h->post.set, 0, nullptr);
+            shown.turn = 0;
+            shown.fxaa = push.fxaa != 0 && fsr ? 1 : 0;
+        } else {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              sharpen ? h->rcasPipeline : fsr ? h->fsrPipeline : fxaaScale ? h->fxaaPipeline : h->pipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, sharpen ? &h->fsr.set : &h->sets[slot], 0, nullptr);
+            // RCAS reads EASU's output (already turned) pixel for pixel.
+            shown.turn = sharpen ? 0 : push.turn;
+        }
+        vkCmdPushConstants(cmd, h->layout, pushStages, 0, sizeof(Push), &shown);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
     vkCmdEndRenderPass(cmd);
@@ -1465,6 +1641,12 @@ void shutdown(Host* h) {
 
 void setFsr(bool on) {
     gFsr.store(on);
+}
+
+void setFx(bool fxaa, int sharp, int grade) {
+    gFxaa.store(fxaa);
+    gSharp.store(sharp < 0 ? 0 : sharp > 100 ? 100 : sharp);
+    gGrade.store(grade >= 0 && grade <= 2 ? grade : 0);
 }
 
 }  // namespace vkhw
