@@ -747,6 +747,37 @@ final class Cheats {
     // ---- .pnach files ----
     // PCSX2's cheat / patch files: each [Name] (PCSX2 2.x, "[Cheats/Infinite HP]" too) becomes
     // a cheat of its own; lines before any [Name] (older files) one cheat named after the file.
+    // Plain lists of codes (0.0.374): a name line ("#Name", "[Name]" or any text) and the code
+    // lines under it ("8007F5FC 0005", "8007F5FC0005"), as PS1 code sites and ePSXe / DuckStation
+    // style files give them. Codes of one name are joined with "+", as in a .cht file.
+    static List<Cheat> parsePlain(String text) {
+        List<Cheat> list = new ArrayList<>();
+        String name = null;
+        StringBuilder code = new StringBuilder();
+        java.util.regex.Pattern codeLine = java.util.regex.Pattern.compile("^([0-9A-Fa-f]{8})[ :-]?([0-9A-Fa-f]{4,8})$");
+        for (String raw : (text + "\n#").split("\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            java.util.regex.Matcher m = codeLine.matcher(line);
+            if (m.matches()) {
+                if (code.length() > 0) code.append('+');
+                code.append(m.group(1).toUpperCase(java.util.Locale.US)).append(' ').append(m.group(2).toUpperCase(java.util.Locale.US));
+                continue;
+            }
+            if (code.length() > 0) {
+                list.add(new Cheat(name == null || name.isEmpty() ? "치트 " + (list.size() + 1) : name, code.toString(), false, true));
+                code.setLength(0);
+            }
+            String label = line;
+            if (label.startsWith("#")) label = label.substring(1).trim();
+            if (label.startsWith("[") && label.endsWith("]")) label = label.substring(1, label.length() - 1).trim();
+            name = label;
+        }
+        return list;
+    }
+
     static List<Cheat> parsePnach(String text, String fileName) {
         List<Cheat> out = new ArrayList<>();
         String name = null;

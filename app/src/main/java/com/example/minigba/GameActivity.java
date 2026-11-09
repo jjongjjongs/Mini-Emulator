@@ -4984,12 +4984,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // PS2: PCSX2's .pnach files, each [section] a cheat of its own.
             pnach = isPs2() && (fileName.toLowerCase(Locale.US).endsWith(".pnach") || !text.contains("cheat0_"));
             found = pnach ? Cheats.parsePnach(text, fileName) : Cheats.parse(text);
+            if (found.isEmpty() && !pnach) {
+                // A plain list ("#Name" and "8007F5FC 0005" lines), as PS1 code sites give them.
+                found = Cheats.parsePlain(text);
+            }
         } catch (IOException | RuntimeException e) {
             found = new java.util.ArrayList<>();
         }
         if (found.isEmpty()) {
             Toast.makeText(this, isPs2() ? "이 파일에서 치트를 찾지 못했어요. (PCSX2 .pnach나 .cht 파일인지 확인해 주세요)"
-                    : "이 파일에서 치트를 찾지 못했어요. (.cht 파일인지 확인해 주세요)", Toast.LENGTH_LONG).show();
+                    : "이 파일에서 치트를 찾지 못했어요. (.cht 파일이나 \"#이름\" 아래 코드가 적힌 .txt인지 확인해 주세요)", Toast.LENGTH_LONG).show();
             return;
         }
         int patches = 0;
