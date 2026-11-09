@@ -75,10 +75,18 @@ index 22d6799..ff04f98 100644
  
  } // namespace LibRetro
 diff --git a/src/citra_libretro/emu_window/libretro_window.cpp b/src/citra_libretro/emu_window/libretro_window.cpp
-index cdd7fb8..2c3548f 100644
+index cdd7fb8..91d4941 100644
 --- a/src/citra_libretro/emu_window/libretro_window.cpp
 +++ b/src/citra_libretro/emu_window/libretro_window.cpp
-@@ -65,7 +65,7 @@ void EmuWindow_LibRetro::SwapBuffers() {
+@@ -7,6 +7,7 @@
+ 
+ #include "audio_core/audio_types.h"
+ #include "citra_libretro/citra_libretro.h"
++#include "citra_libretro/core_settings.h"
+ #include "citra_libretro/environment.h"
+ #include "citra_libretro/input/input_factory.h"
+ #include "common/settings.h"
+@@ -65,7 +66,7 @@ void EmuWindow_LibRetro::SwapBuffers() {
      if (useOpenGL) {
          auto current_state = OpenGL::OpenGLState::GetCurState();
          ResetGLState();
@@ -87,7 +95,7 @@ index cdd7fb8..2c3548f 100644
              tracker->Render(width, height);
          }
          LibRetro::UploadVideoFrame(RETRO_HW_FRAME_BUFFER_VALID, static_cast<unsigned>(width),
-@@ -96,7 +96,7 @@ void EmuWindow_LibRetro::PollEvents() {
+@@ -96,7 +97,7 @@ void EmuWindow_LibRetro::PollEvents() {
  
      // TODO: Poll for right click for motion emu
  
@@ -96,7 +104,7 @@ index cdd7fb8..2c3548f 100644
          tracker->Update(width, height, GetFramebufferLayout().bottom_screen);
  
          if (tracker->IsPressed()) {
-@@ -136,9 +136,15 @@ void EmuWindow_LibRetro::UpdateLayout() {
+@@ -136,9 +137,15 @@ void EmuWindow_LibRetro::UpdateLayout() {
  
      bool swapped = Settings::values.swap_screen.GetValue();
  
