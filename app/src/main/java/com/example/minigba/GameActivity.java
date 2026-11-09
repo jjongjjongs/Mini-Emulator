@@ -15146,8 +15146,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final String[] TATE_NAMES = {"세워서 보기 (추천)", "눕혀서 보기", "반대로 세우기"};
     private static final String[] TATE_NOTES = {"세로 폰에서 크게 · 가로 폰에선 가운데", "엔진이 그리는 그대로. 폰을 돌려 들고 할 때", "화면이 거꾸로 나오는 게임 (칵테일 기판)"};
 
+    // Naomi · Atomiswave on Flycast too (0.0.366): the app turns its GPU picture.
     private boolean isRotatingArcadeCore() {
-        return "fbneo".equals(this.coreId) || "mame2003plus".equals(this.coreId) || "mame2010".equals(this.coreId) || "mame2015".equals(this.coreId);
+        return "fbneo".equals(this.coreId) || "mame2003plus".equals(this.coreId) || "mame2010".equals(this.coreId) || "mame2015".equals(this.coreId)
+                || isNaomi();
     }
 
     private int arcadeRotationMode() {
@@ -15155,9 +15157,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return value >= 0 && value <= 2 ? value : 0;
     }
 
-    // Learned from the core the first time the game ran (it asks for a quarter turn).
+    // Learned from the core the first time the game ran (it asks for a quarter turn). A Naomi
+    // set marked vertical in the set table is stood up from its first start.
     private boolean arcadeVerticalKnown() {
-        return MainActivity.sharedSettings(this).getBoolean("tate_v:" + this.saveBaseName, false);
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        String key = "tate_v:" + this.saveBaseName;
+        if (!prefs.contains(key) && isNaomi()) {
+            NaomiSets.Set set = naomiSet();
+            return set != null && set.vertical;
+        }
+        return prefs.getBoolean(key, false);
     }
 
     private boolean arcadeUpright() {

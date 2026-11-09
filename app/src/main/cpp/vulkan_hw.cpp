@@ -53,12 +53,24 @@ typedef VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesARM VkPhysical
 namespace vkhw {
 namespace {
 
-// Full-screen triangle sampling the core's image (blit.vert / blit.frag):
+// Full-screen triangle sampling the core's image (blit.vert / blit.frag). The push
+// constant turns the picture by quarters counter-clockwise (a Naomi game on its side,
+// SET_ROTATION; 0.0.366); every pass uses this vertex shader.
 //   #version 450
+//   layout(push_constant) uniform Turn { int quarters; } turn;
 //   layout(location = 0) out vec2 uv;
 //   void main() {
-//       uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-//       gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+//       vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+//       gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+//       if (turn.quarters == 1) {
+//           uv = vec2(1.0 - p.y, p.x);
+//       } else if (turn.quarters == 2) {
+//           uv = vec2(1.0 - p.x, 1.0 - p.y);
+//       } else if (turn.quarters == 3) {
+//           uv = vec2(p.y, 1.0 - p.x);
+//       } else {
+//           uv = p;
+//       }
 //   }
 //
 //   #version 450
@@ -84,7 +96,8 @@ const uint32_t kBlitFrag[] = {
 //   void main() {
 //       frameSize = textureSize(frame, 0);
 //       // Source texels per output pixel; FSR only helps when the picture is made bigger.
-//       float scale = abs(dFdx(uv.x)) * float(frameSize.x);
+//       // (uv.x follows the window's y when the picture is turned a quarter.)
+//       float scale = max(abs(dFdx(uv.x)), abs(dFdy(uv.x))) * float(frameSize.x);
 //       if (scale >= 0.95) {
 //           color = vec4(texture(frame, uv).rgb, 1.0);
 //           return;
@@ -134,7 +147,7 @@ constexpr uint32_t kSlots = 3;
     X(vkAllocateDescriptorSets) X(vkUpdateDescriptorSets) X(vkCreateSampler) X(vkCreateCommandPool) \
     X(vkAllocateCommandBuffers) X(vkBeginCommandBuffer) X(vkEndCommandBuffer)                     \
     X(vkResetCommandBuffer) X(vkCmdBeginRenderPass) X(vkCmdEndRenderPass) X(vkCmdBindPipeline)    \
-    X(vkCmdBindDescriptorSets) X(vkCmdSetViewport) X(vkCmdSetScissor) X(vkCmdDraw)                \
+    X(vkCmdBindDescriptorSets) X(vkCmdPushConstants) X(vkCmdSetViewport) X(vkCmdSetScissor) X(vkCmdDraw)                \
     X(vkCmdPipelineBarrier) X(vkCreateFence) X(vkWaitForFences) X(vkResetFences)                  \
     X(vkCreateSemaphore) X(vkDestroySemaphore) X(vkCreateBuffer) X(vkGetBufferMemoryRequirements)  \
     X(vkAllocateMemory) X(vkBindBufferMemory) X(vkMapMemory) X(vkCmdCopyImageToBuffer)                \
@@ -1093,6 +1106,9 @@ bool makeResources(Host* h) {
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     layoutInfo.setLayoutCount = 1;
     layoutInfo.pSetLayouts = &h->setLayout;
+    VkPushConstantRange turnRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(int32_t)};
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &turnRange;
     if (vkCreatePipelineLayout(h->device, &layoutInfo, nullptr, &h->layout) != VK_SUCCESS) {
         return false;
     }
@@ -1242,7 +1258,7 @@ void setWindow(Host* h, ANativeWindow* window) {
     present(h);
 }
 
-void present(Host* h) {
+void present(Host* h, int turn) {
     if (h->device == VK_NULL_HANDLE || h->surface == VK_NULL_HANDLE) {
         return;
     }
@@ -1314,6 +1330,7 @@ void present(Host* h) {
     clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkViewport viewport{0.0f, 0.0f, static_cast<float>(h->extent.width), static_cast<float>(h->extent.height), 0.0f, 1.0f};
     VkRect2D scissor{{0, 0}, h->extent};
+    int32_t quarters = turn & 3;
     bool fsr = haveImage && gFsr.load() && h->fsrPipeline != VK_NULL_HANDLE;
     bool sharpen = fsr && h->fsrFramebuffer != VK_NULL_HANDLE;
     if (sharpen) {
@@ -1327,6 +1344,7 @@ void present(Host* h) {
         vkCmdSetScissor(cmd, 0, 1, &scissor);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->easuPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, &h->sets[slot], 0, nullptr);
+        vkCmdPushConstants(cmd, h->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(int32_t), &quarters);
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRenderPass(cmd);
     }
@@ -1342,6 +1360,9 @@ void present(Host* h) {
         vkCmdSetScissor(cmd, 0, 1, &scissor);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sharpen ? h->rcasPipeline : fsr ? h->fsrPipeline : h->pipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, h->layout, 0, 1, sharpen ? &h->fsrSet : &h->sets[slot], 0, nullptr);
+        // RCAS reads EASU's output (already turned) pixel for pixel.
+        int32_t drawn = sharpen ? 0 : quarters;
+        vkCmdPushConstants(cmd, h->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(int32_t), &drawn);
         vkCmdDraw(cmd, 3, 1, 0, 0);
     }
     vkCmdEndRenderPass(cmd);

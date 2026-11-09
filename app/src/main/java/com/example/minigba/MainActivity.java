@@ -23503,7 +23503,11 @@ public final class MainActivity extends Activity {
             refreshLibrary();
         }
         StringBuilder sb = new StringBuilder(set.systemName());
-        if (set.vertical) sb.append(" · 세로 화면 게임");
+        if (set.vertical) {
+            // Stood up unless the game's 세로 게임 화면 says otherwise (0.0.366).
+            int tate = sharedSettings(this).getInt("tate:" + saveBaseNameFor(file), 0);
+            sb.append(" · 세로 화면 게임 · ").append(tate == 1 ? "눕혀서" : tate == 2 ? "반대로 세워서" : "세워서");
+        }
         boolean ok = true;
         if (set.gd != null) {
             File disc = NaomiSets.discFor(file, set);

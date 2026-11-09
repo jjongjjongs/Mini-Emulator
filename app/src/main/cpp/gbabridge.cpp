@@ -521,7 +521,11 @@ struct Core {
     gl::GLuint fbo = 0, fboTexture = 0, fboDepth = 0;
     // The OpenGL FSR pass, made on first use in this context; fsrFailed when it can't be.
     gl::GLuint fsrProgram = 0, fsrVao = 0;
-    gl::GLint fsrRegion = -1, fsrBottomLeft = -1, fsrFrame = -1;
+    gl::GLint fsrRegion = -1, fsrBottomLeft = -1, fsrFrame = -1, fsrTurn = -1;
+    // The turned blit for a game on its side (0.0.366), made on first use; turnFailed when it can't be.
+    gl::GLuint turnProgram = 0;
+    gl::GLint turnRegion = -1, turnBottomLeft = -1, turnFrame = -1, turnTurn = -1;
+    bool turnFailed = false;
     bool fsrFailed = false;
     // RCAS: EASU draws into fsrTexture (the window's size), RCAS from it onto the window.
     gl::GLuint rcasProgram = 0, fsrTarget = 0, fsrTexture = 0;
@@ -1634,6 +1638,17 @@ std::atomic<bool> gWsTall{false};
 // SET_ROTATION): 0 upright as the cabinet showed it, 1 as the core draws it (on its side),
 // 2 upright the other way round. The rotation itself is done on the copied frame.
 std::atomic<int> gRotationMode{0};
+
+// The turn a frame needs (counter-clockwise quarters), from the core's request and the
+// player's choice.
+int frameTurn(Core* core) {
+    int requested = core->requestedRotation.load();
+    if (requested <= 0) {
+        return 0;
+    }
+    int mode = gRotationMode.load();
+    return mode == 1 ? 0 : (requested + (mode == 2 ? 2 : 0)) & 3;
+}
 // 연사: these button bits are let through only on the "on" frames, `rate` presses a second.
 std::atomic<int> gTurboMask{0};
 std::atomic<bool> gFixedTurbo{true};
@@ -2329,9 +2344,12 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         case 51:
             return true;
         case RETRO_ENVIRONMENT_SET_ROTATION: {
-            // Arcade cores (software frames): the app turns the frame itself. Others keep
-            // drawing as before (they are told the frontend can't).
-            bool arcade = core->coreId == "fbneo" || core->coreId == "mame2003plus" || core->coreId == "mame2010" || core->coreId == "mame2015";
+            // Arcade cores (software frames): the app turns the frame itself. Flycast asks for
+            // Naomi · Atomiswave games on their side and leaves the turn to the frontend; the
+            // app turns its picture when showing it (0.0.366). Others keep drawing as before
+            // (they are told the frontend can't).
+            bool arcade = core->coreId == "fbneo" || core->coreId == "mame2003plus" || core->coreId == "mame2010" || core->coreId == "mame2015" ||
+                          core->coreId == "flycast";
             if (!arcade || data == nullptr) return false;
             core->requestedRotation.store(static_cast<int>(*static_cast<const unsigned*>(data) & 3u));
             return true;
@@ -2434,12 +2452,39 @@ private:
 // and the OpenGL pass below enlarge the picture with AMD FSR 1.0's EASU.
 std::atomic<bool> gFsr{false};
 
+// uTurn turns the picture by quarters counter-clockwise (a Naomi game on its side,
+// SET_ROTATION; 0.0.366).
 const char* const kFsrVertex = R"GLSL(#version 300 es
+uniform int uTurn;
 out vec2 vUv;
 void main() {
     vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-    vUv = vec2(p.x, 1.0 - p.y);  // 0 at the top of the window
+    vec2 s = vec2(p.x, 1.0 - p.y);  // 0 at the top of the window
+    if (uTurn == 1) {
+        vUv = vec2(1.0 - s.y, s.x);
+    } else if (uTurn == 2) {
+        vUv = vec2(1.0 - s.x, 1.0 - s.y);
+    } else if (uTurn == 3) {
+        vUv = vec2(s.y, 1.0 - s.x);
+    } else {
+        vUv = s;
+    }
     gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+)GLSL";
+
+// The frame turned onto the window without FSR (a blit can't turn it).
+const char* const kTurnFragment = R"GLSL(#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+uniform sampler2D uFrame;
+uniform vec2 uRegion;       // the picture's size inside the frame texture
+uniform float uBottomLeft;  // 1 when the texture's first row is the picture's bottom
+void main() {
+    vec2 t = vUv;
+    if (uBottomLeft > 0.5) t.y = 1.0 - t.y;
+    outColor = vec4(texture(uFrame, t * uRegion / vec2(textureSize(uFrame, 0))).rgb, 1.0);
 }
 )GLSL";
 
@@ -2535,6 +2580,7 @@ bool makeFsrProgram(Core* core) {
     core->fsrRegion = gGl.GetUniformLocation(program, "uRegion");
     core->fsrBottomLeft = gGl.GetUniformLocation(program, "uBottomLeft");
     core->fsrFrame = gGl.GetUniformLocation(program, "uFrame");
+    core->fsrTurn = gGl.GetUniformLocation(program, "uTurn");
     gGl.GenVertexArrays(1, &core->fsrVao);
     core->fsrFailed = false;
     // The sharpening pass; without it EASU draws straight onto the window.
@@ -2593,9 +2639,51 @@ bool fsrTargetFor(Core* core, int width, int height) {
     return true;
 }
 
-// Draws the frame onto the window (bound) through FSR, leaving the core's GL state as it was.
-bool drawFsr(Core* core, int width, int height) {
-    if (!makeFsrProgram(core)) {
+// The plain turned blit; false when it can't be made (the frame is then blitted unturned).
+bool makeTurnProgram(Core* core) {
+    if (core->turnProgram != 0) {
+        return true;
+    }
+    if (core->turnFailed || !gGl.shaders) {
+        return false;
+    }
+    core->turnFailed = true;
+    const char* vertexParts[] = {kFsrVertex};
+    const char* fragmentParts[] = {kTurnFragment};
+    gl::GLuint vertex = compileShader(gl::GL_VERTEX_SHADER, vertexParts, 1);
+    gl::GLuint fragment = compileShader(gl::GL_FRAGMENT_SHADER, fragmentParts, 1);
+    if (vertex == 0 || fragment == 0) {
+        if (vertex != 0) gGl.DeleteShader(vertex);
+        if (fragment != 0) gGl.DeleteShader(fragment);
+        LOGE("turn shaders did not compile");
+        return false;
+    }
+    gl::GLuint program = gGl.CreateProgram();
+    gGl.AttachShader(program, vertex);
+    gGl.AttachShader(program, fragment);
+    gGl.LinkProgram(program);
+    gGl.DeleteShader(vertex);
+    gGl.DeleteShader(fragment);
+    gl::GLint linked = 0;
+    gGl.GetProgramiv(program, gl::GL_LINK_STATUS, &linked);
+    if (!linked) {
+        LOGE("turn program did not link");
+        return false;
+    }
+    core->turnProgram = program;
+    core->turnRegion = gGl.GetUniformLocation(program, "uRegion");
+    core->turnBottomLeft = gGl.GetUniformLocation(program, "uBottomLeft");
+    core->turnFrame = gGl.GetUniformLocation(program, "uFrame");
+    core->turnTurn = gGl.GetUniformLocation(program, "uTurn");
+    if (core->fsrVao == 0) gGl.GenVertexArrays(1, &core->fsrVao);
+    core->turnFailed = false;
+    return true;
+}
+
+// Draws the frame onto the window (bound) through FSR, or turned by turn quarters without
+// it (fsr false), leaving the core's GL state as it was.
+bool drawFsr(Core* core, int width, int height, int turn = 0, bool fsr = true) {
+    if (fsr ? !makeFsrProgram(core) : !makeTurnProgram(core)) {
         return false;
     }
     gl::GLint program = 0, vao = 0, active = 0, texture = 0, viewport[4] = {0, 0, 0, 0};
@@ -2615,15 +2703,16 @@ bool drawFsr(Core* core, int width, int height) {
     }
     gGl.ColorMask(1, 1, 1, 1);
     gGl.Viewport(0, 0, width, height);
-    bool sharpen = fsrTargetFor(core, width, height);
+    bool sharpen = fsr && fsrTargetFor(core, width, height);
     if (sharpen) {
         gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, core->fsrTarget);
     }
-    gGl.UseProgram(core->fsrProgram);
+    gGl.UseProgram(fsr ? core->fsrProgram : core->turnProgram);
     gGl.BindTexture(gl::GL_TEXTURE_2D, core->fboTexture);
-    gGl.Uniform1i(core->fsrFrame, 0);
-    gGl.Uniform2f(core->fsrRegion, static_cast<float>(core->lastWidth), static_cast<float>(core->lastHeight));
-    gGl.Uniform1f(core->fsrBottomLeft, core->hw.bottom_left_origin ? 1.0f : 0.0f);
+    gGl.Uniform1i(fsr ? core->fsrFrame : core->turnFrame, 0);
+    gGl.Uniform2f(fsr ? core->fsrRegion : core->turnRegion, static_cast<float>(core->lastWidth), static_cast<float>(core->lastHeight));
+    gGl.Uniform1f(fsr ? core->fsrBottomLeft : core->turnBottomLeft, core->hw.bottom_left_origin ? 1.0f : 0.0f);
+    gGl.Uniform1i(fsr ? core->fsrTurn : core->turnTurn, turn & 3);
     gGl.BindVertexArray(core->fsrVao);
     gGl.DrawArrays(gl::GL_TRIANGLES, 0, 3);
     if (sharpen) {
@@ -2645,11 +2734,12 @@ bool drawFsr(Core* core, int width, int height) {
     return true;
 }
 
-// Stretches the core's last frame from fbo onto the window and shows it. Runs on
-// the emulation thread with the context current.
+// Stretches the core's last frame from fbo onto the window, turned as the core asked
+// (frameTurn), and shows it. Runs on the emulation thread with the context current.
 void presentHwFrame(Core* core) {
+    int turn = frameTurn(core);
     if (core->vk != nullptr) {
-        vkhw::present(core->vk);
+        vkhw::present(core->vk, turn);
         return;
     }
     if (core->eglWindowSurface == nullptr || core->lastWidth == 0 || core->lastHeight == 0) {
@@ -2670,8 +2760,14 @@ void presentHwFrame(Core* core) {
     gGl.BindFramebuffer(gl::GL_READ_FRAMEBUFFER, core->fbo);
     gGl.BindFramebuffer(gl::GL_DRAW_FRAMEBUFFER, 0);
     int w = static_cast<int>(core->lastWidth), h = static_cast<int>(core->lastHeight);
+    // The picture's size on the window: on its side when turned a quarter.
+    int shownW = (turn & 1) != 0 ? h : w, shownH = (turn & 1) != 0 ? w : h;
     // FSR only when the picture is made bigger; the same size or smaller is blitted.
-    bool fsr = gFsr.load() && (width * 20 > w * 21 || height * 20 > h * 21) && drawFsr(core, width, height);
+    bool fsr = gFsr.load() && (width * 20 > shownW * 21 || height * 20 > shownH * 21) && drawFsr(core, width, height, turn);
+    // A turned picture is drawn with a shader (a blit can't turn it); unturned if that fails.
+    if (!fsr && turn != 0) {
+        fsr = drawFsr(core, width, height, turn, false);
+    }
     // Without bottom_left_origin the frame's first row is its top, so it is flipped
     // onto the window, whose first row is the bottom.
     if (!fsr && core->hw.bottom_left_origin) {
@@ -2904,14 +3000,7 @@ void RETRO_CALLCONV videoRefreshCallback(const void* data, unsigned width, unsig
             core->presenterRunning = true;
             core->presenter = std::thread(presenterLoop, core);
         }
-        // The turn this frame needs (counter-clockwise quarters), from the core's request
-        // and the player's choice.
-        int requested = core->requestedRotation.load();
-        int turn = 0;
-        if (requested > 0) {
-            int mode = gRotationMode.load();
-            turn = mode == 1 ? 0 : (requested + (mode == 2 ? 2 : 0)) & 3;
-        }
+        int turn = frameTurn(core);
         std::vector<uint8_t>& target = turn == 0 ? core->pendingFrame : core->rotateScratch;
         target.resize(rowBytes * height);
         const auto* src = static_cast<const uint8_t*>(data);
