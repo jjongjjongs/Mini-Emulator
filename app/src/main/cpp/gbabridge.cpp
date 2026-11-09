@@ -4888,7 +4888,9 @@ JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_vmuScreen(JNIEnv* env,
         // Black (0) where Flycast's decoded LCD is clear, blue where a dot is lit; still all
         // zero before the game first writes the screen.
         bool on = (core->vmuScreens[i] & 0xFFFFFFu) != 0;
-        out[i] = on ? 1 : 0;
+        // Flycast keeps the rows bottom first (its own overlay draws them as a texture that
+        // way up), so they are turned over here (0.0.368).
+        out[(31 - i / 48) * 48 + i % 48] = on ? 1 : 0;
         lit += on ? 1 : 0;
     }
     env->SetByteArrayRegion(dots, 0, 48 * 32, out);

@@ -3,7 +3,9 @@
 # CMake, and copies it into app/src/main/jniLibs. It renders with Vulkan where the device
 # has it and OpenGL ES 3 otherwise (both offered by the bridge); the parts only the
 # standalone app uses (Lua, crash reports, OpenMP) are left out. It runs in its own
-# workflow, like melonDS DS.
+# workflow, like melonDS DS. libandroid is linked (0.0.368) so the core finds
+# ASharedMemory_create: without it the fast memory map fell back to /dev/ashmem, which
+# apps may not open, and the core ran on its slower separate buffers.
 #
 # Usage: ANDROID_NDK_HOME=/path/to/ndk ./cores/build-flycast.sh
 set -euo pipefail
@@ -31,6 +33,17 @@ if [ "$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)" != "$FLYCAST_COMMIT" 
 fi
 git -C "$DIR" submodule update -q --init --recursive --depth 1
 
+# Local fixes, applied once (skipped when already in the tree):
+#   keep-sh4-context: without the fast memory map, every game load swapped the SH4 context
+#   block for a new one while the CPU cores kept the old address, so a game could crash
+#   before its first frame (Shenmue on an Android 17 phone, 0.0.368).
+for PATCH in "$HERE"/patches/flycast-*.patch; do
+    [ -e "$PATCH" ] || continue
+    if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+        git -C "$DIR" apply "$PATCH"
+    fi
+done
+
 GENERATOR="Unix Makefiles"
 if command -v ninja > /dev/null; then
     GENERATOR=Ninja
@@ -44,7 +57,7 @@ echo "== building flycast"
         -DCMAKE_BUILD_TYPE=Release \
         -DLIBRETRO=ON -DUSE_VULKAN=ON -DUSE_LUA=OFF -DUSE_BREAKPAD=OFF -DUSE_OPENMP=OFF \
         -DUSE_HOST_LIBZIP=OFF -DUSE_HOST_LIBCHDR=OFF \
-        "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384" &&
+        "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384 -Wl,--no-as-needed -landroid -Wl,--as-needed" &&
     cmake --build "$BUILD" --target flycast_libretro -j"$JOBS"
 } > "$WORK/flycast.log" 2>&1 || {
     grep -n "error:\|Error [0-9]\|CMake Error" "$WORK/flycast.log" | head -n 60 || true
