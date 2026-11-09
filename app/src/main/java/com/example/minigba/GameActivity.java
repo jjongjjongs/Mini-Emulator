@@ -7817,7 +7817,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 게임기 탭: settings only some consoles have.
     private boolean hasDeviceTab() {
-        return isPsp() || isNds() || isWonderSwan() || isWiiU() || isDolphin();
+        return isPsp() || isNds() || isWonderSwan() || isWiiU() || isDolphin() || isPs1() || isN3ds();
     }
 
     // The pause menu: one card with tabs (기본 · 성능 · 화면 · 조작 · 게임기), a content area

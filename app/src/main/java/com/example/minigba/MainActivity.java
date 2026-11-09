@@ -5654,6 +5654,13 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(9), 0, 0);
         panel.addView(row2, row2Params);
+        if (MODE_PS1.equals(mode) && swanShipped()) {
+            LinearLayout.LayoutParams engineParams = new LinearLayout.LayoutParams(-1, dp(52));
+            engineParams.setMargins(0, dp(9), 0, 0);
+            boolean swan = CORE_SWAN.equals(coreFor(file));
+            panel.addView(createMenuActionRow(dialog, RoundIconView.GEAR, Color.rgb(79, 70, 229),
+                    "PS1 엔진: " + (swan ? "SwanStation (고화질)" : "PCSX ReARMed (가벼움)") + "  ›", () -> showPs1EngineChooser(file)), engineParams);
+        }
         if (patchable(file) || (unpatchableReason(file) != null && Arrays.asList(PATCHABLE_MODES).contains(mode))) {
             LinearLayout.LayoutParams patchParams = new LinearLayout.LayoutParams(-1, dp(52));
             patchParams.setMargins(0, dp(9), 0, 0);
@@ -19980,6 +19987,26 @@ public final class MainActivity extends Activity {
         String core = played ? CORE_PCSX : CORE_SWAN;
         settingsPrefs().edit().putString(key, core).apply();
         return core;
+    }
+
+    // The engine of one PS1 game, picked from the game list (the same choice as in the game's
+    // menu › 게임기 탭).
+    private void showPs1EngineChooser(final File file) {
+        final boolean swan = CORE_SWAN.equals(coreFor(file));
+        final boolean bios = ps1BiosFile().isFile();
+        String[] items = {"SwanStation (추천 · 고화질)" + (swan ? "  ✓" : "") + (bios ? "" : "  · PS1 BIOS 필요"),
+                "PCSX ReARMed (가벼움)" + (swan ? "" : "  ✓")};
+        new AppDialog.Builder(this).setTitle("PS1 엔진 · " + displayGameNameFor(file))
+                .setItems(items, (d, which) -> {
+                    if (which == 0 && !bios) {
+                        showError("SwanStation은 PS1 바이오스가 있어야 해요. 위의 \"PS1 BIOS\" 칸에서 넣어 주세요.");
+                        return;
+                    }
+                    settingsPrefs().edit().putString(ps1EngineKey(file.getName()), which == 0 ? CORE_SWAN : CORE_PCSX).apply();
+                    refreshLibrary();
+                    Toast.makeText(this, "엔진을 " + (which == 0 ? "SwanStation" : "PCSX ReARMed") + "으로 바꿨어요. 빠른 저장(장면)은 엔진마다 따로예요.", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("닫기", null).show();
     }
 
     // Where a core keeps its battery save / memory card: both PS1 engines share PCSX
