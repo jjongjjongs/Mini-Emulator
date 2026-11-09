@@ -55,6 +55,11 @@ final class NativeGba {
     static native int vmuScreen(long handle, byte[] dots);
     // VMU beeps on or off; before the game starts.
     static native void setVmuSound(boolean on);
+    // 건슈팅: the light gun's port, that port's libretro device (0 leaves it) and whether it
+    // takes the pad's place there; before the game starts.
+    static native void setGun(boolean on, int port, int device, boolean replacesPad);
+    // Where the gun points, -32767..32767 across and down the picture.
+    static native void setGunAim(int x, int y);
 
     static native void setN3dsScale(int scale);
 

@@ -78,6 +78,13 @@ enum : int {
     kButtonL2 = 16384,
     kButtonR2 = 32768,
     kButtonL3 = 65536,
+    // 건슈팅 (0.0.373): the light gun's own buttons, app-only bits never read as a pad's.
+    kGunTrigger = 1 << 23,
+    kGunReload = 1 << 24,
+    kGunAuxA = 1 << 25,
+    kGunAuxB = 1 << 26,
+    kGunAuxC = 1 << 27,
+    kGunStart = 1 << 28,
     kButtonR3 = 131072,
 };
 
@@ -1569,6 +1576,20 @@ const char* option(const char* key) {
 std::atomic<int> gPspScale{2};
 // VMU 화면: VMU beeps through the game's sound (0.0.367).
 std::atomic<bool> gVmuSound{false};
+
+// 건슈팅 (0.0.373): a light gun the touch screen aims. Java says where it is plugged in
+// (port, and the port's device; 0 leaves the port as it is), whether it took the pad's place
+// there (then START, SELECT/COIN and the D-pad of the keypad reach the gun's own), and where
+// it points (-0x7fff..0x7fff over the picture, as libretro's light gun screen coordinates).
+namespace gun {
+std::atomic<bool> on{false};
+std::atomic<int> port{0};
+std::atomic<unsigned> device{0};
+std::atomic<bool> replacesPad{false};
+std::atomic<int> x{0};
+std::atomic<int> y{0};
+std::atomic<bool> aimed{false};
+}  // namespace gun
 // PSP 텍스처 다듬기 (0.0.367), per game, as indices into the values below: texture shader,
 // upscale level, upscale type, deposterize, texture filter, smart 2D filter, anisotropic.
 // 0 everywhere is PPSSPP's own default.
@@ -1768,6 +1789,19 @@ void applyWiiuLayout(Core* core) {
 }
 
 const char* fixedVariable(const char* key) {
+    // 건슈팅 (0.0.373): the cores read the light gun (not a touchscreen or mouse mode), and
+    // the app draws the crosshair itself.
+    if (gun::on.load()) {
+        if (strcmp(key, "fceumm_zapper_mode") == 0) return "clightgun";
+        if (strcmp(key, "fceumm_show_crosshair") == 0) return "disabled";
+        if (strcmp(key, "snes9x_lightgun_mode") == 0) return "Lightgun";
+        if (strcmp(key, "genesis_plus_gx_gun_input") == 0) return "lightgun";
+        if (strcmp(key, "genesis_plus_gx_gun_cursor") == 0) return "disabled";
+        if (strcmp(key, "pcsx2_lightgun") == 0) return "usb1";
+        if (strcmp(key, "mame2003-plus_xy_device") == 0) return "lightgun";
+        if (strcmp(key, "mame2003-plus_crosshair_enabled") == 0) return "disabled";
+        if (strcmp(key, "fbneo-lightgun-crosshair-emulation") == 0) return "always hide";
+    }
     if (strncmp(key, "dosbox_pure_", 12) == 0) {
         return dos::option(key);
     }
@@ -3345,8 +3379,52 @@ int mame2010ButtonBitFor(unsigned id) {
 
 int16_t joypadPressed(Core* core, int mask, unsigned id);
 
+// The light gun's answers (건슈팅): where it points, and its buttons from the app's bits; the
+// reload button is a shot off the screen (offscreen, with the trigger, for the cores that
+// only know that).
+int16_t gunState(Core* core, unsigned id) {
+    int mask = core->inputMask.load() | core->frameLatch.load();
+    bool reload = (mask & kGunReload) != 0;
+    bool pad = gun::replacesPad.load();
+    switch (id) {
+        case RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X:
+            return reload ? -0x8000 : static_cast<int16_t>(gun::x.load());
+        case RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y:
+            return reload ? -0x8000 : static_cast<int16_t>(gun::y.load());
+        case RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN:
+            return reload || !gun::aimed.load() ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_TRIGGER:
+            return (mask & kGunTrigger) != 0 || reload ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_RELOAD:
+            return reload ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_AUX_A:
+            return (mask & kGunAuxA) != 0 ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_AUX_B:
+            return (mask & kGunAuxB) != 0 ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_AUX_C:
+            return (mask & kGunAuxC) != 0 ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_START:
+            return (mask & kGunStart) != 0 || (pad && (mask & kButtonStart) != 0) ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_SELECT:
+            return pad && (mask & kButtonSelect) != 0 ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_DPAD_UP:
+            return pad && (mask & kButtonUp) != 0 ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_DPAD_DOWN:
+            return pad && (mask & kButtonDown) != 0 ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_DPAD_LEFT:
+            return pad && (mask & kButtonLeft) != 0 ? 1 : 0;
+        case RETRO_DEVICE_ID_LIGHTGUN_DPAD_RIGHT:
+            return pad && (mask & kButtonRight) != 0 ? 1 : 0;
+        default:
+            return 0;
+    }
+}
+
 int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned index, unsigned id) {
     Core* core = gCore;
+    if ((device & RETRO_DEVICE_MASK) == RETRO_DEVICE_LIGHTGUN) {
+        return core != nullptr && gun::on.load() && static_cast<int>(port) == gun::port.load() ? gunState(core, id) : 0;
+    }
     if (device == RETRO_DEVICE_KEYBOARD) {
         return port == 0 && dos::held(id) ? 1 : 0;
     }
@@ -4554,6 +4632,10 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
             core->retroSetControllerPortDevice(port, RETRO_DEVICE_NONE);
         }
     }
+    // 건슈팅 (0.0.373): the light gun plugged into its port (after the pads above).
+    if (gun::on.load() && gun::device.load() != 0 && core->retroSetControllerPortDevice != nullptr) {
+        core->retroSetControllerPortDevice(static_cast<unsigned>(gun::port.load()), gun::device.load());
+    }
 
     retro_system_av_info info{};
     core->retroGetSystemAvInfo(&info);
@@ -5093,6 +5175,23 @@ JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_vmuScreen(JNIEnv* env,
     }
     env->SetByteArrayRegion(dots, 0, 48 * 32, out);
     return lit;
+}
+
+// 건슈팅 (0.0.373): before the game starts, the gun's port, that port's device (0 leaves it)
+// and whether it took the pad's place there.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGun(JNIEnv* /*env*/, jclass /*cls*/, jboolean on, jint port, jint device, jboolean replacesPad) {
+    gun::on.store(on == JNI_TRUE);
+    gun::port.store(port >= 0 && port < 4 ? port : 0);
+    gun::device.store(static_cast<unsigned>(device));
+    gun::replacesPad.store(replacesPad == JNI_TRUE);
+    gun::aimed.store(false);
+}
+
+// Where the gun points, -0x7fff..0x7fff across and down the picture.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGunAim(JNIEnv* /*env*/, jclass /*cls*/, jint x, jint y) {
+    gun::x.store(x < -0x7fff ? -0x7fff : x > 0x7fff ? 0x7fff : x);
+    gun::y.store(y < -0x7fff ? -0x7fff : y > 0x7fff ? 0x7fff : y);
+    gun::aimed.store(true);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setVmuSound(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {

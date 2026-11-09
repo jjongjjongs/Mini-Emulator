@@ -205,6 +205,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addWiimmfiBadge(frameLayout);
         addPlayerBadges(frameLayout);
         addVmuWindow(root);
+        addGunButtons(root);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
@@ -259,6 +260,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addWiimmfiBadge(frameLayout2);
         addPlayerBadges(frameLayout2);
         addVmuWindow(root);
+        addGunButtons(root);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
@@ -1314,6 +1316,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         targets.add(new PadMapping.Target(PadMapping.DPAD_RIGHT, "▶", PadMapping.GROUP_DPAD));
         targets.add(new PadMapping.Target(PadMapping.DPAD_DOWN, "▼", PadMapping.GROUP_DPAD));
         targets.add(new PadMapping.Target(PadMapping.DPAD_LEFT, "◀", PadMapping.GROUP_DPAD));
+        GunSetup gun = gunOn() ? gunSetup() : null;
+        if (gun != null) {
+            // 건슈팅: the gun's buttons can go on a controller too.
+            for (int k = 0; k < gun.labels.length; k++) {
+                targets.add(new PadMapping.Target(gun.bits[k], gun.labels[k], middle));
+            }
+        }
         return targets;
     }
 
@@ -3649,6 +3658,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             scheduleUncoverLayoutGuards(edits, generation);
             scheduleSettleVmu(generation);
+            scheduleSettleGun(generation);
             for (android.view.ViewGroup parent : this.comboParents) {
                 layoutComboZones(parent, true);
             }
@@ -5648,6 +5658,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         });
         parent.post(this::applyScreenShape);
+        addGunCrosshair(parent);
         updateScreenFilters();
     }
 
@@ -6251,6 +6262,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // 조작 탭: vibration, combos, sticks, rewind and game controllers.
     private void addControlTabRows(LinearLayout panel, Runnable refresh) {
         addMotionRows(panel, this.pauseDialog, refresh);
+        if (gunSetup() != null && !isPadScreen()) {
+            LinearLayout.LayoutParams gunParams = new LinearLayout.LayoutParams(-1, dp(52));
+            gunParams.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
+            panel.addView(createGunRow(), gunParams);
+        }
         if (!isPadScreen()) {
             LinearLayout.LayoutParams turboParams = new LinearLayout.LayoutParams(-1, dp(52));
             turboParams.setMargins(0, panel.getChildCount() == 0 ? 0 : dp(8), 0, 0);
@@ -6728,6 +6744,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setCitraAsync(n3dsAsync());
                     NativeGba.setRotationMode(arcadeRotationMode());
                     NativeGba.setVmuSound(vmuShown() && vmuSound());
+                    sendGunSetup();
                     NativeGba.setTurbo(turboActiveMask(), turboRate());
                     NativeGba.setFixedTurbo(turboEnabled());
                     TouchButton.fixedTurboMask = turboEnabled() ? fixedTurboBits() : 0;
@@ -11686,6 +11703,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // pointer units across the whole screen view; melonDS DS maps them onto the lower screen.
     // The DS touch screen, and the Wii remote's pointer (Dolphin follows the finger).
     private void attachTouchScreen(View screen) {
+        if (gunOn()) {
+            // 건슈팅: the picture is where the gun points (0.0.373).
+            screen.setOnTouchListener(this::onGunTouch);
+            return;
+        }
         if (isKeyboardPc()) {
             // The mouse mode's mouse: the game screen itself.
             screen.setOnTouchListener((view, event) -> this.dosControls != null && this.dosControls.screenTouch(view, event));
@@ -17195,6 +17217,484 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         } finally {
             temp.delete();
         }
+    }
+
+    // ---- 건슈팅 (0.0.373): a light gun the touch screen aims. Touching or dragging over the
+    // picture moves the aim only; the gun's trigger, reload and own buttons are buttons of
+    // their own, shown only in this mode (found a free spot once per layout, then moved like
+    // any button). The pad stays as it is; where the gun takes the pad's place (PS1 in port
+    // 1, Dreamcast, Naomi, arcade) the keypad's START, SELECT/COIN and D-pad reach the gun's.
+    // Per game: gun_on, gun_aim (0 the touched point, 1 dragged like a trackpad), gun_cross,
+    // gun_type (the console's other gun), gun_port (PS1: port 2), gun_dx / gun_dy (aim
+    // correction, % of the picture), gun_sens (drag speed, %). ----
+    private static final int kGunTrigger = 1 << 23;
+    private static final int kGunReload = 1 << 24;
+    private static final int kGunAuxA = 1 << 25;
+    private static final int kGunAuxB = 1 << 26;
+    private static final int kGunAuxC = 1 << 27;
+    private static final int kGunStart = 1 << 28;
+    private static final int RETRO_MOUSE = 2;
+    private static final int RETRO_LIGHTGUN = 4;
+
+    private static int retroSubclass(int base, int id) {
+        return ((id + 1) << 8) | base;
+    }
+
+    // Where and how the console's gun is plugged in, and its buttons beside the trigger.
+    private static final class GunSetup {
+        final String name;
+        final int port;
+        final int device;
+        final boolean replacesPad;
+        final String[] labels;
+        final int[] bits;
+        final String otherName;
+
+        GunSetup(String name, int port, int device, boolean replacesPad, String[] labels, int[] bits, String otherName) {
+            this.name = name;
+            this.port = port;
+            this.device = device;
+            this.replacesPad = replacesPad;
+            this.labels = labels;
+            this.bits = bits;
+            this.otherName = otherName;
+        }
+    }
+
+    private int gunInt(String key, int fallback) {
+        return MainActivity.sharedSettings(this).getInt(key + ":" + this.saveBaseName, fallback);
+    }
+
+    // The gun for this console (and the player's choice of gun and port), or null when its
+    // engine has none.
+    private GunSetup gunSetup() {
+        return gunSetupFor(gunInt("gun_type", 0), gunInt("gun_port", 0));
+    }
+
+    private GunSetup gunSetupFor(int gunType, int gunPort) {
+        boolean other = gunType == 1;
+        if (isNes()) {
+            return new GunSetup("재퍼", 1, retroSubclass(RETRO_MOUSE, 0), false, new String[]{"발사"}, new int[]{kGunTrigger}, null);
+        }
+        if ("snes9x".equals(this.coreId)) {
+            return other
+                    ? new GunSetup("저스티파이어", 1, retroSubclass(RETRO_LIGHTGUN, 1), false, new String[]{"발사", "재장전", "총 START"},
+                            new int[]{kGunTrigger, kGunReload, kGunStart}, "슈퍼 스코프")
+                    : new GunSetup("슈퍼 스코프", 1, retroSubclass(RETRO_LIGHTGUN, 0), false, new String[]{"발사", "커서", "일시정지"},
+                            new int[]{kGunTrigger, kGunAuxA, kGunStart}, "저스티파이어");
+        }
+        if ("genesis_plus_gx".equals(this.coreId) && isMasterSystem() && !isGameGear()) {
+            return new GunSetup("라이트 페이저", 0, retroSubclass(RETRO_LIGHTGUN, 0), true, new String[]{"발사"}, new int[]{kGunTrigger}, null);
+        }
+        if ("genesis_plus_gx".equals(this.coreId) && !isMasterSystem() && !isGameGear() && !isGameBoy()) {
+            return other
+                    ? new GunSetup("저스티파이어", 1, retroSubclass(RETRO_LIGHTGUN, 2), false, new String[]{"발사", "재장전", "총 START"},
+                            new int[]{kGunTrigger, kGunReload, kGunStart}, "메너서")
+                    : new GunSetup("메너서", 1, retroSubclass(RETRO_LIGHTGUN, 1), false, new String[]{"발사", "총 B", "총 C", "총 START"},
+                            new int[]{kGunTrigger, kGunAuxA, kGunAuxB, kGunStart}, "저스티파이어");
+        }
+        if ("pcsx_rearmed".equals(this.coreId) || isSwan()) {
+            int port = gunPort == 1 ? 1 : 0;
+            if (other && !isSwan()) {
+                return new GunSetup("코나미 저스티파이어", port, retroSubclass(RETRO_LIGHTGUN, 1), port == 0,
+                        new String[]{"발사", "재장전", "특수", "총 START"}, new int[]{kGunTrigger, kGunReload, kGunAuxA, kGunStart}, "건콘");
+            }
+            return new GunSetup("건콘", port, retroSubclass(RETRO_LIGHTGUN, 0), port == 0, new String[]{"발사", "재장전", "건콘 A", "건콘 B"},
+                    new int[]{kGunTrigger, kGunReload, kGunAuxA, kGunAuxB}, isSwan() ? null : "코나미 저스티파이어");
+        }
+        if ("pcee2".equals(this.coreId)) {
+            return new GunSetup("건콘2", 0, 0, false, new String[]{"발사", "재장전", "건콘 A", "건콘 B"},
+                    new int[]{kGunTrigger, kGunReload, kGunAuxA, kGunAuxB}, null);
+        }
+        if ("flycast".equals(this.coreId)) {
+            return isNaomi()
+                    ? new GunSetup("라이트건", 0, RETRO_LIGHTGUN, true, new String[]{"발사", "재장전"}, new int[]{kGunTrigger, kGunReload}, null)
+                    : new GunSetup("라이트건", 0, RETRO_LIGHTGUN, true, new String[]{"발사", "재장전", "총 B"}, new int[]{kGunTrigger, kGunReload, kGunAuxA}, null);
+        }
+        if ("fbneo".equals(this.coreId)) {
+            return new GunSetup("라이트건", 0, RETRO_LIGHTGUN, true, new String[]{"발사", "재장전"}, new int[]{kGunTrigger, kGunReload}, null);
+        }
+        if ("mame2003plus".equals(this.coreId)) {
+            return new GunSetup("라이트건", 0, 0, false, new String[]{"발사", "재장전"}, new int[]{kGunTrigger, kGunReload}, null);
+        }
+        return null;
+    }
+
+    private boolean gunOn() {
+        return gunSetup() != null && MainActivity.sharedSettings(this).getBoolean("gun_on:" + this.saveBaseName, false);
+    }
+
+    private void sendGunSetup() {
+        GunSetup gun = gunOn() ? gunSetup() : null;
+        if (gun == null) {
+            NativeGba.setGun(false, 0, 0, false);
+        } else {
+            NativeGba.setGun(true, gun.port, gun.device, gun.replacesPad);
+        }
+    }
+
+    // The aim, 0..1 across and down the picture (dragging moves it from where it is).
+    private float gunAimX = 0.5f;
+    private float gunAimY = 0.5f;
+    private float gunLastX;
+    private float gunLastY;
+    private GunCrosshairView gunCrosshair;
+
+    private boolean onGunTouch(View view, android.view.MotionEvent event) {
+        int width = view.getWidth();
+        int height = view.getHeight();
+        if (width <= 0 || height <= 0) {
+            return true;
+        }
+        int action = event.getActionMasked();
+        float x = event.getX();
+        float y = event.getY();
+        if (gunInt("gun_aim", 0) == 1) {
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                this.gunLastX = x;
+                this.gunLastY = y;
+            } else if (action == android.view.MotionEvent.ACTION_MOVE) {
+                float speed = gunInt("gun_sens", 100) / 100.0f;
+                this.gunAimX = Math.max(0f, Math.min(1f, this.gunAimX + (x - this.gunLastX) / width * speed));
+                this.gunAimY = Math.max(0f, Math.min(1f, this.gunAimY + (y - this.gunLastY) / height * speed));
+                this.gunLastX = x;
+                this.gunLastY = y;
+            }
+        } else if (action != android.view.MotionEvent.ACTION_UP && action != android.view.MotionEvent.ACTION_CANCEL) {
+            this.gunAimX = Math.max(0f, Math.min(1f, x / width));
+            this.gunAimY = Math.max(0f, Math.min(1f, y / height));
+        }
+        sendGunAim();
+        return true;
+    }
+
+    // The aim to the engine (with the player's correction) and the crosshair to where it is.
+    private void sendGunAim() {
+        float ax = Math.max(0f, Math.min(1f, this.gunAimX + gunInt("gun_dx", 0) / 100.0f));
+        float ay = Math.max(0f, Math.min(1f, this.gunAimY + gunInt("gun_dy", 0) / 100.0f));
+        NativeGba.setGunAim(Math.round((ax * 2f - 1f) * 32767f), Math.round((ay * 2f - 1f) * 32767f));
+        GunCrosshairView cross = this.gunCrosshair;
+        SurfaceView surface = this.surfaceView;
+        if (cross != null && surface != null) {
+            boolean shown = MainActivity.sharedSettings(this).getBoolean("gun_cross:" + this.saveBaseName, true);
+            cross.setAim(shown, surface.getX() + this.gunAimX * surface.getWidth(), surface.getY() + this.gunAimY * surface.getHeight());
+        }
+    }
+
+    private void addGunCrosshair(FrameLayout parent) {
+        this.gunCrosshair = null;
+        if (!gunOn()) {
+            return;
+        }
+        GunCrosshairView cross = new GunCrosshairView(this);
+        parent.addView(cross, new FrameLayout.LayoutParams(-1, -1));
+        this.gunCrosshair = cross;
+        parent.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> v.post(this::sendGunAim));
+    }
+
+    // The gun's buttons: added to the content's root, out of sight until scheduleSettleGun
+    // puts each in a free spot (kept per layout under gunbtn:<layout key>:<bit>).
+    private final java.util.List<TouchButton> gunButtons = new java.util.ArrayList<>();
+    private final java.util.Set<View> gunUnplaced = new java.util.HashSet<>();
+
+    private void addGunButtons(FrameLayout root) {
+        this.gunButtons.clear();
+        this.gunUnplaced.clear();
+        GunSetup gun = gunOn() ? gunSetup() : null;
+        if (gun == null || isPadScreen()) {
+            return;
+        }
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        for (int k = 0; k < gun.labels.length; k++) {
+            int bit = gun.bits[k];
+            int style = bit == kGunTrigger ? TouchButton.STYLE_ARCADE_RED : bit == kGunReload ? TouchButton.STYLE_SNES_BLUE : TouchButton.STYLE_PURPLE;
+            TouchButton button = new TouchButton(this, gun.labels[k], bit, this::setButtonPressed, style);
+            int size = dp(bit == kGunTrigger ? 64 : 48);
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(size, size, Gravity.TOP | Gravity.START);
+            String saved = prefs.getString("gunbtn:" + layoutKey() + ":" + bit, null);
+            boolean placed = false;
+            if (saved != null) {
+                String[] parts = saved.split(",");
+                if (parts.length >= 2) {
+                    try {
+                        params.leftMargin = dp(Integer.parseInt(parts[0]));
+                        params.topMargin = dp(Integer.parseInt(parts[1]));
+                        placed = true;
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+            if (!placed) {
+                button.setAlpha(0f);
+                this.gunUnplaced.add(button);
+            }
+            root.addView(button, params);
+            this.gunButtons.add(button);
+        }
+    }
+
+    private void scheduleSettleGun(int generation) {
+        if (this.gunButtons.isEmpty()) {
+            return;
+        }
+        final View first = this.gunButtons.get(0);
+        first.post(() -> first.post(() -> {
+            if (!this.destroyed && generation == this.controlsGeneration && this.layoutEditor == null) {
+                settleGunButtons();
+            }
+        }));
+    }
+
+    // First time in this layout: each unplaced gun button into the free spot nearest to where
+    // a right thumb rests (the trigger first), clear of the screen, the controls and each other.
+    private void settleGunButtons() {
+        if (this.screenArea == null || this.screenArea.getWidth() == 0) {
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        android.graphics.RectF screen = windowBox(this.screenArea);
+        java.util.Set<View> unplaced = new java.util.HashSet<>(this.gunUnplaced);
+        if (unplaced.isEmpty()) {
+            return;
+        }
+        android.content.SharedPreferences.Editor editor = MainActivity.sharedSettings(this).edit();
+        float[] anchor = null;
+        for (TouchButton button : this.gunButtons) {
+            if (!unplaced.contains(button)) {
+                continue;
+            }
+            View root = (View) button.getParent();
+            if (root == null || root.getWidth() == 0) {
+                return;
+            }
+            int[] origin = new int[2];
+            root.getLocationInWindow(origin);
+            java.util.List<android.graphics.RectF> obstacles = new java.util.ArrayList<>();
+            for (View view : this.layoutControls) {
+                if (view != button && !unplaced.contains(view) && view.getVisibility() == View.VISIBLE && view.isAttachedToWindow() && view.getWidth() > 0) {
+                    obstacles.add(windowBox(view));
+                }
+            }
+            for (View guard : this.layoutGuards) {
+                if (guard.getVisibility() == View.VISIBLE && guard.isAttachedToWindow() && guard.getWidth() > 0) {
+                    obstacles.add(windowBox(guard));
+                }
+            }
+            float size = button.getLayoutParams().width;
+            float targetX;
+            float targetY;
+            if (anchor != null) {
+                targetX = anchor[0] - dp(64);
+                targetY = anchor[1];
+            } else if (this.landscapeMode) {
+                targetX = (screen.right + origin[0] + root.getWidth()) / 2f;
+                targetY = origin[1] + root.getHeight() - dp(90);
+            } else {
+                targetX = origin[0] + root.getWidth() - dp(70);
+                targetY = (screen.bottom + origin[1] + root.getHeight()) / 2f;
+            }
+            float margin = dp(4);
+            float best = Float.MAX_VALUE;
+            float[] spot = null;
+            for (float yy = origin[1] + margin; yy + size <= origin[1] + root.getHeight() - margin; yy += dp(6)) {
+                for (float xx = origin[0] + margin; xx + size <= origin[0] + root.getWidth() - margin; xx += dp(6)) {
+                    android.graphics.RectF box = new android.graphics.RectF(xx - margin, yy - margin, xx + size + margin, yy + size + margin);
+                    boolean free = true;
+                    for (android.graphics.RectF other : obstacles) {
+                        if (android.graphics.RectF.intersects(box, other)) {
+                            free = false;
+                            break;
+                        }
+                    }
+                    if (!free) continue;
+                    float score = Math.abs(xx + size / 2f - targetX) + Math.abs(yy + size / 2f - targetY);
+                    if (score < best) {
+                        best = score;
+                        spot = new float[]{xx - origin[0], yy - origin[1]};
+                    }
+                }
+            }
+            if (spot == null) {
+                // No room: next to the screen's lower right corner, to be moved in the editor.
+                spot = new float[]{Math.max(0f, Math.min(root.getWidth() - size, screen.right - origin[0] - size)), Math.max(0f, screen.bottom - origin[1] - size)};
+            }
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) button.getLayoutParams();
+            params.leftMargin = Math.round(spot[0]);
+            params.topMargin = Math.round(spot[1]);
+            button.setLayoutParams(params);
+            button.setAlpha(1f);
+            this.gunUnplaced.remove(button);
+            unplaced.remove(button);
+            editor.putString("gunbtn:" + layoutKey() + ":" + button.bit(), Math.round(spot[0] / density) + "," + Math.round(spot[1] / density));
+            anchor = new float[]{spot[0] + origin[0] + size / 2f, spot[1] + origin[1] + size / 2f};
+        }
+        editor.apply();
+    }
+
+    private static final String[] GUN_AIM_NAMES = {"누른 곳으로", "끌어서 (트랙패드)"};
+
+    private LinearLayout createGunRow() {
+        GunSetup gun = gunSetup();
+        String shown = gunOn() ? "켬 · " + gun.name : "끔";
+        return createSettingRow(RoundIconView.PAD, Color.rgb(220, 38, 38), "건슈팅 (터치 조준)", shown, view -> showGunSheet());
+    }
+
+    private void showGunSheet() {
+        final GunSetup gun = gunSetup();
+        if (gun == null) {
+            return;
+        }
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        final String base = this.saveBaseName;
+        final boolean wasOn = gunOn();
+        final int wasType = gunInt("gun_type", 0);
+        final int wasPort = gunInt("gun_port", 0);
+        final boolean[] on = {wasOn};
+        final int[] aim = {gunInt("gun_aim", 0)};
+        final int[] type = {wasType};
+        final int[] port = {wasPort};
+        final boolean[] cross = {prefs.getBoolean("gun_cross:" + base, true)};
+        final int[] dx = {gunInt("gun_dx", 0)};
+        final int[] dy = {gunInt("gun_dy", 0)};
+        final int[] sens = {gunInt("gun_sens", 100)};
+        final int red = Color.rgb(220, 38, 38);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("건슈팅 · 이 게임만");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(this.gameTitle + "\n화면 터치는 조준만 하고, 발사 · 재장전은 건슈팅 모드에서 생기는 버튼으로 해요. 원래 키패드는 그대로예요.");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        sub.setPadding(0, dp(4), 0, dp(4));
+        panel.addView(sub);
+        final LinearLayout body = new LinearLayout(this);
+        body.setOrientation(1);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(body);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            body.removeAllViews();
+            body.addView(ps2Switch("건슈팅 모드", "켜고 끄면 게임을 다시 켜요 (총을 꽂고 빼요)", on[0], v -> {
+                on[0] = v;
+                render[0].run();
+            }));
+            if (!on[0]) {
+                return;
+            }
+            if (gun.otherName != null) {
+                String[] names = wasType == 1 ? new String[]{gun.otherName, gun.name} : new String[]{gun.name, gun.otherName};
+                body.addView(backgroundChips("총 종류 (게임이 쓰는 총)", names, type[0], red, i -> {
+                    type[0] = i;
+                    render[0].run();
+                }));
+            }
+            if (("pcsx_rearmed".equals(this.coreId) || isSwan())) {
+                body.addView(backgroundChips("총 꽂는 자리", new String[]{"1P (기본)", "2P · 패드도 살리기"}, port[0], red, i -> {
+                    port[0] = i;
+                    render[0].run();
+                }));
+                body.addView(ps2Note(port[0] == 1 ? "2P에 꽂으면 1P 패드가 그대로 남아요. 게임이 2P 총을 받지 않으면 1P로 바꿔 주세요."
+                        : "1P에 꽂으면 그 게임에서 패드는 START만 그대로이고 나머지 버튼은 쉬어요 (실제 기계처럼).",
+                        Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
+            }
+            body.addView(backgroundChips("조준 움직이는 방법", GUN_AIM_NAMES, aim[0], red, i -> {
+                aim[0] = i;
+                render[0].run();
+            }));
+            if (aim[0] == 1) {
+                body.addView(gunSlider("끌기 속도", sens, 50, 250, "%"));
+            }
+            body.addView(ps2Switch("조준점 보이기", "손가락이 가려도 어디를 겨누는지 보여요", cross[0], v -> cross[0] = v));
+            body.addView(gunSlider("조준 맞추기 · 좌우", dx, -15, 15, "%"));
+            body.addView(gunSlider("조준 맞추기 · 위아래", dy, -15, 15, "%"));
+            body.addView(ps2Note("쏜 곳이 조준점과 어긋나면 위 두 줄로 맞춰요 (예: 왼쪽에 맞으면 좌우를 + 쪽으로).", Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
+            StringBuilder buttons = new StringBuilder();
+            GunSetup shownGun = gunSetupFor(type[0], port[0]);
+            if (shownGun != null) {
+                for (int k = 0; k < shownGun.labels.length; k++) {
+                    buttons.append(k == 0 ? "" : " · ").append(shownGun.labels[k]);
+                }
+                body.addView(ps2Note("생기는 버튼: " + buttons + "\n빈 곳에 놓이고, 버튼 · 화면 배치 편집으로 옮길 수 있어요. 게임패드 버튼에도 붙일 수 있어요."
+                        + (shownGun.replacesPad ? "\n이 게임기는 총이 패드 자리를 대신해요: 키패드의 START · SELECT(COIN) · 방향키는 그대로, 나머지는 이 게임에서 쉬어요." : ""),
+                        Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
+            }
+        };
+        render[0].run();
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        TextView apply = dialogButton("적용", red, Color.WHITE);
+        apply.setOnClickListener(v -> {
+            prefs.edit().putBoolean("gun_on:" + base, on[0]).putInt("gun_aim:" + base, aim[0]).putInt("gun_type:" + base, type[0])
+                    .putInt("gun_port:" + base, port[0]).putBoolean("gun_cross:" + base, cross[0]).putInt("gun_dx:" + base, dx[0])
+                    .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).commit();
+            dialog.dismiss();
+            if (on[0] != wasOn || (on[0] && (type[0] != wasType || port[0] != wasPort))) {
+                if (this.pauseDialog != null) {
+                    this.pauseDialog.dismiss();
+                }
+                relaunchGame();
+            } else {
+                sendGunAim();
+            }
+        });
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(46), 1.5f);
+        applyParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(440)),
+                    (int) (getResources().getDisplayMetrics().heightPixels * 0.86f));
+        }
+        dialog.show();
+    }
+
+    private LinearLayout gunSlider(String name, int[] value, int min, int max, String unit) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(1);
+        box.setPadding(dp(2), dp(10), 0, 0);
+        TextView label = new TextView(this);
+        label.setTextSize(12.0f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+        label.setText(name + " · " + (value[0] > 0 && min < 0 ? "+" : "") + value[0] + unit);
+        box.addView(label);
+        android.widget.SeekBar bar = new android.widget.SeekBar(this);
+        bar.setMax(max - min);
+        bar.setProgress(value[0] - min);
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(android.widget.SeekBar b, int progress, boolean user) {
+                value[0] = progress + min;
+                label.setText(name + " · " + (value[0] > 0 && min < 0 ? "+" : "") + value[0] + unit);
+            }
+
+            public void onStartTrackingTouch(android.widget.SeekBar b) {
+            }
+
+            public void onStopTrackingTouch(android.widget.SeekBar b) {
+            }
+        });
+        box.addView(bar);
+        return box;
     }
 
     // ---- VMU 화면 (0.0.367): the Dreamcast memory card's 48x32 screen in its own window outside
