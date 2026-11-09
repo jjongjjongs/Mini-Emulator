@@ -36,6 +36,9 @@ git -C "$DIR" submodule update -q --init dependencies/vcpkg
 for SUB in dependencies/ZArchive dependencies/Vulkan-Headers dependencies/imgui dependencies/xbyak_aarch64 dependencies/cemu_graphic_packs; do
     git -C "$DIR" submodule update -q --init --depth 1 "$SUB" || git -C "$DIR" submodule update -q --init "$SUB"
 done
+# Local fixes (cores/patches/cemu-*.patch, in name order): mini-layout (the app's GamePad
+# window), mini-vpad-trigger (the GamePad's trig / release, stick-direction bits and
+# button repeat in libretro mode, as the standalone VPADController fills them; 0.0.372).
 for PATCH in "$HERE"/patches/cemu-*.patch; do
     [ -e "$PATCH" ] || continue
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
