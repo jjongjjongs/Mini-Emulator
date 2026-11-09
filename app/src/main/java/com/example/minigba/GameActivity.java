@@ -5627,6 +5627,49 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // ---- 내비게이션 바 숨기기 (0.0.358): Android's own immersive mode for the bar at the
+    // bottom; a swipe up from the edge shows it for a moment. All games, on by default. ----
+    private static final String PREF_HIDE_NAV = "hide_nav_bar";
+
+    private boolean hideNavigationBar() {
+        return MainActivity.sharedSettings(this).getBoolean(PREF_HIDE_NAV, true);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void applyNavigationBar() {
+        android.view.Window window = getWindow();
+        if (window == null) {
+            return;
+        }
+        boolean hide = hideNavigationBar();
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            android.view.WindowInsetsController controller = window.getInsetsController();
+            if (controller == null) {
+                return;
+            }
+            if (hide) {
+                controller.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(android.view.WindowInsets.Type.navigationBars());
+            } else {
+                controller.show(android.view.WindowInsets.Type.navigationBars());
+            }
+        } else {
+            View decor = window.getDecorView();
+            int flags = decor.getSystemUiVisibility();
+            int bits = View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+            decor.setSystemUiVisibility(hide ? flags | bits : flags & ~bits);
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            // a dialog or another app may have brought the bar back
+            applyNavigationBar();
+        }
+    }
+
     // 화면 탭: the picture and the case, button looks and layout (all games).
     private void addScreenTabRows(LinearLayout panel, Runnable refresh) {
         if (isSwan()) {
@@ -5645,6 +5688,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             tateParams.setMargins(0, 0, 0, dp(8));
             panel.addView(createArcadeRotationRow(refresh), tateParams);
         }
+        LinearLayout.LayoutParams navParams = new LinearLayout.LayoutParams(-1, dp(52));
+        navParams.setMargins(0, 0, 0, dp(8));
+        panel.addView(createSettingRow(RoundIconView.MOVE, Color.rgb(71, 85, 105), "안드로이드 내비게이션 바", hideNavigationBar() ? "숨김 (아래에서 밀어 올리면 잠깐 보임)" : "보임",
+                view -> showChoiceDialog(RoundIconView.MOVE, Color.rgb(71, 85, 105), "안드로이드 내비게이션 바 · 모든 게임",
+                        new String[]{"숨기기 (기본)", "보이기"},
+                        new String[]{"게임 중 아래의 ◁ ○ ||| 바를 숨겨 화면을 넓게 써요. 화면 아래 끝에서 위로 밀면 잠깐 나타났다가 다시 숨어요",
+                                "늘 보이게 둬요"},
+                        hideNavigationBar() ? 0 : 1, "모든 게임에 바로 적용돼요.",
+                        Color.rgb(241, 245, 249), Color.rgb(51, 65, 85), "적용", choice -> {
+                    MainActivity.sharedSettings(this).edit().putBoolean(PREF_HIDE_NAV, choice == 0).apply();
+                    applyNavigationBar();
+                    refresh.run();
+                })), navParams);
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
         filterParams.setMargins(0, 0, 0, 0);
         boolean threeD = is3d();
@@ -5835,6 +5891,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     @Override
     protected void onResume() {
         super.onResume();
+        applyNavigationBar();
         this.playStart = System.currentTimeMillis();
         this.activityResumed = true;
         if (isMame139()) {
