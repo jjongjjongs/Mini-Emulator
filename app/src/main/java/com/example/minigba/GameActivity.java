@@ -15242,36 +15242,65 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return new android.graphics.Rect(x, y, x + w, y + h);
     }
 
-    // The touch controls over the picture, in the surface's coordinates.
+    // Where a view really is on the window (after any moving or scaling of it or its
+    // parents by the layout editor), or null.
+    private static android.graphics.Rect n3dsVisual(View view) {
+        if (view.getWidth() <= 0 || view.getHeight() <= 0) {
+            return null;
+        }
+        // the top-left corner as drawn, and the size times every scale on the way up
+        int[] where = new int[2];
+        view.getLocationInWindow(where);
+        float sx = 1.0f;
+        float sy = 1.0f;
+        for (View v = view; v != null; v = v.getParent() instanceof View ? (View) v.getParent() : null) {
+            sx *= v.getScaleX();
+            sy *= v.getScaleY();
+        }
+        return new android.graphics.Rect(where[0], where[1], where[0] + Math.round(view.getWidth() * sx), where[1] + Math.round(view.getHeight() * sy));
+    }
+
+    // The touch controls over the picture, in the surface's own pixels.
     private java.util.List<android.graphics.Rect> n3dsControlBounds() {
         java.util.List<android.graphics.Rect> out = new java.util.ArrayList<>();
         View surface = this.surfaceView;
-        if (surface == null) {
+        android.graphics.Rect s = surface == null ? null : n3dsVisual(surface);
+        if (s == null) {
             return out;
         }
-        int[] origin = new int[2];
-        surface.getLocationInWindow(origin);
-        View root = surface.getRootView();
-        collectN3dsControls(root, origin, out);
+        float kx = surface.getWidth() / (float) s.width();
+        float ky = surface.getHeight() / (float) s.height();
+        for (android.graphics.Rect c : n3dsControlVisuals()) {
+            out.add(new android.graphics.Rect(Math.round((c.left - s.left) * kx), Math.round((c.top - s.top) * ky),
+                    Math.round((c.right - s.left) * kx), Math.round((c.bottom - s.top) * ky)));
+        }
         return out;
     }
 
-    private void collectN3dsControls(View view, int[] origin, java.util.List<android.graphics.Rect> out) {
+    // The touch controls where they are on the window.
+    private java.util.List<android.graphics.Rect> n3dsControlVisuals() {
+        java.util.List<android.graphics.Rect> out = new java.util.ArrayList<>();
+        if (this.surfaceView != null) {
+            collectN3dsControls(this.surfaceView.getRootView(), out);
+        }
+        return out;
+    }
+
+    private void collectN3dsControls(View view, java.util.List<android.graphics.Rect> out) {
         if (view.getVisibility() != View.VISIBLE || view instanceof SurfaceView || view == this.n3dsFab) {
             return;
         }
         if (isLayoutControl(view) && view.getWidth() > 0) {
-            int[] where = new int[2];
-            view.getLocationInWindow(where);
-            int l = where[0] - origin[0];
-            int t = where[1] - origin[1];
-            out.add(new android.graphics.Rect(l, t, l + Math.round(view.getWidth() * view.getScaleX()), t + Math.round(view.getHeight() * view.getScaleY())));
+            android.graphics.Rect r = n3dsVisual(view);
+            if (r != null) {
+                out.add(r);
+            }
             return;
         }
         if (view instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                collectN3dsControls(group.getChildAt(i), origin, out);
+                collectN3dsControls(group.getChildAt(i), out);
             }
         }
     }
@@ -15903,15 +15932,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         });
         final String ctx = n3dsContext();
-        int[] where = new int[2];
-        surface.getLocationInWindow(where);
-        int w = surface.getWidth();
-        int h = surface.getHeight();
+        // Where the picture really is (the button layout editor may have moved or scaled it).
+        android.graphics.Rect seen = n3dsVisual(surface);
+        if (seen == null) {
+            return;
+        }
+        int w = seen.width();
+        int h = seen.height();
         if ("port".equals(ctx)) {
             // the editor's frame is 400:480 (as the saved layout), as wide as the screen now
             h = Math.round(w * 1.2f);
         }
-        final android.graphics.Rect frame = new android.graphics.Rect(where[0], where[1], where[0] + w, where[1] + h);
+        final android.graphics.Rect frame = new android.graphics.Rect(seen.left, seen.top, seen.left + w, seen.top + h);
         // Start from the layout shown now (the stacked one for 기본).
         String preset = n3dsPreset(ctx);
         int[] start;
@@ -15927,7 +15959,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 start[k] = Math.round(v * (k % 2 == 0 ? w / 400.0f : h / 480.0f));
             }
         } else {
-            start = n3dsRectsFor(ctx, preset, w, h, "land".equals(ctx) ? n3dsControlBounds() : new java.util.ArrayList<>());
+            // in the surface's pixels, then as seen
+            int sw = surface.getWidth();
+            int sh = surface.getHeight();
+            start = n3dsRectsFor(ctx, preset, sw, sh, "land".equals(ctx) ? n3dsControlBounds() : new java.util.ArrayList<>());
+            for (int k = 0; k < 8; k++) {
+                start[k] = Math.round(start[k] * (k % 2 == 0 ? w / (float) sw : h / (float) sh));
+            }
         }
         int[] reset = "port".equals(ctx)
                 ? new int[]{0, 0, w, h / 2, Math.round(w * 0.1f), h / 2, Math.round(w * 0.9f), h}
@@ -15939,11 +15977,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (!n3dsHas(start, 4)) {
             start[4] = start[0]; start[5] = start[1]; start[6] = start[0] + w / 3; start[7] = start[1] + Math.round(w / 3 * 0.75f);
         }
-        java.util.List<android.graphics.Rect> controls = new java.util.ArrayList<>();
-        for (android.graphics.Rect c : n3dsControlBounds()) {
-            c.offset(where[0], where[1]);
-            controls.add(c);
-        }
+        java.util.List<android.graphics.Rect> controls = n3dsControlVisuals();
         final android.view.ViewGroup decor = (android.view.ViewGroup) getWindow().getDecorView();
         final FrameLayout overlay = new FrameLayout(this);
         final N3dsEditorView editor = new N3dsEditorView(this, frame, start, reset, controls);
