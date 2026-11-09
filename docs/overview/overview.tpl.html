@@ -635,6 +635,12 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>3DS Vulkan 첫 오류 고침 (0.0.348)</h3>
+<ul>
+<li>0.0.347에서 3DS를 Vulkan으로 켜자 게임이 시작하자마자 멈췄습니다 (오류 보고: Vulkan 화면 넘기기에서 "vk::Queue::submit: Incomplete"). libretro판 Citra의 화면 넘기기 코드가 ① 따로 도는 출력 스레드에서 앱과 같은 GPU 큐에 일을 넣고, ② libretro에서는 아무도 신호를 주지 않는 세마포어를 기다리게 하고 있었습니다 — 이것이 Vulkan이 막혀 있던 이유로 보입니다.</li>
+<li>이제 libretro에서는 출력 스레드를 쓰지 않고(에뮬레이션 스레드에서 넘김), 그 프레임의 그리기 완료만 기다립니다. 엔진을 다시 빌드했습니다.</li>
+<li>0.0.347의 오류로 3DS가 자동으로 OpenGL로 바뀌어 있으니, 시험하려면 메뉴 › 화면 › 3DS 그래픽에서 Vulkan을 다시 골라 주세요. 휴대폰에서는 아직 확인 전입니다.</li>
+</ul>
 <h3>3DS 그래픽 · Vulkan 실험 (0.0.347)</h3>
 <ul>
 <li>3DS 게임에서 새 그래픽 효과가 처음 나올 때 1초쯤 멈추는 것은, 엔진이 그 효과를 휴대폰 GPU용으로 만드는(셰이더 컴파일) 동안 OpenGL이 기다리기 때문입니다. libretro판 Citra는 Vulkan을 고르는 부분이 막혀 있어 OpenGL로만 돌았습니다.</li>

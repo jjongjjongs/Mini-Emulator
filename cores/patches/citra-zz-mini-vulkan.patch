@@ -23,3 +23,51 @@ index bd56a3b..e1dbec3 100644
      Settings::values.use_shader_jit =
          LibRetro::FetchVariable("citra_use_shader_jit", "enabled") == "enabled";
      Settings::values.shaders_accurate_mul =
+diff --git a/src/video_core/renderer_vulkan/vk_present_window.cpp b/src/video_core/renderer_vulkan/vk_present_window.cpp
+index 5d3c0ae..d81cab5 100644
+--- a/src/video_core/renderer_vulkan/vk_present_window.cpp
++++ b/src/video_core/renderer_vulkan/vk_present_window.cpp
+@@ -107,7 +107,13 @@ PresentWindow::PresentWindow(Frontend::EmuWindow& emu_window_, const Instance& i
+       vsync_enabled{Settings::values.use_vsync_new.GetValue()},
+       blit_supported{
+           CanBlitToSwapchain(instance.GetPhysicalDevice(), swapchain.GetSurfaceFormat().format)},
++#ifdef HAVE_LIBRETRO
++      // libretro: the frontend shows the image (set_image) and submits on the same queue
++      // from the emulation thread, so frames are handed over there, not from a thread.
++      use_present_thread{false},
++#else
+       use_present_thread{Settings::values.async_presentation.GetValue()},
++#endif
+       last_render_surface{emu_window.GetWindowInfo().render_surface} {
+ 
+     const u32 num_images = swapchain.GetImageCount();
+@@ -459,6 +465,21 @@ void PresentWindow::CopyToSwapchain(Frame* frame) {
+         vk::PipelineStageFlagBits::eAllGraphics,
+     };
+ 
++#ifdef HAVE_LIBRETRO
++    // libretro's swapchain hands its images to the frontend and acquires nothing: its
++    // "image acquired" semaphore is never signalled and nothing waits on "present ready".
++    // Waiting on the one or signalling the other again made the submit fail on Android
++    // (vk::Queue::submit: Incomplete). Only the frame's own rendering is waited for.
++    vk::SubmitInfo submit_info = {
++        .waitSemaphoreCount = 1u,
++        .pWaitSemaphores = &frame->render_ready,
++        .pWaitDstStageMask = &wait_stage_masks[1],
++        .commandBufferCount = 1u,
++        .pCommandBuffers = &cmdbuf,
++        .signalSemaphoreCount = 0u,
++        .pSignalSemaphores = nullptr,
++    };
++#else
+     const vk::Semaphore present_ready = swapchain.GetPresentReadySemaphore();
+     const vk::Semaphore image_acquired = swapchain.GetImageAcquiredSemaphore();
+     const std::array wait_semaphores = {image_acquired, frame->render_ready};
+@@ -472,6 +493,7 @@ void PresentWindow::CopyToSwapchain(Frame* frame) {
+         .signalSemaphoreCount = 1,
+         .pSignalSemaphores = &present_ready,
+     };
++#endif
+ 
+     std::scoped_lock submit_lock{scheduler.submit_mutex};
+ 
