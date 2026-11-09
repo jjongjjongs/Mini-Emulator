@@ -21844,10 +21844,16 @@ public final class MainActivity extends Activity {
 
     private void addVitaGameRows(LinearLayout panel, Dialog dialog, File file) {
         final String id = vitaTitleId(file);
-        String ko = id != null && vitaKoRecord(id).isFile() && vitaGameInstalled(id) ? "한글패치 넣기 (적용됨 ✓)" : "한글패치 넣기 (xdelta 패치 zip)";
+        String ko = id != null && vitaKoRecord(id).isFile() && vitaGameInstalled(id) ? "한글패치 넣기 (적용됨 ✓)" : "한글패치 넣기 (xdelta · rePatch · 코드 패치)";
         LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(-1, dp(52));
         p1.setMargins(0, dp(8), 0, 0);
         panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, VITA_KO_COLOR, ko, () -> pickVitaKoPatch(file)), p1);
+        if (vitaKoHasBackup(id)) {
+            LinearLayout.LayoutParams pr = new LinearLayout.LayoutParams(-1, dp(52));
+            pr.setMargins(0, dp(8), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.RESET, Color.rgb(234, 88, 12),
+                    "한글패치 되돌리기 (백업 " + formatSize(folderBytes(vitaKoBackupDir(id))) + ")", () -> confirmVitaKoRevert(file, id)), pr);
+        }
         String update = id == null ? null : vitaUpdateVersion(id);
         LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(-1, dp(52));
         p2.setMargins(0, dp(8), 0, 0);
@@ -21884,6 +21890,63 @@ public final class MainActivity extends Activity {
         }
     }
 
+    // ---- 0.0.349: the patch is unpacked (zip · 7z · rar, or a single .xdelta / code patch
+    // .txt) into the cache, which is on the same storage as the game, so files go in by rename.
+    // The originals can be kept in a backup and put back with "한글패치 되돌리기". ----
+
+    private static final String PREF_VITA_KO_BACKUP = "vita_ko_backup";
+
+    private File vitaKoWork() {
+        return new File(getCacheDir(), "vita-kopatch");
+    }
+
+    private File vitaKoBackupDir(String titleId) {
+        return new File(vitaSystemDir(), "kopatch-backup/" + titleId);
+    }
+
+    private File vitaCodeDir() {
+        return new File(vitaPrefDir(), "patch");
+    }
+
+    private Map<String, File> vitaKoRoots(String titleId) {
+        Map<String, File> roots = new HashMap<>();
+        roots.put("app", vitaAppDir(titleId));
+        roots.put("patch", new File(vitaPrefDir(), "ux0/patch/" + titleId));
+        roots.put("code", vitaCodeDir());
+        return roots;
+    }
+
+    private boolean vitaKoHasBackup(String titleId) {
+        return titleId != null && !VitaPatch.manifest(vitaKoBackupDir(titleId)).isEmpty();
+    }
+
+    private static String vitaArchiveKind(File file) {
+        byte[] head = new byte[8];
+        try (InputStream in = new java.io.FileInputStream(file)) {
+            int n = in.read(head);
+            if (n < 4) {
+                return null;
+            }
+        } catch (IOException e) {
+            return null;
+        }
+        if (head[0] == 'P' && head[1] == 'K' && (head[2] == 3 || head[2] == 5 || head[2] == 7)) {
+            return ArchiveExtract.ZIP;
+        }
+        if (head[0] == '7' && head[1] == 'z' && (head[2] & 0xFF) == 0xBC && (head[3] & 0xFF) == 0xAF) {
+            return ArchiveExtract.SEVEN;
+        }
+        if (head[0] == 'R' && head[1] == 'a' && head[2] == 'r' && head[3] == '!') {
+            return ArchiveExtract.RAR;
+        }
+        return null;
+    }
+
+    private void cleanVitaKoWork() {
+        final File work = vitaKoWork();
+        new Thread(() -> VitaPatch.deleteTree(work), "vita-kopatch-clean").start();
+    }
+
     private void onVitaKoPatchPicked(Intent data) {
         final File game = this.pendingVitaGame;
         this.pendingVitaGame = null;
@@ -21891,47 +21954,108 @@ public final class MainActivity extends Activity {
             return;
         }
         final String id = vitaTitleId(game);
-        final String pickedName = displayNameFor(data.getData());
-        final File zip = new File(getCacheDir(), "vita-kopatch.zip");
-        final Dialog busy = progressCard(RoundIconView.PATCH, VITA_KO_COLOR, "한글패치 확인 중", "원본 파일이 맞는지 해시로 확인해요 (큰 파일은 몇십 초)");
-        final boolean[] cancelled = {false};
+        final String named = displayNameFor(data.getData());
+        final String pickedName = named == null || named.trim().isEmpty() ? "패치" : named.trim();
+        final File work = vitaKoWork();
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog busy = cardDialog(panel);
+        cardHeader(panel, RoundIconView.PATCH, VITA_KO_COLOR, "한글패치 확인 중", pickedName);
+        final TextView status = noteBox("패치 파일을 가져오는 중", Color.rgb(241, 245, 249), Color.rgb(51, 65, 85));
+        panel.addView(status, spaced(10));
+        android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setIndeterminate(true);
+        panel.addView(bar, spaced(10));
+        busy.setCancelable(false);
+        busy.show();
         new Thread(() -> {
             String error = null;
             VitaPatch.Plan plan = null;
+            final long[] last = {0};
             try {
-                copyUriToFile(data.getData(), zip);
-                plan = VitaPatch.analyze(zip, vitaAppDir(id), new File(vitaPrefDir(), "ux0/patch/" + id));
-                if (plan.error == null) {
+                VitaPatch.deleteTree(work);
+                File in = new File(work, "in.bin");
+                File out = new File(work, "x");
+                if (!out.mkdirs()) {
+                    throw new IOException("작업 폴더를 만들지 못했어요");
+                }
+                copyUriToFile(data.getData(), in);
+                String kind = vitaArchiveKind(in);
+                if (kind != null) {
+                    ArchiveExtract.Archive a = new ArchiveExtract.Archive();
+                    a.dir = work;
+                    a.name = pickedName;
+                    a.kind = kind;
+                    a.parts.add(in);
+                    a.packed = in.length();
+                    a.out = out;
+                    ArchiveExtract.inspect(a);
+                    if (a.problem != null) {
+                        throw new IOException(a.problem);
+                    }
+                    long free = work.getUsableSpace();
+                    if (a.unpacked > free) {
+                        throw new IOException("저장 공간이 모자라요. 압축을 풀려면 " + formatSize(a.unpacked) + "가 필요해요 (남은 공간 " + formatSize(free) + ").");
+                    }
+                    ArchiveExtract.extract(a, (name, done, total) -> {
+                        long now = android.os.SystemClock.uptimeMillis();
+                        if (now - last[0] > 200) {
+                            last[0] = now;
+                            String text = "압축 푸는 중 " + (total > 0 ? done * 100 / total : 0) + "% · " + formatSize(done) + " / " + formatSize(total);
+                            runOnUiThread(() -> status.setText(text));
+                        }
+                        return true;
+                    });
+                    in.delete();
+                } else {
+                    String lower = pickedName.toLowerCase(Locale.ROOT);
+                    String name;
+                    if (lower.endsWith(".xdelta") || lower.endsWith(".vcdiff")) {
+                        name = pickedName.replaceAll("[/\\\\:*?\"<>|]", "_");
+                    } else if (lower.endsWith(".txt")) {
+                        java.util.regex.Matcher other = java.util.regex.Pattern.compile("(?i)([A-Z]{4}\\d{5})").matcher(pickedName);
+                        if (other.find() && !other.group(1).equalsIgnoreCase(id)) {
+                            throw new IOException("다른 게임(" + other.group(1).toUpperCase(Locale.ROOT) + ")의 코드 패치예요. 이 게임은 " + id + "예요.");
+                        }
+                        name = lower.equals("patchlist.txt") ? "patchlist.txt" : id + ".txt";
+                    } else {
+                        throw new IOException("zip · 7z · rar 압축이나 .xdelta, Vita3K 코드 패치(.txt)를 골라 주세요.");
+                    }
+                    if (!in.renameTo(new File(out, name))) {
+                        throw new IOException("패치 파일을 옮기지 못했어요");
+                    }
+                }
+                runOnUiThread(() -> status.setText("게임 파일과 맞춰 보는 중"));
+                plan = VitaPatch.analyze(out, vitaAppDir(id), new File(vitaPrefDir(), "ux0/patch/" + id), id);
+                if (plan.error == null && plan.count(VitaPatch.MATCH) > 0) {
+                    runOnUiThread(() -> status.setText("원본 파일이 맞는지 해시로 확인하는 중 (큰 파일은 몇십 초)"));
                     VitaPatch.check(plan, new VitaPatch.Progress() {
                         public void update(int file, int files, String name, String step, int permille) {
                         }
 
                         public boolean cancelled() {
-                            return cancelled[0];
+                            return false;
                         }
                     });
                 }
-            } catch (IOException e) {
-                error = "패치를 읽지 못했어요: " + e.getMessage();
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage() == null ? e.toString() : e.getMessage();
             }
             final String failed = error;
             final VitaPatch.Plan result = plan;
             runOnUiThread(() -> {
                 busy.dismiss();
+                if (failed != null || result == null || result.error != null) {
+                    cleanVitaKoWork();
+                    if (!isFinishing() && !isDestroyed()) {
+                        showError(failed != null ? "패치를 읽지 못했어요: " + failed : result == null ? "패치를 읽지 못했어요." : result.error);
+                    }
+                    return;
+                }
                 if (isFinishing() || isDestroyed()) {
+                    cleanVitaKoWork();
                     return;
                 }
-                if (failed != null || result == null) {
-                    zip.delete();
-                    showError(failed);
-                    return;
-                }
-                if (result.error != null) {
-                    zip.delete();
-                    showError(result.error);
-                    return;
-                }
-                showVitaKoPlan(game, id, pickedName == null ? "패치 zip" : pickedName, result);
+                showVitaKoPlan(game, id, pickedName, result);
             });
         }, "vita-kopatch-check").start();
     }
@@ -21939,76 +22063,198 @@ public final class MainActivity extends Activity {
     private void showVitaKoPlan(File game, String id, String pickedName, VitaPatch.Plan plan) {
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
-        cardHeader(panel, RoundIconView.PATCH, VITA_KO_COLOR, "한글패치 적용", pickedName + " → " + id);
+        List<String> kinds = new ArrayList<>();
+        if (!plan.items.isEmpty()) {
+            kinds.add("xdelta " + plan.items.size() + "개");
+        }
+        if (!plan.puts.isEmpty()) {
+            kinds.add("덮어쓰기 " + plan.putCount(true) + "개 · " + formatSize(plan.putBytes(true, false)));
+        }
+        if (plan.code != null) {
+            kinds.add("코드 패치 " + plan.codeLines + "줄");
+        }
+        cardHeader(panel, RoundIconView.PATCH, VITA_KO_COLOR, "한글패치 적용", pickedName + " → " + id + "\n" + String.join(" · ", kinds));
         int match = plan.count(VitaPatch.MATCH);
-        int already = plan.count(VitaPatch.ALREADY);
-        String head = match > 0
-                ? (plan.checksums ? "설치된 게임에서 패치할 파일을 찾았어요. 원본이 맞는지 해시로 먼저 확인했어요." : "설치된 게임에서 패치할 파일을 찾았어요. 이 패치에는 해시 목록이 없어서, 적용하면서 확인해요.")
-                : already > 0 ? "이미 한글패치가 적용된 게임이에요." : "패치가 만들어진 원본과 설치된 파일이 달라서 적용할 수 없어요.";
-        panel.addView(noteBox(head, Color.rgb(239, 246, 255), Color.rgb(30, 58, 138)), spaced(10));
-        panel.addView(sectionLabel("파일 " + plan.items.size() + "개"));
+        int puts = plan.putCount(true);
+        StringBuilder head = new StringBuilder();
+        if (!plan.items.isEmpty()) {
+            head.append(match > 0
+                    ? (plan.checksums ? "xdelta: 패치할 파일을 찾았고, 원본이 맞는지 해시로 확인했어요." : "xdelta: 패치할 파일을 찾았어요. 해시 목록이 없어서 적용하면서 확인해요.")
+                    : plan.count(VitaPatch.ALREADY) > 0 ? "xdelta: 이미 적용된 파일이에요." : "xdelta: 패치가 만들어진 원본과 설치된 파일이 달라서 적용할 수 없어요.");
+        }
+        if (puts > 0) {
+            if (head.length() > 0) {
+                head.append('\n');
+            }
+            head.append("덮어쓰기: 바꿀 파일을 설치된 게임에서 찾았어요.");
+            if (plan.updateDir != null) {
+                head.append(" 업데이트가 설치돼 있어서, 업데이트에 있는 파일과 새 파일은 업데이트 폴더에 넣어요 (게임은 업데이트 쪽을 먼저 읽어요).");
+            }
+        }
+        if (plan.code != null) {
+            if (head.length() > 0) {
+                head.append('\n');
+            }
+            head.append("코드 패치: 게임을 켤 때 엔진이 실행 코드를 메모리에서 고쳐요. 파일은 바뀌지 않아요.");
+        }
+        panel.addView(noteBox(head.toString(), Color.rgb(239, 246, 255), Color.rgb(30, 58, 138)), spaced(10));
         boolean skippedEboot = false;
-        for (VitaPatch.Item item : plan.items) {
-            String state;
-            int bg;
-            int fg;
-            switch (item.state) {
-                case VitaPatch.MATCH:
-                    state = plan.checksums && item.originalSha != null ? "원본 맞음" : "적용";
-                    bg = Color.rgb(220, 252, 231);
-                    fg = Color.rgb(22, 101, 52);
+        if (!plan.items.isEmpty()) {
+            panel.addView(sectionLabel("xdelta 파일 " + plan.items.size() + "개"));
+            for (VitaPatch.Item item : plan.items) {
+                String state;
+                int bg;
+                int fg;
+                switch (item.state) {
+                    case VitaPatch.MATCH:
+                        state = plan.checksums && item.originalSha != null ? "원본 맞음" : "적용";
+                        bg = Color.rgb(220, 252, 231);
+                        fg = Color.rgb(22, 101, 52);
+                        break;
+                    case VitaPatch.ALREADY:
+                        state = "이미 적용";
+                        bg = Color.rgb(219, 234, 254);
+                        fg = Color.rgb(30, 64, 175);
+                        break;
+                    case VitaPatch.MISSING:
+                        state = "없음";
+                        bg = Color.rgb(241, 245, 249);
+                        fg = Color.rgb(71, 85, 105);
+                        break;
+                    default:
+                        state = "건너뜀";
+                        bg = Color.rgb(254, 243, 199);
+                        fg = Color.rgb(146, 64, 14);
+                        if (item.path.toLowerCase(Locale.ROOT).endsWith("eboot.bin")) {
+                            skippedEboot = true;
+                        }
+                        break;
+                }
+                long size = item.target.isFile() ? item.target.length() : item.originalSize;
+                String sizes = size < 0 ? "" : item.patchedSize >= 0 && item.patchedSize != size ? formatSize(size) + " → " + formatSize(item.patchedSize) : formatSize(size);
+                panel.addView(vitaFileRow(item.path, sizes, state, fg, bg), spaced(5));
+            }
+            if (skippedEboot) {
+                panel.addView(noteBox("eboot.bin은 원본이 달라 건너뛰어요 — 패치는 PC Vita3K로 복호한 실행 파일을 원본으로 해요. 실행 파일에서 바뀌는 문구만 일본어로 남아요.",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(8));
+            } else if (plan.count(VitaPatch.MISMATCH) > 0) {
+                panel.addView(noteBox("원본이 다른 파일은 건너뛰어요. 게임 버전(업데이트)이나 지역판이 패치와 다를 수 있어요.",
+                        Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(8));
+            }
+        }
+        if (!plan.puts.isEmpty()) {
+            panel.addView(sectionLabel("덮어쓸 파일 " + plan.puts.size() + "개"));
+            List<VitaPatch.Put> order = new ArrayList<>(plan.puts);
+            // the executable and the replaced ones first, then new files, skipped last
+            java.util.Collections.sort(order, (x, y) -> Integer.compare(putRank(x), putRank(y)));
+            int shown = 0;
+            for (VitaPatch.Put put : order) {
+                if (shown++ >= 40) {
                     break;
-                case VitaPatch.ALREADY:
-                    state = "이미 적용";
-                    bg = Color.rgb(219, 234, 254);
-                    fg = Color.rgb(30, 64, 175);
-                    break;
-                case VitaPatch.MISSING:
-                    state = "없음";
+                }
+                String state;
+                int bg;
+                int fg;
+                String detail;
+                if (put.skip != null) {
+                    state = "건너뜀";
                     bg = Color.rgb(241, 245, 249);
                     fg = Color.rgb(71, 85, 105);
-                    break;
-                default:
-                    state = "건너뜀";
+                    detail = put.skip;
+                } else if (put.exec) {
+                    state = "실행 파일";
+                    bg = Color.rgb(237, 233, 254);
+                    fg = Color.rgb(91, 33, 182);
+                    detail = (put.exists ? formatSize(put.target.length()) + " → " : "") + formatSize(put.source.length()) + " · 그대로 넣어요";
+                } else if (put.exists) {
+                    state = "바꿈";
                     bg = Color.rgb(254, 243, 199);
                     fg = Color.rgb(146, 64, 14);
-                    if (item.path.toLowerCase(Locale.ROOT).endsWith("eboot.bin")) {
-                        skippedEboot = true;
-                    }
-                    break;
+                    detail = formatSize(put.target.length()) + " → " + formatSize(put.source.length());
+                } else {
+                    state = "새로";
+                    bg = Color.rgb(219, 234, 254);
+                    fg = Color.rgb(30, 64, 175);
+                    detail = formatSize(put.source.length()) + " · 게임에 없던 파일";
+                }
+                panel.addView(vitaFileRow(put.path, detail, state, fg, bg), spaced(5));
             }
-            long size = item.target.isFile() ? item.target.length() : item.originalSize;
-            String sizes = size < 0 ? "" : item.patchedSize >= 0 && item.patchedSize != size ? formatSize(size) + " → " + formatSize(item.patchedSize) : formatSize(size);
-            panel.addView(vitaFileRow(item.path, sizes, state, fg, bg), spaced(5));
+            if (order.size() > 40) {
+                panel.addView(dosPatchText("… 외 " + (order.size() - 40) + "개", 11f, Color.rgb(107, 114, 128), false), spaced(4));
+            }
         }
-        if (skippedEboot) {
-            panel.addView(noteBox("eboot.bin은 원본이 달라 건너뛰어요 — 패치는 PC Vita3K로 복호한 실행 파일을 원본으로 해요. 실행 파일에서 바뀌는 문구만 일본어로 남아요.",
-                    Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(8));
-        } else if (plan.count(VitaPatch.MISMATCH) > 0) {
-            panel.addView(noteBox("원본이 다른 파일은 건너뛰어요. 게임 버전(업데이트)이나 지역판이 패치와 다를 수 있어요.",
-                    Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(8));
+        if (plan.code != null) {
+            panel.addView(sectionLabel("코드 패치"));
+            panel.addView(vitaFileRow(id + ".txt", plan.codeLines + "줄 · " + String.join(", ", plan.codeNames), "코드", Color.rgb(91, 33, 182), Color.rgb(237, 233, 254)), spaced(5));
+            if (new File(vitaCodeDir(), id + ".txt").isFile()) {
+                panel.addView(noteBox("이미 넣은 코드 패치가 있어요 — 이것으로 바꿔요.", Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(6));
+            }
         }
-        long free = vitaSystemDir().getUsableSpace();
-        long need = plan.biggest();
-        panel.addView(noteBox("잠깐 더 필요한 공간: 약 " + formatSize(need) + " (남은 공간 " + formatSize(free) + ") · 되돌리려면 게임을 길게 눌러 \"게임 다시 설치\"",
-                Color.rgb(241, 245, 249), Color.rgb(51, 65, 85)), spaced(8));
-        overlayConfirmButtons(panel, dialog, match > 0 ? "적용하기" : null, VITA_KO_COLOR, () -> {
+        final boolean[] withExec = {true};
+        if (plan.hasExec()) {
+            panel.addView(vitaKoSwitch("실행 파일(eboot.bin · 모듈)도 바꾸기", "실기용 실행 파일은 Vita3K에서 안 켜질 수 있어요. 안 켜지면 되돌린 뒤 이것을 끄고 다시 넣어 보세요.",
+                    true, on -> withExec[0] = on), spaced(10));
+        }
+        final boolean[] keep = {settingsPrefs().getBoolean(PREF_VITA_KO_BACKUP, true)};
+        long backupBytes = plan.putBytes(true, true) + plan.matchBytes();
+        panel.addView(vitaKoSwitch("원래 파일 백업해 두기", "\"한글패치 되돌리기\"로 바로 돌아갈 수 있어요" + (backupBytes > 0 ? " (+" + formatSize(backupBytes) + ")" : ""),
+                keep[0], on -> {
+                    keep[0] = on;
+                    settingsPrefs().edit().putBoolean(PREF_VITA_KO_BACKUP, on).apply();
+                }), spaced(8));
+        final long free = vitaSystemDir().getUsableSpace();
+        long biggest = plan.biggest();
+        panel.addView(dosPatchText("더 필요한 공간 약 " + formatSize(biggest + (keep[0] ? plan.matchBytes() : 0)) + " · 남은 공간 " + formatSize(free)
+                + "\n백업을 끄면 \"게임 다시 설치\"로 원래대로 돌아가요.", 11f, Color.rgb(107, 114, 128), false), spaced(8));
+        boolean any = match > 0 || puts > 0 || plan.code != null;
+        final boolean[] applying = {false};
+        overlayConfirmButtons(panel, dialog, any ? "적용하기" : null, VITA_KO_COLOR, () -> {
+            long need = biggest + (keep[0] ? plan.matchBytes() : 0);
             if (need > free) {
                 showError("저장 공간이 모자라요. " + formatSize(need - free) + " 정도 더 비워 주세요.");
                 return;
             }
+            if (!withExec[0] && match == 0 && plan.putCount(false) == 0 && plan.code == null) {
+                showError("실행 파일을 빼면 넣을 파일이 없어요.");
+                return;
+            }
+            applying[0] = true;
             dialog.dismiss();
-            applyVitaKoPatch(game, id, pickedName, plan);
+            applyVitaKoPatch(game, id, pickedName, plan, withExec[0], keep[0]);
         });
         dialog.setOnDismissListener(d -> {
-            if (!vitaKoApplying) {
-                plan.zip.delete();
+            if (!applying[0]) {
+                cleanVitaKoWork();
             }
         });
         dialog.show();
     }
 
-    private boolean vitaKoApplying;
+    private static int putRank(VitaPatch.Put put) {
+        return put.skip != null ? 3 : put.exec ? 0 : put.exists ? 1 : 2;
+    }
+
+    private interface VitaKoToggle {
+        void set(boolean on);
+    }
+
+    private LinearLayout vitaKoSwitch(String title, String detail, boolean checked, VitaKoToggle onChange) {
+        LinearLayout option = new LinearLayout(this);
+        option.setOrientation(0);
+        option.setGravity(16);
+        option.setPadding(dp(12), dp(8), dp(8), dp(8));
+        option.setBackground(rounded(Theme.bg(Color.rgb(246, 247, 249)), dp(12)));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(1);
+        texts.addView(dosPatchText(title, 13f, Color.rgb(31, 41, 51), true));
+        texts.addView(dosPatchText(detail, 10.5f, Color.rgb(107, 114, 128), false));
+        option.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.Switch toggle = new android.widget.Switch(this);
+        toggle.setChecked(checked);
+        toggle.setOnCheckedChangeListener((button, on) -> onChange.set(on));
+        option.addView(toggle);
+        return option;
+    }
 
     private LinearLayout vitaFileRow(String name, String detail, String state, int fg, int bg) {
         LinearLayout row = new LinearLayout(this);
@@ -22033,72 +22279,200 @@ public final class MainActivity extends Activity {
         return row;
     }
 
-    private void applyVitaKoPatch(File game, String id, String pickedName, VitaPatch.Plan plan) {
-        int count = plan.count(VitaPatch.MATCH);
-        String[] steps = new String[count];
-        String[] details = new String[count];
-        int k = 0;
-        for (VitaPatch.Item item : plan.items) {
-            if (item.state == VitaPatch.MATCH) {
-                steps[k] = item.path;
-                details[k] = "적용 → 결과 확인 → 교체";
-                k++;
-            }
+    private void applyVitaKoPatch(File game, String id, String pickedName, VitaPatch.Plan plan, boolean withExec, boolean keep) {
+        final boolean deltas = plan.count(VitaPatch.MATCH) > 0;
+        final boolean puts = plan.putCount(withExec) > 0;
+        final boolean code = plan.code != null;
+        List<String> stepList = new ArrayList<>();
+        List<String> detailList = new ArrayList<>();
+        if (deltas) {
+            stepList.add("xdelta 패치");
+            detailList.add("파일 " + plan.count(VitaPatch.MATCH) + "개 · 적용 → 결과 확인 → 교체");
         }
-        this.vitaKoApplying = true;
-        final StepDialog dialog = new StepDialog("한글패치 적용 중", pickedName, RoundIconView.PATCH, VITA_KO_COLOR, steps, details);
+        if (puts) {
+            stepList.add("파일 덮어쓰기");
+            detailList.add("파일 " + plan.putCount(withExec) + "개");
+        }
+        if (code) {
+            stepList.add("코드 패치");
+            detailList.add(id + ".txt · " + plan.codeLines + "줄");
+        }
+        final StepDialog dialog = new StepDialog("한글패치 적용 중", pickedName, RoundIconView.PATCH, VITA_KO_COLOR,
+                stepList.toArray(new String[0]), detailList.toArray(new String[0]));
         new Thread(() -> {
             String error = null;
-            List<String> done = new ArrayList<>();
+            List<String> patched = new ArrayList<>();
+            List<String> put = new ArrayList<>();
+            boolean codeDone = false;
             final long[] last = {0};
-            try {
-                done = VitaPatch.apply(plan, new File(getCacheDir(), "vita-kopatch"), new VitaPatch.Progress() {
-                    public void update(int file, int files, String name, String step, int permille) {
-                        long now = android.os.SystemClock.uptimeMillis();
-                        if (now - last[0] > 150 || permille >= 1000) {
-                            last[0] = now;
-                            runOnUiThread(() -> dialog.set(file, step, permille));
-                        }
+            final int[] step = {0};
+            VitaPatch.Progress progress = new VitaPatch.Progress() {
+                public void update(int file, int files, String name, String what, int permille) {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - last[0] > 150 || permille >= 1000) {
+                        last[0] = now;
+                        final int at = step[0];
+                        final String detail = name == null || name.isEmpty() ? what : what + " · " + (file + 1) + "/" + files + " · " + name;
+                        runOnUiThread(() -> dialog.set(at, detail, permille));
                     }
+                }
 
-                    public boolean cancelled() {
-                        return dialog.cancelled;
-                    }
-                });
+                public boolean cancelled() {
+                    return dialog.cancelled;
+                }
+            };
+            try {
+                VitaPatch.Backup backup = new VitaPatch.Backup(vitaKoBackupDir(id), vitaKoRoots(id), keep);
+                if (deltas) {
+                    patched = VitaPatch.apply(plan, backup, progress);
+                    step[0]++;
+                }
+                if (puts && !dialog.cancelled) {
+                    put = VitaPatch.applyPuts(plan, backup, withExec, progress);
+                    step[0]++;
+                }
+                if (code && !dialog.cancelled) {
+                    VitaPatch.applyCode(plan, vitaCodeDir(), id, backup);
+                    codeDone = true;
+                }
             } catch (IOException | RuntimeException e) {
                 error = e.getMessage() == null ? e.toString() : e.getMessage();
             }
-            plan.zip.delete();
-            final List<String> patched = done;
-            if (!patched.isEmpty()) {
+            VitaPatch.deleteTree(vitaKoWork());
+            final int total = patched.size() + put.size() + (codeDone ? 1 : 0);
+            if (total > 0) {
                 File record = vitaKoRecord(id);
                 record.getParentFile().mkdirs();
                 try (FileOutputStream out = new FileOutputStream(record, true)) {
                     StringBuilder sb = new StringBuilder(pickedName).append('\n');
                     for (String path : patched) {
+                        sb.append("  xdelta ").append(path).append('\n');
+                    }
+                    for (String path : put) {
                         sb.append("  ").append(path).append('\n');
+                    }
+                    if (codeDone) {
+                        sb.append("  code ").append(id).append(".txt\n");
                     }
                     out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
                 } catch (IOException ignored) {
                 }
             }
+            int replaced = 0;
+            int added = 0;
+            boolean exec = false;
+            for (VitaPatch.Put p : plan.puts) {
+                if (put.contains(p.path)) {
+                    if (p.exists) {
+                        replaced++;
+                    } else {
+                        added++;
+                    }
+                    exec |= p.exec;
+                }
+            }
             final String failed = error;
+            final int patchedCount = patched.size();
+            final int replacedCount = replaced;
+            final int addedCount = added;
+            final boolean execPut = exec;
+            final boolean codePut = codeDone;
             runOnUiThread(() -> {
-                this.vitaKoApplying = false;
                 dialog.dismiss();
                 if (isFinishing() || isDestroyed()) {
                     return;
                 }
                 refreshLibrary();
                 if (failed != null) {
-                    showError("한글패치를 다 적용하지 못했어요" + (patched.isEmpty() ? "" : " (" + patched.size() + "개는 적용됨)") + ": " + failed);
+                    showError("한글패치를 다 적용하지 못했어요" + (total == 0 ? "" : " (" + total + "개는 적용됨" + (keep && vitaKoHasBackup(id) ? " · 되돌리기 가능" : "") + ")") + ": " + failed);
                 } else if (dialog.cancelled) {
-                    Toast.makeText(this, "멈췄어요 · " + patched.size() + "개 파일은 적용됨 (다시 넣으면 나머지를 적용해요)", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "멈췄어요 · " + total + "개 적용됨" + (keep ? " (되돌리기로 원래대로 돌릴 수 있어요)" : ""), Toast.LENGTH_LONG).show();
                 } else {
-                    Toast.makeText(this, "한글패치를 적용했어요 · 파일 " + patched.size() + "개", Toast.LENGTH_LONG).show();
+                    showVitaKoDone(game, id, patchedCount, replacedCount, addedCount, codePut, execPut, keep && vitaKoHasBackup(id));
                 }
             });
         }, "vita-kopatch-apply").start();
+    }
+
+    private void showVitaKoDone(File game, String id, int patched, int replaced, int added, boolean code, boolean exec, boolean backup) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        List<String> parts = new ArrayList<>();
+        if (patched > 0) {
+            parts.add("xdelta " + patched + "개");
+        }
+        if (replaced > 0) {
+            parts.add("덮어쓰기 " + replaced + "개");
+        }
+        if (added > 0) {
+            parts.add("새 파일 " + added + "개");
+        }
+        if (code) {
+            parts.add("코드 패치");
+        }
+        cardHeader(panel, RoundIconView.PATCH, Color.rgb(22, 163, 74), "한글패치를 적용했어요", String.join(" · ", parts));
+        panel.addView(noteBox("게임 목록: \"" + displayGameNameFor(game) + vitaExtraDetail(game) + "\"", Color.rgb(220, 252, 231), Color.rgb(22, 101, 52)), spaced(10));
+        panel.addView(noteBox(backup ? "원래 파일을 백업해 뒀어요. 게임을 길게 눌러 \"한글패치 되돌리기\"로 바로 돌아갈 수 있어요."
+                : "백업 없이 적용했어요. 원래대로 돌리려면 게임을 길게 눌러 \"게임 다시 설치\".", Color.rgb(241, 245, 249), Color.rgb(51, 65, 85)), spaced(8));
+        if (exec) {
+            panel.addView(noteBox("실행 파일(eboot.bin · 모듈)이 든 패치는 실기용이라 Vita3K에서 안 켜질 수 있어요. 그러면 되돌린 뒤 \"실행 파일도 바꾸기\"를 끄고 다시 넣어 보세요.",
+                    Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(8));
+        }
+        if (code) {
+            panel.addView(noteBox("코드 패치는 게임을 켤 때 적용돼요.", Color.rgb(245, 243, 255), Color.rgb(76, 29, 149)), spaced(8));
+        }
+        overlayConfirmButtons(panel, dialog, "실행", VITA_KO_COLOR, () -> {
+            dialog.dismiss();
+            launchGame(game);
+        });
+        dialog.show();
+    }
+
+    private void confirmVitaKoRevert(File game, String id) {
+        LinearLayout panel = new LinearLayout(this);
+        final Dialog dialog = cardDialog(panel);
+        cardHeader(panel, RoundIconView.RESET, Color.rgb(234, 88, 12), "한글패치 되돌리기", displayGameNameFor(game) + " (" + id + ")");
+        int replaced = 0;
+        int added = 0;
+        for (String[] line : VitaPatch.manifest(vitaKoBackupDir(id))) {
+            if ("R".equals(line[0])) {
+                replaced++;
+            } else {
+                added++;
+            }
+        }
+        panel.addView(noteBox("백업해 둔 원래 파일 " + replaced + "개를 제자리에 돌려놓고, 패치가 더한 파일 " + added + "개는 지워요. 코드 패치도 빠져요.\n"
+                + "업데이트 · DLC · 세이브는 그대로예요. 백업(" + formatSize(folderBytes(vitaKoBackupDir(id))) + ")은 다 돌린 뒤 지워져요.",
+                Color.rgb(255, 247, 237), Color.rgb(154, 52, 18)), spaced(10));
+        overlayConfirmButtons(panel, dialog, "되돌리기", Color.rgb(234, 88, 12), () -> {
+            dialog.dismiss();
+            final Dialog busy = progressCard(RoundIconView.RESET, Color.rgb(234, 88, 12), "되돌리는 중", id);
+            new Thread(() -> {
+                String error = null;
+                int done = 0;
+                try {
+                    done = VitaPatch.revert(vitaKoBackupDir(id), vitaKoRoots(id));
+                    vitaKoRecord(id).delete();
+                } catch (IOException | RuntimeException e) {
+                    error = e.getMessage() == null ? e.toString() : e.getMessage();
+                }
+                final String failed = error;
+                final int count = done;
+                runOnUiThread(() -> {
+                    busy.dismiss();
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+                    refreshLibrary();
+                    if (failed != null) {
+                        showError("다 되돌리지 못했어요 (" + count + "개는 됨): " + failed);
+                    } else {
+                        Toast.makeText(this, "한글패치를 되돌렸어요 · 파일 " + count + "개", Toast.LENGTH_LONG).show();
+                    }
+                });
+            }, "vita-kopatch-revert").start();
+        });
+        dialog.show();
     }
 
     // ---- update / DLC .pkg ----
@@ -22264,7 +22638,7 @@ public final class MainActivity extends Activity {
         LinearLayout panel = new LinearLayout(this);
         final Dialog dialog = cardDialog(panel);
         cardHeader(panel, RoundIconView.RESET, Color.rgb(100, 116, 139), "게임 다시 설치", displayGameNameFor(game) + " (" + id + ")");
-        panel.addView(noteBox("설치된 게임 파일을 지우고, 다음에 켤 때 원본 파일(" + game.getName() + ")에서 새로 설치해요. 한글패치와 업데이트도 같이 지워져요 — 필요하면 다시 넣으세요.\n세이브와 DLC는 그대로예요.",
+        panel.addView(noteBox("설치된 게임 파일을 지우고, 다음에 켤 때 원본 파일(" + game.getName() + ")에서 새로 설치해요. 한글패치(코드 패치 · 백업 포함)와 업데이트도 같이 지워져요 — 필요하면 다시 넣으세요.\n세이브와 DLC는 그대로예요.",
                 Color.rgb(241, 245, 249), Color.rgb(51, 65, 85)), spaced(10));
         overlayConfirmButtons(panel, dialog, "지우고 다시 설치", Color.rgb(100, 116, 139), () -> {
             dialog.dismiss();
@@ -22273,6 +22647,8 @@ public final class MainActivity extends Activity {
                 deleteTree(vitaAppDir(id));
                 deleteTree(new File(vitaPrefDir(), "ux0/patch/" + id));
                 vitaKoRecord(id).delete();
+                deleteTree(vitaKoBackupDir(id));
+                new File(vitaCodeDir(), id + ".txt").delete();
                 new File(new File(vitaPrefDir(), "pkg_installed"), game.getName() + ".txt").delete();
                 StringBuilder keep = new StringBuilder();
                 for (String[] line : vitaAddonLines(id)) {
