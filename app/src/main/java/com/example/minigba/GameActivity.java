@@ -17397,7 +17397,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // The gun's buttons: added to the content's root, out of sight until scheduleSettleGun
-    // puts each in a free spot (kept per layout under gunbtn:<layout key>:<bit>).
+    // puts each in a free spot (kept per layout under gunbtn2:<layout key>:<bit> as x,y,size dp).
     private final java.util.List<TouchButton> gunButtons = new java.util.ArrayList<>();
     private final java.util.Set<View> gunUnplaced = new java.util.HashSet<>();
 
@@ -17415,7 +17415,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             TouchButton button = new TouchButton(this, gun.labels[k], bit, this::setButtonPressed, style);
             int size = dp(bit == kGunTrigger ? 64 : 48);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(size, size, Gravity.TOP | Gravity.START);
-            String saved = prefs.getString("gunbtn:" + layoutKey() + ":" + bit, null);
+            // (gunbtn2: from 0.0.375; the first placements could pile up over the picture.)
+            String saved = prefs.getString("gunbtn2:" + layoutKey() + ":" + bit, null);
             boolean placed = false;
             if (saved != null) {
                 String[] parts = saved.split(",");
@@ -17423,6 +17424,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     try {
                         params.leftMargin = dp(Integer.parseInt(parts[0]));
                         params.topMargin = dp(Integer.parseInt(parts[1]));
+                        if (parts.length >= 3) {
+                            params.width = dp(Integer.parseInt(parts[2]));
+                            params.height = params.width;
+                        }
                         placed = true;
                     } catch (NumberFormatException ignored) {
                     }
@@ -17462,6 +17467,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         android.content.SharedPreferences.Editor editor = MainActivity.sharedSettings(this).edit();
+        java.util.List<android.graphics.RectF> obstaclesPlaced = new java.util.ArrayList<>();
         float[] anchor = null;
         for (TouchButton button : this.gunButtons) {
             if (!unplaced.contains(button)) {
@@ -17484,11 +17490,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     obstacles.add(windowBox(guard));
                 }
             }
-            float size = button.getLayoutParams().width;
             float targetX;
             float targetY;
+            float baseSize = button.getLayoutParams().width;
             if (anchor != null) {
-                targetX = anchor[0] - dp(64);
+                targetX = anchor[0] - dp(60);
                 targetY = anchor[1];
             } else if (this.landscapeMode) {
                 targetX = (screen.right + origin[0] + root.getWidth()) / 2f;
@@ -17497,39 +17503,66 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 targetX = origin[0] + root.getWidth() - dp(70);
                 targetY = (screen.bottom + origin[1] + root.getHeight()) / 2f;
             }
-            float margin = dp(4);
-            float best = Float.MAX_VALUE;
+            // The free spot nearest to the target, trying smaller sizes when none fits (landscape
+            // has little room beside the picture). Failing that, the spot that covers the least:
+            // other gun buttons count most, then the picture, then the other controls.
+            float margin = dp(3);
             float[] spot = null;
-            for (float yy = origin[1] + margin; yy + size <= origin[1] + root.getHeight() - margin; yy += dp(6)) {
-                for (float xx = origin[0] + margin; xx + size <= origin[0] + root.getWidth() - margin; xx += dp(6)) {
-                    android.graphics.RectF box = new android.graphics.RectF(xx - margin, yy - margin, xx + size + margin, yy + size + margin);
-                    boolean free = true;
-                    for (android.graphics.RectF other : obstacles) {
-                        if (android.graphics.RectF.intersects(box, other)) {
-                            free = false;
-                            break;
+            float size = baseSize;
+            float[] sizes = {baseSize, baseSize * 0.85f, baseSize * 0.72f, Math.min(baseSize * 0.62f, dp(38))};
+            float bestPenalty = Float.MAX_VALUE;
+            float bestScore = Float.MAX_VALUE;
+            float[] bestSpot = null;
+            float bestSize = baseSize;
+            android.graphics.RectF box = new android.graphics.RectF();
+            android.graphics.RectF cut = new android.graphics.RectF();
+            for (float trySize : sizes) {
+                for (float yy = origin[1] + margin; yy + trySize <= origin[1] + root.getHeight() - margin; yy += dp(6)) {
+                    for (float xx = origin[0] + margin; xx + trySize <= origin[0] + root.getWidth() - margin; xx += dp(6)) {
+                        box.set(xx - margin, yy - margin, xx + trySize + margin, yy + trySize + margin);
+                        float penalty = 0f;
+                        for (android.graphics.RectF other : obstacles) {
+                            if (cut.setIntersect(box, other)) {
+                                penalty += cut.width() * cut.height();
+                            }
+                        }
+                        // Gun buttons placed just now (their new place isn't laid out yet) count most.
+                        for (android.graphics.RectF placed : obstaclesPlaced) {
+                            if (cut.setIntersect(box, placed)) {
+                                penalty += 20f * cut.width() * cut.height();
+                            }
+                        }
+                        if (cut.setIntersect(box, screen)) {
+                            penalty += 4f * cut.width() * cut.height();
+                        }
+                        float score = Math.abs(xx + trySize / 2f - targetX) + Math.abs(yy + trySize / 2f - targetY);
+                        if (penalty < bestPenalty - 1f || (Math.abs(penalty - bestPenalty) <= 1f && score < bestScore)) {
+                            bestPenalty = penalty;
+                            bestScore = score;
+                            bestSpot = new float[]{xx - origin[0], yy - origin[1]};
+                            bestSize = trySize;
                         }
                     }
-                    if (!free) continue;
-                    float score = Math.abs(xx + size / 2f - targetX) + Math.abs(yy + size / 2f - targetY);
-                    if (score < best) {
-                        best = score;
-                        spot = new float[]{xx - origin[0], yy - origin[1]};
-                    }
+                }
+                if (bestPenalty <= 1f) {
+                    break;  // a free spot at this size
                 }
             }
-            if (spot == null) {
-                // No room: next to the screen's lower right corner, to be moved in the editor.
-                spot = new float[]{Math.max(0f, Math.min(root.getWidth() - size, screen.right - origin[0] - size)), Math.max(0f, screen.bottom - origin[1] - size)};
-            }
+            spot = bestSpot != null ? bestSpot : new float[]{0f, 0f};
+            size = bestSize;
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) button.getLayoutParams();
             params.leftMargin = Math.round(spot[0]);
             params.topMargin = Math.round(spot[1]);
+            params.width = Math.round(size);
+            params.height = Math.round(size);
             button.setLayoutParams(params);
             button.setAlpha(1f);
             this.gunUnplaced.remove(button);
             unplaced.remove(button);
-            editor.putString("gunbtn:" + layoutKey() + ":" + button.bit(), Math.round(spot[0] / density) + "," + Math.round(spot[1] / density));
+            // This button now counts as an obstacle for the next ones.
+            obstaclesPlaced.add(new android.graphics.RectF(spot[0] + origin[0], spot[1] + origin[1], spot[0] + origin[0] + size, spot[1] + origin[1] + size));
+            editor.putString("gunbtn2:" + layoutKey() + ":" + button.bit(),
+                    Math.round(spot[0] / density) + "," + Math.round(spot[1] / density) + "," + Math.round(size / density));
             anchor = new float[]{spot[0] + origin[0] + size / 2f, spot[1] + origin[1] + size / 2f};
         }
         editor.apply();
