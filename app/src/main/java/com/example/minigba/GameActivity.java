@@ -5226,9 +5226,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return !is3d() && !isN3ds() && !isWiiU() && !isVita() && !isDolphin() && !isPs2() && !isSwan();
     }
 
+    // Engines whose picture the app shows from the GPU (presentHwFrame), where FSR and 3D 다듬기
+    // work: the 3D consoles and, from 0.0.371, the 3DS, GameCube · Wii, Wii U, Vita and
+    // PS1's SwanStation.
+    private boolean gpuFrames() {
+        return is3d() || isN3ds() || isDolphin() || isWiiU() || isVita() || isSwan();
+    }
+
     private boolean filterAvailable(int filter) {
         if (filter == 4) {
-            return is3d();
+            return gpuFrames();
         }
         if (filter == 7 || filter == 8 || filter == 9) {
             return softwareFrames();
@@ -5331,7 +5338,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         // whole-pixel enlarging so the lines drawn over the picture meet the game's pixels
         NativeGba.setSharpScaling((filter >= 1 && filter <= 3) || filter >= 5);
         NativeGba.setFsr(filter == 4);
-        int[] look = is3d() ? fx3d() : new int[]{0, 0, 0};
+        int[] look = gpuFrames() ? fx3d() : new int[]{0, 0, 0};
         NativeGba.setFx3d(look[0] == 1, look[1], look[2]);
         int fx = filter == 5 || filter == 6 ? 1 : filter == 7 ? 2 : filter == 8 ? 3 : filter == 9 ? 4 : 0;
         NativeGba.setScreenFx(this.nativeHandle, softwareFrames() ? fx : 0, filter == 5 || filter == 6 ? filterBright() : filterStrength());
@@ -5447,14 +5454,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             label.setText(names[k] + " · " + bar.getProgress());
             panel.addView(bar);
         }
-        if (is3d()) {
+        if (gpuFrames()) {
             addFx3dRows(panel);
         }
         panel.addView(filterSwitchRow("이 게임만 다르게", "끄면 " + consoleName() + "에 고른 필터를 따라요", "filter_game_on:" + this.saveBaseName, false, on -> {
             if (on && !prefs.contains(filterGameKey())) {
                 prefs.edit().putInt(filterGameKey(), screenFilter()).apply();
             }
-            if (on && is3d() && !prefs.contains("fx3d_game:" + this.saveBaseName)) {
+            if (on && gpuFrames() && !prefs.contains("fx3d_game:" + this.saveBaseName)) {
                 // The game starts from what the console has.
                 String console = prefs.getString("fx3d_con:" + this.gameMode, "0,0,0");
                 prefs.edit().putString("fx3d_game:" + this.saveBaseName, console).apply();
