@@ -4821,7 +4821,19 @@ public final class MainActivity extends Activity {
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(file);
         StringBuilder sb = new StringBuilder("시스템: ");
-        sb.append(coreDisplayName(coreFor(file))).append("  |  ");
+        String engine = coreFor(file);
+        sb.append(coreDisplayName(engine));
+        if (CORE_SWAN.equals(engine)) {
+            String q = "ps1q:" + saveBaseNameFor(file) + ":";
+            sb.append(" · ").append(settingsPrefs().getInt(q + "res", 2)).append("x");
+            if (settingsPrefs().getInt(q + "pgxp", 1) == 1) {
+                sb.append(" · PGXP");
+            }
+            if (settingsPrefs().getInt(q + "wide", 0) == 1) {
+                sb.append(" · 16:9");
+            }
+        }
+        sb.append("  |  ");
         if (saveFileFor.exists() || stateFileFor.exists()) {
             str = "세이브: " + saveBaseNameFor(file);
         } else {
@@ -19303,7 +19315,7 @@ public final class MainActivity extends Activity {
     }
 
     private File saveFileFor(File file) {
-        return new File(new File(saveDir(), coreFor(file)), saveBaseNameFor(file) + ".sav");
+        return new File(new File(saveDir(), sramCore(coreFor(file))), saveBaseNameFor(file) + ".sav");
     }
 
     private File stateFileFor(File file) {
@@ -19927,9 +19939,49 @@ public final class MainActivity extends Activity {
             if ("play".equals(console[1]) && pcsx2Ready()) {
                 return CORE_PCSX2;
             }
+            if (MODE_PS1.equals(mode)) {
+                return ps1CoreFor(file);
+            }
             return console[1];
         }
         return MODE_GBA;
+    }
+
+    // ---- PS1: two engines, picked per game (게임기 탭 › PS1 엔진). SwanStation (high quality)
+    // for new games; a game already played on PCSX ReARMed (a scene saved there) stays on it.
+    static final String CORE_SWAN = "swanstation";
+    static final String CORE_PCSX = "pcsx_rearmed";
+
+    static String ps1EngineKey(String romName) {
+        return "ps1_engine:" + romName;
+    }
+
+    private boolean swanShipped() {
+        return new File(getApplicationInfo().nativeLibraryDir, "libswanstation_libretro_android.so").isFile();
+    }
+
+    private String ps1CoreFor(File file) {
+        // SwanStation needs a real BIOS; PCSX ReARMed has its own (HLE).
+        if (!swanShipped() || !ps1BiosFile().isFile()) {
+            return CORE_PCSX;
+        }
+        String key = ps1EngineKey(file.getName());
+        String chosen = settingsPrefs().getString(key, null);
+        if (CORE_PCSX.equals(chosen) || CORE_SWAN.equals(chosen)) {
+            return chosen;
+        }
+        File pcsx = new File(saveDir(), CORE_PCSX);
+        String base = saveBaseNameFor(file);
+        boolean played = new File(pcsx, base + ".state").exists() || new File(new File(pcsx, "quicksaves"), base).isDirectory();
+        String core = played ? CORE_PCSX : CORE_SWAN;
+        settingsPrefs().edit().putString(key, core).apply();
+        return core;
+    }
+
+    // Where a core keeps its battery save / memory card: both PS1 engines share PCSX
+    // ReARMed's folder, so the memory card goes with the game whichever engine runs it.
+    static String sramCore(String core) {
+        return CORE_SWAN.equals(core) ? CORE_PCSX : core;
     }
 
     // PS2 games run on PCSX2 (the PCEE2 core) when it ships in this build and a PS2 BIOS
@@ -22553,7 +22605,7 @@ public final class MainActivity extends Activity {
     }
 
     private String ps1BiosStatusText() {
-        return ps1BiosFile().isFile() ? "등록됨 · 실제 BIOS" : "없음 · 내장 BIOS";
+        return ps1BiosFile().isFile() ? "등록됨 · 실제 BIOS" : "없음 · 내장 BIOS (고화질 엔진은 BIOS 필요)";
     }
 
     private void showPs1BiosSheet() {
@@ -23513,6 +23565,9 @@ public final class MainActivity extends Activity {
         }
         if ("pcsx_rearmed".equals(str)) {
             return "PCSX ReARMed";
+        }
+        if (CORE_SWAN.equals(str)) {
+            return "SwanStation";
         }
         if ("play".equals(str)) {
             return "Play!";

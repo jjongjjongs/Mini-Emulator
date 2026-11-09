@@ -676,6 +676,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "pce_fast") return "libmednafen_pce_fast_libretro_android.so";
     if (coreId == "ppsspp") return "libppsspp_libretro_android.so";
     if (coreId == "pcsx_rearmed") return "libpcsx_rearmed_libretro_android.so";
+    if (coreId == "swanstation") return "libswanstation_libretro_android.so";
     if (coreId == "play") return "libplay_libretro_android.so";
     if (coreId == "pcee2") return "libpcee2_libretro_android.so";
     if (coreId == "melonds") return "libmelondsds_libretro_android.so";
@@ -1591,7 +1592,7 @@ bool vulkanFor(const std::string& coreId) {
     if (coreId == "cemu") return vkhw::available();
     // Vita3K's libretro port draws with Vulkan (its OpenGL path wants desktop GL).
     if (coreId == "vita3k") return vkhw::available();
-    return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2") && gVulkanAllowed.load() && vkhw::available();
+    return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2" || coreId == "swanstation") && gVulkanAllowed.load() && vkhw::available();
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
 std::atomic<bool> gVariablesUpdated{false};
@@ -1743,6 +1744,7 @@ const char* fixedVariable(const char* key) {
     // PS1 멀티탭 in the first port: players 1-4 are its four pads.
     if (strcmp(key, "dolphin_cheats_enabled") == 0) return gWiiLink.load() ? "enabled" : "disabled";
     if (strcmp(key, "pcsx_rearmed_multitap") == 0) return gMultitap.load() == 1 ? "port 1" : "disabled";
+    if (strcmp(key, "swanstation_ControllerPorts_MultitapMode") == 0) return gMultitap.load() == 1 ? "Port1Only" : "Disabled";
     if (strcmp(key, "mgba_use_bios") == 0) return "ON";
     if (strcmp(key, "mgba_skip_bios") == 0) return "OFF";
     if (strcmp(key, "mgba_idle_optimization") == 0) return "Remove Known";
@@ -2286,6 +2288,13 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
         // Plain 51 without the experimental flag, as accepted by the original build.
         case 51:
             return true;
+        case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: {
+            // SwanStation tries desktop OpenGL first unless told the frontend prefers ES (it
+            // would take the compatibility context we accept and load desktop GL on an ES one).
+            if (core->coreId != "swanstation" || data == nullptr) return false;
+            *static_cast<unsigned*>(data) = vulkanFor(core->coreId) ? RETRO_HW_CONTEXT_VULKAN : RETRO_HW_CONTEXT_OPENGLES_VERSION;
+            return true;
+        }
         case RETRO_ENVIRONMENT_SET_HW_RENDER: {
             // OpenGL ES, or Vulkan for PSP; the context itself is made on the emulation thread.
             auto* hw = static_cast<retro_hw_render_callback*>(data);
@@ -2966,7 +2975,7 @@ int16_t joypadPressed(Core* core, int mask, unsigned id) {
         // Handheld/console pads map A/B/X/Y/L/R one to one (X and Y use the C and D bits).
         bool console = core->coreId == "gba" || core->coreId == "snes9x" || core->coreId == "fceumm" ||
                        core->coreId == "genesis_plus_gx" || core->coreId == "ppsspp" ||
-                       core->coreId == "pcsx_rearmed" || core->coreId == "play" || core->coreId == "pcee2" ||
+                       core->coreId == "pcsx_rearmed" || core->coreId == "swanstation" || core->coreId == "play" || core->coreId == "pcee2" ||
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
                        core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu" || core->coreId == "dolphin" ||
@@ -4046,6 +4055,10 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     if (core->coreId == "pcsx_rearmed" && core->retroSetControllerPortDevice != nullptr) {
         core->retroSetControllerPortDevice(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1));
     }
+    // SwanStation: a DualShock (its analog pad is subclass 0).
+    if (core->coreId == "swanstation" && core->retroSetControllerPortDevice != nullptr) {
+        core->retroSetControllerPortDevice(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 0));
+    }
     // Flycast connects nothing until the frontend names each port: a pad (with its VMU) in
     // the first, the others empty. Without it games say the controller was removed and
     // find no VMU to save to.
@@ -4874,6 +4887,12 @@ void applyPlayerPorts(Core* core, int players, int multitap) {
         for (int port = 1; port < 4; ++port) {
             if (port < players && port >= core->portsPlayers) {
                 set(port, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1));
+            }
+        }
+    } else if (set != nullptr && id == "swanstation") {
+        for (int port = 1; port < 4; ++port) {
+            if (port < players && port >= core->portsPlayers) {
+                set(port, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 0));
             }
         }
     } else if (set != nullptr && id == "snes9x" && multitap != core->portsMultitap) {

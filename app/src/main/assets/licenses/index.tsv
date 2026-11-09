@@ -11,6 +11,7 @@ pce	Beetle PCE Fast	GPL-2.0	PC엔진 엔진	https://github.com/libretro/beetle-p
 mupen	Mupen64Plus-Next	GPL-2.0	닌텐도 64 엔진	https://github.com/libretro/mupen64plus-libretro-nx
 ppsspp	PPSSPP	GPL-2.0+	PSP 엔진	https://github.com/hrydgard/ppsspp
 pcsx	PCSX ReARMed	GPL-2.0	PS1 엔진	https://github.com/libretro/pcsx_rearmed
+swanstation	SwanStation (DuckStation 기반)	GPL-3.0	PS1 고화질 엔진	https://github.com/libretro/swanstation
 play	Play!	BSD-2-Clause	PS2 엔진	https://github.com/jpd002/Play-
 pcsx2	PCSX2 (pcee2)	GPL-3.0	PS2 엔진 (PCSX2)	https://github.com/portableandroid/pcee2-libretro
 vita3k	Vita3K (libretro)	GPL-2.0	PS Vita 엔진 (실험적)	https://github.com/Vita3K/Vita3K

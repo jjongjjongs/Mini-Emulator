@@ -5609,6 +5609,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 화면 탭: the picture and the case, button looks and layout (all games).
     private void addScreenTabRows(LinearLayout panel, Runnable refresh) {
+        if (isSwan()) {
+            addSwanQualityRows(panel, refresh);
+        }
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
         filterParams.setMargins(0, 0, 0, 0);
         boolean threeD = is3d();
@@ -6055,7 +6058,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 showFatalError(arcadePreflightError);
                 return;
             }
-            File file = new File(new File(getFilesDir(), "saves"), this.coreId);
+            // Battery saves / memory cards: both PS1 engines use PCSX ReARMed's folder.
+            File file = new File(new File(getFilesDir(), "saves"), MainActivity.sramCore(this.coreId));
             if (!file.exists() && !file.mkdirs()) {
                 showFatalError("ROM 실행 실패: 세이브 폴더를 만들 수 없습니다");
                 return;
@@ -6133,6 +6137,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         DosSetup.ensureSoundfont(this, new File(systemPath));
                         String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName, new File(systemPath));
                         NativeGba.setDosOptions(options[0], options[1], start);
+                    }
+                    if (isSwan()) {
+                        String[][] swan = swanOptions();
+                        NativeGba.setDosOptions(swan[0], swan[1], "");
                     }
                     if (isVita()) {
                         int scale = vitaScale();
@@ -8313,6 +8321,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 게임기 탭: what only this console has.
     private void addDeviceTabRows(LinearLayout panel, android.app.Dialog dialog) {
+        if (isPs1()) {
+            panel.addView(createPs1EngineRow(dialog), tabRowParams(panel));
+        }
         if (isPsp()) {
             panel.addView(createLanguageRow(dialog), tabRowParams(panel));
             panel.addView(createWifiRow(dialog), tabRowParams(panel));
@@ -14540,12 +14551,161 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         input.requestFocus();
     }
 
+    // ---- PS1 엔진 (0.0.342): SwanStation (high quality) or PCSX ReARMed (light), per game ----
+    private static final String[] PS1_ENGINE_NAMES = {"SwanStation (추천 · 고화질)", "PCSX ReARMed (가벼움)"};
+    private static final String[] PS1_ENGINE_NOTES = {
+            "DuckStation 기반 · 고해상도 · 흔들림 보정(PGXP) · 24비트 색 · 와이드스크린 · 게임별 호환 설정 자동",
+            "원래 해상도 그대로 · 오래된 · 느린 휴대폰에 좋아요"};
+
+    private String romFileName() {
+        return this.romPath == null ? "" : new File(this.romPath).getName();
+    }
+
+    private LinearLayout createPs1EngineRow(android.app.Dialog menu) {
+        final int current = isSwan() ? 0 : 1;
+        final int color = Color.rgb(79, 70, 229);
+        return createSettingRow(RoundIconView.GEAR, color, "PS1 엔진", isSwan() ? "SwanStation" : "PCSX ReARMed",
+                view -> showChoiceDialog(RoundIconView.GEAR, color, "PS1 엔진 · 이 게임만", PS1_ENGINE_NAMES, PS1_ENGINE_NOTES, current,
+                        "엔진을 바꾸면 빠른 저장(장면)은 그 엔진에서만 열려요. 메모리 카드 세이브는 그대로 이어져요 (같은 파일을 써요). 게임 안에서 메모리 카드에 저장한 뒤 바꾸세요.\n"
+                                + "바이오스는 지금 넣어 둔 PS1 바이오스를 그대로 써요.",
+                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용 (다시 켜기)", choice -> {
+                    if (choice == current) {
+                        return;
+                    }
+                    if (choice == 0 && !new File(new File(getFilesDir(), "system"), "scph1001.bin").isFile()) {
+                        Toast.makeText(this, "SwanStation은 PS1 바이오스가 있어야 해요. PS1 화면의 \"PS1 BIOS\" 칸에서 넣어 주세요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    String core = choice == 0 ? MainActivity.CORE_SWAN : MainActivity.CORE_PCSX;
+                    MainActivity.sharedSettings(this).edit().putString(MainActivity.ps1EngineKey(romFileName()), core).commit();
+                    menu.dismiss();
+                    relaunchWithCore(core);
+                }));
+    }
+
+    // Like relaunchGame, on another engine.
+    private void relaunchWithCore(String core) {
+        this.menuExiting = true;
+        Intent game = new Intent(getIntent());
+        game.putExtra("com.example.minigba.CORE_ID", core);
+        Intent relaunch = new Intent(this, MainActivity.class);
+        relaunch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        relaunch.putExtra(MainActivity.EXTRA_RELAUNCH_GAME, game);
+        startActivity(relaunch);
+        callCore(NativeGba::saveNow, null, null);
+        finish();
+    }
+
+    // SwanStation picture settings, per game.
+    private static final String[] SWAN_FILTER_NAMES = {"끔 (선명하게)", "부드럽게 (쌍선형)", "JINC2", "xBR"};
+    private static final String[] SWAN_FILTER_VALUES = {"Nearest", "Bilinear", "JINC2", "xBR"};
+    private static final String[] SWAN_FILTER_NOTES = {"원래 픽셀 그대로", "텍스처를 부드럽게", "선명하게 다듬기", "2D 그림을 매끈하게 (무거움)"};
+    private static final String[] SWAN_MSAA_NAMES = {"끔", "2배", "4배"};
+    private static final String[] SWAN_MSAA_VALUES = {"1", "2", "4"};
+
+    private int swanInt(String name, int fallback) {
+        return MainActivity.sharedSettings(this).getInt("ps1q:" + this.saveBaseName + ":" + name, fallback);
+    }
+
+    private void setSwanInt(String name, int value) {
+        MainActivity.sharedSettings(this).edit().putInt("ps1q:" + this.saveBaseName + ":" + name, value).apply();
+    }
+
+    private int swanScale() {
+        int value = swanInt("res", 2);
+        return value >= 1 && value <= 4 ? value : 2;
+    }
+
+    private boolean swanVulkan() {
+        return swanInt("vulkan", 0) == 1;
+    }
+
+    private String[][] swanOptions() {
+        int filter = Math.max(0, Math.min(SWAN_FILTER_VALUES.length - 1, swanInt("filter", 0)));
+        int msaa = Math.max(0, Math.min(SWAN_MSAA_VALUES.length - 1, swanInt("msaa", 0)));
+        boolean wide = swanInt("wide", 0) == 1;
+        boolean pgxp = swanInt("pgxp", 1) == 1;
+        boolean trueColor = swanInt("truecolor", 1) == 1;
+        return new String[][]{
+                {"swanstation_GPU_Renderer", "swanstation_GPU_ResolutionScale", "swanstation_GPU_PGXPEnable", "swanstation_GPU_TrueColor",
+                        "swanstation_GPU_TextureFilter", "swanstation_GPU_MSAA", "swanstation_GPU_WidescreenHack", "swanstation_Display_AspectRatio",
+                        "swanstation_Main_ApplyGameSettings", "swanstation_Display_ShowOSDMessages", "swanstation_GPU_UseThread"},
+                {swanVulkan() ? "Vulkan" : "OpenGL", String.valueOf(swanScale()), pgxp ? "true" : "false", trueColor ? "true" : "false",
+                        SWAN_FILTER_VALUES[filter], SWAN_MSAA_VALUES[msaa], wide ? "true" : "false", wide ? "16:9" : "Auto",
+                        "true", "false", "true"}};
+    }
+
+    // A change while the game runs: the engine reads its options again at the next frame.
+    private void applySwanOptions() {
+        String[][] swan = swanOptions();
+        NativeGba.setCoreOptions(swan[0], swan[1], false);
+    }
+
+    private void addSwanQualityRows(LinearLayout panel, Runnable refresh) {
+        final int color = Color.rgb(79, 70, 229);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
+        params.setMargins(0, 0, 0, dp(8));
+        final String[] scaleNames = {"1배 (원래)", "2배", "3배", "4배"};
+        final String[] scaleNotes = {"가장 가벼워요", "중급 휴대폰도 괜찮아요 (기본)", "스냅드래곤 8 계열 권장", "가장 선명 · 가장 무거움"};
+        panel.addView(createSettingRow(RoundIconView.HD, color, "PS1 해상도", scaleNames[swanScale() - 1],
+                view -> showChoiceDialog(RoundIconView.HD, color, "PS1 해상도 · 이 게임만", scaleNames, scaleNotes, swanScale() - 1,
+                        "3D가 또렷해져요 (2D 배경 · 글자는 원래 그대로). 느리거나 뜨거우면 낮춰 주세요.",
+                        Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용", choice -> {
+                    setSwanInt("res", choice + 1);
+                    applySwanOptions();
+                    refresh.run();
+                })), params);
+        panel.addView(swanToggleRow("흔들림 보정 (PGXP)", "pgxp", 1, "카메라가 움직일 때 바닥 · 벽이 출렁이던 것이 줄어요. 화면이 깨지는 게임은 꺼 주세요.", refresh), params);
+        panel.addView(swanToggleRow("24비트 색 (줄무늬 없애기)", "truecolor", 1, "하늘 · 그림자의 색 줄무늬(디더링)가 없어져요.", refresh), params);
+        panel.addView(createSettingRow(RoundIconView.FILTER, color, "텍스처 다듬기", SWAN_FILTER_NAMES[Math.max(0, Math.min(3, swanInt("filter", 0)))],
+                view -> showChoiceDialog(RoundIconView.FILTER, color, "텍스처 다듬기 · 이 게임만", SWAN_FILTER_NAMES, SWAN_FILTER_NOTES, swanInt("filter", 0),
+                        "게임 속 그림(텍스처)을 다듬는 방법이에요.", Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용", choice -> {
+                    setSwanInt("filter", choice);
+                    applySwanOptions();
+                    refresh.run();
+                })), params);
+        panel.addView(swanToggleRow("와이드스크린 16:9", "wide", 0, "3D 게임은 화면 옆이 넓어져요. 2D · 동영상 장면은 늘어날 수 있고, 깨지는 게임은 꺼 주세요.", refresh), params);
+        panel.addView(createSettingRow(RoundIconView.HD, color, "계단 현상 줄이기 (MSAA)", SWAN_MSAA_NAMES[Math.max(0, Math.min(2, swanInt("msaa", 0)))],
+                view -> showChoiceDialog(RoundIconView.HD, color, "MSAA · 이 게임만", SWAN_MSAA_NAMES, new String[]{"가장 가벼움", "조금 무거움", "무거움"}, swanInt("msaa", 0),
+                        "3D 물체 가장자리의 계단을 줄여요. 해상도를 올리는 것보다 효과가 작아요.", Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용", choice -> {
+                    setSwanInt("msaa", choice);
+                    applySwanOptions();
+                    refresh.run();
+                })), params);
+        panel.addView(createSettingRow(RoundIconView.GEAR, color, "PS1 그래픽", swanVulkan() ? "Vulkan" : "OpenGL",
+                view -> showChoiceDialog(RoundIconView.GEAR, color, "PS1 그래픽 · 이 게임만", new String[]{"OpenGL (기본)", "Vulkan"},
+                        new String[]{"대부분의 휴대폰에서 안정적", "일부 휴대폰에서 더 빨라요"}, swanVulkan() ? 1 : 0,
+                        "바꾸면 장면을 저장하고 다시 켜요.", Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용", choice -> {
+                    if ((choice == 1) == swanVulkan()) {
+                        return;
+                    }
+                    setSwanInt("vulkan", choice);
+                    relaunchGame();
+                })), params);
+    }
+
+    private LinearLayout swanToggleRow(String title, String name, int fallback, String note, Runnable refresh) {
+        final int color = Color.rgb(79, 70, 229);
+        final boolean on = swanInt(name, fallback) == 1;
+        return createSettingRow(RoundIconView.HD, color, title, on ? "켬" : "끔",
+                view -> showChoiceDialog(RoundIconView.HD, color, title + " · 이 게임만", new String[]{"켬", "끔"}, new String[]{"", ""}, on ? 0 : 1,
+                        note, Color.rgb(238, 242, 255), Color.rgb(55, 48, 163), "적용", choice -> {
+                    setSwanInt(name, choice == 0 ? 1 : 0);
+                    applySwanOptions();
+                    refresh.run();
+                }));
+    }
+
     private boolean noStates() {
         return isWiiU() || isVita();
     }
 
     private boolean isPs1() {
-        return "pcsx_rearmed".equals(this.coreId);
+        return "pcsx_rearmed".equals(this.coreId) || isSwan();
+    }
+
+    private boolean isSwan() {
+        return "swanstation".equals(this.coreId);
     }
 
     private boolean isPs2() {
@@ -15230,6 +15390,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "pce_fast":
             case "ppsspp":
             case "pcsx_rearmed":
+            case "swanstation":
             case "play":
             case "pcee2":
             case "melonds":
