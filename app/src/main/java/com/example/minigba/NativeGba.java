@@ -227,6 +227,8 @@ final class NativeGba {
 
     static native void setDsLayout(long handle, int[] spec);
 
+    static native void setScreenFx(long handle, int mode, int strength);
+
     // Vertical arcade games: 0 upright, 1 as the core draws it, 2 upright reversed (any time).
     static native void setRotationMode(int mode);
 

@@ -45,6 +45,7 @@
 #include <vector>
 
 #include "dslayout.h"
+#include "screenfx.h"
 #include "dsnet.h"
 #include "gclan.h"
 #include "libretro.h"
@@ -410,6 +411,9 @@ struct Core {
     std::atomic<int> rewoundFrames{0};
     // Guards window, which the UI thread can swap while the core draws.
     std::mutex videoMutex;
+    // 화면 필터 presets done on the frame (screenfx), and the last one for the LCD smear.
+    std::vector<uint8_t> fxFrame;
+    std::vector<uint8_t> fxPrev;
     // Guards every call into the core.
     std::mutex coreMutex;
     // Calls from Java waiting for coreMutex; the emulation thread lets them in
@@ -2678,6 +2682,9 @@ void presentHwFrame(Core* core) {
 // neighbour before Android scales them the rest of the way, so the pixels stay crisp
 // instead of being smoothed over.
 std::atomic<bool> gSharpScaling{false};
+// 화면 필터 presets on the frame (screenfx::Mode) and their strength (0..100), 0.0.360.
+std::atomic<int> gScreenFx{0};
+std::atomic<int> gScreenFxStrength{70};
 
 // DS 화면 배치 (0.0.359): where the app put the two screens, in pixels of the view
 // (canvas W x H); empty when melonDS DS's own layout is shown as it is.
@@ -2730,17 +2737,30 @@ void presentShownFrame(Core* core) {
     if (core->coreId == "melonds" && presentDsLayout(core)) {
         return;
     }
+    const uint8_t* frame = core->shownFrame.data();
+    unsigned frameW = core->shownWidth;
+    unsigned frameH = core->shownHeight;
+    int fxMode = gScreenFx.load();
+    if (fxMode != screenfx::NONE) {
+        unsigned outW = 0;
+        unsigned outH = 0;
+        screenfx::apply(fxMode, gScreenFxStrength.load(), frame, frameW, frameH, core->shownFormat != WINDOW_FORMAT_RGB_565,
+                        core->fxFrame, outW, outH, core->fxPrev);
+        frame = core->fxFrame.data();
+        frameW = outW;
+        frameH = outH;
+    }
     unsigned scale = 1;
     if (gSharpScaling.load()) {
-        scale = 1280 / core->shownWidth;
+        scale = 1280 / frameW;
         scale = scale < 1 ? 1 : scale > 4 ? 4 : scale;
         // Keep the copy cheap: about a million pixels at most (DS's two screens get 3x).
-        while (scale > 1 && core->shownWidth * core->shownHeight * scale * scale > 1100000u) {
+        while (scale > 1 && frameW * frameH * scale * scale > 1100000u) {
             --scale;
         }
     }
-    unsigned width = core->shownWidth * scale;
-    unsigned height = core->shownHeight * scale;
+    unsigned width = frameW * scale;
+    unsigned height = frameH * scale;
     ANativeWindow_setBuffersGeometry(core->window, static_cast<int32_t>(width), static_cast<int32_t>(height),
                                      core->shownFormat);
     ANativeWindow_Buffer buffer;
@@ -2748,30 +2768,30 @@ void presentShownFrame(Core* core) {
         return;
     }
     size_t bytesPerPixel = core->shownFormat == WINDOW_FORMAT_RGB_565 ? 2 : 4;
-    size_t rowBytes = core->shownWidth * bytesPerPixel;
+    size_t rowBytes = frameW * bytesPerPixel;
     size_t dstPitch = static_cast<size_t>(buffer.stride) * bytesPerPixel;
-    const uint8_t* src = core->shownFrame.data();
+    const uint8_t* src = frame;
     auto* dst = static_cast<uint8_t*>(buffer.bits);
     if (scale == 1) {
-        for (unsigned y = 0; y < core->shownHeight; ++y, src += rowBytes, dst += dstPitch) {
+        for (unsigned y = 0; y < frameH; ++y, src += rowBytes, dst += dstPitch) {
             memcpy(dst, src, rowBytes < dstPitch ? rowBytes : dstPitch);
         }
     } else {
         size_t outRow = static_cast<size_t>(width) * bytesPerPixel;
         size_t copy = outRow < dstPitch ? outRow : dstPitch;
-        for (unsigned y = 0; y < core->shownHeight; ++y, src += rowBytes) {
+        for (unsigned y = 0; y < frameH; ++y, src += rowBytes) {
             uint8_t* line = dst;
             // Widen the row in place in the first output line, then repeat that line.
             if (bytesPerPixel == 2) {
                 const auto* in = reinterpret_cast<const uint16_t*>(src);
                 auto* out = reinterpret_cast<uint16_t*>(line);
-                for (unsigned x = 0; x < core->shownWidth; ++x) {
+                for (unsigned x = 0; x < frameW; ++x) {
                     for (unsigned k = 0; k < scale; ++k) *out++ = in[x];
                 }
             } else {
                 const auto* in = reinterpret_cast<const uint32_t*>(src);
                 auto* out = reinterpret_cast<uint32_t*>(line);
-                for (unsigned x = 0; x < core->shownWidth; ++x) {
+                for (unsigned x = 0; x < frameW; ++x) {
                     for (unsigned k = 0; k < scale; ++k) *out++ = in[x];
                 }
             }
@@ -4622,6 +4642,20 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiControl(JNIEnv* 
 }
 
 // [W, H, n, then n times source, left, top, right, bottom]; null or empty: off.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setScreenFx(
+        JNIEnv* /*env*/, jclass /*cls*/, jlong handle, jint mode, jint strength) {
+    gScreenFx.store(mode >= 0 && mode <= 4 ? mode : 0);
+    gScreenFxStrength.store(strength < 0 ? 0 : strength > 100 ? 100 : strength);
+    Core* core = fromHandle(handle);
+    if (core != nullptr) {
+        {
+            std::lock_guard<std::mutex> lock(core->frameMutex);
+            core->frameRedraw = true;
+        }
+        core->frameCv.notify_all();
+    }
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setDsLayout(
         JNIEnv* env, jclass /*cls*/, jlong handle, jintArray spec) {
     std::vector<dslayout::Blit> blits;

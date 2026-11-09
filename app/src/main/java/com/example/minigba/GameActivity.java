@@ -94,7 +94,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (stringExtra == null) {
             this.coreId = "gba";
         }
-        applyScreenFilterToNative(screenFilter());
         this.gameMode = getIntent().getStringExtra(EXTRA_MODE);
         if (this.gameMode == null) {
             this.gameMode = this.coreId.equals("gba") ? "gba" : isWonderSwan() ? "ws" : isNeoGeoPocket() ? "ngp" : isMegaCd() ? "mcd" : isSaturn() ? "ss" : isDolphin() ? "gc" : isSnes() ? "snes" : isNes() ? "nes" : isMasterSystem() ? "sms" : isN64() ? "n64" : isDreamcast() ? "dc" : isMegaDrive() ? "md" : isPcEngine() ? "pce" : isVita() ? "vita" : isPsp() ? "psp" : isPs1() ? "ps1" : isPs2() ? "ps2" : isN3ds() ? "3ds" : isWiiU() ? "wiiu" : isNds() ? "nds" : isDos() ? "dos" : isPc98() ? "pc98" : "arcade";
@@ -117,6 +116,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (stringExtra2 == null || stringExtra2.trim().isEmpty()) {
             this.saveBaseName = baseNameWithoutExtension(new File(this.romPath).getName());
         }
+        // the console's (or this game's) screen filter, once both are known (0.0.360)
+        applyScreenFilterToNative(screenFilter());
         rotateAutoSaves();
         this.audioSink = new AudioSink();
         if ("pcee2".equals(this.coreId)) {
@@ -2423,7 +2424,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 PhotoBackground.buttonAlpha(this, this.gameMode) + "%",
                 buttonStyleSummary(),
                 hasLayoutEdits() ? "바꾼 배치" : "기본 배치",
-                (is3d() ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
+                filterName(screenFilter()),
         };
         PresetDialog presets = new PresetDialog(this, consoleName(), this.landscapeMode, summary, presetListener());
         this.presetDialog = presets;
@@ -5117,22 +5118,329 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // ---- 설정: screen filter, button vibration, combo zones (all games) ----
-    private static final String[] FILTER_NAMES = {"기본", "선명하게", "스캔라인", "LCD 격자"};
-    private static final String[] FILTER_NOTES = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자"};
-    // 3D engines also get "FSR 업스케일" (filter 4).
-    private static final String[] FILTER_NAMES_3D = {"기본", "선명하게", "스캔라인", "LCD 격자", "FSR 업스케일"};
-    private static final String[] FILTER_NOTES_3D = {"지금처럼 부드럽게 확대", "도트 경계를 또렷하게", "옛날 TV 느낌 · 가로 줄무늬", "휴대용 게임기 느낌 · 격자",
-            "낮은 해상도 3D 화면을 또렷하게 키워요 (AMD FSR 1.0)"};
-
     // Engines that draw with the GPU, where FSR can enlarge the picture.
     private boolean is3d() {
         return "ppsspp".equals(this.coreId) || "pcee2".equals(this.coreId) || "play".equals(this.coreId)
                 || "mupen64plus_next".equals(this.coreId) || "flycast".equals(this.coreId) || "yabasanshiro".equals(this.coreId);
     }
 
+    // ---- 화면 필터 (0.0.360): the four of before, FSR for 3D, and shader presets — CRT,
+    // curved CRT, handheld LCD, dot matrix, smooth pixels. Chosen per console (or per game),
+    // with a fitting default per console until one is chosen. ----
+    private static final int[] FILTER_ORDER = {0, 1, 5, 6, 7, 8, 9, 2, 3, 4};
+
+    private static String filterName(int filter) {
+        switch (filter) {
+            case 1: return "선명하게";
+            case 2: return "스캔라인";
+            case 3: return "LCD 격자";
+            case 4: return "FSR 업스케일";
+            case 5: return "CRT 브라운관";
+            case 6: return "CRT 곡면";
+            case 7: return "휴대기 LCD";
+            case 8: return "도트 매트릭스";
+            case 9: return "도트 매끄럽게";
+            default: return "기본";
+        }
+    }
+
+    private static String filterNote(int filter) {
+        switch (filter) {
+            case 1: return "도트 그대로";
+            case 2: return "가로 줄무늬";
+            case 3: return "격자";
+            case 4: return "3D를 또렷하게 키워요";
+            case 5: return "주사선 + RGB 마스크 + 밝기";
+            case 6: return "둥근 화면 · 가장자리 어둡게";
+            case 7: return "격자 · 잔상 · 색 보정";
+            case 8: return "게임보이 녹색 화면";
+            case 9: return "계단을 곡선으로 (Scale2x)";
+            default: return "부드럽게 확대";
+        }
+    }
+
+    // Engines whose frames the app gets as pixels (not drawn on the GPU): the presets that
+    // change the frame itself work there.
+    private boolean softwareFrames() {
+        return !is3d() && !isN3ds() && !isWiiU() && !isVita() && !isDolphin() && !isPs2() && !isSwan();
+    }
+
+    private boolean filterAvailable(int filter) {
+        if (filter == 4) {
+            return is3d();
+        }
+        if (filter == 7 || filter == 8 || filter == 9) {
+            return softwareFrames();
+        }
+        return filter >= 0 && filter <= 9;
+    }
+
+    // What suits the console (게임기 기본 필터).
+    private int consoleDefaultFilter() {
+        if (isGameBoy()) {
+            String rom = this.romPath == null ? "" : this.romPath.toLowerCase(Locale.US);
+            return rom.endsWith(".gbc") || rom.endsWith(".cgb") ? 7 : 8;
+        }
+        switch (this.gameMode == null ? "" : this.gameMode) {
+            case "nes": case "snes": case "md": case "pce": case "sms": case "mcd":
+            case "ps1": case "ss": case "msx": case "pc98": case "dos":
+                return 5;
+            case "arcade":
+                return 6;
+            case "gba": case "ws": case "ngp":
+                return 7;
+            default:
+                return 0;
+        }
+    }
+
+    private String filterGameKey() {
+        return "filter_game:" + this.saveBaseName;
+    }
+
+    private boolean filterPerGame() {
+        return MainActivity.sharedSettings(this).getBoolean("filter_game_on:" + this.saveBaseName, false);
+    }
+
+    private int screenFilter() {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        int value;
+        if (filterPerGame() && prefs.contains(filterGameKey())) {
+            value = prefs.getInt(filterGameKey(), 0);
+        } else if (prefs.contains("filter_con:" + this.gameMode)) {
+            value = prefs.getInt("filter_con:" + this.gameMode, 0);
+        } else if (prefs.getInt("screen_filter", 0) != 0) {
+            value = prefs.getInt("screen_filter", 0);   // one filter for all, before 0.0.360
+        } else {
+            value = prefs.getBoolean("filter_defaults", true) ? consoleDefaultFilter() : 0;
+        }
+        return filterAvailable(value) ? value : 0;
+    }
+
+    private int filterInt(String what, int fallback) {
+        return Math.max(0, Math.min(100, MainActivity.sharedSettings(this).getInt("filter_" + what + ":" + this.gameMode, fallback)));
+    }
+
+    private int filterStrength() {
+        return filterInt("str", isPs1() || isSaturn() ? 40 : 70);
+    }
+
+    private int filterBright() {
+        return filterInt("bright", 60);
+    }
+
+    private int filterCurve() {
+        return filterInt("curve", 50);
+    }
+
     private void applyScreenFilterToNative(int filter) {
-        NativeGba.setSharpScaling(filter >= 1 && filter <= 3);
+        // whole-pixel enlarging so the lines drawn over the picture meet the game's pixels
+        NativeGba.setSharpScaling((filter >= 1 && filter <= 3) || filter >= 5);
         NativeGba.setFsr(filter == 4);
+        int fx = filter == 5 || filter == 6 ? 1 : filter == 7 ? 2 : filter == 8 ? 3 : filter == 9 ? 4 : 0;
+        NativeGba.setScreenFx(this.nativeHandle, softwareFrames() ? fx : 0, filter == 5 || filter == 6 ? filterBright() : filterStrength());
+    }
+
+    private void showScreenFilterSheet(Runnable refresh) {
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        scroll.addView(panel);
+        TextView title = new TextView(this);
+        title.setText("화면 필터");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        final TextView sub = new TextView(this);
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        sub.setPadding(0, dp(4), 0, dp(10));
+        panel.addView(sub);
+        final int purple = Color.rgb(124, 58, 237);
+        final android.widget.GridLayout grid = new android.widget.GridLayout(this);
+        grid.setColumnCount(2);
+        panel.addView(grid, new LinearLayout.LayoutParams(-1, -2));
+        final java.util.List<FilterPreview> previews = new java.util.ArrayList<>();
+        final Runnable[] paint = new Runnable[1];
+        final java.util.List<Integer> shown = new java.util.ArrayList<>();
+        for (int f : FILTER_ORDER) {
+            if (filterAvailable(f)) {
+                shown.add(f);
+            }
+        }
+        int cell = (Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)) - dp(32) - dp(12)) / 2;
+        final java.util.List<LinearLayout> tiles = new java.util.ArrayList<>();
+        for (final int f : shown) {
+            LinearLayout tile = new LinearLayout(this);
+            tile.setOrientation(1);
+            tile.setPadding(dp(5), dp(5), dp(5), dp(6));
+            FilterPreview preview = new FilterPreview(this, f);
+            previews.add(preview);
+            tile.addView(preview, new LinearLayout.LayoutParams(-1, Math.round(cell * 0.62f)));
+            TextView name = new TextView(this);
+            name.setText(filterName(f) + (f >= 5 ? " ✦" : ""));
+            name.setTextSize(12.0f);
+            name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            name.setPadding(dp(2), dp(4), 0, 0);
+            tile.addView(name);
+            TextView note = new TextView(this);
+            note.setText(filterNote(f));
+            note.setTextSize(10.0f);
+            note.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+            note.setPadding(dp(2), 0, 0, 0);
+            tile.addView(note);
+            tile.setTag(f);
+            tile.setOnClickListener(v -> {
+                prefs.edit().putInt(filterPerGame() ? filterGameKey() : "filter_con:" + this.gameMode, f).apply();
+                applyScreenFilterToNative(screenFilter());
+                updateScreenFilters();
+                paint[0].run();
+            });
+            android.widget.GridLayout.LayoutParams cellParams = new android.widget.GridLayout.LayoutParams();
+            cellParams.width = cell;
+            cellParams.height = -2;
+            cellParams.setMargins(dp(2), dp(2), dp(4), dp(6));
+            grid.addView(tile, cellParams);
+            tiles.add(tile);
+        }
+        final TextView[] sliderLabels = new TextView[3];
+        final android.widget.SeekBar[] sliders = new android.widget.SeekBar[3];
+        final String[] keys = {"str", "bright", "curve"};
+        final String[] names = {"효과 세기", "밝기 보정 (CRT)", "곡면 (CRT 곡면)"};
+        for (int k = 0; k < 3; k++) {
+            final int index = k;
+            TextView label = new TextView(this);
+            label.setTextSize(12.0f);
+            label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            label.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+            label.setPadding(dp(2), dp(10), 0, 0);
+            panel.addView(label);
+            android.widget.SeekBar bar = new android.widget.SeekBar(this);
+            bar.setMax(100);
+            bar.setProgress(k == 0 ? filterStrength() : k == 1 ? filterBright() : filterCurve());
+            bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+                public void onProgressChanged(android.widget.SeekBar b, int progress, boolean user) {
+                    sliderLabels[index].setText(names[index] + " · " + progress);
+                    if (user) {
+                        prefs.edit().putInt("filter_" + keys[index] + ":" + gameMode, progress).apply();
+                        for (FilterPreview p : previews) {
+                            p.setLook(filterStrength(), filterCurve(), filterBright());
+                        }
+                    }
+                }
+
+                public void onStartTrackingTouch(android.widget.SeekBar b) {
+                }
+
+                public void onStopTrackingTouch(android.widget.SeekBar b) {
+                    applyScreenFilterToNative(screenFilter());
+                    updateScreenFilters();
+                }
+            });
+            sliderLabels[k] = label;
+            sliders[k] = bar;
+            label.setText(names[k] + " · " + bar.getProgress());
+            panel.addView(bar);
+        }
+        panel.addView(filterSwitchRow("이 게임만 다르게", "끄면 " + consoleName() + "에 고른 필터를 따라요", "filter_game_on:" + this.saveBaseName, false, on -> {
+            if (on && !prefs.contains(filterGameKey())) {
+                prefs.edit().putInt(filterGameKey(), screenFilter()).apply();
+            }
+            applyScreenFilterToNative(screenFilter());
+            updateScreenFilters();
+            paint[0].run();
+        }));
+        panel.addView(filterSwitchRow("게임기 기본 필터 쓰기", "아직 안 고른 게임기는 어울리는 필터로 (끄면 \"기본\")", "filter_defaults", true, on -> {
+            applyScreenFilterToNative(screenFilter());
+            updateScreenFilters();
+            paint[0].run();
+        }));
+        TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(close, closeParams);
+        paint[0] = () -> {
+            int current = screenFilter();
+            sub.setText(consoleName() + (filterPerGame() ? " · 이 게임만" : " · 이 게임기 전체") + " · 지금: " + filterName(current));
+            for (LinearLayout tile : tiles) {
+                boolean on = ((Integer) tile.getTag()) == current;
+                android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+                shape.setColor(Theme.bg(on ? Color.rgb(245, 243, 255) : Color.WHITE));
+                shape.setCornerRadius(dp(12));
+                shape.setStroke(dp(2), Theme.line(on ? purple : Color.rgb(229, 231, 235)));
+                tile.setBackground(shape);
+                ((TextView) tile.getChildAt(1)).setTextColor(Theme.text(on ? Color.rgb(91, 33, 182) : Color.rgb(55, 65, 81)));
+            }
+            sliderLabels[1].setVisibility(current == 5 || current == 6 ? View.VISIBLE : View.GONE);
+            sliders[1].setVisibility(current == 5 || current == 6 ? View.VISIBLE : View.GONE);
+            sliderLabels[2].setVisibility(current == 6 ? View.VISIBLE : View.GONE);
+            sliders[2].setVisibility(current == 6 ? View.VISIBLE : View.GONE);
+            boolean strong = current >= 5 && current <= 8;
+            sliderLabels[0].setVisibility(strong ? View.VISIBLE : View.GONE);
+            sliders[0].setVisibility(strong ? View.VISIBLE : View.GONE);
+            for (FilterPreview p : previews) {
+                p.setLook(filterStrength(), filterCurve(), filterBright());
+            }
+        };
+        paint[0].run();
+        dialog.setContentView(scroll);
+        dialog.setOnDismissListener(d -> refresh.run());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    private interface FilterToggle {
+        void set(boolean on);
+    }
+
+    private LinearLayout filterSwitchRow(String title, String note, String key, boolean fallback, FilterToggle onChange) {
+        final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(8), dp(8), dp(8));
+        android.graphics.drawable.GradientDrawable shape = new android.graphics.drawable.GradientDrawable();
+        shape.setColor(Theme.bg(Color.rgb(246, 247, 249)));
+        shape.setCornerRadius(dp(12));
+        row.setBackground(shape);
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(1);
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextSize(13.0f);
+        t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        t.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        words.addView(t);
+        TextView n = new TextView(this);
+        n.setText(note);
+        n.setTextSize(11.0f);
+        n.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        words.addView(n);
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        android.widget.Switch toggle = new android.widget.Switch(this);
+        toggle.setChecked(prefs.getBoolean(key, fallback));
+        toggle.setOnCheckedChangeListener((b, on) -> {
+            prefs.edit().putBoolean(key, on).apply();
+            onChange.set(on);
+        });
+        row.addView(toggle);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, dp(10), 0, 0);
+        row.setLayoutParams(params);
+        return row;
     }
     private static final String[] HAPTIC_NAMES = {"꺼짐", "약하게", "보통", "강하게"};
     private static final String[] HAPTIC_NOTES = {"진동 없음 (기본)", "살짝 톡", "또렷하게 톡", "확실하게 툭"};
@@ -5144,10 +5452,6 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     };
 
-    private int screenFilter() {
-        int value = MainActivity.sharedSettings(this).getInt("screen_filter", 0);
-        return value >= 0 && value <= (is3d() ? 4 : 3) ? value : 0;
-    }
 
     private int hapticLevel() {
         int value = MainActivity.sharedSettings(this).getInt("haptic_level", 0);
@@ -5612,18 +5916,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void updateScreenFilters() {
         int filter = screenFilter();
         long handle = this.nativeHandle;
-        int[] size = handle != 0 && filter >= 2 && filter <= 3 ? NativeGba.frameSize(handle) : null;
+        int[] size = handle != 0 && ScreenFilterView.drawsLines(filter) ? NativeGba.frameSize(handle) : null;
         boolean integer = shapeScaleMode() == 1;
         if (integer) {
             applyScreenShape();
         }
         for (ScreenFilterView view : this.screenFilters) {
             view.setFilter(filter);
+            view.setLook(filterStrength(), filterCurve());
             if (size != null && size.length == 2) {
                 view.setGameSize(size[0], size[1]);
             }
             view.removeCallbacks(this.screenFilterPoll);
-            if (((filter >= 2 && filter <= 3) || integer) && !this.destroyed) {
+            if ((ScreenFilterView.drawsLines(filter) || integer) && !this.destroyed) {
                 view.postDelayed(this.screenFilterPoll, 500);
             }
         }
@@ -5708,17 +6013,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, dp(52));
         filterParams.setMargins(0, 0, 0, 0);
         boolean threeD = is3d();
-        panel.addView(createSettingRow(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", (threeD ? FILTER_NAMES_3D : FILTER_NAMES)[screenFilter()],
-                view -> showChoiceDialog(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", threeD ? FILTER_NAMES_3D : FILTER_NAMES,
-                        threeD ? FILTER_NOTES_3D : FILTER_NOTES, screenFilter(),
-                        threeD ? "모든 게임에 바로 적용돼요.\nFSR은 3D 기기(PSP·PS2·N64·드림캐스트·새턴)에서만 보여요. 2D 게임에선 '기본'으로 보여요."
-                                : "모든 게임에 바로 적용돼요.\nPSP·PS2·N64·드림캐스트 같은 3D 게임은 'FSR 업스케일'도 고를 수 있어요.",
-                        Color.rgb(232, 246, 255), Color.rgb(3, 105, 161), "적용", choice -> {
-                    MainActivity.sharedSettings(this).edit().putInt("screen_filter", choice).apply();
-                    applyScreenFilterToNative(choice);
-                    updateScreenFilters();
-                    refresh.run();
-                })), filterParams);
+        panel.addView(createSettingRow(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "화면 필터", filterName(screenFilter()),
+                view -> showScreenFilterSheet(refresh)), filterParams);
         if (!isPadScreen()) {
             LinearLayout.LayoutParams shapeParams = new LinearLayout.LayoutParams(-1, dp(52));
             shapeParams.setMargins(0, dp(8), 0, 0);

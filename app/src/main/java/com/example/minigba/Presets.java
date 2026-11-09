@@ -234,7 +234,8 @@ final class Presets {
                 data.put("shell", ClearShellView.normalize(prefs.getInt("shell_style", ClearShellView.STYLE_PLASTIC)));
             }
             if (items[ITEM_FILTER]) {
-                data.put("filter", prefs.getInt("screen_filter", 0));
+                // the console's filter (0.0.360), or the one shared by all before that
+                data.put("filter", prefs.getInt("filter_con:" + mode, prefs.getInt("screen_filter", 0)));
             }
             boolean[] orientations = scope == SCOPE_ONE ? new boolean[]{landscapeNow} : new boolean[]{false, true};
             for (boolean landscape : orientations) {
@@ -321,7 +322,7 @@ final class Presets {
                 edit.putInt("shell_style", data.getInt("shell"));
             }
             if (data.has("filter")) {
-                edit.putInt("screen_filter", data.getInt("filter"));
+                edit.putInt("filter_con:" + mode, data.getInt("filter"));
             }
             for (int o = 0; o < 2; o++) {
                 boolean landscape = o == 1;
