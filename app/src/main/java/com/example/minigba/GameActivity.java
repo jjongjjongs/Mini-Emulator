@@ -17644,7 +17644,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     render[0].run();
                 }));
                 body.addView(ps2Note(port[0] == 1 ? "2P에 꽂으면 1P 패드가 그대로 남아요. 게임이 2P 총을 받지 않으면 1P로 바꿔 주세요."
-                        : "1P에 꽂으면 그 게임에서 패드는 START만 그대로이고 나머지 버튼은 쉬어요 (실제 기계처럼).",
+                        : "1P에 꽂으면 그 게임에서 키패드는 쉬어요 (실제 기계처럼 패드를 빼고 총을 꽂아요). 건콘에는 START가 없어서, 시작 · 메뉴는 총의 A · B나 화면 밖 쏘기로 해요.",
                         Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
             }
             body.addView(backgroundChips("조준 움직이는 방법", GUN_AIM_NAMES, aim[0], red, i -> {
@@ -17665,7 +17665,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     buttons.append(k == 0 ? "" : " · ").append(shownGun.labels[k]);
                 }
                 body.addView(ps2Note("생기는 버튼: " + buttons + "\n빈 곳에 놓이고, 버튼 · 화면 배치 편집으로 옮길 수 있어요. 게임패드 버튼에도 붙일 수 있어요."
-                        + (shownGun.replacesPad ? "\n이 게임기는 총이 패드 자리를 대신해요: 키패드의 START · SELECT(COIN) · 방향키는 그대로, 나머지는 이 게임에서 쉬어요." : ""),
+                        + (shownGun.replacesPad ? "\n이 게임기는 총이 패드 자리를 대신해요: 키패드는 총에도 있는 버튼(START · SELECT(COIN) · 방향키)만 쓰이고, 나머지는 이 게임에서 쉬어요." : ""),
                         Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
             }
         };
