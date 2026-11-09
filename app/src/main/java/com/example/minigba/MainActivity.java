@@ -173,6 +173,9 @@ public final class MainActivity extends Activity {
         if (CORE_PCSX2.equals(core)) {
             core = "play";
         }
+        if (CORE_SWAN.equals(core)) {
+            core = CORE_PCSX;  // the second PS1 engine takes the PS1 files
+        }
         // One engine can serve several modes (Genesis Plus GX: Mega Drive and Master System).
         for (String[] console : CONSOLES) {
             if (console[1].equals(core) && hasExtension(lowerCaseName, console[2])) {
