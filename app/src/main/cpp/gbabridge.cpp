@@ -1575,6 +1575,12 @@ std::atomic<bool> gNoAutoState{false};
 // tall (portrait, the screens one above the other). Kept for the next game and applied to
 // the running one at once.
 std::mutex gWiiuLayoutMutex;
+// 3DS screen layout of Mini Emulator's own (0.0.352): "W,H,top l,t,r,b,bottom l,t,r,b" in
+// pixels of the view the frame is shown in (empty: the engine's stacked / side layouts),
+// and the ⇅ swap. Read as core options; a change is passed on at once.
+std::mutex gN3dsLayoutMutex;
+std::string gN3dsLayoutSpec;
+std::atomic<bool> gN3dsSwap{false};
 int gWiiuStack = 1;
 float gWiiuTv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
 float gWiiuPad[4] = {0.70f, 0.0f, 0.30f, 0.30f};
@@ -1860,7 +1866,13 @@ const char* fixedVariable(const char* key) {
         // landscape with a controller.
         return gNdsLayout.load() == 2 ? "Side by Side" : "Default Top-Bottom Screen";
     }
-    if (strcmp(key, "citra_swap_screen") == 0) return "Top";
+    if (strcmp(key, "citra_swap_screen") == 0) return gN3dsSwap.load() ? "Bottom" : "Top";
+    if (strcmp(key, "citra_mini_layout") == 0) {
+        static std::string value;
+        std::lock_guard<std::mutex> lock(gN3dsLayoutMutex);
+        value = gN3dsLayoutSpec;
+        return value.c_str();
+    }
     if (strcmp(key, "citra_graphics_api") == 0) return vulkanFor("citra") ? "Vulkan" : "OpenGL";
     if (strcmp(key, "citra_async_shader_compilation") == 0) return vulkanFor("citra") ? "enabled" : "disabled";
     if (strcmp(key, "citra_use_hw_shaders") == 0) return "enabled";
@@ -4559,6 +4571,28 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiControl(JNIEnv* 
     // 0 remote + nunchuk, 1 remote sideways, 2 classic controller
     int device = type == 1 ? ((2 << 8) | RETRO_DEVICE_JOYPAD) : type == 2 ? ((4 << 8) | RETRO_DEVICE_JOYPAD) : ((3 << 8) | RETRO_DEVICE_JOYPAD);
     gWiiDevice.store(device);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsLayout(
+        JNIEnv* env, jclass /*cls*/, jlong handle, jstring spec, jboolean swap) {
+    std::string value;
+    if (spec != nullptr) {
+        const char* chars = env->GetStringUTFChars(spec, nullptr);
+        if (chars != nullptr) {
+            value = chars;
+            env->ReleaseStringUTFChars(spec, chars);
+        }
+    }
+    bool changed;
+    {
+        std::lock_guard<std::mutex> lock(gN3dsLayoutMutex);
+        changed = gN3dsLayoutSpec != value;
+        gN3dsLayoutSpec = value;
+    }
+    changed |= gN3dsSwap.exchange(swap == JNI_TRUE) != (swap == JNI_TRUE);
+    if (changed && fromHandle(handle) != nullptr) {
+        gVariablesUpdated.store(true);
+    }
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCitraVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
