@@ -1275,6 +1275,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (isNds()) {
                 targets.add(new PadMapping.Target(kL3, "MIC", middle));
             }
+            if (isN3ds()) {
+                targets.add(new PadMapping.Target(kMic3ds, "MIC", middle));
+            }
         } else if (isPadLayout()) {
             // GBA, NES, Master System, PC Engine: two face buttons, shoulders on the GBA.
             boolean sms = isMasterSystem();
@@ -2693,7 +2696,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return row;
     }
 
-    // ---- DS microphone: the MIC button (L3) and the phone's mic ----
+    // ---- DS microphone: the MIC button (L3) and the phone's mic. The 3DS (0.0.370) has its
+    // own MIC button (kMic3ds) and settings; there the app decides when the game hears the
+    // phone's mic (or the blowing sound), while the engine only asks for samples. ----
     private static final int REQUEST_MIC = 4101;
     private static final String[] MIC_INPUT_NAMES = {"실제 마이크", "후 불기 소리 (내장)", "끔"};
     private static final String[] MIC_INPUT_NOTES = {
@@ -2715,18 +2720,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private TextView micBadgeText;
     private final Runnable micPoll = this::pollMic;
 
+    private String micKeyPrefix() {
+        return isN3ds() ? "n3ds_mic_" : "ds_mic_";
+    }
+
     private int dsMicInput() {
-        int value = MainActivity.sharedSettings(this).getInt("ds_mic_input", 0);
+        int value = MainActivity.sharedSettings(this).getInt(micKeyPrefix() + "input", 0);
         return value >= 0 && value <= 2 ? value : 0;
     }
 
     private int dsMicButton() {
-        int value = MainActivity.sharedSettings(this).getInt("ds_mic_button", 0);
+        int value = MainActivity.sharedSettings(this).getInt(micKeyPrefix() + "button", 0);
         return value >= 0 && value <= 2 ? value : 0;
     }
 
     private void onMicButton(boolean down) {
-        if (!isNds() || down == this.micButtonDown) {
+        if ((!isNds() && !isN3ds()) || down == this.micButtonDown) {
             return;
         }
         this.micButtonDown = down;
@@ -2745,7 +2754,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void startMicPoll() {
-        if (!isNds() || this.destroyed || this.nativeHandle == 0) {
+        if ((!isNds() && !isN3ds()) || this.destroyed || this.nativeHandle == 0) {
             return;
         }
         View decor = getWindow().getDecorView();
@@ -2767,8 +2776,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         int input = dsMicInput();
         boolean paused = this.pauseDialog != null && this.pauseDialog.isShowing();
-        if (input == 0) {
-            boolean on = NativeGba.isDsMicOn() && !paused;
+        // The DS's core turns its mic on itself (L3); the 3DS's game only samples, and the
+        // MIC button says when it hears something.
+        boolean n3ds = isN3ds();
+        if (n3ds && input == 1) {
+            boolean on = micWanted() && !paused;
+            this.micCapture.stop();
+            if (on && NativeGba.isDsMicOn()) {
+                pushBlowSound();
+            }
+            showMicBadge(on, on ? 0.75f : 0f);
+        } else if (input == 0) {
+            boolean on = NativeGba.isDsMicOn() && !paused && (!n3ds || micWanted());
             if (on && !this.micCapture.isRunning()) {
                 if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                     if (!this.micCapture.start()) {
@@ -2790,6 +2809,21 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             showMicBadge(false, 0f);
         }
         getWindow().getDecorView().postDelayed(this.micPoll, 50);
+    }
+
+    // 3DS "후 불기 소리": 50 ms of breathy noise (low-passed white noise at 44.1 kHz), the
+    // poll's period, into the microphone queue.
+    private final short[] blowSamples = new short[2205];
+    private final java.util.Random blowNoise = new java.util.Random();
+    private float blowState;
+
+    private void pushBlowSound() {
+        for (int k = 0; k < this.blowSamples.length; k++) {
+            float white = this.blowNoise.nextFloat() * 2f - 1f;
+            this.blowState += (white - this.blowState) * 0.35f;
+            this.blowSamples[k] = (short) Math.max(-32767, Math.min(32767, Math.round(this.blowState * 26000f)));
+        }
+        NativeGba.pushMic(this.blowSamples, this.blowSamples.length);
     }
 
     private void showMicBadge(boolean shown, float level) {
@@ -2834,7 +2868,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(16), dp(18), dp(16), dp(14));
         panel.setBackground(roundRect(Color.WHITE, dp(24)));
-        panel.addView(sheetHeader(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크를 쓸까요?", this.gameTitle + " · DS", null));
+        panel.addView(sheetHeader(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크를 쓸까요?", this.gameTitle + (isN3ds() ? " · 3DS" : " · DS"), null));
         TextView body = sheetText("이 게임은 목소리나 바람(후 불기)으로 하는 장면이 있어요. MIC 버튼을 누르고 있는 동안만 소리를 게임에 넘겨요. 녹음하거나 어디에 보내지 않아요.",
                 13.0f, Color.rgb(55, 65, 81), false);
         body.setLineSpacing(0, 1.2f);
@@ -2887,10 +2921,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout row = createSettingRow(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크 소리", MIC_INPUT_NAMES[dsMicInput()], null);
         final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
         row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, Color.rgb(219, 39, 119), "마이크 소리", MIC_INPUT_NAMES, MIC_INPUT_NOTES,
-                dsMicInput(), "모든 DS 게임에 같이 적용 · 바로 바뀌어요.\n게임 화면의 MIC 버튼(또는 게임패드에 붙인 버튼)을 누를 때 들어가요.",
+                dsMicInput(), "모든 " + (isN3ds() ? "3DS" : "DS") + " 게임에 같이 적용 · 바로 바뀌어요.\n게임 화면의 MIC 버튼(또는 게임패드에 붙인 버튼)을 누를 때 들어가요.",
                 Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
-            MainActivity.sharedSettings(this).edit().putInt("ds_mic_input", choice).apply();
-            NativeGba.setDsMic(choice, dsMicButton());
+            MainActivity.sharedSettings(this).edit().putInt(micKeyPrefix() + "input", choice).apply();
+            if (isNds()) {
+                NativeGba.setDsMic(choice, dsMicButton());
+            }
             if (choice == 0) {
                 this.micRefused = false;
             }
@@ -2903,10 +2939,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout row = createSettingRow(RoundIconView.PERF, Color.rgb(219, 39, 119), "MIC 버튼 방식", MIC_BUTTON_NAMES[dsMicButton()], null);
         final TextView value = (TextView) row.getChildAt(row.getChildCount() - 1);
         row.setOnClickListener(view -> showChoiceDialog(RoundIconView.PERF, Color.rgb(219, 39, 119), "MIC 버튼 방식", MIC_BUTTON_NAMES, MIC_BUTTON_NOTES,
-                dsMicButton(), "모든 DS 게임에 같이 적용 · 바로 바뀌어요.",
+                dsMicButton(), "모든 " + (isN3ds() ? "3DS" : "DS") + " 게임에 같이 적용 · 바로 바뀌어요.",
                 Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
-            MainActivity.sharedSettings(this).edit().putInt("ds_mic_button", choice).apply();
-            NativeGba.setDsMic(dsMicInput(), choice);
+            MainActivity.sharedSettings(this).edit().putInt(micKeyPrefix() + "button", choice).apply();
+            if (isNds()) {
+                NativeGba.setDsMic(dsMicInput(), choice);
+            }
             this.micToggled = false;
             value.setText(MIC_BUTTON_NAMES[choice] + "  ›");
         }));
@@ -8210,6 +8248,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 addButton(frameLayout, "Y", 2048, 8388693, dp(130), dp(152), dp(50), dp(50), TouchButton.STYLE_DARK);
                 addCenterButton(frameLayout, selectLabel(), 4, -66, 14);
                 addCenterButton(frameLayout, startLabel(), 8, 66, 14);
+                // The microphone (0.0.370) in the lower left corner, beside SELECT and under the D-pad.
+                addButton(frameLayout, "MIC", kMic3ds, Gravity.BOTTOM | Gravity.START, dp(12), dp(10), dp(44), dp(44), TouchButton.STYLE_PINK);
                 return;
             }
             if (ds) {
@@ -8329,7 +8369,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private void updateInput() {
-        onMicButton((this.buttonMask & kL3) != 0);
+        onMicButton((this.buttonMask & (isN3ds() ? kMic3ds : kL3)) != 0);
         if (isMame139()) {
             Emulator.setMiniInput(this.buttonMask);
             return;
@@ -8887,6 +8927,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (n3dsNetMode() != 0) {
                 panel.addView(createN3dsNameRow(dialog), tabRowParams(panel));
             }
+            panel.addView(createMicInputRow(), tabRowParams(panel));
+            panel.addView(createMicButtonRow(), tabRowParams(panel));
         }
         if (isNds()) {
             panel.addView(createDsNetRow(dialog), tabRowParams(panel));
@@ -14817,6 +14859,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         padParams.setMargins(dp(76), dp(232), 0, 0);
         frameLayout.addView(createDirectionControl(), padParams);
         addButton(frameLayout, selectLabel(), 4, 8388691, dp(100), dp(14), dp(94), dp(34));
+        // The microphone (0.0.370) in the lower left corner, left of SELECT.
+        addButton(frameLayout, "MIC", kMic3ds, Gravity.BOTTOM | Gravity.START, dp(16), dp(10), dp(46), dp(46), TouchButton.STYLE_PINK);
         // Right column: R, the diamond level with the circle pad and well in from the edge,
         // START at the bottom (the speed button sits above it).
         addButton(frameLayout, "R", 256, 8388661, dp(14), dp(62), dp(104), dp(38), 2);
@@ -17919,6 +17963,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final int kR2 = 32768;
     private static final int kL3 = 65536;
     private static final int kR3 = 131072;
+    // 3DS MIC button (0.0.370): the app's own (Citra reads L3 as HOME), never passed to the core.
+    private static final int kMic3ds = 1 << 22;
 
     // Face buttons: light grey on the PS1 pad, dark on the PSP and PS2.
     private int faceStyle() {

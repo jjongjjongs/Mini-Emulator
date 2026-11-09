@@ -2071,7 +2071,7 @@ retro_proc_address_t RETRO_CALLCONV hwProcAddress(const char* sym) {
     return reinterpret_cast<retro_proc_address_t>(fn);
 }
 
-// ---- The microphone (libretro's microphone interface, for melonDS DS) ----
+// ---- The microphone (libretro's microphone interface, for melonDS DS and Citra) ----
 // The app records the phone's microphone itself (MicCapture.java, only while the game's
 // mic is on) and pushes 16-bit mono samples here; the core reads them back each frame.
 }  // namespace
@@ -2365,7 +2365,8 @@ bool RETRO_CALLCONV environmentCallback(unsigned cmd, void* data) {
             return true;
         }
         case RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE: {
-            if (data == nullptr || core->coreId != "melonds") return false;
+            // melonDS DS, and Citra (its microphone input from the frontend, 0.0.370).
+            if (data == nullptr || (core->coreId != "melonds" && core->coreId != "citra")) return false;
             auto* interface = static_cast<retro_microphone_interface*>(data);
             if (interface->interface_version != RETRO_MICROPHONE_INTERFACE_VERSION) return false;
             interface->open_mic = mic::open;

@@ -35,6 +35,8 @@ git -C "$DIR" submodule update -q --init --recursive --depth 1 --jobs 8
 #   install-cia: exports citra_install_cia() so the app can install CIAs through the core.
 #   incomplete-cia: an install that wrote fewer contents than the TMD lists is reported as
 #   a failure (and its folder removed) instead of success.
+#   zzzzzz-mini-mic: the 3DS microphone from the frontend's libretro microphone interface
+#   (the app's MIC button), instead of Citra's static noise (0.0.370).
 for PATCH in "$HERE"/patches/citra-*.patch; do
     [ -e "$PATCH" ] || continue
     if ! git -C "$DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
