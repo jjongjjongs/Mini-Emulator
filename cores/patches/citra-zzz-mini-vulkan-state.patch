@@ -1,0 +1,118 @@
+diff --git a/src/video_core/renderer_vulkan/renderer_vulkan.cpp b/src/video_core/renderer_vulkan/renderer_vulkan.cpp
+index bef7ebe..1b75e75 100644
+--- a/src/video_core/renderer_vulkan/renderer_vulkan.cpp
++++ b/src/video_core/renderer_vulkan/renderer_vulkan.cpp
+@@ -54,7 +54,27 @@ constexpr static std::array<vk::DescriptorSetLayoutBinding, 1> PRESENT_BINDINGS
+ RendererVulkan::RendererVulkan(Core::System& system, Frontend::EmuWindow& window,
+                                 VkInstance vk_instance, VkPhysicalDevice gpu)
+     : RendererBase{system, window, nullptr}, memory{system.Memory()},
+-      instance{system.TelemetrySession(), vk_instance, gpu},
++      instance_owner{std::make_shared<Instance>(system.TelemetrySession(), vk_instance, gpu)},
++      instance{*instance_owner},
++      scheduler{instance}, renderpass_cache{instance, scheduler}, pool{instance},
++      vertex_buffer{instance, scheduler, vk::BufferUsageFlagBits::eVertexBuffer,
++                    VERTEX_BUFFER_SIZE},
++      present_set_provider{instance, pool, PRESENT_BINDINGS}
++{
++    auto& kept = LibretroInstance();
++    if (kept) {
++        // a second device for the same frontend: the old one is never torn down under it
++        new std::shared_ptr<Instance>(kept);
++    }
++    kept = instance_owner;
++    CompileShaders();
++    BuildLayouts();
++}
++
++RendererVulkan::RendererVulkan(Core::System& system, Frontend::EmuWindow& window,
++                               std::shared_ptr<Instance> kept_instance)
++    : RendererBase{system, window, nullptr}, memory{system.Memory()},
++      instance_owner{std::move(kept_instance)}, instance{*instance_owner},
+       scheduler{instance}, renderpass_cache{instance, scheduler}, pool{instance},
+       vertex_buffer{instance, scheduler, vk::BufferUsageFlagBits::eVertexBuffer,
+                     VERTEX_BUFFER_SIZE},
+@@ -64,6 +84,12 @@ RendererVulkan::RendererVulkan(Core::System& system, Frontend::EmuWindow& window
+     BuildLayouts();
+ }
+ 
++std::shared_ptr<Instance>& RendererVulkan::LibretroInstance() {
++    // never destroyed, not even at exit (the frontend owns the device's lifetime)
++    static auto* kept = new std::shared_ptr<Instance>();
++    return *kept;
++}
++
+ void RendererVulkan::CreateMainWindow() {
+     if (main_window) {
+         return;
+@@ -86,7 +112,9 @@ void RendererVulkan::CreateMainWindow() {
+ RendererVulkan::RendererVulkan(Core::System& system, Frontend::EmuWindow& window,
+                                Frontend::EmuWindow* secondary_window)
+     : RendererBase{system, window, secondary_window}, memory{system.Memory()},
+-      instance{system.TelemetrySession(), window, Settings::values.physical_device.GetValue()},
++      instance_owner{std::make_shared<Instance>(system.TelemetrySession(), window,
++                                                Settings::values.physical_device.GetValue())},
++      instance{*instance_owner},
+       scheduler{instance}, renderpass_cache{instance, scheduler}, pool{instance},
+       //main_window{window, instance, scheduler},
+       vertex_buffer{instance, scheduler, vk::BufferUsageFlagBits::eVertexBuffer,
+diff --git a/src/video_core/renderer_vulkan/renderer_vulkan.h b/src/video_core/renderer_vulkan/renderer_vulkan.h
+index 42bc860..8888c25 100644
+--- a/src/video_core/renderer_vulkan/renderer_vulkan.h
++++ b/src/video_core/renderer_vulkan/renderer_vulkan.h
+@@ -4,6 +4,8 @@
+ 
+ #pragma once
+ 
++#include <memory>
++
+ #include <array>
+ #include <condition_variable>
+ #include <mutex>
+@@ -69,8 +71,16 @@ public:
+                             VkPhysicalDevice gpu);
+     explicit RendererVulkan(Core::System& system, Frontend::EmuWindow& window,
+                             Frontend::EmuWindow* secondary_window);
++    // libretro: a renderer on the device made before (after a save state is loaded).
++    explicit RendererVulkan(Core::System& system, Frontend::EmuWindow& window,
++                            std::shared_ptr<Instance> kept_instance);
+     ~RendererVulkan() override;
+ 
++    // libretro: the device made for the frontend (in create_device) lives as long as the
++    // frontend uses it, not as long as one renderer: loading a save state replaces the
++    // renderer, and destroying the Instance would destroy the frontend's VkInstance/VkDevice.
++    static std::shared_ptr<Instance>& LibretroInstance();
++
+     [[nodiscard]] VideoCore::RasterizerInterface* Rasterizer() override {
+         return rasterizer.get();
+     }
+@@ -120,7 +130,8 @@ private:
+ private:
+     Memory::MemorySystem& memory;
+ 
+-    Instance instance;
++    std::shared_ptr<Instance> instance_owner;
++    Instance& instance;
+     Scheduler scheduler;
+     RenderpassCache renderpass_cache;
+     DescriptorPool pool;
+diff --git a/src/video_core/video_core.cpp b/src/video_core/video_core.cpp
+index 26413c9..14003b7 100644
+--- a/src/video_core/video_core.cpp
++++ b/src/video_core/video_core.cpp
+@@ -37,6 +37,16 @@ void Init(Frontend::EmuWindow& emu_window, Frontend::EmuWindow* secondary_window
+         return;
+     }
+     const Settings::GraphicsAPI graphics_api = Settings::values.graphics_api.GetValue();
++#ifdef HAVE_LIBRETRO
++    // libretro + Vulkan: after a save state, a new renderer on the frontend's device.
++    if (graphics_api == Settings::GraphicsAPI::Vulkan && Vulkan::RendererVulkan::LibretroInstance()) {
++        auto renderer = std::make_unique<Vulkan::RendererVulkan>(
++            system, emu_window, Vulkan::RendererVulkan::LibretroInstance());
++        renderer->CreateMainWindow();
++        g_renderer = std::move(renderer);
++        return;
++    }
++#endif
+     switch (graphics_api) {
+     case Settings::GraphicsAPI::Software:
+         g_renderer = std::make_unique<SwRenderer::RendererSoftware>(system, emu_window);
