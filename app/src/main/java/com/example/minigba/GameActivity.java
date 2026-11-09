@@ -6177,6 +6177,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         NativeGba.setDosOptions(options[0], options[1], start);
                     }
                     NativeGba.setCitraVulkan(isN3ds() && n3dsVulkan());
+                    NativeGba.setCitraAsync(n3dsAsync());
                     NativeGba.setRotationMode(arcadeRotationMode());
                     NativeGba.setTurbo(turboActiveMask(), turboRate());
                     if (isSwan()) {
@@ -16281,25 +16282,34 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return MainActivity.sharedSettings(this).getBoolean("n3ds_vk:" + this.saveBaseName, false);
     }
 
+    // Vulkan: new shaders built in the background (default) or waited for (0.0.355).
+    private boolean n3dsAsync() {
+        return MainActivity.sharedSettings(this).getBoolean("n3ds_async:" + this.saveBaseName, true);
+    }
+
     private LinearLayout createN3dsGraphicsRow() {
         final int color = Color.rgb(190, 18, 60);
         final boolean off = MainActivity.vulkanOff(MainActivity.sharedSettings(this), "citra");
         final boolean vk = n3dsVulkan();
-        String shown = vk ? (off ? "Vulkan → 오류로 OpenGL" : "Vulkan (실험)") : "OpenGL";
+        final boolean async = n3dsAsync();
+        String shown = vk ? (off ? "Vulkan → 오류로 OpenGL" : async ? "Vulkan · 비동기" : "Vulkan · 기다려서 완성") : "OpenGL";
         return createSettingRow(RoundIconView.GEAR, color, "3DS 그래픽 (실험)", shown,
                 view -> showChoiceDialog(RoundIconView.GEAR, color, "3DS 그래픽 · 이 게임만",
-                        new String[]{"OpenGL (안정 · 기본)", "Vulkan (실험)"},
+                        new String[]{"OpenGL (안정 · 기본)", "Vulkan · 비동기 셰이더", "Vulkan · 기다려서 완성"},
                         new String[]{"지금 방식. 새 효과가 처음 나올 때 1초쯤 멈출 수 있어요 (한 번 지나간 장면은 저장돼 다음엔 덜 멈춤)",
-                                "새 효과를 뒤에서 만들어(비동기 셰이더) 멈추지 않는 대신, 잠깐 일부가 덜 그려졌다가 채워져요"},
-                        vk ? 1 : 0,
+                                "새 효과를 뒤에서 만들어 멈추지 않는 대신, 처음 보는 장면은 물건이 하나씩 그려져요",
+                                "새 효과가 다 만들어질 때까지 잠깐 멈췄다가 완성된 화면을 보여 줘요 (처음 보는 장면에서만)"},
+                        vk ? (async ? 1 : 2) : 0,
                         "실험 기능이에요. 화면이 깨지거나 검게 나오면 OpenGL로 돌려 주세요. Vulkan으로 그리다 엔진이 멈추면 다음 실행부터 자동으로 OpenGL로 켜요."
                                 + (off ? "\n\n지금은 전에 Vulkan 오류가 있어서 OpenGL로 켜고 있어요. Vulkan을 다시 고르면 한 번 더 시도해요." : ""),
                         Color.rgb(255, 241, 242), Color.rgb(159, 18, 57), "적용 (다시 켜기)", choice -> {
-                    boolean want = choice == 1;
-                    if (want == vk && !(want && off)) {
+                    boolean want = choice >= 1;
+                    boolean wantAsync = choice != 2;
+                    if (want == vk && !(want && off) && (!want || wantAsync == async)) {
                         return;
                     }
-                    android.content.SharedPreferences.Editor editor = MainActivity.sharedSettings(this).edit().putBoolean("n3ds_vk:" + this.saveBaseName, want);
+                    android.content.SharedPreferences.Editor editor = MainActivity.sharedSettings(this).edit().putBoolean("n3ds_vk:" + this.saveBaseName, want)
+                            .putBoolean("n3ds_async:" + this.saveBaseName, wantAsync);
                     if (want) {
                         editor.remove("vulkan_off:citra");  // try again
                     }

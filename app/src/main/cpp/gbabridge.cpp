@@ -1596,6 +1596,8 @@ std::atomic<int> gDsMicButton{0};
 std::atomic<bool> gVulkanAllowed{true};
 
 std::atomic<bool> gCitraVulkan{false};
+// Vulkan only: build new shaders in the background (true) or wait for them (0.0.355).
+std::atomic<bool> gCitraAsync{true};
 bool vulkanFor(const std::string& coreId) {
     // Cemu has no OpenGL ES renderer, so it takes Vulkan whatever the setting.
     if (coreId == "cemu") return vkhw::available();
@@ -1874,7 +1876,7 @@ const char* fixedVariable(const char* key) {
         return value.c_str();
     }
     if (strcmp(key, "citra_graphics_api") == 0) return vulkanFor("citra") ? "Vulkan" : "OpenGL";
-    if (strcmp(key, "citra_async_shader_compilation") == 0) return vulkanFor("citra") ? "enabled" : "disabled";
+    if (strcmp(key, "citra_async_shader_compilation") == 0) return vulkanFor("citra") && gCitraAsync.load() ? "enabled" : "disabled";
     if (strcmp(key, "citra_use_hw_shaders") == 0) return "enabled";
     if (strcmp(key, "citra_use_shader_jit") == 0) return "enabled";
     if (strcmp(key, "citra_use_hw_shader_cache") == 0) return "enabled";
@@ -4593,6 +4595,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsLayout(
     if (changed && fromHandle(handle) != nullptr) {
         gVariablesUpdated.store(true);
     }
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCitraAsync(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    gCitraAsync.store(on == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCitraVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
