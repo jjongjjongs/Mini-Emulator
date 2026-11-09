@@ -1,0 +1,142 @@
+diff --git a/src/citra_libretro/CMakeLists.txt b/src/citra_libretro/CMakeLists.txt
+index 8fe7cc2..d01aec6 100644
+--- a/src/citra_libretro/CMakeLists.txt
++++ b/src/citra_libretro/CMakeLists.txt
+@@ -26,7 +26,7 @@ target_compile_definitions(citra_common PRIVATE HAVE_LIBRETRO)
+ target_compile_definitions(citra_core PRIVATE HAVE_LIBRETRO)
+ target_compile_definitions(video_core PRIVATE HAVE_LIBRETRO)
+ 
+-target_link_libraries(citra_libretro PRIVATE citra_common citra_core)
++target_link_libraries(citra_libretro PRIVATE citra_common citra_core network)
+ target_link_libraries(citra_libretro PRIVATE boost dds-ktx glad libretro robin_map sirit vulkan-headers)
+ target_link_libraries(citra_libretro PRIVATE ${PLATFORM_LIBRARIES} Threads::Threads)
+ if(DEFINED LIBRETRO_STATIC)
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+index 4c6798e..bd56a3b 100644
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -34,6 +34,8 @@
+ #include "core/loader/loader.h"
+ #include "core/frontend/applets/default_applets.h"
+ #include "core/frontend/image_interface.h"
++#include "network/network.h"
++#include "network/verify_user.h"
+ #include "core/hle/service/am/am.h"
+ 
+ #ifdef HAVE_LIBRETRO_VFS
+@@ -41,6 +43,7 @@
+ #endif
+ 
+ #if defined(HAVE_LIBNX)
++#include <atomic>
+ #include <cstring>
+ typedef void (*rglgen_func_t)(void);
+ typedef rglgen_func_t (*rglgen_proc_address_t)(const char*);
+@@ -73,6 +76,11 @@ void retro_init() {
+     Common::Log::LibRetroStart(LibRetro::GetLoggingBackend());
+     Common::Log::SetGlobalFilter(emu_instance->log_filter);
+ 
++    // Mini Emulator: the room client and server, as the other Citra frontends do. The 3DS local
++    // wireless service (nwm::UDS) binds to the room member when the game boots, so they must
++    // exist before; nothing connects until the app asks (citra_mini_net_start).
++    Network::Init();
++
+     LOG_DEBUG(Frontend, "Initialising core...");
+ 
+     // Set up LLE cores
+@@ -94,6 +102,7 @@ void retro_deinit() {
+     if (Core::System::GetInstance().IsPoweredOn()) {
+         Core::System::GetInstance().Shutdown();
+     }
++    Network::Shutdown();
+ 
+     LibRetro::Input::Shutdown();
+ 
+@@ -770,8 +779,11 @@ bool retro_load_game(const struct retro_game_info* info) {
+     return true;
+ }
+ 
++extern "C" void citra_mini_net_stop();
++
+ void retro_unload_game() {
+     LOG_DEBUG(Frontend, "Unloading game...");
++    citra_mini_net_stop();
+     Core::System::GetInstance().Shutdown();
+ }
+ 
+@@ -854,3 +866,75 @@ extern "C" __attribute__((visibility("default"))) int citra_install_cia(
+     });
+     return static_cast<int>(status);
+ }
++
++// ---- Mini Emulator: 3DS 통신 — local wireless between phones through a Citra room. ----
++// The host phone opens the room (and joins it); the others join it by address. Join blocks
++// for up to the connection timeout, so the app calls these off its main thread.
++namespace {
++std::atomic<int> mini_net_error{-1};
++Network::RoomMember::CallbackHandle<Network::RoomMember::Error> mini_net_error_handle;
++} // namespace
++
++extern "C" __attribute__((visibility("default"))) int citra_mini_net_start(int host, const char* address, int port,
++                                                                           const char* nickname, const char* console,
++                                                                           int max_members, const char* game) {
++    auto member = Network::GetRoomMember().lock();
++    auto room = Network::GetRoom().lock();
++    if (!member || !room || nickname == nullptr || console == nullptr) {
++        return 0;
++    }
++    if (!mini_net_error_handle) {
++        mini_net_error_handle = member->BindOnError(
++            [](const Network::RoomMember::Error& error) { mini_net_error = static_cast<int>(error); });
++    }
++    mini_net_error = -1;
++    const u16 room_port = port > 0 && port < 65536 ? static_cast<u16>(port) : Network::DefaultRoomPort;
++    if (member->IsConnected()) {
++        member->Leave();
++    }
++    if (host) {
++        if (room->GetState() != Network::Room::State::Open &&
++            !room->Create("Mini Emulator", "", "", room_port, "",
++                          static_cast<u32>(max_members > 1 ? max_members : 4), "", game ? game : "", 0,
++                          std::make_unique<Network::VerifyUser::NullBackend>(), {}, false)) {
++            LOG_ERROR(Network, "Mini Emulator: could not open the room on port {}", room_port);
++            return 0;
++        }
++    }
++    member->Join(nickname, console, host ? "127.0.0.1" : (address ? address : ""), room_port, 0,
++                 Network::NoPreferredMac, "");
++    return 1;
++}
++
++// State (0 none, 1 idle, 2 joining, 3 joined, 4 joined as host) | (last error + 1) << 8;
++// the members' names, one per line, into out.
++extern "C" __attribute__((visibility("default"))) int citra_mini_net_status(char* out, int size) {
++    auto member = Network::GetRoomMember().lock();
++    if (!member) {
++        return 0;
++    }
++    std::string names;
++    if (member->IsConnected()) {
++        for (const auto& info : member->GetMemberInformation()) {
++            names += info.nickname;
++            names += '\n';
++        }
++    }
++    if (out != nullptr && size > 0) {
++        snprintf(out, size, "%s", names.c_str());
++    }
++    return (static_cast<int>(member->GetState()) + 0) | ((mini_net_error.load() + 1) << 8);
++}
++
++extern "C" __attribute__((visibility("default"))) void citra_mini_net_stop() {
++    if (auto member = Network::GetRoomMember().lock()) {
++        if (member->IsConnected()) {
++            member->Leave();
++        }
++    }
++    if (auto room = Network::GetRoom().lock()) {
++        if (room->GetState() == Network::Room::State::Open) {
++            room->Destroy();
++        }
++    }
++}
