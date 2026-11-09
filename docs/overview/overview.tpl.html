@@ -635,6 +635,13 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>드림캐스트 .cue 게임 한글패치 (0.0.343)</h3>
+<ul>
+<li>0.0.341에서 넣을 수 있게 된 드림캐스트 .cue 게임(Redump 덤프)에 <b>한글 패치 적용</b>이 나오지 않았습니다. 패치 기능이 드림캐스트는 .gdi만 받았기 때문입니다.</li>
+<li>이제 .cue도 됩니다: 트랙을 고르는 xdelta · PPF 패치, 그리고 <b>.dcp 패치</b>. .dcp는 .cue를 GDI와 같은 디스크로 읽어(저밀도 영역 LBA 0, 고밀도 영역 LBA 45000부터, 트랙마다 파일 하나) 데이터 트랙을 새로 만들고, 결과는 새 이름의 GDI 게임으로 목록에 들어갑니다. 원본은 그대로입니다.</li>
+<li>오디오 트랙은 파일 안의 공백(프리갭)째로 옮겨 소리가 그만큼 늦게 시작하고(대부분 경고 음성 트랙), 데이터 트랙이 파일 처음에서 시작하지 않는 .cue와 한 파일에 트랙이 여러 개인 .cue는 .dcp에 쓸 수 없다고 알려 줍니다.</li>
+<li>시험: PC에서 Redump 형식 .cue(트랙 3개)가 GD-ROM으로 읽히는 것까지 확인했습니다. 실제 .dcp 적용은 휴대폰에서 확인 전입니다.</li>
+</ul>
 <h3>PS1 고화질 엔진 SwanStation (0.0.342)</h3>
 <p>PS1에 엔진을 하나 더 넣었습니다. <b>SwanStation</b>은 DuckStation(PS1 단독 에뮬레이터)을 바탕으로 한 libretro판으로, 지금 엔진(PCSX ReARMed)보다 화질 기능이 많습니다. 두 엔진 중 <b>게임마다</b> 고릅니다.</p>
 <ul>

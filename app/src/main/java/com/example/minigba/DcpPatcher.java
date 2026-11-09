@@ -106,6 +106,9 @@ final class DcpPatcher {
     private static final java.util.regex.Pattern GDI_LINE = java.util.regex.Pattern.compile("^\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(\"([^\"]+)\"|(\\S+))(\\s+.*)?$");
 
     private static Disc readGdi(File gdi) throws IOException {
+        if (gdi.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".cue")) {
+            return readCue(gdi);
+        }
         Disc disc = new Disc();
         try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(new FileInputStream(gdi), StandardCharsets.UTF_8))) {
             String line;
@@ -139,6 +142,76 @@ final class DcpPatcher {
         }
         if (disc.tracks.size() < 3 || disc.trackAt(GD_START) == null || disc.trackAt(GD_START).ctrl != 4) {
             throw new IOException("드림캐스트 GD-ROM GDI가 아니에요 (Track 03이 LBA 45000의 데이터 트랙이어야 해요).");
+        }
+        return disc;
+    }
+
+    // A Redump-style GD-ROM .cue (Track 1 data, Track 2 audio, "REM HIGH-DENSITY AREA",
+    // Track 3 data …) read as the same disc a .gdi would describe: the low-density area from
+    // LBA 0, the high-density area from 45000, each track at the first sector of its file.
+    // Audio tracks keep their pregap in the file (their sound starts that much later, as on a
+    // .gdi made from them); a data track whose file starts with a pregap is refused, since its
+    // sectors would not sit where the disc's file system says.
+    private static Disc readCue(File cue) throws IOException {
+        Disc disc = new Disc();
+        List<String> lines;
+        try {
+            lines = java.nio.file.Files.readAllLines(cue.toPath(), StandardCharsets.UTF_8);
+        } catch (java.nio.charset.MalformedInputException e) {
+            lines = java.nio.file.Files.readAllLines(cue.toPath(), StandardCharsets.ISO_8859_1);
+        }
+        java.util.regex.Pattern fileLine = java.util.regex.Pattern.compile("(?i)^\\s*FILE\\s+(?:\"([^\"]+)\"|(\\S+)).*$");
+        java.util.regex.Pattern trackLine = java.util.regex.Pattern.compile("(?i)^\\s*TRACK\\s+(\\d+)\\s+(\\S+).*$");
+        java.util.regex.Pattern indexLine = java.util.regex.Pattern.compile("(?i)^\\s*INDEX\\s+(\\d+)\\s+(\\d+):(\\d+):(\\d+).*$");
+        File current = null;
+        boolean high = false;
+        long lowCursor = 0;
+        long highCursor = GD_START;
+        Track track = null;
+        for (String raw : lines) {
+            String line = raw.trim();
+            java.util.regex.Matcher m;
+            if (line.toUpperCase(java.util.Locale.ROOT).startsWith("REM HIGH-DENSITY")) {
+                high = true;
+            } else if ((m = fileLine.matcher(line)).matches()) {
+                String name = m.group(1) != null ? m.group(1) : m.group(2);
+                current = new File(cue.getParentFile(), new File(name).getName());
+                if (!current.isFile()) {
+                    throw new IOException(".cue에 적힌 트랙 파일(" + current.getName() + ")이 없어요.");
+                }
+                track = null;
+            } else if ((m = trackLine.matcher(line)).matches()) {
+                if (current == null) {
+                    throw new IOException(".cue를 읽지 못했어요 (FILE 줄이 없어요).");
+                }
+                if (track != null && track.file == current) {
+                    throw new IOException("한 파일에 트랙이 여러 개인 .cue는 .dcp에 쓸 수 없어요. 트랙마다 파일이 따로인 덤프를 써 주세요.");
+                }
+                String type = m.group(2).toUpperCase(java.util.Locale.ROOT);
+                track = new Track();
+                track.number = Integer.parseInt(m.group(1));
+                track.ctrl = type.equals("AUDIO") ? 0 : 4;
+                track.sectorSize = type.endsWith("/2048") ? SECTOR : RAW;
+                track.file = current;
+                track.sectors = current.length() / track.sectorSize;
+                long start = high ? highCursor : lowCursor;
+                track.lba = (int) start;
+                if (high) {
+                    highCursor += track.sectors;
+                } else {
+                    lowCursor += track.sectors;
+                }
+                disc.tracks.add(track);
+                disc.lines.add(line);
+            } else if ((m = indexLine.matcher(line)).matches() && track != null && Integer.parseInt(m.group(1)) == 1) {
+                long offset = (Long.parseLong(m.group(2)) * 60 + Long.parseLong(m.group(3))) * 75 + Long.parseLong(m.group(4));
+                if (offset != 0 && track.ctrl == 4) {
+                    throw new IOException("Track " + track.number + "(데이터)이 파일 처음에서 시작하지 않는 .cue라 .dcp에 쓸 수 없어요. GDI로 된 덤프를 써 주세요.");
+                }
+            }
+        }
+        if (disc.tracks.size() < 3 || disc.trackAt(GD_START) == null || disc.trackAt(GD_START).ctrl != 4) {
+            throw new IOException("드림캐스트 GD-ROM .cue가 아니에요 (고밀도 영역의 첫 트랙이 LBA 45000의 데이터 트랙이어야 해요).");
         }
         return disc;
     }

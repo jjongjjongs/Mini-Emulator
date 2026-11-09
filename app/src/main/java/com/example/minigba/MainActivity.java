@@ -5729,7 +5729,7 @@ public final class MainActivity extends Activity {
         String name = file.getName().toLowerCase(Locale.ROOT);
         // CD games with tracks: patched track by track (CUE: PS1, PC엔진 CD, 메가CD, 새턴; GDI: 드림캐스트).
         if (name.endsWith(".cue")) {
-            return MODE_PS1.equals(mode) || MODE_PCE.equals(mode) || MODE_MCD.equals(mode) || MODE_SS.equals(mode);
+            return MODE_PS1.equals(mode) || MODE_PCE.equals(mode) || MODE_MCD.equals(mode) || MODE_SS.equals(mode) || MODE_DC.equals(mode);
         }
         if (name.endsWith(".gdi")) {
             return MODE_DC.equals(mode);
@@ -6528,7 +6528,7 @@ public final class MainActivity extends Activity {
         }
         final String patchName = displayNameFor(uri);
         if (patchName != null && patchName.toLowerCase(Locale.ROOT).endsWith(".dcp")) {
-            showError(".dcp 패치는 드림캐스트 GDI 게임에만 적용할 수 있어요. CDI에는 xdelta 패치를 쓰고, CHD는 먼저 GDI로 풀어 주세요.");
+            showError(".dcp 패치는 드림캐스트 GDI · CUE 게임에만 적용할 수 있어요. CDI에는 xdelta 패치를 쓰고, CHD는 먼저 GDI로 풀어 주세요.");
             return;
         }
         final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
@@ -7385,8 +7385,9 @@ public final class MainActivity extends Activity {
                     }
                 }
                 if (dcps > 0) {
-                    if (!source.gdi) {
-                        throw new IOException(".dcp 패치는 드림캐스트 GDI 게임에만 적용할 수 있어요.");
+                    boolean dcCue = MODE_DC.equals(modeForFile(file)) && file.getName().toLowerCase(Locale.ROOT).endsWith(".cue");
+                    if (!source.gdi && !dcCue) {
+                        throw new IOException(".dcp 패치는 드림캐스트 GDI · CUE 게임에만 적용할 수 있어요.");
                     }
                     if (uris.size() > 1) {
                         throw new IOException(".dcp 패치는 한 번에 하나만 골라 주세요 (다른 패치와 함께 고를 수 없어요).");
@@ -8360,7 +8361,7 @@ public final class MainActivity extends Activity {
         panel.setBackground(rounded(-1, dp(24)));
         final int violet = Color.rgb(124, 58, 237);
         final String gameName = displayGameNameFor(gdi);
-        cardHeader(panel, RoundIconView.PATCH, violet, "패치 적용 · .dcp", gameName + " · GDI");
+        cardHeader(panel, RoundIconView.PATCH, violet, "패치 적용 · .dcp", gameName + (gdi.getName().toLowerCase(Locale.ROOT).endsWith(".cue") ? " · CUE" : " · GDI"));
         panel.addView(patchStepBar(2));
         StringBuilder what = new StringBuilder();
         what.append(item.name).append(" · ").append(formatSize(item.file.length())).append("\nUniversal Dreamcast Patcher 형식");
