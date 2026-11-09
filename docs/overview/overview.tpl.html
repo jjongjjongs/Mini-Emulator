@@ -635,6 +635,11 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>3DS Vulkan 흐린 화면 고침 (0.0.350)</h3>
+<ul>
+<li>3DS를 Vulkan으로 켜면 화면이 아주 흐리게(뭉개져) 나왔습니다. 앱은 엔진에 Vulkan을 열어 줄 때 64×64 크기의 임시 화면을 건네는데, libretro판 Citra가 넘겨줄 화면 이미지를 그 임시 화면 크기(64×64)로 만들고 있었습니다. 그래서 3DS 화면 전체가 64×64로 줄었다가 다시 크게 늘어났습니다.</li>
+<li>이제 엔진이 넘겨주는 이미지를 실제 그린 화면 크기(해상도 배율 포함)로 만들고, 크기가 바뀌면 다시 맞춥니다. 엔진을 다시 빌드했습니다. 휴대폰에서는 아직 확인 전입니다.</li>
+</ul>
 <h3>PS Vita rePatch · 덮어쓰기 한글패치 · 코드 패치 (0.0.349)</h3>
 <ul>
 <li>게임을 길게 눌러 <b>한글패치 넣기</b>로 고를 수 있는 것: <b>zip · 7z · rar</b> 압축, 낱개 <code>.xdelta</code>, Vita3K 코드 패치 <code>.txt</code>. 앱이 안을 보고 방식을 알아서 정합니다 (한 압축에 섞여 있어도 함께 적용).</li>
