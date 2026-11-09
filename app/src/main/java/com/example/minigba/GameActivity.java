@@ -14463,7 +14463,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // The screen pad (and 1P's pad) to port 1, or to port 2 for games that read only that.
     private void sendMainInput(long handle) {
         int mask = isMsx() ? msxFilterInput(this.buttonMask) : this.buttonMask;
-        mask = turboToggleFilter(mask);
+        mask = gunKeyFilter(turboToggleFilter(mask));
         if (isPc98()) {
             sendPc98Pad(handle, mask);
         }
@@ -17337,6 +17337,171 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // ---- 총 버튼을 키패드에 붙이기 (0.0.376): where the gun takes the pad's place (PS1 with
+    // the gun in 1P, Dreamcast, Naomi, FBNeo, Master System) the keypad's right-hand buttons
+    // are idle, so each gun function can sit on one of them instead of on a new button.
+    // Per game: gun_keys (true = on the keypad, the default) and gun_key:<game>:<gun bit> =
+    // the keypad bit. sendMainInput turns the keypad bit into the gun bit, so a controller's
+    // button mapped there follows too. START stays on the keypad's START, as before. ----
+    private int[] gunKeyMap;
+
+    // The keypad buttons a gun function can sit on: the face buttons and the right shoulders.
+    private java.util.List<PadMapping.Target> gunKeyChoices() {
+        java.util.List<PadMapping.Target> out = new java.util.ArrayList<>();
+        for (PadMapping.Target target : padTargets()) {
+            boolean right = target.group == PadMapping.GROUP_FACE || target.group == PadMapping.GROUP_SHOULDER_RIGHT;
+            if (right && target.bit > 0 && target.bit < kGunTrigger && Integer.bitCount(target.bit) == 1) {
+                out.add(target);
+            }
+        }
+        if (isMasterSystem() && out.size() == 2 && "2".equals(out.get(0).label)) {
+            java.util.Collections.reverse(out);  // 1 before 2
+        }
+        return out;
+    }
+
+    // The gun's functions that go on keypad buttons (all but START).
+    private static int[] gunKeyFunctions(GunSetup gun) {
+        int count = 0;
+        for (int bit : gun.bits) {
+            if (bit != kGunStart) count++;
+        }
+        int[] out = new int[count];
+        int n = 0;
+        for (int bit : gun.bits) {
+            if (bit != kGunStart) out[n++] = bit;
+        }
+        return out;
+    }
+
+    private static String gunLabelOf(GunSetup gun, int bit) {
+        for (int k = 0; k < gun.bits.length; k++) {
+            if (gun.bits[k] == bit) return gun.labels[k];
+        }
+        return "";
+    }
+
+    private boolean gunKeysPossible(GunSetup gun, java.util.List<PadMapping.Target> choices) {
+        return gun != null && gun.replacesPad && !isPadScreen() && choices.size() >= gunKeyFunctions(gun).length;
+    }
+
+    // The keypad button each function starts on: ○ ✕ △ □ / A X B / 1 2 / A B.
+    private int gunKeyPreferred(int function) {
+        if (isSonyPad()) {
+            return function == kGunTrigger ? 1 : function == kGunReload ? 2 : function == kGunAuxA ? 1024 : 2048;
+        }
+        if (isNaomi()) {
+            return function == kGunTrigger ? NAOMI_BITS[0] : NAOMI_BITS[1];
+        }
+        if (isDreamcast()) {
+            return function == kGunTrigger ? 2 : function == kGunReload ? 2048 : 1;
+        }
+        if (isMasterSystem()) {
+            return function == kGunTrigger ? 2 : 1;
+        }
+        return function == kGunTrigger ? 1 : function == kGunReload ? 2 : function == kGunAuxA ? 1024 : 2048;
+    }
+
+    // The keypad bit for each function (one function per button), from the chosen ones
+    // (saved, or the sheet's own) and the starting places.
+    private int[] gunKeyAssign(GunSetup gun, java.util.List<PadMapping.Target> choices, java.util.Map<Integer, Integer> chosen) {
+        int[] functions = gunKeyFunctions(gun);
+        int[] keys = new int[functions.length];
+        java.util.Set<Integer> valid = new java.util.HashSet<>();
+        for (PadMapping.Target target : choices) valid.add(target.bit);
+        java.util.Set<Integer> used = new java.util.HashSet<>();
+        for (int pass = 0; pass < 3; pass++) {
+            for (int k = 0; k < functions.length; k++) {
+                if (keys[k] != 0) continue;
+                int want = 0;
+                if (pass == 0) {
+                    Integer saved = chosen.get(functions[k]);
+                    want = saved != null ? saved : 0;
+                } else if (pass == 1) {
+                    want = gunKeyPreferred(functions[k]);
+                } else {
+                    for (PadMapping.Target target : choices) {
+                        if (!used.contains(target.bit)) {
+                            want = target.bit;
+                            break;
+                        }
+                    }
+                }
+                if (want != 0 && valid.contains(want) && !used.contains(want)) {
+                    keys[k] = want;
+                    used.add(want);
+                }
+            }
+        }
+        return keys;
+    }
+
+    private java.util.Map<Integer, Integer> gunKeysSaved(GunSetup gun) {
+        java.util.Map<Integer, Integer> chosen = new java.util.HashMap<>();
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        for (int function : gunKeyFunctions(gun)) {
+            int key = prefs.getInt("gun_key:" + this.saveBaseName + ":" + function, 0);
+            if (key != 0) chosen.put(function, key);
+        }
+        return chosen;
+    }
+
+    // Works out the keypad-to-gun map for this game (null when the gun has its own buttons).
+    private void refreshGunKeys() {
+        this.gunKeyMap = null;
+        GunSetup gun = gunOn() ? gunSetup() : null;
+        if (gun == null || !MainActivity.sharedSettings(this).getBoolean("gun_keys:" + this.saveBaseName, true)) {
+            return;
+        }
+        java.util.List<PadMapping.Target> choices = gunKeyChoices();
+        if (!gunKeysPossible(gun, choices)) {
+            return;
+        }
+        int[] functions = gunKeyFunctions(gun);
+        int[] keys = gunKeyAssign(gun, choices, gunKeysSaved(gun));
+        int[] map = new int[functions.length * 2];
+        for (int k = 0; k < functions.length; k++) {
+            map[k * 2] = keys[k];
+            map[k * 2 + 1] = functions[k];
+        }
+        this.gunKeyMap = map;
+    }
+
+    private int gunKeyFilter(int mask) {
+        int[] map = this.gunKeyMap;
+        if (map == null) {
+            return mask;
+        }
+        int out = mask;
+        for (int k = 0; k + 1 < map.length; k += 2) {
+            if (map[k] != 0 && (mask & map[k]) != 0) {
+                out = (out & ~map[k]) | map[k + 1];
+            }
+        }
+        return out;
+    }
+
+    // The tags on the keypad: the function's name on its button, the other right-hand
+    // buttons faint (they do nothing while the gun is in).
+    private void tagGunKeys(View view, GunSetup gun, java.util.Set<Integer> idle) {
+        if (view instanceof TouchButton) {
+            TouchButton button = (TouchButton) view;
+            if (this.gunButtons.contains(button)) return;
+            int bit = button.bit();
+            String tag = null;
+            int[] map = this.gunKeyMap;
+            for (int k = 0; map != null && k + 1 < map.length; k += 2) {
+                if (map[k] == bit) tag = gunLabelOf(gun, map[k + 1]);
+            }
+            button.setGunTag(tag, tag == null && idle.contains(bit));
+        } else if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int k = 0; k < group.getChildCount(); k++) {
+                tagGunKeys(group.getChildAt(k), gun, idle);
+            }
+        }
+    }
+
     // The aim, 0..1 across and down the picture (dragging moves it from where it is).
     private float gunAimX = 0.5f;
     private float gunAimY = 0.5f;
@@ -17404,9 +17569,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void addGunButtons(FrameLayout root) {
         this.gunButtons.clear();
         this.gunUnplaced.clear();
+        refreshGunKeys();
         GunSetup gun = gunOn() ? gunSetup() : null;
         if (gun == null || isPadScreen()) {
             return;
+        }
+        if (this.gunKeyMap != null) {
+            java.util.Set<Integer> idle = new java.util.HashSet<>();
+            for (PadMapping.Target target : gunKeyChoices()) idle.add(target.bit);
+            tagGunKeys(root, gun, idle);
+            return;  // the keypad carries the gun's buttons; START is the keypad's START
         }
         android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
         for (int k = 0; k < gun.labels.length; k++) {
@@ -17594,6 +17766,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final int[] dx = {gunInt("gun_dx", 0)};
         final int[] dy = {gunInt("gun_dy", 0)};
         final int[] sens = {gunInt("gun_sens", 100)};
+        final boolean wasKeys = prefs.getBoolean("gun_keys:" + base, true);
+        final boolean[] keysOn = {wasKeys};
+        final java.util.Map<Integer, Integer> keyChosen = new java.util.HashMap<>();
+        for (int function : new int[]{kGunTrigger, kGunReload, kGunAuxA, kGunAuxB}) {
+            int key = prefs.getInt("gun_key:" + base + ":" + function, 0);
+            if (key != 0) keyChosen.put(function, key);
+        }
+        final java.util.Map<Integer, Integer> wasChosen = new java.util.HashMap<>(keyChosen);
+        final java.util.List<PadMapping.Target> keyChoices = gunKeyChoices();
         final int red = Color.rgb(220, 38, 38);
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
@@ -17611,7 +17792,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
         TextView sub = new TextView(this);
-        sub.setText(this.gameTitle + "\n화면 터치는 조준만 하고, 발사 · 재장전은 건슈팅 모드에서 생기는 버튼으로 해요. 원래 키패드는 그대로예요.");
+        sub.setText(this.gameTitle + "\n화면 터치는 조준만 하고, 발사 · 재장전은 새로 생기는 버튼으로 해요. 총이 패드 자리를 대신하는 게임기에서는 쉬고 있는 키패드 버튼에 붙일 수도 있어요.");
         sub.setTextSize(12.0f);
         sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
         sub.setPadding(0, dp(4), 0, dp(4));
@@ -17660,6 +17841,43 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             body.addView(ps2Note("쏜 곳이 조준점과 어긋나면 위 두 줄로 맞춰요 (예: 왼쪽에 맞으면 좌우를 + 쪽으로).", Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
             StringBuilder buttons = new StringBuilder();
             GunSetup shownGun = gunSetupFor(type[0], port[0]);
+            if (shownGun != null && gunKeysPossible(shownGun, keyChoices)) {
+                body.addView(backgroundChips("총 버튼 자리", new String[]{"키패드 버튼에 붙이기", "새 버튼 따로"}, keysOn[0] ? 0 : 1, red, i -> {
+                    keysOn[0] = i == 0;
+                    render[0].run();
+                }));
+                if (keysOn[0]) {
+                    int[] functions = gunKeyFunctions(shownGun);
+                    int[] keys = gunKeyAssign(shownGun, keyChoices, keyChosen);
+                    String[] names = new String[keyChoices.size()];
+                    for (int c = 0; c < names.length; c++) names[c] = keyChoices.get(c).label;
+                    for (int k = 0; k < functions.length; k++) {
+                        final int function = functions[k];
+                        final int[] current = keys;
+                        final int self = k;
+                        int selected = 0;
+                        for (int c = 0; c < names.length; c++) {
+                            if (keyChoices.get(c).bit == keys[k]) selected = c;
+                        }
+                        String label = gunLabelOf(shownGun, function);
+                        body.addView(backgroundChips(label, names, selected, red, c -> {
+                            int pick = keyChoices.get(c).bit;
+                            // One function per button: the one already there takes this one's old button.
+                            for (int o = 0; o < functions.length; o++) {
+                                keyChosen.put(functions[o], current[o]);
+                                if (o != self && current[o] == pick) keyChosen.put(functions[o], current[self]);
+                            }
+                            keyChosen.put(function, pick);
+                            render[0].run();
+                        }));
+                    }
+                    body.addView(ps2Note("고른 키패드 버튼이 그 기능이 되고, 새 버튼은 생기지 않아요. 붙인 버튼엔 이름표가 뜨고, 쉬는 버튼은 흐려져요."
+                            + "\n한 버튼에 기능 하나만: 다른 기능이 쓰던 버튼을 고르면 서로 자리를 바꿔요. 게임패드의 같은 버튼도 따라가요."
+                            + (shownGun.replacesPad ? "\nSTART · 방향키" + (isNaomi() || "fbneo".equals(this.coreId) ? " · COIN" : "") + "는 지금처럼 키패드 그대로예요." : ""),
+                            Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
+                    return;
+                }
+            }
             if (shownGun != null) {
                 for (int k = 0; k < shownGun.labels.length; k++) {
                     buttons.append(k == 0 ? "" : " · ").append(shownGun.labels[k]);
@@ -17677,7 +17895,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         apply.setOnClickListener(v -> {
             prefs.edit().putBoolean("gun_on:" + base, on[0]).putInt("gun_aim:" + base, aim[0]).putInt("gun_type:" + base, type[0])
                     .putInt("gun_port:" + base, port[0]).putBoolean("gun_cross:" + base, cross[0]).putInt("gun_dx:" + base, dx[0])
-                    .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).commit();
+                    .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).putBoolean("gun_keys:" + base, keysOn[0]).commit();
+            GunSetup appliedGun = gunSetupFor(type[0], port[0]);
+            if (appliedGun != null && keysOn[0] && gunKeysPossible(appliedGun, keyChoices)) {
+                int[] functions = gunKeyFunctions(appliedGun);
+                int[] keys = gunKeyAssign(appliedGun, keyChoices, keyChosen);
+                android.content.SharedPreferences.Editor keyEditor = prefs.edit();
+                for (int k = 0; k < functions.length; k++) {
+                    keyEditor.putInt("gun_key:" + base + ":" + functions[k], keys[k]);
+                    keyChosen.put(functions[k], keys[k]);
+                }
+                keyEditor.commit();
+            }
+            boolean keysChanged = keysOn[0] != wasKeys || !keyChosen.equals(wasChosen);
             dialog.dismiss();
             if (on[0] != wasOn || (on[0] && (type[0] != wasType || port[0] != wasPort))) {
                 if (this.pauseDialog != null) {
@@ -17685,6 +17915,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
                 relaunchGame();
             } else {
+                if (on[0] && keysChanged) {
+                    rebuildContent();  // the gun's buttons come or go, the keypad's tags change
+                }
                 sendGunAim();
             }
         });

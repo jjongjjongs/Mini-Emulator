@@ -111,9 +111,32 @@ final class TouchButton extends View {
     static volatile int fixedTurboMask;
     static volatile int turboRate;
 
+    // 총 버튼을 키패드에 붙이기 (0.0.376): a keypad button carrying a gun function wears its
+    // name on a small yellow tag; the others the gun leaves idle are drawn faint.
+    private String gunTag;
+    private boolean gunIdle;
+
+    void setGunTag(String tag, boolean idle) {
+        if (java.util.Objects.equals(tag, this.gunTag) && idle == this.gunIdle) {
+            return;
+        }
+        this.gunTag = tag;
+        this.gunIdle = idle;
+        invalidate();
+    }
+
     @Override
     public void draw(Canvas canvas) {
+        if (this.gunIdle) {
+            int save = canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), 90);
+            super.draw(canvas);
+            canvas.restoreToCount(save);
+            return;
+        }
         super.draw(canvas);
+        if (this.gunTag != null) {
+            drawGunTag(canvas);
+        }
         int turbo = turboMask;
         boolean fixed = (this.button & fixedTurboMask) != 0 && (this.button & 0xFC) == 0;
         if (!fixed && (turbo == 0 || (this.button & turbo) == 0 || (this.button & 0xFC) != 0)) {
@@ -135,6 +158,25 @@ final class TouchButton extends View {
             badge.setTextSize(r * (mark.length() > 1 ? 1.05f : 1.3f));
         }
         canvas.drawText(mark, cx, cy + r * 0.4f, badge);
+    }
+
+    private void drawGunTag(Canvas canvas) {
+        float size = Math.min(getWidth(), getHeight());
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(Math.max(9f * getResources().getDisplayMetrics().density * 0.9f, size * 0.17f));
+        float textWidth = paint.measureText(this.gunTag);
+        float padX = paint.getTextSize() * 0.35f;
+        float tagH = paint.getTextSize() * 1.35f;
+        float cx = getWidth() / 2f;
+        float bottom = getHeight() - size * 0.02f;
+        float w = Math.min(getWidth(), textWidth + padX * 2);
+        android.graphics.RectF box = new android.graphics.RectF(cx - w / 2f, bottom - tagH, cx + w / 2f, bottom);
+        paint.setColor(Color.rgb(253, 224, 71));
+        canvas.drawRoundRect(box, tagH * 0.3f, tagH * 0.3f, paint);
+        paint.setColor(Color.rgb(113, 63, 18));
+        canvas.drawText(this.gunTag, cx, box.centerY() + paint.getTextSize() * 0.36f, paint);
     }
 
     int buttonMask() {
