@@ -48,6 +48,13 @@ final class NativeGba {
 
     // PSP rendering scale (1x, 2x or 3x the PSP's 480x272) for the next game created.
     static native void setPspScale(int scale);
+    // PSP 텍스처 다듬기: texture shader, upscale level, upscale type, deposterize, texture filter,
+    // smart 2D filter, anisotropic (indices; 0 is the engine default). Before the game starts.
+    static native void setPspTexture(int[] choices);
+    // VMU 화면 (Dreamcast): VMU A1's 48x32 dots (1 lit) into dots; how many are lit, -1 if none.
+    static native int vmuScreen(long handle, byte[] dots);
+    // VMU beeps on or off; before the game starts.
+    static native void setVmuSound(boolean on);
 
     static native void setN3dsScale(int scale);
 

@@ -204,6 +204,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addN3dsNetBadge(frameLayout);
         addWiimmfiBadge(frameLayout);
         addPlayerBadges(frameLayout);
+        addVmuWindow(root);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout, false);
@@ -257,6 +258,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         addN3dsNetBadge(frameLayout2);
         addWiimmfiBadge(frameLayout2);
         addPlayerBadges(frameLayout2);
+        addVmuWindow(root);
         installComboZones(root);
         applyLayoutEdits(root);
         recordLayoutGuide(root, frameLayout2, true);
@@ -2379,7 +2381,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static boolean isLayoutControl(View view) {
         return view instanceof TouchButton || view instanceof DPadView || view instanceof AnalogStickView
                 || view instanceof ArcadeJoystickView || view instanceof SpeedButtonView || view instanceof RewindButtonView
-                || view instanceof WiiuPadWindowView
+                || view instanceof WiiuPadWindowView || view instanceof VmuScreenView
                 || (view instanceof DosControls.Item && ((DosControls.Item) view).itemKey() != null);
     }
 
@@ -3608,6 +3610,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 applyLayoutEdit(k, edit != null ? edit[0] : 0, edit != null ? edit[1] : 0, edit != null ? edit[2] : 1, edit != null ? edit[3] : 1);
             }
             scheduleUncoverLayoutGuards(edits, generation);
+            scheduleSettleVmu(generation);
             for (android.view.ViewGroup parent : this.comboParents) {
                 layoutComboZones(parent, true);
             }
@@ -3792,6 +3795,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         editor.setGuards(new java.util.ArrayList<>(this.layoutGuards));
         addContentView(editor, new FrameLayout.LayoutParams(-1, -1));
         this.layoutEditor = editor;
+        if (this.vmuView != null) {
+            this.vmuView.setEditing(true);
+        }
     }
 
     // DOS, in the layout editor: a key of the row held → it stands on its own; a key on its own
@@ -3828,6 +3834,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void finishLayoutEditor(String message) {
         LayoutEditorView editor = this.layoutEditor;
         this.layoutEditor = null;
+        if (this.vmuView != null) {
+            this.vmuView.setEditing(false);
+        }
         if (editor != null && editor.getParent() instanceof android.view.ViewGroup) {
             ((android.view.ViewGroup) editor.getParent()).removeView(editor);
         }
@@ -6006,6 +6015,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             wsParams.setMargins(0, 0, 0, dp(8));
             panel.addView(createPs2WidescreenRow(), wsParams);
         }
+        if (isPsp()) {
+            LinearLayout.LayoutParams texParams = new LinearLayout.LayoutParams(-1, dp(52));
+            texParams.setMargins(0, 0, 0, dp(8));
+            panel.addView(createPspTextureRow(), texParams);
+        }
+        if (vmuSupported()) {
+            LinearLayout.LayoutParams vmuParams = new LinearLayout.LayoutParams(-1, dp(52));
+            vmuParams.setMargins(0, 0, 0, dp(8));
+            panel.addView(createVmuRow(), vmuParams);
+        }
         if (isN3ds() || isNds()) {
             LinearLayout.LayoutParams layParams = new LinearLayout.LayoutParams(-1, dp(52));
             layParams.setMargins(0, 0, 0, dp(8));
@@ -6495,6 +6514,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     if (isPsp()) {
                         NativeGba.setPspLanguage(0, pspLanguage());
                         NativeGba.setPspScale(pspScale());
+                        NativeGba.setPspTexture(pspTexture());
                         NativeGba.setN3dsScale(n3dsScale());
                         int wifi = wifiMultiMode();
                         String server = wifi == 1 ? hostAddress() : wifi == 2 ? wifiMultiHost() : null;
@@ -6556,6 +6576,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setPs2Patches(ps2Widescreen() && ps2WidescreenFound(), ps2NoInterlacing());
                     NativeGba.setCitraAsync(n3dsAsync());
                     NativeGba.setRotationMode(arcadeRotationMode());
+                    NativeGba.setVmuSound(vmuShown() && vmuSound());
                     NativeGba.setTurbo(turboActiveMask(), turboRate());
                     NativeGba.setFixedTurbo(turboEnabled());
                     TouchButton.fixedTurboMask = turboEnabled() ? fixedTurboBits() : 0;
@@ -6654,6 +6675,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isVita()) {
             startVitaTextPoll();
         }
+        startVmuPoll();
         if (isN3ds()) {
             startN3dsNet(handle);
         }
@@ -17015,6 +17037,520 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return "받지 못했어요 (" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + ")";
         } finally {
             temp.delete();
+        }
+    }
+
+    // ---- VMU 화면 (0.0.367): the Dreamcast memory card's 48x32 screen in its own window outside
+    // the game's picture, a layout item like the buttons. Per game: vmu_show (0 그릴 때만,
+    // 1 늘, 2 끔), vmu_color, vmu_sound. Its first place, a free spot found once per layout
+    // (console, direction, style), is kept under vmu_pos:<layout key> so later moves in the
+    // layout editor stay where they were put. ----
+    private static final String[] VMU_SHOW_NAMES = {"그릴 때만", "늘", "끔"};
+    private static final String[] VMU_COLOR_NAMES = {"원래 VMU", "흰 바탕", "반전"};
+    private VmuScreenView vmuView;
+    private final byte[] vmuDots = new byte[VmuScreenView.W * VmuScreenView.H];
+
+    private boolean vmuSupported() {
+        return isDreamcast() && !isNaomi() && "flycast".equals(this.coreId);
+    }
+
+    private int vmuShowMode() {
+        int mode = MainActivity.sharedSettings(this).getInt("vmu_show:" + this.saveBaseName, 0);
+        return mode >= 0 && mode <= 2 ? mode : 0;
+    }
+
+    private boolean vmuShown() {
+        return vmuSupported() && vmuShowMode() != 2;
+    }
+
+    private int vmuColors() {
+        int colors = MainActivity.sharedSettings(this).getInt("vmu_color:" + this.saveBaseName, 0);
+        return colors >= 0 && colors <= 2 ? colors : 0;
+    }
+
+    private boolean vmuSound() {
+        return MainActivity.sharedSettings(this).getBoolean("vmu_sound:" + this.saveBaseName, false);
+    }
+
+    private void addVmuWindow(FrameLayout root) {
+        this.vmuView = null;
+        if (!vmuShown() || isPadScreen()) {
+            return;
+        }
+        VmuScreenView view = new VmuScreenView(this);
+        view.setAlways(vmuShowMode() == 1);
+        view.setColors(vmuColors());
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(84), dp(56), Gravity.TOP | Gravity.START);
+        float[] place = vmuSavedPlace();
+        if (place != null) {
+            params.width = dp(Math.round(place[2]));
+            params.height = dp(Math.round(place[2] * 2f / 3f));
+            params.leftMargin = dp(Math.round(place[0]));
+            params.topMargin = dp(Math.round(place[1]));
+        } else {
+            // Not placed yet: out of the way until scheduleSettleVmu finds a free spot.
+            view.setAlpha(0f);
+        }
+        root.addView(view, params);
+        this.vmuView = view;
+    }
+
+    // [left, top, width] in dp within the content, or null before the first placement.
+    private float[] vmuSavedPlace() {
+        String saved = MainActivity.sharedSettings(this).getString("vmu_pos:" + layoutKey(), null);
+        if (saved == null) {
+            return null;
+        }
+        String[] parts = saved.split(",");
+        if (parts.length < 3) {
+            return null;
+        }
+        try {
+            return new float[]{Float.parseFloat(parts[0]), Float.parseFloat(parts[1]), Float.parseFloat(parts[2])};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private void scheduleSettleVmu(int generation) {
+        final VmuScreenView view = this.vmuView;
+        if (view == null) {
+            return;
+        }
+        view.post(() -> view.post(() -> {
+            if (!this.destroyed && generation == this.controlsGeneration && this.layoutEditor == null && view == this.vmuView) {
+                settleVmu(view);
+            }
+        }));
+    }
+
+    // Everything the VMU window may not cover, in window coordinates: the game screen, the
+    // other controls and the app's guarded buttons.
+    private java.util.List<android.graphics.RectF> vmuObstacles(View self) {
+        java.util.List<android.graphics.RectF> boxes = new java.util.ArrayList<>();
+        for (View view : this.layoutControls) {
+            if (view != self && view.getVisibility() == View.VISIBLE && view.isAttachedToWindow() && view.getWidth() > 0) {
+                boxes.add(windowBox(view));
+            }
+        }
+        for (View guard : this.layoutGuards) {
+            if (guard.getVisibility() == View.VISIBLE && guard.isAttachedToWindow() && guard.getWidth() > 0) {
+                boxes.add(windowBox(guard));
+            }
+        }
+        return boxes;
+    }
+
+    private void settleVmu(VmuScreenView view) {
+        View root = (View) view.getParent();
+        if (root == null || root.getWidth() == 0 || this.screenArea == null || this.screenArea.getWidth() == 0) {
+            return;
+        }
+        float density = getResources().getDisplayMetrics().density;
+        int[] origin = new int[2];
+        root.getLocationInWindow(origin);
+        android.graphics.RectF screen = windowBox(this.screenArea);
+        if (vmuSavedPlace() == null) {
+            // First time in this layout: the free spot nearest to below the screen (portrait)
+            // or the top of the left column (landscape), as big as fits (84 down to 48 dp wide).
+            java.util.List<android.graphics.RectF> obstacles = vmuObstacles(view);
+            float targetX = this.landscapeMode ? (origin[0] + screen.left) / 2f : screen.centerX();
+            float targetY = this.landscapeMode ? origin[1] + root.getHeight() * 0.3f : screen.bottom + dp(40);
+            float margin = dp(6);
+            float[] best = null;
+            for (int widthDp = 84; widthDp >= 48 && best == null; widthDp -= 12) {
+                float w = widthDp * density;
+                float h = w * 2f / 3f;
+                float bestScore = Float.MAX_VALUE;
+                for (float y = origin[1] + margin; y + h <= origin[1] + root.getHeight() - margin; y += dp(6)) {
+                    for (float x = origin[0] + margin; x + w <= origin[0] + root.getWidth() - margin; x += dp(6)) {
+                        android.graphics.RectF candidate = new android.graphics.RectF(x - margin, y - margin, x + w + margin, y + h + margin);
+                        boolean free = true;
+                        for (android.graphics.RectF box : obstacles) {
+                            if (android.graphics.RectF.intersects(candidate, box)) {
+                                free = false;
+                                break;
+                            }
+                        }
+                        if (!free) continue;
+                        float score = Math.abs(x + w / 2f - targetX) + Math.abs(y + h / 2f - targetY);
+                        if (score < bestScore) {
+                            bestScore = score;
+                            best = new float[]{(x - origin[0]) / density, (y - origin[1]) / density, widthDp};
+                        }
+                    }
+                }
+            }
+            if (best == null) {
+                // No room anywhere: the smallest size in the top left, to be moved in the editor.
+                best = new float[]{8, this.landscapeMode ? 8 : TOP_BAR_DP + 8, 48};
+            }
+            MainActivity.sharedSettings(this).edit().putString("vmu_pos:" + layoutKey(),
+                    Math.round(best[0]) + "," + Math.round(best[1]) + "," + Math.round(best[2])).apply();
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) view.getLayoutParams();
+            params.width = dp(Math.round(best[2]));
+            params.height = dp(Math.round(best[2] * 2f / 3f));
+            params.leftMargin = dp(Math.round(best[0]));
+            params.topMargin = dp(Math.round(best[1]));
+            view.setLayoutParams(params);
+            view.setAlpha(1f);
+            return;
+        }
+        // Moved over the game screen in the editor: pushed out to the nearest side that is
+        // still inside the content, and that move is saved.
+        android.graphics.RectF box = windowBox(view);
+        android.graphics.RectF inner = new android.graphics.RectF(box);
+        inner.inset(dp(1), dp(1));
+        if (!android.graphics.RectF.intersects(inner, screen)) {
+            return;
+        }
+        float gap = dp(4);
+        float[][] moves = {
+                {screen.left - gap - box.right, 0}, {screen.right + gap - box.left, 0},
+                {0, screen.top - gap - box.bottom}, {0, screen.bottom + gap - box.top}};
+        float[] pick = null;
+        for (float[] move : moves) {
+            boolean inside = box.left + move[0] >= origin[0] && box.right + move[0] <= origin[0] + root.getWidth()
+                    && box.top + move[1] >= origin[1] && box.bottom + move[1] <= origin[1] + root.getHeight();
+            if (inside && (pick == null || Math.abs(move[0]) + Math.abs(move[1]) < Math.abs(pick[0]) + Math.abs(pick[1]))) {
+                pick = move;
+            }
+        }
+        int index = this.layoutControls.indexOf(view);
+        if (pick == null || index < 0) {
+            return;
+        }
+        java.util.Map<String, float[]> edits = loadLayoutEdits();
+        String id = this.layoutIds.get(index);
+        float[] edit = edits.get(id);
+        if (edit == null) {
+            edit = new float[]{0, 0, 1, 1};
+            edits.put(id, edit);
+        }
+        edit[0] += pick[0] / density;
+        edit[1] += pick[1] / density;
+        applyLayoutEdit(index, edit[0], edit[1], edit[2], edit[3]);
+        StringBuilder sb = new StringBuilder();
+        for (java.util.Map.Entry<String, float[]> entry : edits.entrySet()) {
+            float[] e = entry.getValue();
+            sb.append(entry.getKey()).append('=').append(Math.round(e[0])).append(',').append(Math.round(e[1])).append(',')
+                    .append(Math.round(e[2] * 100) / 100.0f);
+            if (Math.abs(e[2] - e[3]) >= 0.005f) {
+                sb.append(',').append(Math.round(e[3] * 100) / 100.0f);
+            }
+            sb.append(';');
+        }
+        MainActivity.sharedSettings(this).edit().putString(layoutKey(), sb.toString()).apply();
+        showInfoNotice("VMU 화면을 옮겼어요", "게임 화면을 가리지 않게 바로 옆으로 옮겼어요", 4000);
+    }
+
+    // A few times a second while the game runs: the VMU's dots from the engine.
+    private final Runnable vmuPoll = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            long handle = GameActivity.this.nativeHandle;
+            VmuScreenView view = GameActivity.this.vmuView;
+            if (handle != 0 && view != null) {
+                int lit = NativeGba.vmuScreen(handle, GameActivity.this.vmuDots);
+                if (lit >= 0) {
+                    view.setDots(GameActivity.this.vmuDots, lit);
+                }
+            }
+            if (handle != 0) {
+                getWindow().getDecorView().postDelayed(this, 200);
+            }
+        }
+    };
+
+    private void startVmuPoll() {
+        if (!vmuShown()) {
+            return;
+        }
+        getWindow().getDecorView().removeCallbacks(this.vmuPoll);
+        getWindow().getDecorView().postDelayed(this.vmuPoll, 200);
+    }
+
+    private LinearLayout createVmuRow() {
+        String shown = vmuShowMode() == 2 ? "끔" : VMU_SHOW_NAMES[vmuShowMode()] + " · " + VMU_COLOR_NAMES[vmuColors()];
+        return createSettingRow(RoundIconView.HD, Color.rgb(13, 148, 136), "VMU 화면", shown, view -> showVmuSheet());
+    }
+
+    private void showVmuSheet() {
+        final int[] show = {vmuShowMode()};
+        final int[] colors = {vmuColors()};
+        final boolean[] sound = {vmuSound()};
+        final int accent = Color.rgb(13, 148, 136);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("VMU 화면 · 이 게임만");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(this.gameTitle + "\n메모리카드(VMU)의 작은 화면을 게임 화면 밖에 따로 보여 줘요.");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        sub.setPadding(0, dp(4), 0, dp(4));
+        panel.addView(sub);
+        final LinearLayout body = new LinearLayout(this);
+        body.setOrientation(1);
+        panel.addView(body);
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            body.removeAllViews();
+            body.addView(backgroundChips("보이기", VMU_SHOW_NAMES, show[0], accent, i -> { show[0] = i; render[0].run(); }));
+            if (show[0] != 2) {
+                body.addView(backgroundChips("색", VMU_COLOR_NAMES, colors[0], accent, i -> { colors[0] = i; render[0].run(); }));
+                body.addView(ps2Switch("VMU 소리", "VMU 삐 소리 (일부 게임) · 바꾸면 게임을 다시 켜요", sound[0], on -> sound[0] = on));
+                body.addView(ps2Note("그릴 때만: 게임이 VMU에 그림을 그렸을 때만 보여요(VMU를 안 쓰는 게임이 더 많아요). "
+                        + "위치 · 크기는 버튼 · 화면 배치 편집에서 다른 버튼처럼 옮겨요. 게임 화면을 가리게 옮기면 바로 옆으로 비켜나요.",
+                        Color.rgb(240, 253, 250), Color.rgb(17, 94, 89)));
+            }
+        };
+        render[0].run();
+        LinearLayout buttons = new LinearLayout(this);
+        TextView edit = dialogButton("배치 편집", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        edit.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (this.vmuView == null) {
+                Toast.makeText(this, "VMU 화면을 켜고 적용한 뒤에 옮길 수 있어요", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            startLayoutEditor();
+        });
+        TextView apply = dialogButton("적용", accent, Color.WHITE);
+        apply.setOnClickListener(v -> {
+            boolean relaunch = sound[0] != vmuSound() && (show[0] != 2 || vmuShowMode() != 2);
+            boolean rebuild = show[0] != vmuShowMode() || colors[0] != vmuColors();
+            MainActivity.sharedSettings(this).edit().putInt("vmu_show:" + this.saveBaseName, show[0])
+                    .putInt("vmu_color:" + this.saveBaseName, colors[0]).putBoolean("vmu_sound:" + this.saveBaseName, sound[0]).commit();
+            dialog.dismiss();
+            if (relaunch) {
+                if (this.pauseDialog != null) {
+                    this.pauseDialog.dismiss();
+                }
+                relaunchGame();
+            } else if (rebuild) {
+                if (this.pauseDialog != null) {
+                    this.pauseDialog.dismiss();
+                }
+                rebuildContent();
+                startVmuPoll();
+            }
+        });
+        buttons.addView(edit, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(46), 1.5f);
+        applyParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    // ---- PSP 텍스처 다듬기 (0.0.367): PPSSPP's texture options, per game. The seven choices
+    // (see NativeGba.setPspTexture) are kept as "a,b,c,d,e,f,g" under psp_tex:<game>. ----
+    private static final String[] PSP_TEX_SHADERS = {"끔", "2xBRZ", "4xBRZ", "MMPX"};
+    private static final String[] PSP_TEX_LEVELS = {"끔", "2x", "3x", "4x", "5x"};
+    private static final String[] PSP_TEX_TYPES = {"xBRZ", "하이브리드", "바이큐빅", "혼합"};
+    private static final String[] PSP_TEX_FILTERS = {"자동", "선명하게", "부드럽게", "자동 최고 품질"};
+    private static final String[] PSP_TEX_ANISO = {"16x (기본)", "끔", "2x", "4x", "8x"};
+
+    private int[] pspTexture() {
+        int[] choices = new int[7];
+        String saved = MainActivity.sharedSettings(this).getString("psp_tex:" + this.saveBaseName, "");
+        String[] parts = saved.split(",");
+        int[] limits = {4, 5, 4, 2, 4, 2, 5};
+        for (int k = 0; k < 7 && k < parts.length; k++) {
+            try {
+                int value = Integer.parseInt(parts[k].trim());
+                choices[k] = value >= 0 && value < limits[k] ? value : 0;
+            } catch (NumberFormatException e) {
+                choices[k] = 0;
+            }
+        }
+        return choices;
+    }
+
+    private String pspTextureSummary(int[] t) {
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        if (t[0] != 0) parts.add(PSP_TEX_SHADERS[t[0]]);
+        if (t[1] != 0) parts.add("업스케일 " + PSP_TEX_LEVELS[t[1]]);
+        if (t[4] != 0) parts.add(PSP_TEX_FILTERS[t[4]]);
+        if (t[5] != 0) parts.add("스마트 2D");
+        return parts.isEmpty() ? "기본" : String.join(" · ", parts);
+    }
+
+    private LinearLayout createPspTextureRow() {
+        return createSettingRow(RoundIconView.HD, Color.rgb(79, 70, 229), "PSP 텍스처 다듬기", pspTextureSummary(pspTexture()), view -> showPspTextureSheet());
+    }
+
+    private void showPspTextureSheet() {
+        final int[] t = pspTexture();
+        final int[] before = t.clone();
+        final int accent = Color.rgb(79, 70, 229);
+        final boolean vulkan = !MainActivity.vulkanOff(MainActivity.sharedSettings(this), "ppsspp");
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(14));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Theme.bg(Color.WHITE));
+        background.setCornerRadius(dp(22));
+        panel.setBackground(background);
+        TextView title = new TextView(this);
+        title.setText("PSP 텍스처 다듬기 · 이 게임만");
+        title.setTextSize(17.0f);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText(this.gameTitle + "\n게임 속 그림(텍스처)의 도트 계단을 매끄럽게 해요. PSP 엔진의 기능이에요.");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Theme.text(Color.rgb(107, 114, 128)));
+        sub.setPadding(0, dp(4), 0, dp(4));
+        panel.addView(sub);
+        final LinearLayout body = new LinearLayout(this);
+        body.setOrientation(1);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(body);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        final Runnable[] render = new Runnable[1];
+        render[0] = () -> {
+            body.removeAllViews();
+            LinearLayout previews = new LinearLayout(this);
+            previews.setGravity(Gravity.CENTER_HORIZONTAL);
+            int shownMode = t[0] != 0 || t[1] != 0 ? 1 : t[4] == 2 ? 2 : 0;
+            previews.addView(new PspTexPreview(this, shownMode), new LinearLayout.LayoutParams(dp(72), dp(72)));
+            TextView caption = new TextView(this);
+            caption.setText(shownMode == 1 ? "  도트 계단을 매끄럽게" : shownMode == 2 ? "  부드럽게 (번짐)" : "  원래 도트 그대로");
+            caption.setTextSize(12.0f);
+            caption.setGravity(Gravity.CENTER_VERTICAL);
+            caption.setTextColor(Theme.text(Color.rgb(71, 85, 105)));
+            previews.addView(caption, new LinearLayout.LayoutParams(-2, dp(72)));
+            LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, -2);
+            previewParams.setMargins(0, dp(6), 0, dp(4));
+            body.addView(previews, previewParams);
+            body.addView(backgroundChips("텍스처 셰이더 · 그래픽 칩 · 가벼움", PSP_TEX_SHADERS, t[0], accent, i -> { t[0] = i; render[0].run(); }));
+            body.addView(ps2Note(vulkan ? "Vulkan일 때만 돼요. 켜면 아래 업스케일보다 먼저예요. 처음엔 MMPX나 2xBRZ를 추천해요."
+                    : "지금 PSP는 OpenGL로 돌고 있어서(Vulkan이 꺼져 있음) 텍스처 셰이더는 효과가 없어요. 아래 업스케일을 쓰세요.",
+                    vulkan ? Color.rgb(238, 242, 255) : Color.rgb(254, 243, 199), vulkan ? Color.rgb(55, 48, 163) : Color.rgb(146, 64, 14)));
+            body.addView(backgroundChips("텍스처 업스케일 · CPU · 무거움", PSP_TEX_LEVELS, t[1], accent, i -> { t[1] = i; render[0].run(); }));
+            if (t[1] != 0) {
+                body.addView(backgroundChips("업스케일 방식", PSP_TEX_TYPES, t[2], accent, i -> { t[2] = i; render[0].run(); }));
+                body.addView(ps2Switch("띠 줄이기", "업스케일한 그림의 색 띠(계단)를 줄여요", t[3] == 1, on -> t[3] = on ? 1 : 0));
+                if (t[1] >= 2) {
+                    body.addView(ps2Note("3x 이상은 휴대폰에서 끊길 수 있어요.", Color.rgb(254, 243, 199), Color.rgb(146, 64, 14)));
+                }
+            }
+            body.addView(backgroundChips("텍스처 필터", PSP_TEX_FILTERS, t[4], accent, i -> { t[4] = i; render[0].run(); }));
+            body.addView(ps2Switch("스마트 2D 필터", "2D 게임에서 쓸데없이 번지는 곳만 선명하게", t[5] == 1, on -> t[5] = on ? 1 : 0));
+            body.addView(backgroundChips("비등방 필터 · 비스듬한 바닥을 멀리까지 또렷하게", PSP_TEX_ANISO, t[6], accent, i -> { t[6] = i; render[0].run(); }));
+            if (speedFirstSupported() && speedFirst()) {
+                body.addView(ps2Note("속도 우선 중이라 업스케일 · 비등방 필터는 꺼진 채로 돌아요 (속도 우선을 끄면 적용).", Color.rgb(240, 253, 250), Color.rgb(17, 94, 89)));
+            }
+        };
+        render[0].run();
+        LinearLayout buttons = new LinearLayout(this);
+        TextView reset = dialogButton("기본으로", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        reset.setOnClickListener(v -> {
+            java.util.Arrays.fill(t, 0);
+            render[0].run();
+        });
+        TextView apply = dialogButton("적용 (다시 켜기)", accent, Color.WHITE);
+        apply.setOnClickListener(v -> {
+            StringBuilder saved = new StringBuilder();
+            for (int k = 0; k < 7; k++) {
+                saved.append(k == 0 ? "" : ",").append(t[k]);
+            }
+            MainActivity.sharedSettings(this).edit().putString("psp_tex:" + this.saveBaseName, saved.toString()).commit();
+            dialog.dismiss();
+            if (!java.util.Arrays.equals(t, before)) {
+                if (this.pauseDialog != null) {
+                    this.pauseDialog.dismiss();
+                }
+                relaunchGame();
+            }
+        });
+        buttons.addView(reset, new LinearLayout.LayoutParams(0, dp(46), 1.0f));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(0, dp(46), 1.5f);
+        applyParams.setMargins(dp(8), 0, 0, 0);
+        buttons.addView(apply, applyParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(440)),
+                    (int) (getResources().getDisplayMetrics().heightPixels * 0.86f));
+        }
+        dialog.show();
+    }
+
+    // A small ring as PSP 텍스처 다듬기 shows it: blocky pixels (0), smoothed (1) or blurred (2).
+    private static final class PspTexPreview extends View {
+        private final int mode;
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        PspTexPreview(android.content.Context context, int mode) {
+            super(context);
+            this.mode = mode;
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            float w = getWidth();
+            float h = getHeight();
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(Color.rgb(253, 230, 138));
+            canvas.drawRoundRect(0, 0, w, h, w * 0.12f, w * 0.12f, paint);
+            int ink = Color.rgb(124, 45, 18);
+            if (mode == 0) {
+                String[] pattern = {"..XXXX..", ".X....X.", "X......X", "X..XX..X", "X..XX..X", "X......X", ".X....X.", "..XXXX.."};
+                float cell = Math.min(w, h) * 0.8f / 8;
+                float left = (w - cell * 8) / 2;
+                float top = (h - cell * 8) / 2;
+                paint.setColor(ink);
+                for (int r = 0; r < 8; r++) {
+                    for (int c = 0; c < 8; c++) {
+                        if (pattern[r].charAt(c) == 'X') {
+                            canvas.drawRect(left + c * cell, top + r * cell, left + (c + 1) * cell, top + (r + 1) * cell, paint);
+                        }
+                    }
+                }
+                return;
+            }
+            if (mode == 2) {
+                paint.setMaskFilter(new android.graphics.BlurMaskFilter(w * 0.05f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+            }
+            paint.setColor(ink);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeWidth(w * 0.1f);
+            canvas.drawCircle(w / 2, h / 2, w * 0.3f, paint);
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            canvas.drawRoundRect(w * 0.42f, h * 0.42f, w * 0.58f, h * 0.58f, w * 0.04f, w * 0.04f, paint);
+            paint.setMaskFilter(null);
         }
     }
 

@@ -354,6 +354,8 @@ struct Core {
     void (*retroSetControllerPortDevice)(unsigned, unsigned) = nullptr;
     // Optional: cheats (the app offers them only for engines that implement these).
     void (*retroCheatReset)() = nullptr;
+    // Flycast's VMU screens (48x32 per VMU, its exported vmu_lcd_data), null elsewhere (0.0.367).
+    const uint32_t* vmuScreens = nullptr;
     void (*retroCheatSet)(unsigned, bool, const char*) = nullptr;
     // "Address" cheats (RetroArch's own kind, handler 1): the app writes a value into the
     // engine's system RAM after every frame, for engines whose own cheat call does nothing.
@@ -1558,6 +1560,12 @@ const char* option(const char* key) {
 }  // namespace dos
 // PSP rendering scale per game (1x, 2x, 3x the PSP's 480x272), set before the game starts.
 std::atomic<int> gPspScale{2};
+// VMU 화면: VMU beeps through the game's sound (0.0.367).
+std::atomic<bool> gVmuSound{false};
+// PSP 텍스처 다듬기 (0.0.367), per game, as indices into the values below: texture shader,
+// upscale level, upscale type, deposterize, texture filter, smart 2D filter, anisotropic.
+// 0 everywhere is PPSSPP's own default.
+std::atomic<int> gPspTexture[7] = {};
 // "와이파이 멀티": PSP ad-hoc over the LAN. 0 off, 1 host (runs the built-in PRO ad-hoc
 // server), 2 guest; gPspAdhocServer is the server's address (the host's own LAN address
 // when hosting, so peers learn a reachable address). Set before the game starts.
@@ -1813,6 +1821,26 @@ const char* fixedVariable(const char* key) {
     if (strcmp(key, "ppsspp_change_pro_ad_hoc_server_address") == 0) return gPspAdhocServer.c_str();
     if (strcmp(key, "ppsspp_enable_upnp") == 0) return "disabled";
     if (strcmp(key, "ppsspp_port_offset") == 0) return "0";
+    if (strncmp(key, "ppsspp_texture_", 15) == 0 || strcmp(key, "ppsspp_smart_2d_texture_filtering") == 0) {
+        static const char* const kShader[] = {"disabled", "2xBRZ", "4xBRZ", "MMPX"};
+        static const char* const kLevel[] = {"disabled", "2x", "3x", "4x", "5x"};
+        static const char* const kType[] = {"xbrz", "hybrid", "bicubic", "hybrid_bicubic"};
+        static const char* const kFilter[] = {"Auto", "Nearest", "Linear", "Auto max quality"};
+        static const char* const kAniso[] = {"16x", "disabled", "2x", "4x", "8x"};
+        auto pick = [](int slot, const char* const* names, int count) {
+            int i = gPspTexture[slot].load();
+            return names[i >= 0 && i < count ? i : 0];
+        };
+        bool speed = gSpeedFirst.load();
+        if (strcmp(key, "ppsspp_texture_shader") == 0) return pick(0, kShader, 4);
+        // 속도 우선 leaves out the CPU upscaling and the anisotropic filtering.
+        if (strcmp(key, "ppsspp_texture_scaling_level") == 0) return speed ? "disabled" : pick(1, kLevel, 5);
+        if (strcmp(key, "ppsspp_texture_scaling_type") == 0) return pick(2, kType, 4);
+        if (strcmp(key, "ppsspp_texture_deposterize") == 0) return gPspTexture[3].load() == 1 ? "enabled" : "disabled";
+        if (strcmp(key, "ppsspp_texture_filtering") == 0) return pick(4, kFilter, 4);
+        if (strcmp(key, "ppsspp_smart_2d_texture_filtering") == 0) return gPspTexture[5].load() == 1 ? "enabled" : "disabled";
+        if (strcmp(key, "ppsspp_texture_anisotropic_filtering") == 0) return speed ? "disabled" : pick(6, kAniso, 5);
+    }
     if (gSpeedFirst.load()) {
         // PSP: cheaper texture checks, no GPU readbacks. No frame skipping: the core's
         // skipping fought the bridge's pacing and held Monster Hunter at exactly half speed.
@@ -1821,8 +1849,7 @@ const char* fixedVariable(const char* key) {
         // Effects (blur, bloom; heavy in Monster Hunter) at a lower resolution, plainer curves.
         if (strcmp(key, "ppsspp_lower_resolution_for_effects") == 0) return "Balanced";
         if (strcmp(key, "ppsspp_spline_quality") == 0) return "Low";
-        // No anisotropic filtering (16x by default).
-        if (strcmp(key, "ppsspp_texture_anisotropic_filtering") == 0) return "disabled";
+        // (No anisotropic filtering, 16x by default: answered with PSP 텍스처 다듬기 above.)
         // PS2: the EE at 75% with mild cycle skipping (not in 그림만 가볍게), the cheapest
         // blending, and GPU read-backs that don't wait (0.0.288): accurate ones stall the
         // whole pipeline on a phone's tiler GPU, at the cost of effects (and the quick save's
@@ -1940,6 +1967,13 @@ const char* fixedVariable(const char* key) {
     // Naomi / Atomiswave: the TEST and SERVICE keys (L3 / R3) reach the board, so the
     // arcade test menu (free play, difficulty) can be used from the touch buttons.
     if (strcmp(key, "reicast_allow_service_buttons") == 0) return "enabled";
+    // VMU 화면 (0.0.367): the app draws VMU A1's screen itself, so Flycast keeps it off the
+    // picture and colours it black where the LCD is clear and blue where a dot is lit; the
+    // app reads which is which.
+    if (strcmp(key, "reicast_vmu1_screen_display") == 0) return "disabled";
+    if (strcmp(key, "reicast_vmu1_pixel_on_color") == 0) return "BLACK 02";
+    if (strcmp(key, "reicast_vmu1_pixel_off_color") == 0) return "BLUE 03";
+    if (strcmp(key, "reicast_vmu_sound") == 0) return gVmuSound.load() ? "enabled" : "disabled";
     if (strcmp(key, "melonds_show_cursor") == 0) return "disabled";
     // DS online play through a replacement Nintendo Wi-Fi Connection server.
     if (strcmp(key, "melonds_network_mode") == 0) return "indirect";
@@ -4294,6 +4328,9 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
         }
     }
     core->retroCheatReset = reinterpret_cast<void (*)()>(dlsym(core->library, "retro_cheat_reset"));
+    if (core->coreId == "flycast") {
+        core->vmuScreens = static_cast<const uint32_t*>(dlsym(core->library, "vmu_lcd_data"));
+    }
     core->retroCheatSet = reinterpret_cast<void (*)(unsigned, bool, const char*)>(dlsym(core->library, "retro_cheat_set"));
     // PCSX ReARMed starts with a digital pad; the app shows a DualShock.
     core->retroSetControllerPortDevice =
@@ -4838,6 +4875,30 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setRotationMode(JNIEnv
 }
 
 // The quarter turn the running arcade core asked for (SET_ROTATION), -1 when none.
+// VMU 화면 (0.0.367): VMU A1's 48x32 screen into dots (48*32 bytes, 1 where a dot is lit,
+// rows from the top). Returns how many dots are lit, or -1 when there is no VMU screen.
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_vmuScreen(JNIEnv* env, jclass /*cls*/, jlong handle, jbyteArray dots) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || core->vmuScreens == nullptr || dots == nullptr || env->GetArrayLength(dots) < 48 * 32) {
+        return -1;
+    }
+    jbyte out[48 * 32];
+    int lit = 0;
+    for (int i = 0; i < 48 * 32; ++i) {
+        // Black (0) where Flycast's decoded LCD is clear, blue where a dot is lit; still all
+        // zero before the game first writes the screen.
+        bool on = (core->vmuScreens[i] & 0xFFFFFFu) != 0;
+        out[i] = on ? 1 : 0;
+        lit += on ? 1 : 0;
+    }
+    env->SetByteArrayRegion(dots, 0, 48 * 32, out);
+    return lit;
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setVmuSound(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    gVmuSound.store(on == JNI_TRUE);
+}
+
 JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_arcadeRotation(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
     Core* core = fromHandle(handle);
     return core == nullptr ? -1 : core->requestedRotation.load();
@@ -4849,6 +4910,16 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWonderSwanTall(JNIE
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gPspScale.store(scale >= 1 && scale <= 3 ? scale : 2);
+}
+
+// PSP 텍스처 다듬기 (0.0.367): the seven choices of gPspTexture; missing ones are 0.
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setPspTexture(JNIEnv* env, jclass /*cls*/, jintArray choices) {
+    jint values[7] = {};
+    if (choices != nullptr) {
+        jsize n = env->GetArrayLength(choices);
+        env->GetIntArrayRegion(choices, 0, n < 7 ? n : 7, values);
+    }
+    for (int k = 0; k < 7; ++k) gPspTexture[k].store(values[k]);
 }
 
 // 3DS: install a CIA through the Citra core's own installer (a function the core build
