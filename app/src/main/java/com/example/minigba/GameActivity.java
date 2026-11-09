@@ -199,6 +199,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenArea = frameLayout;
         addMotionBadges(frameLayout);
         addGcLanBadge(frameLayout);
+        addN3dsNetBadge(frameLayout);
         addWiimmfiBadge(frameLayout);
         addPlayerBadges(frameLayout);
         installComboZones(root);
@@ -250,6 +251,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         this.screenArea = frameLayout2;
         addMotionBadges(frameLayout2);
         addGcLanBadge(frameLayout2);
+        addN3dsNetBadge(frameLayout2);
         addWiimmfiBadge(frameLayout2);
         addPlayerBadges(frameLayout2);
         installComboZones(root);
@@ -6222,6 +6224,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isVita()) {
             startVitaTextPoll();
         }
+        if (isN3ds()) {
+            startN3dsNet(handle);
+        }
         refreshPlayers(false);
         startAdhocBeaconIfHosting();
         shareVpnInviteIfPending();
@@ -8312,6 +8317,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             panel.addView(createLanguageRow(dialog), tabRowParams(panel));
             panel.addView(createWifiRow(dialog), tabRowParams(panel));
         }
+        if (isN3ds()) {
+            panel.addView(createN3dsNetRow(dialog), tabRowParams(panel));
+            if (n3dsNetMode() != 0) {
+                panel.addView(createN3dsNameRow(dialog), tabRowParams(panel));
+            }
+        }
         if (isNds()) {
             panel.addView(createDsNetRow(dialog), tabRowParams(panel));
             panel.addView(createMicInputRow(), tabRowParams(panel));
@@ -8691,7 +8702,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // ---- "멀리 (VPN)": friends on the same virtual LAN, reached by typing their address ----
     private String vpnRecentKey() {
-        return isNds() ? "vpn_recent_ds" : isDolphin() ? "vpn_recent_gc" : "vpn_recent_psp";
+        return isN3ds() ? "vpn_recent_3ds" : isNds() ? "vpn_recent_ds" : isDolphin() ? "vpn_recent_gc" : "vpn_recent_psp";
     }
 
     // Recently joined virtual addresses for this system, newest first.
@@ -8717,7 +8728,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private String vpnInviteText(String address) {
-        String where = isNds() ? "DS 통신 › 참가" : isDolphin() ? "LAN 대전 › 참가" : "와이파이 멀티 › 참가";
+        String where = isN3ds() ? "3DS 통신 › 참가" : isNds() ? "DS 통신 › 참가" : isDolphin() ? "LAN 대전 › 참가" : "와이파이 멀티 › 참가";
         return "Mini Emulator " + this.gameTitle + " 방을 열었어요. " + where + " › 멀리 (VPN)에서 " + address + " 으로 연결해 주세요.";
     }
 
@@ -8759,7 +8770,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         settings.edit().putBoolean("vpn_share_pending", false).apply();
-        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1 || wiiRoomMode() == 1;
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1 || wiiRoomMode() == 1 || n3dsNetMode() == 1;
         String address = AdhocBeacon.vpnAddress();
         if (!hosting || linkMode() != 2 || address == null) {
             return;
@@ -8801,7 +8812,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // Hosting answers guests looking for a room while this game runs.
     private void startAdhocBeaconIfHosting() {
-        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1 || wiiRoomMode() == 1;
+        boolean hosting = (isPsp() && wifiMultiMode() == 1) || (isNds() && dsNetMode() == 1) || gcLanMode() == 1 || wiiRoomMode() == 1 || n3dsNetMode() == 1;
         if (hosting) {
             this.adhocBeacon.startHost(this, this.gameTitle);
             if (linkDirect()) {
@@ -8903,6 +8914,240 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             badge.postDelayed(update[0], 2000);
         };
         update[0].run();
+    }
+
+    // ---- "3DS 통신": the 3DS's local wireless between phones, through a Citra room the host
+    // phone opens (citra-zz-mini-net core patch). 3DS games share the setting. ----
+    private static final String[] N3DSNET_NAMES = {"꺼짐", "방 만들기 (방장)", "참가"};
+    private static final String[] N3DSNET_NOTES = {"혼자 플레이 (기본)",
+            "이 휴대폰이 방을 열어요 · 최대 4명",
+            "같은 와이파이의 방장을 찾아 들어가요"};
+    private static final int N3DSNET_PORT = 24872;
+    private int n3dsNetError = -1;
+
+    private int n3dsNetMode() {
+        if (!isN3ds()) {
+            return 0;
+        }
+        int value = MainActivity.sharedSettings(this).getInt("n3ds_net", 0);
+        return value >= 0 && value <= 2 ? value : 0;
+    }
+
+    private String n3dsNetHost() {
+        String value = MainActivity.sharedSettings(this).getString("n3ds_net_host", "");
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    private void setN3dsNet(int mode, String host) {
+        MainActivity.sharedSettings(this).edit().putInt("n3ds_net", mode).putString("n3ds_net_host", host == null ? "" : host).commit();
+    }
+
+    // The name others see in the room: the player's choice, else this phone's name.
+    private String n3dsNetName() {
+        String value = MainActivity.sharedSettings(this).getString("n3ds_net_name", "");
+        if (value == null || value.trim().isEmpty()) {
+            value = AdhocBeacon.deviceName(this);
+        }
+        value = value == null ? "" : value.trim();
+        return value.isEmpty() ? "Player" : (value.length() > 20 ? value.substring(0, 20) : value);
+    }
+
+    // A console ID of this install for the room (two phones must differ).
+    private String n3dsConsoleId() {
+        android.content.SharedPreferences settings = MainActivity.sharedSettings(this);
+        String id = settings.getString("n3ds_console_id", "");
+        if (id == null || id.length() != 64) {
+            StringBuilder sb = new StringBuilder();
+            java.security.SecureRandom random = new java.security.SecureRandom();
+            for (int k = 0; k < 32; k++) {
+                sb.append(String.format(java.util.Locale.ROOT, "%02x", random.nextInt(256)));
+            }
+            id = sb.toString();
+            settings.edit().putString("n3ds_console_id", id).apply();
+        }
+        return id;
+    }
+
+    private String n3dsNetShown() {
+        switch (n3dsNetMode()) {
+            case 1: return "방장 · " + linkShown();
+            case 2: return "참가 · " + (n3dsNetHost() == null ? "?" : n3dsNetHost());
+            default: return "꺼짐";
+        }
+    }
+
+    private LinearLayout createN3dsNetRow(android.app.Dialog menu) {
+        int mode = n3dsNetMode();
+        LinearLayout row = createSettingRow(RoundIconView.DS, RoundIconView.COLOR_DS, "3DS 통신", n3dsNetShown(),
+                view -> showChoiceDialog(RoundIconView.DS, RoundIconView.COLOR_DS, "3DS 통신", N3DSNET_NAMES, N3DSNET_NOTES, mode,
+                        "같은 와이파이에 있는 Mini Emulator끼리 3DS 로컬 통신으로 놀아요. 연결된 뒤 게임 안의 \"로컬 통신 · 함께 하기\" 메뉴를 그대로 쓰면 돼요.\n"
+                                + "모두 같은 게임 · 같은 버전(업데이트)이어야 해요. 엇갈림 통신 · 인터넷 통신(닌텐도 서버 종료)은 안 돼요.\n"
+                                + "방에서 보이는 이름: " + n3dsNetName() + " (아래 \"3DS 통신 이름\"에서 바꿔요)\n"
+                                + "3DS 게임 공통 · 저장하고 그 장면에서 이어져요.",
+                        Color.rgb(253, 242, 248), Color.rgb(157, 23, 77), "적용", choice -> {
+                    if (choice == 2) {
+                        showHostFinder(menu, RoundIconView.DS, RoundIconView.COLOR_DS, address -> setN3dsNet(2, address));
+                        return;
+                    }
+                    if (choice == 1) {
+                        chooseLinkThen(menu, RoundIconView.DS, RoundIconView.COLOR_DS, () -> setN3dsNet(1, n3dsNetHost()));
+                        return;
+                    }
+                    if (choice == mode) {
+                        return;
+                    }
+                    setN3dsNet(choice, n3dsNetHost());
+                    directLink().release();
+                    menu.dismiss();
+                    relaunchGame();
+                }));
+        if (mode == 0) {
+            ((TextView) row.getChildAt(row.getChildCount() - 1)).setTextColor(Theme.text(Color.rgb(154, 161, 170)));
+        }
+        return row;
+    }
+
+    private LinearLayout createN3dsNameRow(android.app.Dialog menu) {
+        return createSettingRow(RoundIconView.EDIT, RoundIconView.COLOR_DS, "3DS 통신 이름", n3dsNetName(), view -> {
+            final android.widget.EditText input = new android.widget.EditText(this);
+            input.setSingleLine(true);
+            input.setText(n3dsNetName());
+            input.setSelection(input.getText().length());
+            input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(20)});
+            android.widget.FrameLayout box = new android.widget.FrameLayout(this);
+            box.setPadding(dp(20), dp(8), dp(20), 0);
+            box.addView(input);
+            new AppDialog.Builder(this).setTitle("3DS 통신 이름")
+                    .setMessage("방에서 다른 사람에게 보이는 이름이에요. 같은 방에 같은 이름이 있으면 들어갈 수 없어요.")
+                    .setView(box)
+                    .setNegativeButton("취소", null)
+                    .setPositiveButton("저장", (d, which) -> {
+                        String name = input.getText().toString().trim();
+                        MainActivity.sharedSettings(this).edit().putString("n3ds_net_name", name).commit();
+                        menu.dismiss();
+                        if (this.nativeHandle != 0 && n3dsNetMode() != 0) {
+                            startN3dsNet(this.nativeHandle);  // join again under the new name
+                        }
+                    }).show();
+        });
+    }
+
+    // Opens or joins the room once the game is running (off the main thread: joining waits).
+    private void startN3dsNet(final long handle) {
+        final int mode = n3dsNetMode();
+        if (mode == 0) {
+            return;
+        }
+        final String host = n3dsNetHost();
+        if (mode == 2 && host == null) {
+            return;
+        }
+        final String name = n3dsNetName();
+        final String console = n3dsConsoleId();
+        final String game = this.gameTitle;
+        this.n3dsNetError = -1;
+        new Thread(() -> {
+            int result = NativeGba.n3dsNetStart(handle, mode == 1, mode == 2 ? host : "", N3DSNET_PORT, name, console, 4, game);
+            runOnUiThread(() -> {
+                if (isFinishing() || this.destroyed) {
+                    return;
+                }
+                if (result < 0) {
+                    Toast.makeText(this, "이 3DS 엔진은 아직 3DS 통신을 지원하지 않아요. 앱을 업데이트해 주세요.", Toast.LENGTH_LONG).show();
+                } else if (result == 0) {
+                    Toast.makeText(this, "방을 열지 못했어요. 다른 앱이 같은 포트(24872)를 쓰고 있는지 확인해 주세요.", Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "n3ds-net").start();
+    }
+
+    private static String n3dsNetErrorText(int error) {
+        switch (error) {
+            case 0: return "방과 연결이 끊겼어요.";
+            case 1: return "방장이 내보냈어요.";
+            case 3: return "같은 이름이 방에 있어요. 메뉴 › 3DS 통신 이름을 바꿔 주세요.";
+            case 5: return "같은 콘솔 ID가 방에 있어요. 다른 휴대폰에서 들어가 주세요.";
+            case 6: return "방장과 앱 버전이 달라요. 둘 다 같은 버전으로 업데이트해 주세요.";
+            case 8: return "방장에게 연결하지 못했어요. 방장이 게임을 켜 두었는지, 같은 와이파이인지 확인해 주세요.";
+            case 9: return "방이 꽉 찼어요 (최대 4명).";
+            default: return "방에 들어가지 못했어요.";
+        }
+    }
+
+    // On the picture's top left while 3DS 통신 is on: the room's state; tap for who is in it.
+    private void addN3dsNetBadge(FrameLayout screenFrame) {
+        if (n3dsNetMode() == 0) {
+            return;
+        }
+        TextView badge = new TextView(this);
+        badge.setTextSize(11.0f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setPadding(dp(9), dp(3), dp(9), dp(3));
+        badge.setBackground(roundRect(Color.argb(230, 190, 18, 60), dp(11)));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        params.setMargins(dp(8), dp(8), 0, 0);
+        screenFrame.addView(badge, params);
+        final String[] members = {""};
+        final boolean[] wasIn = {false};
+        badge.setOnClickListener(view -> showN3dsRoom(members[0]));
+        Runnable[] update = new Runnable[1];
+        update[0] = () -> {
+            if (this.destroyed || badge.getParent() == null) {
+                return;
+            }
+            String[] status = this.nativeHandle == 0 ? null : NativeGba.n3dsNetStatus(this.nativeHandle);
+            int code = 0;
+            try {
+                code = status == null ? 0 : Integer.parseInt(status[0]);
+            } catch (NumberFormatException ignored) {
+                code = 0;
+            }
+            int state = code & 0xFF;
+            int error = (code >> 8) - 1;
+            members[0] = status == null || status[1] == null ? "" : status[1].trim();
+            int count = members[0].isEmpty() ? 0 : members[0].split("\n").length;
+            boolean in = state == 3 || state == 4;
+            if (in) {
+                badge.setText("3DS 통신 · " + (n3dsNetMode() == 1 ? "방장" : "참가") + " · " + count + "명");
+                if (!wasIn[0]) {
+                    Toast.makeText(this, "✅ 방에 들어갔어요 (" + count + "/4명). 게임 안의 로컬 통신 메뉴에서 상대를 찾으세요.", Toast.LENGTH_LONG).show();
+                }
+            } else if (state == 2 || (this.nativeHandle == 0)) {
+                badge.setText("3DS 통신 · 연결 중…");
+            } else {
+                badge.setText(error >= 0 ? "3DS 통신 · 연결 안 됨 (눌러서 보기)" : "3DS 통신 · 연결 중…");
+            }
+            if (error >= 0 && error != this.n3dsNetError) {
+                this.n3dsNetError = error;
+                Toast.makeText(this, n3dsNetErrorText(error), Toast.LENGTH_LONG).show();
+            }
+            wasIn[0] = in;
+            badge.postDelayed(update[0], 2000);
+        };
+        badge.postDelayed(update[0], 1500);
+    }
+
+    private void showN3dsRoom(String members) {
+        StringBuilder text = new StringBuilder();
+        if (members.isEmpty()) {
+            text.append(this.n3dsNetError >= 0 ? n3dsNetErrorText(this.n3dsNetError) : "아직 방에 들어가지 않았어요.");
+        } else {
+            for (String name : members.split("\n")) {
+                text.append("• ").append(name).append(name.equals(n3dsNetName()) ? " (나)" : "").append('\n');
+            }
+        }
+        String where = n3dsNetMode() == 1 ? "방장 · " + linkShown() : "참가 · " + (n3dsNetHost() == null ? "?" : n3dsNetHost());
+        new AppDialog.Builder(this).setTitle("3DS 통신 · " + where)
+                .setMessage(text.toString().trim())
+                .setNegativeButton("닫기", null)
+                .setPositiveButton("방 나가기", (d, which) -> {
+                    setN3dsNet(0, n3dsNetHost());
+                    if (this.nativeHandle != 0) {
+                        NativeGba.n3dsNetStop(this.nativeHandle);
+                    }
+                    relaunchGame();
+                }).show();
     }
 
     // ---- "DS 통신": the DS's local wireless between phones, or the replacement online servers ----
@@ -9039,7 +9284,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         // Same Wi-Fi (the beacon), Wi-Fi Direct (the phone's own search) or a VPN (typed address).
-        String lastHost = isNds() ? dsNetHost() : isDolphin() ? (isWiiGame() ? wiiRoomHost() : gcLanHost()) : wifiMultiHost();
+        String lastHost = isN3ds() ? n3dsNetHost() : isNds() ? dsNetHost() : isDolphin() ? (isWiiGame() ? wiiRoomHost() : gcLanHost()) : wifiMultiHost();
         final int[] tab = {lastHost != null && vpnRecent().contains(lastHost) ? 2 : linkMode()};
         final TextView[] tabs = new TextView[3];
         LinearLayout tabRow = new LinearLayout(this);

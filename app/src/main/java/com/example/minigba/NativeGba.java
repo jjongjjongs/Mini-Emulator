@@ -210,6 +210,14 @@ final class NativeGba {
     // clear drops the earlier ones. FBNeo .ini cheats are options "fbneo-cheat-...".
     static native void setCoreOptions(String[] keys, String[] values, boolean clear);
 
+    // 3DS 통신: open (host) or join a Citra room — blocks while connecting. -1 unsupported, 0 failed, 1 joining.
+    static native int n3dsNetStart(long handle, boolean host, String address, int port, String nickname, String console, int maxMembers, String game);
+
+    // 3DS 통신: {state | (error + 1) << 8, names one per line}; state 1 idle, 2 joining, 3 joined, 4 host.
+    static native String[] n3dsNetStatus(long handle);
+
+    static native void n3dsNetStop(long handle);
+
     // PS Vita: text the game asks for — {kind | maxLength << 8, title, initial text} — or null.
     static native String[] vitaTextRequest(long handle);
 

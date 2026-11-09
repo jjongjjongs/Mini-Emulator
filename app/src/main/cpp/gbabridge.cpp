@@ -480,6 +480,10 @@ struct Core {
     // PS Vita: text the game asks for (name entry …), typed on the phone (core patch).
     int (*vitaTextRequest)(char*, int, char*, int) = nullptr;
     void (*vitaTextAnswer)(const char*, int) = nullptr;
+    // 3DS 통신: a Citra room (core patch citra-zz-mini-net).
+    int (*n3dsNetStart)(int, const char*, int, const char*, const char*, int, const char*) = nullptr;
+    int (*n3dsNetStatus)(char*, int) = nullptr;
+    void (*n3dsNetStop)() = nullptr;
     // A negotiation interface handed over before SET_HW_RENDER made the Vulkan host.
     const retro_hw_render_context_negotiation_interface* pendingNegotiation = nullptr;
     // While a restored quick save is still on trial, the frame its marker comes off at.
@@ -707,6 +711,11 @@ bool loadCoreSymbols(Core* core) {
     void* lib = core->library;
     if (core->coreId == "pcee2") {
         core->pcee2HasPicture = reinterpret_cast<bool (*)()>(dlsym(lib, "retro_pcee2_has_picture"));
+    }
+    if (core->coreId == "citra") {
+        core->n3dsNetStart = reinterpret_cast<int (*)(int, const char*, int, const char*, const char*, int, const char*)>(dlsym(lib, "citra_mini_net_start"));
+        core->n3dsNetStatus = reinterpret_cast<int (*)(char*, int)>(dlsym(lib, "citra_mini_net_status"));
+        core->n3dsNetStop = reinterpret_cast<void (*)()>(dlsym(lib, "citra_mini_net_stop"));
     }
     if (core->coreId == "vita3k") {
         core->vitaTextRequest = reinterpret_cast<int (*)(char*, int, char*, int)>(dlsym(lib, "mini_vita_text_request"));
@@ -5001,6 +5010,44 @@ JNIEXPORT jobjectArray JNICALL Java_com_example_minigba_NativeGba_coreOptions(
         env->DeleteLocalRef(s);
     }
     return array;
+}
+
+// 3DS 통신: open (host) or join a room; blocks while connecting, so not on the UI thread.
+// -1 when this core can't, 0 when the room could not be opened, 1 when joining.
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_n3dsNetStart(JNIEnv* env, jclass /*cls*/, jlong handle, jboolean host,
+                                                                       jstring address, jint port, jstring nickname, jstring console,
+                                                                       jint maxMembers, jstring game) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || core->n3dsNetStart == nullptr) {
+        return -1;
+    }
+    std::string a = address == nullptr ? "" : jstringToString(env, address);
+    std::string n = nickname == nullptr ? "" : jstringToString(env, nickname);
+    std::string c = console == nullptr ? "" : jstringToString(env, console);
+    std::string g = game == nullptr ? "" : jstringToString(env, game);
+    return core->n3dsNetStart(host ? 1 : 0, a.c_str(), port, n.c_str(), c.c_str(), maxMembers, g.c_str());
+}
+
+// 3DS 통신: {state | (error + 1) << 8, member names one per line}, or null.
+JNIEXPORT jobjectArray JNICALL Java_com_example_minigba_NativeGba_n3dsNetStatus(JNIEnv* env, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    if (core == nullptr || core->n3dsNetStatus == nullptr) {
+        return nullptr;
+    }
+    std::vector<char> names(2048, 0);
+    int code = core->n3dsNetStatus(names.data(), (int) names.size());
+    jobjectArray array = env->NewObjectArray(2, env->FindClass("java/lang/String"), nullptr);
+    std::string head = std::to_string(code);
+    env->SetObjectArrayElement(array, 0, env->NewStringUTF(head.c_str()));
+    env->SetObjectArrayElement(array, 1, env->NewStringUTF(names.data()));
+    return array;
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_n3dsNetStop(JNIEnv* /*env*/, jclass /*cls*/, jlong handle) {
+    Core* core = fromHandle(handle);
+    if (core != nullptr && core->n3dsNetStop != nullptr) {
+        core->n3dsNetStop();
+    }
 }
 
 // PS Vita: what the game asks to be typed, {kind | max << 8, title, text}, or null.
