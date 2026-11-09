@@ -5654,6 +5654,38 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
         row2Params.setMargins(0, dp(9), 0, 0);
         panel.addView(row2, row2Params);
+        if (MODE_N3DS.equals(mode)) {
+            LinearLayout.LayoutParams n3dsParams = new LinearLayout.LayoutParams(-1, dp(52));
+            n3dsParams.setMargins(0, dp(9), 0, 0);
+            boolean vk = settingsPrefs().getBoolean("n3ds_vk:" + saveBaseNameFor(file), false);
+            boolean vkOff = vulkanOff(settingsPrefs(), "citra");
+            panel.addView(createMenuActionRow(dialog, RoundIconView.GEAR, Color.rgb(190, 18, 60),
+                    "3DS 그래픽: " + (vk ? (vkOff ? "Vulkan → 오류로 OpenGL" : "Vulkan (실험)") : "OpenGL") + "  ›", () -> {
+                        boolean now = settingsPrefs().getBoolean("n3ds_vk:" + saveBaseNameFor(file), false);
+                        new AppDialog.Builder(this).setTitle("3DS 그래픽 · " + displayGameNameFor(file))
+                                .setItems(new String[]{"OpenGL (안정 · 기본)" + (now ? "" : "  ✓"), "Vulkan (실험 · 끊김 적음)" + (now ? "  ✓" : "")}, (d, which) -> {
+                                    SharedPreferences.Editor editor = settingsPrefs().edit().putBoolean("n3ds_vk:" + saveBaseNameFor(file), which == 1);
+                                    if (which == 1) {
+                                        editor.remove("vulkan_off:citra");
+                                    }
+                                    editor.apply();
+                                    refreshLibrary();
+                                }).setNegativeButton("닫기", null).show();
+                    }), n3dsParams);
+            final File shaderDir = new File(new File(new File(saveDir(), "citra"), "Citra"), "shaders");
+            final long cache = folderBytes(shaderDir);
+            LinearLayout.LayoutParams cacheParams = new LinearLayout.LayoutParams(-1, dp(52));
+            cacheParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.ERASE, Color.rgb(100, 116, 139),
+                    "3DS 셰이더 캐시 지우기 (모든 3DS 게임 · " + formatSize(cache) + ")", () ->
+                    new AppDialog.Builder(this).setTitle("3DS 셰이더 캐시 지우기")
+                            .setMessage("모든 3DS 게임의 셰이더 캐시를 지워요. 다음에 켜면 처음처럼 새 효과마다 다시 만들어요(끊김이 다시 생겨요). 화면이 이상할 때만 지우세요.")
+                            .setNegativeButton("취소", null)
+                            .setPositiveButton("지우기", (d, which) -> {
+                                deleteTree(shaderDir);
+                                Toast.makeText(this, "3DS 셰이더 캐시를 지웠어요.", Toast.LENGTH_SHORT).show();
+                            }).show()), cacheParams);
+        }
         if (MODE_PS1.equals(mode) && swanShipped()) {
             LinearLayout.LayoutParams engineParams = new LinearLayout.LayoutParams(-1, dp(52));
             engineParams.setMargins(0, dp(9), 0, 0);
@@ -20007,6 +20039,15 @@ public final class MainActivity extends Activity {
                     Toast.makeText(this, "엔진을 " + (which == 0 ? "SwanStation" : "PCSX ReARMed") + "으로 바꿨어요. 빠른 저장(장면)은 엔진마다 따로예요.", Toast.LENGTH_LONG).show();
                 })
                 .setNegativeButton("닫기", null).show();
+    }
+
+    private static long folderBytes(File dir) {
+        File[] files = dir.listFiles();
+        long sum = 0;
+        for (File f : files == null ? new File[0] : files) {
+            sum += f.isDirectory() ? folderBytes(f) : f.length();
+        }
+        return sum;
     }
 
     // Where a core keeps its battery save / memory card: both PS1 engines share PCSX

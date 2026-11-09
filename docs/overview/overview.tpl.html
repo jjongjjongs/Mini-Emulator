@@ -635,6 +635,15 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>3DS 그래픽 · Vulkan 실험 (0.0.347)</h3>
+<ul>
+<li>3DS 게임에서 새 그래픽 효과가 처음 나올 때 1초쯤 멈추는 것은, 엔진이 그 효과를 휴대폰 GPU용으로 만드는(셰이더 컴파일) 동안 OpenGL이 기다리기 때문입니다. libretro판 Citra는 Vulkan을 고르는 부분이 막혀 있어 OpenGL로만 돌았습니다.</li>
+<li>게임 중 메뉴 › 화면 탭 › <b>3DS 그래픽 (실험)</b> (게임마다): <b>OpenGL</b>(기본 · 안정) · <b>Vulkan</b>(실험). Vulkan을 고르면 <b>비동기 셰이더</b>도 켜져서, 새 효과를 뒤에서 만드는 동안 멈추지 않고 몇 프레임 일부가 덜 그려졌다가 채워집니다 (단독판 Azahar와 같은 방식). 바꾸면 다시 켭니다.</li>
+<li>Vulkan으로 그리다 엔진이 멈추면 다음부터 3DS는 자동으로 OpenGL로 켭니다 (다른 기종과 같은 장치). Vulkan을 다시 고르면 한 번 더 시도합니다.</li>
+<li>게임 목록에서 3DS 게임을 길게 누른 창: "3DS 그래픽" 줄과 <b>3DS 셰이더 캐시 지우기</b>(모든 3DS 게임, 크기 표시). 캐시를 지우면 처음처럼 다시 만들며 끊기니, 화면이 이상할 때만 지우세요.</li>
+<li>엔진(Citra)을 고쳐 다시 빌드했습니다. 실험 기능이고 휴대폰에서는 아직 확인 전입니다.</li>
+</ul>
+<figure><img src="img/n3dsvk.jpg" alt="3DS Vulkan 시안"><figcaption>3DS 그래픽 · Vulkan 실험 시안.</figcaption></figure>
 <h3>세로 화면 아케이드 · 연사 버튼 (0.0.346)</h3>
 <p><b>세로 화면 게임</b> (FBNeo · MAME 2003-Plus · MAME 2010 · 2015 · 네오지오)</p>
 <ul>

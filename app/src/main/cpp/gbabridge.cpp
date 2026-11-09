@@ -1589,11 +1589,14 @@ std::atomic<int> gDsMicButton{0};
 // turned it off for the core (after a crash on it).
 std::atomic<bool> gVulkanAllowed{true};
 
+std::atomic<bool> gCitraVulkan{false};
 bool vulkanFor(const std::string& coreId) {
     // Cemu has no OpenGL ES renderer, so it takes Vulkan whatever the setting.
     if (coreId == "cemu") return vkhw::available();
     // Vita3K's libretro port draws with Vulkan (its OpenGL path wants desktop GL).
     if (coreId == "vita3k") return vkhw::available();
+    // 3DS: Vulkan only when the game is set to it (experimental, 0.0.347).
+    if (coreId == "citra") return gCitraVulkan.load() && gVulkanAllowed.load() && vkhw::available();
     return (coreId == "ppsspp" || coreId == "flycast" || coreId == "pcee2" || coreId == "swanstation") && gVulkanAllowed.load() && vkhw::available();
 }
 // Set when an option changed while the game runs; the core asks for it every frame.
@@ -1858,6 +1861,8 @@ const char* fixedVariable(const char* key) {
         return gNdsLayout.load() == 2 ? "Side by Side" : "Default Top-Bottom Screen";
     }
     if (strcmp(key, "citra_swap_screen") == 0) return "Top";
+    if (strcmp(key, "citra_graphics_api") == 0) return vulkanFor("citra") ? "Vulkan" : "OpenGL";
+    if (strcmp(key, "citra_async_shader_compilation") == 0) return vulkanFor("citra") ? "enabled" : "disabled";
     if (strcmp(key, "citra_use_hw_shaders") == 0) return "enabled";
     if (strcmp(key, "citra_use_shader_jit") == 0) return "enabled";
     if (strcmp(key, "citra_use_hw_shader_cache") == 0) return "enabled";
@@ -4554,6 +4559,10 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiControl(JNIEnv* 
     // 0 remote + nunchuk, 1 remote sideways, 2 classic controller
     int device = type == 1 ? ((2 << 8) | RETRO_DEVICE_JOYPAD) : type == 2 ? ((4 << 8) | RETRO_DEVICE_JOYPAD) : ((3 << 8) | RETRO_DEVICE_JOYPAD);
     gWiiDevice.store(device);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setCitraVulkan(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
+    gCitraVulkan.store(on == JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setTurbo(JNIEnv* /*env*/, jclass /*cls*/, jint mask, jint rate) {

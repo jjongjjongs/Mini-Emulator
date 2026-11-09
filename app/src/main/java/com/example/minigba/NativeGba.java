@@ -218,6 +218,9 @@ final class NativeGba {
 
     static native void n3dsNetStop(long handle);
 
+    // 3DS: draw with Vulkan (and build shaders in the background) for the next game.
+    static native void setCitraVulkan(boolean on);
+
     // Vertical arcade games: 0 upright, 1 as the core draws it, 2 upright reversed (any time).
     static native void setRotationMode(int mode);
 

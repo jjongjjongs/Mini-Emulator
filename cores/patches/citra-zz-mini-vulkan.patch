@@ -1,0 +1,25 @@
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+index bd56a3b..e1dbec3 100644
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -262,7 +262,8 @@ void UpdateSettings() {
+         Settings::values.cpu_clock_percentage = scale;
+     }
+ 
+-    auto graphicsApi = std::string("OpenGL");//LibRetro::FetchVariable("citra_graphics_api", "Auto");
++    // Mini Emulator: the app picks OpenGL (default) or Vulkan (experimental) per game.
++    auto graphicsApi = LibRetro::FetchVariable("citra_graphics_api", "OpenGL");
+     if (graphicsApi == "Auto") {
+         Settings::values.graphics_api = LibRetro::GetPrefferedHWRenderer();
+     } else if (graphicsApi == "Vulkan") {
+@@ -273,6 +274,10 @@ void UpdateSettings() {
+ 
+     Settings::values.use_hw_shader =
+             LibRetro::FetchVariable("citra_use_hw_shaders", "enabled") == "enabled";
++    // Vulkan: new shaders are built in the background (a few frames drawn incomplete instead
++    // of a pause while they compile).
++    Settings::values.async_shader_compilation =
++            LibRetro::FetchVariable("citra_async_shader_compilation", "disabled") == "enabled";
+     Settings::values.use_shader_jit =
+         LibRetro::FetchVariable("citra_use_shader_jit", "enabled") == "enabled";
+     Settings::values.shaders_accurate_mul =

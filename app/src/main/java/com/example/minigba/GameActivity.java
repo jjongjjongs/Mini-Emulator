@@ -5614,6 +5614,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isSwan()) {
             addSwanQualityRows(panel, refresh);
         }
+        if (isN3ds()) {
+            LinearLayout.LayoutParams vkParams = new LinearLayout.LayoutParams(-1, dp(52));
+            vkParams.setMargins(0, 0, 0, dp(8));
+            panel.addView(createN3dsGraphicsRow(), vkParams);
+        }
         if (isRotatingArcadeCore() && arcadeVerticalKnown()) {
             LinearLayout.LayoutParams tateParams = new LinearLayout.LayoutParams(-1, dp(52));
             tateParams.setMargins(0, 0, 0, dp(8));
@@ -6150,6 +6155,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         String[][] options = DosSetup.coreOptions(prefs, this.saveBaseName, new File(systemPath));
                         NativeGba.setDosOptions(options[0], options[1], start);
                     }
+                    NativeGba.setCitraVulkan(isN3ds() && n3dsVulkan());
                     NativeGba.setRotationMode(arcadeRotationMode());
                     NativeGba.setTurbo(turboActiveMask(), turboRate());
                     if (isSwan()) {
@@ -15088,6 +15094,42 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         shape.setColor(on ? Color.argb(235, 254, 240, 138) : Color.argb(200, 55, 65, 81));
         shape.setCornerRadius(dp(12));
         pill.setBackground(shape);
+    }
+
+    // ---- 3DS 그래픽 (0.0.347): OpenGL (default) or Vulkan with background shader building,
+    // per game. A crash on Vulkan turns it off for the 3DS engine (vulkan_off:citra). ----
+    private boolean n3dsVulkan() {
+        return MainActivity.sharedSettings(this).getBoolean("n3ds_vk:" + this.saveBaseName, false);
+    }
+
+    private LinearLayout createN3dsGraphicsRow() {
+        final int color = Color.rgb(190, 18, 60);
+        final boolean off = MainActivity.vulkanOff(MainActivity.sharedSettings(this), "citra");
+        final boolean vk = n3dsVulkan();
+        String shown = vk ? (off ? "Vulkan → 오류로 OpenGL" : "Vulkan (실험)") : "OpenGL";
+        return createSettingRow(RoundIconView.GEAR, color, "3DS 그래픽 (실험)", shown,
+                view -> showChoiceDialog(RoundIconView.GEAR, color, "3DS 그래픽 · 이 게임만",
+                        new String[]{"OpenGL (안정 · 기본)", "Vulkan (실험)"},
+                        new String[]{"지금 방식. 새 효과가 처음 나올 때 1초쯤 멈출 수 있어요 (한 번 지나간 장면은 저장돼 다음엔 덜 멈춤)",
+                                "새 효과를 뒤에서 만들어(비동기 셰이더) 멈추지 않는 대신, 잠깐 일부가 덜 그려졌다가 채워져요"},
+                        vk ? 1 : 0,
+                        "실험 기능이에요. 화면이 깨지거나 검게 나오면 OpenGL로 돌려 주세요. Vulkan으로 그리다 엔진이 멈추면 다음 실행부터 자동으로 OpenGL로 켜요."
+                                + (off ? "\n\n지금은 전에 Vulkan 오류가 있어서 OpenGL로 켜고 있어요. Vulkan을 다시 고르면 한 번 더 시도해요." : ""),
+                        Color.rgb(255, 241, 242), Color.rgb(159, 18, 57), "적용 (다시 켜기)", choice -> {
+                    boolean want = choice == 1;
+                    if (want == vk && !(want && off)) {
+                        return;
+                    }
+                    android.content.SharedPreferences.Editor editor = MainActivity.sharedSettings(this).edit().putBoolean("n3ds_vk:" + this.saveBaseName, want);
+                    if (want) {
+                        editor.remove("vulkan_off:citra");  // try again
+                    }
+                    editor.commit();
+                    if (this.pauseDialog != null) {
+                        this.pauseDialog.dismiss();
+                    }
+                    relaunchGame();
+                }));
     }
 
     private boolean noStates() {
