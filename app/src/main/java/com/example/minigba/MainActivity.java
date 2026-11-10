@@ -15890,6 +15890,10 @@ public final class MainActivity extends Activity {
     }
 
     private void startPs3Install(List<Uri> uris, File game) {
+        startPs3Install(uris, game, null);
+    }
+
+    private void startPs3Install(List<Uri> uris, File game, String[] cachedPaths) {
         String unsupported = Ps3Activity.unsupportedReason(this);
         if (unsupported != null) {
             showError(unsupported);
@@ -15902,13 +15906,18 @@ public final class MainActivity extends Activity {
         if (root != null) {
             install.putExtra(Ps3Activity.EXTRA_PATH, root.getAbsolutePath());
         }
-        install.setData(uris.get(0));
-        android.content.ClipData clip = android.content.ClipData.newRawUri("pkg", uris.get(0));
-        for (int k = 1; k < uris.size(); k++) {
-            clip.addItem(new android.content.ClipData.Item(uris.get(k)));
+        if (cachedPaths != null) {
+            install.putExtra(Ps3Activity.EXTRA_INSTALL_PATHS, cachedPaths);
         }
-        install.setClipData(clip);
-        install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (!uris.isEmpty()) {
+            install.setData(uris.get(0));
+            android.content.ClipData clip = android.content.ClipData.newRawUri("pkg", uris.get(0));
+            for (int k = 1; k < uris.size(); k++) {
+                clip.addItem(new android.content.ClipData.Item(uris.get(k)));
+            }
+            install.setClipData(clip);
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        }
         startActivity(install);
     }
 
@@ -16074,10 +16083,85 @@ public final class MainActivity extends Activity {
         startActivityForResult(intent, REQUEST_PS3_HANPATCH);
     }
 
+    // (0.0.396) A Korean patch that comes as a PS3 package (.pkg, an update with the Korean
+    // files in it) is installed by the engine, not laid over the game folder: picked as
+    // it is, or found inside the picked zip.
     private void onPs3HanPatchPicked(Uri uri) {
         final File file = this.ps3PendingGame;
         final File root = file == null ? null : ps3GameRoot(file);
         if (root == null) return;
+        String picked = displayNameFor(uri);
+        if (picked != null && picked.toLowerCase(Locale.ROOT).endsWith(".pkg")) {
+            new AppDialog.Builder(this).setTitle("PKG 한글패치")
+                    .setMessage("고른 파일은 PS3 패키지(.pkg)예요. 이런 한글패치는 게임 폴더에 덮어쓰는 게 아니라 PS3 엔진에 업데이트처럼 설치해요.\n\n"
+                            + "설치하면 같은 게임 번호의 ISO · 폴더 게임 모두에 적용돼요 (ISO를 폴더로 풀 필요 없음). 재시작 · 다시 켜면 적용돼요.")
+                    .setPositiveButton("설치하기", (d, w) -> startPs3Install(java.util.Collections.singletonList(uri), file))
+                    .setNegativeButton("취소", null).show();
+            return;
+        }
+        new Thread(() -> {
+            // What the zip holds: PKGs go to the engine.
+            List<String> pkgs = new ArrayList<>();
+            int others = 0;
+            try (InputStream raw = getContentResolver().openInputStream(uri)) {
+                if (raw != null) {
+                    try (ZipInputStream zip = new ZipInputStream(new java.io.BufferedInputStream(raw), StandardCharsets.ISO_8859_1)) {
+                        ZipEntry entry;
+                        while ((entry = zip.getNextEntry()) != null) {
+                            if (entry.isDirectory()) continue;
+                            String name = decodeZipEntryName(entry.getName()).toLowerCase(Locale.ROOT);
+                            if (name.endsWith(".pkg")) pkgs.add(entry.getName());
+                            else if (!name.matches(".*\\.(txt|nfo|url|md|jpg|jpeg|png|gif|pdf|exe|bat|ini)$")) others++;
+                        }
+                    }
+                }
+            } catch (IOException | RuntimeException ignored) {
+                // Not a zip: the overlay below says so.
+            }
+            final int otherFiles = others;
+            if (pkgs.isEmpty()) {
+                runOnUiThread(() -> overlayPs3HanPatch(uri, file, root));
+                return;
+            }
+            // Out of the zip into the cache, for the engine to install.
+            List<String> paths = new ArrayList<>();
+            String error = null;
+            File dir = new File(getCacheDir(), "ps3pkg");
+            Ps3Disc.deleteTree(dir);
+            dir.mkdirs();
+            try (InputStream raw = getContentResolver().openInputStream(uri);
+                 ZipInputStream zip = new ZipInputStream(new java.io.BufferedInputStream(raw), StandardCharsets.ISO_8859_1)) {
+                ZipEntry entry;
+                while ((entry = zip.getNextEntry()) != null) {
+                    if (!pkgs.contains(entry.getName())) continue;
+                    File out = new File(dir, sanitizeFileName(new File(decodeZipEntryName(entry.getName())).getName()));
+                    try (OutputStream o = new FileOutputStream(out)) {
+                        copy(zip, o);
+                    }
+                    paths.add(out.getAbsolutePath());
+                }
+            } catch (IOException | RuntimeException e) {
+                error = e.getMessage();
+            }
+            final String failure = error;
+            runOnUiThread(() -> {
+                if (failure != null || paths.isEmpty()) {
+                    showError("zip 안의 PKG를 꺼내지 못했어요" + (failure != null ? ": " + failure : ""));
+                    return;
+                }
+                StringBuilder names = new StringBuilder();
+                for (String path : paths) names.append("\n· ").append(new File(path).getName());
+                new AppDialog.Builder(this).setTitle("PKG 한글패치")
+                        .setMessage("zip 안에 PS3 패키지(.pkg)가 있어요:" + names + "\n\n이런 한글패치는 게임 폴더에 덮어쓰지 않고 PS3 엔진에 업데이트처럼 설치해요. "
+                                + "설치하면 같은 게임 번호의 ISO · 폴더 게임 모두에 적용돼요."
+                                + (otherFiles > 0 ? "\n\n(zip의 다른 파일 " + otherFiles + "개는 넣지 않아요. 패치 설명서에 따로 넣으라는 파일이 있으면 알려 주세요.)" : ""))
+                        .setPositiveButton("설치하기", (d, w) -> startPs3Install(new ArrayList<>(), file, paths.toArray(new String[0])))
+                        .setNegativeButton("취소", null).show();
+            });
+        }, "ps3-hanpatch-scan").start();
+    }
+
+    private void overlayPs3HanPatch(Uri uri, File file, File root) {
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(1);
         dialog.setCancelable(false);

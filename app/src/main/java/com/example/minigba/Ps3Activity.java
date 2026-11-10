@@ -41,6 +41,9 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     static final String EXTRA_TITLE = "com.example.minigba.PS3_TITLE";
     // (0.0.392) Where a PSN game installed from a .pkg gets its entry (<title>.ps3game).
     static final String EXTRA_ROM_DIR = "com.example.minigba.PS3_ROM_DIR";
+    // (0.0.396) Files in the app's own cache to install (PKGs taken out of a patch zip),
+    // deleted after.
+    static final String EXTRA_INSTALL_PATHS = "com.example.minigba.PS3_INSTALL_PATHS";
     static final String ACTION_BOOT = "boot";
     static final String ACTION_FIRMWARE = "firmware";
     // (0.0.392) From a game's long-press menu: its patches, or a file to install for it.
@@ -1941,6 +1944,10 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 if (clip.getItemAt(k).getUri() != null) uris.add(clip.getItemAt(k).getUri());
             }
         }
+        final String[] cached = this.bootStarted ? null : getIntent().getStringArrayExtra(EXTRA_INSTALL_PATHS);
+        if (cached != null) {
+            for (String path : cached) uris.add(Uri.fromFile(new File(path)));
+        }
         if (uris.isEmpty()) {
             finishWithMessage("설치할 파일이 없어요", "");
             return;
@@ -1979,6 +1986,12 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 }));
                 if (results.length() > 0) results.append("\n\n");
                 results.append(result);
+            }
+            if (cached != null) {
+                for (String path : cached) {
+                    File f = new File(path);
+                    if (f.getAbsolutePath().startsWith(getCacheDir().getAbsolutePath())) f.delete();
+                }
             }
             main.post(() -> {
                 dialog.dismiss();
