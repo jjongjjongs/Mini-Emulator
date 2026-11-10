@@ -6882,7 +6882,11 @@ public final class MainActivity extends Activity {
         deletesParams.setMargins(0, dp(9), 0, 0);
         panel.addView(deletes, deletesParams);
 
-        dialog.setContentView(panel);
+        // (0.0.397) Taller than the screen with a console's own rows (PS3): it scrolls.
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(0));
