@@ -172,9 +172,9 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     }
 
     // Resolution scale and the FPS overlay, kept in our settings and handed to the engine.
-    private static final int[] RES_VALUES = {50, 100, 150, 200};
-    private static final String[] RES_NAMES = {"0.5배 · 360p", "1배 · 720p", "1.5배 · 1080p", "2배 · 1440p"};
-    private static final String[] RES_NOTES = {"가장 빠름 · 흐릿함", "PS3 원래 해상도 (기본)", "더 선명 · 조금 느려짐", "가장 선명 · 많이 느려질 수 있음"};
+    private static final int[] RES_VALUES = {50, 75, 100, 150, 200};
+    private static final String[] RES_NAMES = {"0.5배 · 360p", "0.75배 · 540p", "1배 · 720p", "1.5배 · 1080p", "2배 · 1440p"};
+    private static final String[] RES_NOTES = {"가장 빠름 · 글이 뭉개짐", "0.5배와 1배 사이 · 글이 좀 더 또렷", "PS3 원래 해상도 (기본)", "더 선명 · 조금 느려짐", "가장 선명 · 많이 느려질 수 있음"};
 
     private static int resIndex(Context context) {
         int value = MainActivity.sharedSettings(context).getInt("ps3_res", 100);
@@ -183,7 +183,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 return k;
             }
         }
-        return 1;
+        return 2;
     }
 
     private static boolean perfOverlay(Context context) {
@@ -222,6 +222,10 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             set(refused, "SPU 스레드", "Core@@Preferred SPU Threads", String.valueOf(spu));
             prefs.edit().putBoolean("ps3_spu_applied", spu != 0).commit();
         }
+        // (0.0.395) PS3 본체 언어 (games pick their text by it), 확인 버튼, 선명하게 키우기.
+        set(refused, "본체 언어", "System@@Language", LANG_VALUES[langIndex(context)]);
+        set(refused, "확인 버튼", "System@@Enter button assignment", prefs.getBoolean("ps3_enter_circle", false) ? "Enter with circle" : "Enter with cross");
+        set(refused, "선명하게 키우기", "Video@@Output Scaling Mode", UPSCALE_VALUES[upscaleIndex(context)]);
         // (0.0.392) SPU 코드 저장, 화면 비율, 프레임 생성.
         set(refused, "SPU 코드 저장", "Core@@SPU Cache", prefs.getBoolean("ps3_spu_cache", true) ? "true" : "false");
         set(refused, "화면 비율", "Video@@Aspect ratio", aspect43(context) ? "4:3" : "16:9");
@@ -242,6 +246,22 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     // ---- 프레임 생성 (0.0.392): Lossless Scaling's frame generation, which the engine has but
     // whose shaders come only from the player's own copy of Lossless Scaling (Lossless.dll):
     // nothing of it is in the app. ----
+    static final String[] LANG_VALUES = {"Korean", "English (US)", "Japanese", "English (UK)", "French", "Spanish", "German", "Italian",
+            "Chinese (Traditional)", "Chinese (Simplified)", "Portuguese (Brazil)", "Russian"};
+    static final String[] LANG_NAMES = {"한국어", "English (US)", "日本語", "English (UK)", "Français", "Español", "Deutsch", "Italiano",
+            "中文 (繁體)", "中文 (简体)", "Português (Brasil)", "Русский"};
+
+    static int langIndex(Context context) {
+        return Math.max(0, Math.min(LANG_VALUES.length - 1, MainActivity.sharedSettings(context).getInt("ps3_lang", 0)));
+    }
+
+    static final String[] UPSCALE_VALUES = {"Bilinear", "FidelityFX Super Resolution", "Snapdragon Game Super Resolution"};
+    static final String[] UPSCALE_NAMES = {"꺼짐", "FSR", "SGSR"};
+
+    static int upscaleIndex(Context context) {
+        return Math.max(0, Math.min(2, MainActivity.sharedSettings(context).getInt("ps3_upscale", 0)));
+    }
+
     static final String[] FG_VALUES = {"Off", "x2", "x3", "x4"};
     static final String[] FG_NAMES = {"꺼짐", "2배", "3배", "4배"};
 
@@ -1451,6 +1471,15 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 applyEngineSettings(this, this.gamePath);
             });
         }), rowParams(8));
+        int up = upscaleIndex(this);
+        body.addView(menuRow(RoundIconView.HD, Color.rgb(13, 148, 136), "선명하게 키우기", UPSCALE_NAMES[up], v ->
+                showChoices(RoundIconView.HD, Color.rgb(13, 148, 136), "선명하게 키우기", UPSCALE_NAMES,
+                        new String[]{"그대로 늘려요 (기본) · 낮은 화질에서 흐림", "AMD FSR · 테두리 · 글자를 또렷하게", "스냅드래곤 SGSR · 퀄컴 폰에 맞춘 방식 · 가볍고 또렷"}, up,
+                        "화질(해상도)을 낮췄을 때 화면을 키우는 방법이에요. 모든 PS3 게임에 같이 적용돼요. GPU를 조금 더 써요.", choice -> {
+                    MainActivity.sharedSettings(this).edit().putInt("ps3_upscale", choice).commit();
+                    String refused = applyEngineSettings(this, this.gamePath);
+                    if (!refused.isEmpty()) toast("엔진이 받지 않은 설정: " + refused);
+                })), rowParams(8));
         int spu = spuThreads(this, this.gamePath);
         String[] spuNames = {"자동", "1개", "2개", "3개", "4개", "5개", "6개"};
         body.addView(menuRow(RoundIconView.MULTI, RoundIconView.COLOR_FILTER, "SPU 스레드", spuNames[spu], v -> {
@@ -1607,6 +1636,30 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         body.addView(menuRow(RoundIconView.DLC, Color.rgb(29, 78, 216), "업데이트 · DLC · 라이선스", "PKG · RAP · EDAT", v -> {
             pickInstallFile();
         }), rowParams(8));
+        int lang = langIndex(this);
+        body.addView(menuRow(RoundIconView.EDIT, Color.rgb(190, 18, 60), "PS3 본체 언어", LANG_NAMES[lang], v -> {
+            String[] notes = new String[LANG_NAMES.length];
+            notes[0] = "한국어가 들어 있는 게임(아시아판 · 한국 정발판)이 한글로 · 없는 게임은 보통 영어로 (기본)";
+            notes[1] = "엔진 기본값 (0.0.394까지의 설정)";
+            notes[2] = "일본판 게임";
+            for (int k = 3; k < notes.length; k++) notes[k] = "";
+            showChoices(RoundIconView.EDIT, Color.rgb(190, 18, 60), "PS3 본체 언어", LANG_NAMES, notes, lang,
+                    "게임은 켤 때 언어를 정해서, 바꾸면 재시작해야 적용돼요. 모든 PS3 게임에 같이 적용돼요. "
+                            + "한글패치가 영어 자리를 한글로 바꾼 것이면 English (US)에서 한글이 나와요. 한국어에서 안 나오면 English로도 해 보세요.", choice -> {
+                MainActivity.sharedSettings(this).edit().putInt("ps3_lang", choice).commit();
+                applyEngineSettings(this, this.gamePath);
+                if (choice != lang) toast("재시작하면 적용돼요");
+            });
+        }), rowParams(8));
+        boolean circle = MainActivity.sharedSettings(this).getBoolean("ps3_enter_circle", false);
+        body.addView(menuRow(RoundIconView.PAD, Color.rgb(8, 145, 178), "확인 버튼", circle ? "○ (한국 · 일본식)" : "✕ (서양식)", v ->
+                showChoices(RoundIconView.PAD, Color.rgb(8, 145, 178), "확인 버튼", new String[]{"✕ 결정 · ○ 취소", "○ 결정 · ✕ 취소"},
+                        new String[]{"서양식 (기본)", "예전 한국 · 일본 PS3처럼 · 게임에 따라 따르지 않는 것도 있어요"}, circle ? 1 : 0,
+                        "PS3 메뉴와 게임의 \"결정\" 버튼이에요. 재시작하면 적용돼요. 모든 PS3 게임에 같이 적용돼요.", choice -> {
+                    MainActivity.sharedSettings(this).edit().putBoolean("ps3_enter_circle", choice == 1).commit();
+                    applyEngineSettings(this, this.gamePath);
+                    if ((choice == 1) != circle) toast("재시작하면 적용돼요");
+                })), rowParams(8));
         String version = safe(() -> ARMSX3.instance.getVersion());
         String serial = safe(() -> ARMSX3.instance.getTitleId());
         TextView info = text("엔진: ARMSX3 1.6.7 (RPCS3 휴대폰판)" + (version.isEmpty() ? "" : " · " + version)
