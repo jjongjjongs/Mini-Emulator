@@ -793,7 +793,7 @@ public final class MainActivity extends Activity {
 
     // When a console's games were last played (0 never).
     private long lastPlayed(String mode) {
-        File[] files = romDirFor(mode).listFiles(this::isRomFile);
+        File[] files = cachedModeGames(mode);
         long last = 0;
         if (files != null) {
             for (File file : files) {
@@ -2358,8 +2358,26 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
+    // (0.0.398) A mode's games for the console tiles, kept while its folder is unchanged
+    // (adding, removing or renaming a game changes the folder's time). Opening the console
+    // list listed and filtered every folder twice.
+    private final java.util.Map<String, Object[]> modeGames = new java.util.HashMap<>();
+
+    private File[] cachedModeGames(String mode) {
+        File dir = romDirFor(mode);
+        long stamp = dir.lastModified();
+        Object[] seen = this.modeGames.get(mode);
+        if (seen != null && (Long) seen[0] == stamp && stamp != 0) {
+            return (File[]) seen[1];
+        }
+        File[] files = dir.listFiles(this::isRomFile);
+        if (files == null) files = new File[0];
+        this.modeGames.put(mode, new Object[]{stamp, files});
+        return files;
+    }
+
     private int romCount(String mode) {
-        File[] files = romDirFor(mode).listFiles(this::isRomFile);
+        File[] files = cachedModeGames(mode);
         int n = 0;
         for (File file : files == null ? new File[0] : files) {
             if (!isHiddenGame(file)) n++;
@@ -5870,9 +5888,9 @@ public final class MainActivity extends Activity {
 
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
-        if (file.isDirectory()) {
+        if (romDirFor(MODE_PS3).equals(dir) && file.isDirectory()) {
             // PS3 game folders (0.0.392): an unpacked disc, e.g. one with a Korean patch laid over it.
-            return romDirFor(MODE_PS3).equals(dir) && Ps3Disc.isGameFolder(file);
+            return Ps3Disc.isGameFolder(file);
         }
         if ((romDirFor(MODE_MSX).equals(dir) || romDirFor(MODE_DC).equals(dir) || romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_SS).equals(dir)
                 || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_GC).equals(dir)) && isGroupedMsxDisk(file)) {
@@ -21103,7 +21121,21 @@ public final class MainActivity extends Activity {
         return i;
     }
 
+    // (0.0.398) One File per mode: getFilesDir() checks the disk on every call, and the list
+    // filters ask for these folders many times per file.
+    private final java.util.Map<String, File> romDirs = new java.util.concurrent.ConcurrentHashMap<>();
+
     private File romDirFor(String mode) {
+        String key = mode == null ? "" : mode;
+        File dir = this.romDirs.get(key);
+        if (dir == null) {
+            dir = romDirForUncached(mode);
+            this.romDirs.put(key, dir);
+        }
+        return dir;
+    }
+
+    private File romDirForUncached(String mode) {
         String[] console = consoleFor(mode);
         if (console != null) {
             return new File(getFilesDir(), console[4]);

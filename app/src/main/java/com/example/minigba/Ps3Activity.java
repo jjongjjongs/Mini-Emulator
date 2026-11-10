@@ -101,7 +101,20 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
 
     // Why this phone cannot run the PS3 engine, or null. It is built for Android 11+ and
     // ARMv8.2 (LSE atomics and RDMA, which ARMv8.0 cores fault on).
+    // (0.0.398) Worked out once per process: it reads /proc/cpuinfo, and the console tiles ask
+    // on every redraw.
+    private static volatile String unsupportedChecked;
+    private static volatile boolean unsupportedKnown;
+
     static String unsupportedReason(Context context) {
+        if (!unsupportedKnown) {
+            unsupportedChecked = unsupportedReasonUncached(context);
+            unsupportedKnown = true;
+        }
+        return unsupportedChecked;
+    }
+
+    private static String unsupportedReasonUncached(Context context) {
         if (Build.VERSION.SDK_INT < 30) {
             return "PS3 모드는 안드로이드 11 이상에서 돼요.";
         }
