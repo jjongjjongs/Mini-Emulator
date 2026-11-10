@@ -1091,8 +1091,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // down past 0.6. Sticks still move the console's sticks where it has them.
     private void applyMappedAxes(android.view.MotionEvent event, android.util.SparseIntArray table, float x, float y) {
         if (hasLeftStick()) {
-            onAnalogChanged(x, y);
-            onAnalogRightChanged(gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_Z), gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_RZ));
+            float[] left = padStick(x, y, false);
+            float[] right = padStick(gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_Z), gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_RZ), true);
+            onAnalogChanged(left[0], left[1]);
+            onAnalogRightChanged(right[0], right[1]);
         }
         int directions = 0;
         for (int k = 0; k < table.size(); k++) {
@@ -1473,10 +1475,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int aimSide = isControllerEvent(event) && event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE && playerFor(event.getDevice()) <= 0 ? gunStickSide() : 0;
         if (aimSide != 0) {
             // 패드 스틱으로 조준 (0.0.386): that stick moves the aim and is held still for the game.
+            // Raw values: the 데드존 chosen for aiming applies, not the pad's own small one.
             if (aimSide == 1) {
-                onGunStick(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+                onGunStick(event.getAxisValue(android.view.MotionEvent.AXIS_Z), event.getAxisValue(android.view.MotionEvent.AXIS_RZ));
             } else {
-                onGunStick(padAxis(event, android.view.MotionEvent.AXIS_X), padAxis(event, android.view.MotionEvent.AXIS_Y));
+                onGunStick(event.getAxisValue(android.view.MotionEvent.AXIS_X), event.getAxisValue(android.view.MotionEvent.AXIS_Y));
             }
         }
         if (!isControllerEvent(event) || event.getActionMasked() != android.view.MotionEvent.ACTION_MOVE) {
@@ -1498,8 +1501,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int stick = 0;
         if (isSonyPad() || isN64() || isDreamcast() || hasLeftStick()) {
             // PSP / PS1 / PS2 / N64 / Dreamcast read the sticks as sticks.
-            onAnalogChanged(x, y);
-            onAnalogRightChanged(gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_Z), gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_RZ));
+            float[] left = padStick(x, y, false);
+            float[] right = padStick(gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_Z), gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_RZ), true);
+            onAnalogChanged(left[0], left[1]);
+            onAnalogRightChanged(right[0], right[1]);
         } else {
             stick = directionsFor(x, y, 0.5f);
         }
@@ -1720,16 +1725,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         int aimSide = player == 1 && gun2On() ? gunStickSide() : 0;
         if (aimSide == 1) {
             // 2P 총 (0.0.387): 2P's stick aims 2P's gun, held still for the game.
-            this.gunStick2.set(rx, ry);
+            this.gunStick2.set(event.getAxisValue(android.view.MotionEvent.AXIS_Z), event.getAxisValue(android.view.MotionEvent.AXIS_RZ));
             rx = 0f;
             ry = 0f;
         } else if (aimSide == 2) {
-            this.gunStick2.set(x, y);
+            this.gunStick2.set(event.getAxisValue(android.view.MotionEvent.AXIS_X), event.getAxisValue(android.view.MotionEvent.AXIS_Y));
             x = 0f;
             y = 0f;
         }
         boolean sticks = isSonyPad() || isN64() || isDreamcast() || hasLeftStick();
         long handle = this.nativeHandle;
+        float[] leftScaled = padStick(x, y, false);
+        float[] rightScaled = padStick(rx, ry, true);
+        x = leftScaled[0];
+        y = leftScaled[1];
+        rx = rightScaled[0];
+        ry = rightScaled[1];
         if (sticks && handle != 0) {
             NativeGba.setPlayerAnalog(handle, player, Math.round(x * 32767), Math.round(y * 32767), Math.round(rx * 32767), Math.round(ry * 32767));
         }
@@ -17649,6 +17660,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     // 가속, a lean held for a while speeds up too. The stick doesn't reach the game meanwhile. ----
     private final android.os.Handler gunHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
+    // 데드존 (0.0.388), per game under gun_stick_dz.
+    private static final String[] GUN_DEADZONE_NAMES = {"작게 8%", "보통 18%", "크게 28%"};
+    private static final float[] GUN_DEADZONES = {0.08f, 0.18f, 0.28f};
+
+    private int gunDeadzoneIndex() {
+        int k = gunInt("gun_stick_dz", 1);
+        return k >= 0 && k < GUN_DEADZONES.length ? k : 1;
+    }
+
     private int gunStickSide() {
         if (!gunOn()) return 0;
         int side = gunInt("gun_stick", 1);
@@ -17669,7 +17689,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
 
         void set(float nx, float ny) {
-            if ((float) Math.hypot(nx, ny) < 0.18f) {
+            if ((float) Math.hypot(nx, ny) < GUN_DEADZONES[gunDeadzoneIndex()]) {
                 nx = 0f;
                 ny = 0f;
             }
@@ -17693,7 +17713,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             float dt = Math.min(0.05f, (now - this.last) / 1000f);
             this.last = now;
             float mag = Math.min(1f, (float) Math.hypot(this.x, this.y));
-            float curve = (mag - 0.18f) / 0.82f;
+            float dz = GUN_DEADZONES[gunDeadzoneIndex()];
+            float curve = Math.max(0f, (mag - dz) / (1f - dz));
             curve = curve * curve;
             float speed = 0.9f * gunInt("gun_stick_speed", 100) / 100f;  // screens per second at full lean
             if (MainActivity.sharedSettings(GameActivity.this).getBoolean("gun_stick_accel:" + saveBaseName, true)) {
@@ -18342,7 +18363,22 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final java.util.Map<Integer, Integer> wasChosen = new java.util.HashMap<>(keyChosen);
         final java.util.List<PadMapping.Target> keyChoices = gunKeyChoices();
         final int red = Color.rgb(220, 38, 38);
-        final android.app.Dialog dialog = new android.app.Dialog(this);
+        final int[] deadzone = {gunDeadzoneIndex()};
+        final StickDeadzoneView[] zoneView = {null};
+        final android.app.Dialog dialog = new android.app.Dialog(this) {
+            @Override
+            public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+                // The 데드존 picture follows the controller's aiming stick while the sheet is open.
+                StickDeadzoneView view = zoneView[0];
+                if (view != null && isControllerEvent(event) && event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE) {
+                    boolean right = gunInt("gun_stick", 1) != 2;
+                    view.setStick(event.getAxisValue(right ? android.view.MotionEvent.AXIS_Z : android.view.MotionEvent.AXIS_X),
+                            event.getAxisValue(right ? android.view.MotionEvent.AXIS_RZ : android.view.MotionEvent.AXIS_Y));
+                    return true;
+                }
+                return super.dispatchGenericMotionEvent(event);
+            }
+        };
         dialog.requestWindowFeature(1);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(1);
@@ -18431,6 +18467,27 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             if (stick[0] != 0) {
                 body.addView(gunSlider("조준 속도", stickSpeed, 40, 250, "%"));
                 body.addView(ps2Switch("천천히 시작해서 빨라지기", "조금 기울이면 정밀하게, 오래 기울이면 빠르게", stickAccel[0], v -> stickAccel[0] = v));
+                body.addView(backgroundChips("데드존 (얼마나 기울여야 움직이기 시작할지)", GUN_DEADZONE_NAMES, deadzone[0], red, i -> {
+                    deadzone[0] = i;
+                    if (zoneView[0] != null) zoneView[0].setDeadzone(GUN_DEADZONES[i]);
+                    render[0].run();
+                }));
+                LinearLayout zoneRow = new LinearLayout(this);
+                zoneRow.setGravity(Gravity.CENTER_VERTICAL);
+                zoneRow.setPadding(dp(14), dp(8), 0, dp(4));
+                StickDeadzoneView zone = new StickDeadzoneView(this);
+                zone.setDeadzone(GUN_DEADZONES[deadzone[0]]);
+                zoneView[0] = zone;
+                zoneRow.addView(zone, new LinearLayout.LayoutParams(dp(110), dp(110)));
+                TextView zoneNote = new TextView(this);
+                zoneNote.setText("손 떼고 확인\n파란 점 = 지금 패드 스틱 위치\n빨간 점선 = 데드존 (이 안은 안 움직임)\n손을 뗐는데 파란 점이 점선 밖이면 데드존을 키워요.");
+                zoneNote.setTextSize(12f);
+                zoneNote.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+                zoneNote.setLineSpacing(0, 1.25f);
+                LinearLayout.LayoutParams zoneNoteParams = new LinearLayout.LayoutParams(0, -2, 1f);
+                zoneNoteParams.setMargins(dp(12), 0, 0, 0);
+                zoneRow.addView(zoneNote, zoneNoteParams);
+                body.addView(zoneRow);
                 body.addView(ps2Note("조준에 쓰는 스틱은 이 게임에 원래 스틱 입력을 보내지 않아요. 발사 · 재장전 · 보정 쏘기 · \"조준 가운데로\"는 패드 버튼 설정에서 붙여요.",
                         Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
             }
@@ -18518,7 +18575,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             prefs.edit().putBoolean("gun_on:" + base, on[0]).putInt("gun_aim:" + base, aim[0]).putInt("gun_type:" + base, type[0])
                     .putInt("gun_port:" + base, port[0]).putBoolean("gun_cross:" + base, cross[0]).putInt("gun_dx:" + base, dx[0])
                     .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).putInt("gun_lift:" + base, lift[0]).putInt("gun_stick:" + base, stick[0]).putInt("gun_stick_speed:" + base, stickSpeed[0])
-                    .putBoolean("gun_stick_accel:" + base, stickAccel[0]).putBoolean("gun_mouse:" + base, mouse[0]).putBoolean("gun_border:" + base, border[0]).putBoolean("gun_2p:" + base, two[0]).putBoolean("gun_keys:" + base, keysOn[0]).commit();
+                    .putBoolean("gun_stick_accel:" + base, stickAccel[0]).putInt("gun_stick_dz:" + base, deadzone[0]).putBoolean("gun_mouse:" + base, mouse[0]).putBoolean("gun_border:" + base, border[0]).putBoolean("gun_2p:" + base, two[0]).putBoolean("gun_keys:" + base, keysOn[0]).commit();
             GunSetup appliedGun = gunSetupFor(type[0], port[0]);
             if (appliedGun != null && keysOn[0] && gunKeysPossible(appliedGun, keyChoices)) {
                 int[] functions = gunKeyFunctions(appliedGun);
@@ -19569,16 +19626,39 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return stick;
     }
 
+    // (0.0.388) Whether the connected controllers' sticks take the same sensitivity (all games).
+    private boolean stickPadToo(boolean right) {
+        return MainActivity.sharedSettings(this).getBoolean(stickKey(right) + "_pad", false);
+    }
+
+    // A controller stick's value through the sensitivity, when it applies to pads: scaled, and
+    // kept within full tilt.
+    private float[] padStick(float x, float y, boolean right) {
+        if (!stickPadToo(right)) {
+            return new float[]{x, y};
+        }
+        float s = stickSensitivity(right);
+        float nx = x * s;
+        float ny = y * s;
+        float mag = (float) Math.hypot(nx, ny);
+        if (mag > 1f) {
+            nx /= mag;
+            ny /= mag;
+        }
+        return new float[]{nx, ny};
+    }
+
     private boolean hasLeftStick() {
         return isSonyPad() || isN64() || (isDreamcast() && !isNaomi()) || isN3ds() || isWiiU() || isDolphin();
     }
 
     private LinearLayout createStickRow(boolean right, Runnable reopen) {
         String name = right ? "오른쪽 스틱 감도" : isDualShock() || isWiiU() ? "왼쪽 스틱 감도" : "스틱 감도";
-        String shown = StickSensitivityDialog.format(stickSensitivity(right)) + (stickSensitivityOwn(right) ? " · 이 게임" : "");
+        String shown = StickSensitivityDialog.format(stickSensitivity(right)) + (stickSensitivityOwn(right) ? " · 이 게임" : "") + (stickPadToo(right) ? " · 패드도" : "");
         return createSettingRow(RoundIconView.STICK, RoundIconView.COLOR_STICK, name, shown,
-                view -> StickSensitivityDialog.show(this, name, stickSensitivity(right), stickSensitivityAll(right), this.gameTitle, (value, thisGame) -> {
+                view -> StickSensitivityDialog.show(this, name, stickSensitivity(right), stickSensitivityAll(right), this.gameTitle, stickPadToo(right), (value, thisGame, padToo) -> {
                     android.content.SharedPreferences.Editor edit = MainActivity.sharedSettings(this).edit();
+                    edit.putBoolean(stickKey(right) + "_pad", padToo);
                     if (thisGame) {
                         edit.putFloat(stickKey(right) + ":" + this.saveBaseName, value);
                     } else {

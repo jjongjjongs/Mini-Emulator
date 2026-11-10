@@ -21,7 +21,8 @@ import java.util.Locale;
 final class StickSensitivityDialog {
     interface Listener {
         // thisGame: the value is for this game only; otherwise it is the default for all.
-        void onApplied(float value, boolean thisGame);
+        // padToo (0.0.388): the connected controllers' sticks take it too, not only the screen's.
+        void onApplied(float value, boolean thisGame, boolean padToo);
     }
 
     static final float MIN = 0.5f;
@@ -34,6 +35,8 @@ final class StickSensitivityDialog {
     private final float density;
     private float value;
     private boolean thisGame = true;
+    private boolean padToo;
+    private final TextView[] targets = new TextView[2];
     private final String gameName;
     private final float allValue;
     private TextView valueView;
@@ -51,8 +54,10 @@ final class StickSensitivityDialog {
     }
 
     // current: the value in force for this game; allValue: the default for all games.
-    static void show(Context context, String title, float current, float allValue, String gameName, Listener listener) {
-        new StickSensitivityDialog(context, current, allValue, gameName).open(title, listener);
+    static void show(Context context, String title, float current, float allValue, String gameName, boolean padToo, Listener listener) {
+        StickSensitivityDialog dialog = new StickSensitivityDialog(context, current, allValue, gameName);
+        dialog.padToo = padToo;
+        dialog.open(title, listener);
     }
 
     static float clamp(float value) {
@@ -128,6 +133,31 @@ final class StickSensitivityDialog {
         this.scopeNote.setPadding(0, dp(6), 0, 0);
         panel.addView(this.scopeNote);
 
+        // (0.0.388) Which sticks: the screen's only, or the controllers' too.
+        TextView targetLabel = text("적용할 스틱", 12, Color.rgb(229, 231, 235), true);
+        targetLabel.setPadding(0, dp(10), 0, 0);
+        panel.addView(targetLabel);
+        LinearLayout targetRow = new LinearLayout(this.context);
+        GradientDrawable targetFrame = new GradientDrawable();
+        targetFrame.setCornerRadius(dp(20));
+        targetFrame.setStroke(dp(1.5f), Theme.line(Color.rgb(75, 85, 99)));
+        targetRow.setBackground(targetFrame);
+        String[] targetNames = {"화면 스틱만", "화면 스틱 + 패드 스틱"};
+        for (int k = 0; k < 2; k++) {
+            final boolean pad = k == 1;
+            TextView option = text(targetNames[k], 13, Color.WHITE, true);
+            option.setGravity(Gravity.CENTER);
+            option.setOnClickListener(v -> {
+                this.padToo = pad;
+                refresh();
+            });
+            this.targets[k] = option;
+            targetRow.addView(option, new LinearLayout.LayoutParams(0, dp(36), 1));
+        }
+        LinearLayout.LayoutParams targetParams = new LinearLayout.LayoutParams(-1, -2);
+        targetParams.setMargins(0, dp(6), 0, 0);
+        panel.addView(targetRow, targetParams);
+
         this.ruler = new RulerView(this.context);
         LinearLayout.LayoutParams rulerParams = new LinearLayout.LayoutParams(-1, dp(66));
         rulerParams.setMargins(0, dp(10), 0, 0);
@@ -148,7 +178,8 @@ final class StickSensitivityDialog {
         chipsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(chipRow, chipsParams);
 
-        TextView note = text("줄자를 옆으로 밀거나 −/+ 로 0.05씩 맞출 수 있어요. 숫자가 클수록 조금만 밀어도 끝까지 기울어요. 1x가 원래 감도예요.",
+        TextView note = text("줄자를 옆으로 밀거나 −/+ 로 0.05씩 맞출 수 있어요. 숫자가 클수록 조금만 밀어도 끝까지 기울어요. 1x가 원래 감도예요."
+                + "\n패드 스틱에도 적용하면 연결한 블루투스 · USB 패드(1P~4P)의 스틱 값에 같은 배율을 곱해요 (끝까지는 넘지 않음). 이 선택은 모든 게임에 같아요.",
                 12, Color.rgb(156, 163, 175), false);
         note.setLineSpacing(0, 1.3f);
         LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -167,7 +198,7 @@ final class StickSensitivityDialog {
         TextView apply = pill("적용", ACCENT, Color.rgb(11, 26, 30), false);
         apply.setOnClickListener(v -> {
             dialog.dismiss();
-            listener.onApplied(this.value, this.thisGame);
+            listener.onApplied(this.value, this.thisGame, this.padToo);
         });
         LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(-2, dp(44));
         applyParams.setMargins(dp(8), 0, 0, 0);
@@ -195,6 +226,14 @@ final class StickSensitivityDialog {
 
     private void refresh() {
         this.valueView.setText(format(this.value));
+        for (int k = 0; k < 2; k++) {
+            boolean on = (k == 1) == this.padToo;
+            GradientDrawable shape = new GradientDrawable();
+            shape.setCornerRadius(dp(20));
+            shape.setColor(Theme.bg(on ? ACCENT : Color.TRANSPARENT));
+            this.targets[k].setBackground(shape);
+            this.targets[k].setTextColor(Theme.text(on ? Color.rgb(11, 26, 30) : Color.rgb(229, 231, 235)));
+        }
         for (int k = 0; k < 2; k++) {
             boolean on = (k == 0) == this.thisGame;
             GradientDrawable shape = new GradientDrawable();
