@@ -1870,7 +1870,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
         final Runnable[] build = new Runnable[1];
-        build[0] = () -> dialog.setContentView(playersPanel(dialog, build[0]));
+        build[0] = () -> dialog.setContentView(scrollWrap(playersPanel(dialog, build[0])));
         build[0].run();
         this.holdPause = true;
         if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
@@ -2119,7 +2119,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return true;
         });
         show.run();
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (0.0.398)
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         }
@@ -4443,6 +4443,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 action.run();
             }
         });
+    }
+
+    // A sheet taller than the screen (landscape) scrolls (0.0.398).
+    private View scrollWrap(View panel) {
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        return scroll;
     }
 
     // A white card dialog; heightShare > 0 gives it that share of the screen height.
@@ -11172,7 +11180,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams tilesParams = new LinearLayout.LayoutParams(-1, -2);
         tilesParams.setMargins(0, dp(14), 0, 0);
         panel.addView(tiles, tilesParams);
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (0.0.398)
         dialog.setOnCancelListener(d -> resumeEmulation());
         dialog.setOnDismissListener(d -> resumeUnlessExiting());
         android.view.Window window = dialog.getWindow();
@@ -19003,7 +19011,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -19325,7 +19333,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(14), 0, 0);
         panel.addView(buttons, buttonsParams);
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
