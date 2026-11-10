@@ -17706,11 +17706,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             float triggerSize = dp(64);
             int nth = isTrigger ? -1 : extraIndex++;
             if (face != null && besideTriangle && cross != null && (isTrigger || button.bit() == kGunReload || button.bit() == kGunCalib)) {
-                // (0.0.384) GunCon 2: the trigger left of ✕, reload right of it, 보정 쏘기 under it.
+                // (0.0.384) GunCon 2: the trigger left of ✕, reload right of it, 보정 쏘기 at the top.
                 float size = isTrigger ? triggerSize : baseSize;
                 if (button.bit() == kGunCalib) {
-                    targetX = cross.centerX();
-                    targetY = cross.bottom + gap + size / 2f;
+                    // Used once on the calibration screen: up in the top corner, out of the way
+                    // (the right stick is under ✕).
+                    targetX = face.left + gap + size / 2f;
+                    targetY = origin[1] + gap + size / 2f;
                 } else {
                     targetX = isTrigger ? cross.left - gap - size / 2f : cross.right + gap + size / 2f;
                     targetY = cross.centerY();
