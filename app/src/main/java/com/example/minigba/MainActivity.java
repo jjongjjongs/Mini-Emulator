@@ -3432,6 +3432,57 @@ public final class MainActivity extends Activity {
         }, "ps2-bin-look").start();
     }
 
+    // The PS2 .cue files of a folder, and the .bin files no .cue there stands for (0.0.382).
+    private static List<File> ps2CueBins(File dir) {
+        List<File> out = new ArrayList<>();
+        File[] files = dir.listFiles();
+        if (files == null) return out;
+        java.util.Set<String> covered = new java.util.HashSet<>();
+        for (File f : files) {
+            if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".cue")) {
+                out.add(f);
+                for (String track : cueTracks(f)) covered.add(track.toLowerCase(Locale.ROOT));
+            }
+        }
+        for (File f : files) {
+            String lower = f.getName().toLowerCase(Locale.ROOT);
+            if (f.isFile() && lower.endsWith(".bin") && !covered.contains(lower)) out.add(f);
+        }
+        java.util.Collections.sort(out, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
+        return out;
+    }
+
+    private static void collectPs2CueBins(File dir, int depth, List<File> out) {
+        out.addAll(ps2CueBins(dir));
+        File[] files = depth <= 0 ? null : dir.listFiles();
+        for (File f : files == null ? new File[0] : files) {
+            if (f.isDirectory() && !f.getName().startsWith(".")) collectPs2CueBins(f, depth - 1, out);
+        }
+    }
+
+    private static long ps2DiscBytes(File disc) {
+        if (!disc.getName().toLowerCase(Locale.ROOT).endsWith(".cue")) return disc.length();
+        long sum = 0;
+        for (String track : cueTracks(disc)) sum += new File(disc.getParentFile(), track).length();
+        return sum > 0 ? sum : disc.length();
+    }
+
+    // Files on the phone (모든 파일 접근) through the same .iso conversion as picked ones.
+    private void startPs2DiscFiles(List<File> discs) {
+        List<Uri> uris = new ArrayList<>();
+        java.util.Map<String, Uri> companions = new java.util.HashMap<>();
+        for (File disc : discs) {
+            uris.add(Uri.fromFile(disc));
+            File[] side = disc.getParentFile() == null ? null : disc.getParentFile().listFiles();
+            for (File f : side == null ? new File[0] : side) {
+                if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".bin")) {
+                    companions.putIfAbsent(f.getName().toLowerCase(Locale.ROOT), Uri.fromFile(f));
+                }
+            }
+        }
+        startPs2BinImport(uris, companions);
+    }
+
     private static String megabytes(long bytes) {
         return String.format(Locale.ROOT, "%.1f MB", bytes / 1048576.0);
     }
@@ -13969,6 +14020,7 @@ public final class MainActivity extends Activity {
         File[] children = dir.listFiles();
         List<File> folders = new ArrayList<>();
         List<File> games = new ArrayList<>();
+        List<File> ps2Discs = ps2CueBins(dir);
         int hidden = 0;
         for (File child : children == null ? new File[0] : children) {
             if (child.getName().startsWith(".")) {
@@ -13976,6 +14028,8 @@ public final class MainActivity extends Activity {
             }
             if (child.isDirectory()) {
                 folders.add(child);
+            } else if (MODE_PS2.equals(mode) && (child.getName().toLowerCase(Locale.ROOT).endsWith(".cue") || child.getName().toLowerCase(Locale.ROOT).endsWith(".bin"))) {
+                if (!ps2Discs.contains(child)) hidden++;  // a .bin a .cue stands for
             } else if (isLinkableGame(child, mode)) {
                 games.add(child);
             } else {
@@ -14038,6 +14092,19 @@ public final class MainActivity extends Activity {
                 });
             }
             rows.addView(row);
+        }
+        if (MODE_PS2.equals(mode)) {
+            // (0.0.382) .cue / .bin: the PS2 engines need an .iso, so these are made into one
+            // (a copy in the app) instead of linked.
+            for (final File disc : ps2Discs) {
+                LinearLayout row = browserRow(disc.getName().toLowerCase(Locale.ROOT).endsWith(".cue") ? "CUE" : "BIN", disc.getName(),
+                        formatSize(ps2DiscBytes(disc)) + " · 눌러서 .iso로 바꿔 넣기 (연결이 아니라 앱 안에 만들어요)", false, null);
+                row.setOnClickListener(view -> {
+                    dialog.dismiss();
+                    startPs2DiscFiles(java.util.Collections.singletonList(disc));
+                });
+                rows.addView(row);
+            }
         }
         TextView note = new TextView(this);
         note.setText(MODE_NAMES[modeIndex(mode)] + " 게임 파일만 보여요" + (hidden > 0 ? " · 다른 파일 " + hidden + "개 숨김" : ""));
@@ -14158,6 +14225,14 @@ public final class MainActivity extends Activity {
     // 폴더째로 연결: everything under the folder, picked like the folder import.
     private void showLinkFolderPick(final String mode, final File dir) {
         final List<File> games = findLinkableGames(dir, mode, 6, new ArrayList<>());
+        if (games.isEmpty() && MODE_PS2.equals(mode)) {
+            List<File> discs = new ArrayList<>();
+            collectPs2CueBins(dir, 4, discs);
+            if (!discs.isEmpty()) {
+                startPs2DiscFiles(discs);  // .cue / .bin only: made into .iso (0.0.382)
+                return;
+            }
+        }
         if (games.isEmpty()) {
             showMessage(dir.getName() + " 안에 " + MODE_NAMES[modeIndex(mode)] + " 게임이 없어요.");
             return;
