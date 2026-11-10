@@ -17564,7 +17564,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // The gun's buttons: added to the content's root, out of sight until scheduleSettleGun
-    // puts each in a free spot (kept per layout under gunbtn2:<layout key>:<bit> as x,y,size dp).
+    // puts each in a free spot (kept per layout under gunbtn3:<layout key>:<bit> as x,y,size dp).
     private final java.util.List<TouchButton> gunButtons = new java.util.ArrayList<>();
     private final java.util.Set<View> gunUnplaced = new java.util.HashSet<>();
 
@@ -17589,8 +17589,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             TouchButton button = new TouchButton(this, gun.labels[k], bit, this::setButtonPressed, style);
             int size = dp(bit == kGunTrigger ? 64 : 48);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(size, size, Gravity.TOP | Gravity.START);
-            // (gunbtn2: from 0.0.375; the first placements could pile up over the picture.)
-            String saved = prefs.getString("gunbtn2:" + layoutKey() + ":" + bit, null);
+            // (gunbtn3: from 0.0.379, the places by the face buttons; gunbtn2 0.0.375, gunbtn 0.0.373.)
+            String saved = prefs.getString("gunbtn3:" + layoutKey() + ":" + bit, null);
             boolean placed = false;
             if (saved != null) {
                 String[] parts = saved.split(",");
@@ -17642,7 +17642,36 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         android.content.SharedPreferences.Editor editor = MainActivity.sharedSettings(this).edit();
         java.util.List<android.graphics.RectF> obstaclesPlaced = new java.util.ArrayList<>();
-        float[] anchor = null;
+        // (0.0.379) Where they go, by the keypad's face buttons (the right thumb's):
+        //   landscape: the trigger under the face buttons, on the outer side; the rest, small,
+        //              stacked beside it toward the picture. PS2's GunCon 2 A / B go either side
+        //              of △ (the right stick takes the room below).
+        //   portrait:  one row just above the face buttons, the trigger on the right.
+        android.graphics.RectF face = null;
+        android.graphics.RectF triangle = null;
+        for (View view : this.layoutControls) {
+            if (view instanceof TouchButton && !this.gunButtons.contains(view) && view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
+                TouchButton key = (TouchButton) view;
+                String name = key.label() == null ? "" : key.label();
+                if (key.isShoulder() || name.matches("[LR][12]?|Z[LR]") || Integer.bitCount(key.bit()) != 1 || (key.bit() & (FACE_BITS | 256 | 512)) == 0) {
+                    continue;
+                }
+                android.graphics.RectF one = windowBox(key);
+                View top = key.getRootView();
+                if (top == null || one.centerX() < top.getWidth() / 2f || one.width() > dp(110)) {
+                    continue;  // only the right thumb's buttons (not L, not a wide key)
+                }
+                if (face == null) face = new android.graphics.RectF(one); else face.union(one);
+                if (isSonyPad() && key.bit() == 1024) triangle = one;
+            }
+        }
+        int extras = 0;
+        for (TouchButton button : this.gunButtons) {
+            if (button.bit() != kGunTrigger) extras++;
+        }
+        boolean besideTriangle = triangle != null && this.landscapeMode && "pcee2".equals(this.coreId);
+        float[] trigger = null;
+        int extraIndex = 0;
         for (TouchButton button : this.gunButtons) {
             if (!unplaced.contains(button)) {
                 continue;
@@ -17667,9 +17696,36 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             float targetX;
             float targetY;
             float baseSize = button.getLayoutParams().width;
-            if (anchor != null) {
-                targetX = anchor[0] - dp(60);
-                targetY = anchor[1];
+            float gap = dp(8);
+            boolean isTrigger = button.bit() == kGunTrigger;
+            float triggerSize = dp(64);
+            int nth = isTrigger ? -1 : extraIndex++;
+            if (face != null && besideTriangle && (button.bit() == kGunAuxA || button.bit() == kGunAuxB)) {
+                // GunCon 2 A left of △, B right of it.
+                targetX = button.bit() == kGunAuxA ? triangle.left - gap - baseSize / 2f : triangle.right + gap + baseSize / 2f;
+                targetY = triangle.centerY();
+            } else if (face != null && this.landscapeMode) {
+                float tx = face.right - triggerSize / 2f;
+                float ty = face.bottom + gap + triggerSize / 2f;
+                if (isTrigger) {
+                    targetX = tx;
+                    targetY = ty;
+                } else {
+                    int stacked = besideTriangle ? extras - 2 : extras;
+                    targetX = tx - triggerSize / 2f - gap - baseSize / 2f;
+                    targetY = ty + (nth - (Math.max(1, stacked) - 1) / 2f) * (baseSize + gap);
+                }
+            } else if (face != null) {
+                float rowY = face.top - gap - triggerSize / 2f;
+                if (isTrigger) {
+                    targetX = face.right - triggerSize / 2f;
+                } else {
+                    targetX = face.right - triggerSize - gap - baseSize / 2f - nth * (baseSize + gap);
+                }
+                targetY = rowY;
+            } else if (trigger != null) {
+                targetX = trigger[0] - dp(60) * (nth + 1);
+                targetY = trigger[1];
             } else if (this.landscapeMode) {
                 targetX = (screen.right + origin[0] + root.getWidth()) / 2f;
                 targetY = origin[1] + root.getHeight() - dp(90);
@@ -17735,9 +17791,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             unplaced.remove(button);
             // This button now counts as an obstacle for the next ones.
             obstaclesPlaced.add(new android.graphics.RectF(spot[0] + origin[0], spot[1] + origin[1], spot[0] + origin[0] + size, spot[1] + origin[1] + size));
-            editor.putString("gunbtn2:" + layoutKey() + ":" + button.bit(),
+            editor.putString("gunbtn3:" + layoutKey() + ":" + button.bit(),
                     Math.round(spot[0] / density) + "," + Math.round(spot[1] / density) + "," + Math.round(size / density));
-            anchor = new float[]{spot[0] + origin[0] + size / 2f, spot[1] + origin[1] + size / 2f};
+            if (isTrigger) {
+                trigger = new float[]{spot[0] + origin[0] + size / 2f, spot[1] + origin[1] + size / 2f};
+            }
         }
         editor.apply();
     }
