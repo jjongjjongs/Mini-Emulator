@@ -85,6 +85,8 @@ enum : int {
     kGunAuxB = 1 << 26,
     kGunAuxC = 1 << 27,
     kGunStart = 1 << 28,
+    // (0.0.384) 보정 쏘기: PCSX2's "Calibration Shot" for the GunCon 2, played out by the bridge.
+    kGunCalib = 1 << 29,
     kButtonR3 = 131072,
 };
 
@@ -1589,6 +1591,16 @@ std::atomic<bool> replacesPad{false};
 std::atomic<int> x{0};
 std::atomic<int> y{0};
 std::atomic<bool> aimed{false};
+// 보정 쏘기 (0.0.384): Time Crisis games (and a few more GunCon 2 ones) calibrate on a shot
+// that sees the trigger at the aim and then, during the black frame they draw, the gun's
+// "no light" (0, 0). PCSX2 does that with its Calibration Shot bind, which the libretro core
+// leaves unbound; the bridge plays the same sequence out instead: the trigger at the aim for
+// kCalibAim frames, then an off-screen shot (the core reports (0, 0) with the trigger) for
+// kCalibDark frames, as PCSX2's own 12 / 5 reports.
+constexpr int kCalibAim = 7;
+constexpr int kCalibDark = 5;
+int calibLeft = 0;    // frames of the sequence still to run (emulation thread)
+bool calibHeld = false;
 }  // namespace gun
 // PSP 텍스처 다듬기 (0.0.367), per game, as indices into the values below: texture shader,
 // upscale level, upscale type, deposterize, texture filter, smart 2D filter, anisotropic.
@@ -3389,6 +3401,10 @@ int16_t joypadPressed(Core* core, int mask, unsigned id);
 // only know that).
 int16_t gunState(Core* core, unsigned id) {
     int mask = core->inputMask.load() | core->frameLatch.load();
+    if (gun::calibLeft > 0) {
+        // 보정 쏘기 in progress: the trigger, at the aim and then off the screen.
+        mask = (mask & ~(kGunTrigger | kGunReload)) | (gun::calibLeft > gun::kCalibDark ? kGunTrigger : kGunReload);
+    }
     bool reload = (mask & kGunReload) != 0;
     bool pad = gun::replacesPad.load();
     switch (id) {
@@ -4255,6 +4271,13 @@ void runLoop(Core* core) {
                     if (core->holdUntil[p][bit] > static_cast<long long>(core->framesRun)) held |= 1u << bit;
                 }
                 (p == 0 ? core->frameLatch : core->playerFrameLatch[p]).store(static_cast<int>(held));
+            }
+            if (gun::on.load()) {
+                // 보정 쏘기: one sequence per press, counted in frames.
+                if (gun::calibLeft > 0) gun::calibLeft--;
+                bool calib = ((core->inputMask.load() | core->frameLatch.load()) & kGunCalib) != 0;
+                if (calib && !gun::calibHeld && gun::calibLeft == 0) gun::calibLeft = gun::kCalibAim + gun::kCalibDark;
+                gun::calibHeld = calib;
             }
             core->retroRun();
             applyMemoryCheats(core);

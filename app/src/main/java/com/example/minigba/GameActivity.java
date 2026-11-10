@@ -17237,6 +17237,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final int kGunAuxB = 1 << 26;
     private static final int kGunAuxC = 1 << 27;
     private static final int kGunStart = 1 << 28;
+    // (0.0.384) 보정 쏘기: Time Crisis and other GunCon 2 games' aim calibration (bridge).
+    private static final int kGunCalib = 1 << 29;
     private static final int RETRO_MOUSE = 2;
     private static final int RETRO_LIGHTGUN = 4;
 
@@ -17307,8 +17309,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     new int[]{kGunTrigger, kGunReload, kGunAuxA, kGunAuxB}, isSwan() ? null : "코나미 저스티파이어");
         }
         if ("pcee2".equals(this.coreId)) {
-            return new GunSetup("건콘2", 0, 0, false, new String[]{"발사", "재장전", "건콘 A", "건콘 B"},
-                    new int[]{kGunTrigger, kGunReload, kGunAuxA, kGunAuxB}, null);
+            return new GunSetup("건콘2", 0, 0, false, new String[]{"발사", "재장전", "건콘 A", "건콘 B", "보정 쏘기"},
+                    new int[]{kGunTrigger, kGunReload, kGunAuxA, kGunAuxB, kGunCalib}, null);
         }
         if ("flycast".equals(this.coreId)) {
             return isNaomi()
@@ -17564,7 +17566,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     // The gun's buttons: added to the content's root, out of sight until scheduleSettleGun
-    // puts each in a free spot (kept per layout under gunbtn3:<layout key>:<bit> as x,y,size dp).
+    // puts each in a free spot (kept per layout under gunbtn4:<layout key>:<bit> as x,y,size dp).
     private final java.util.List<TouchButton> gunButtons = new java.util.ArrayList<>();
     private final java.util.Set<View> gunUnplaced = new java.util.HashSet<>();
 
@@ -17585,12 +17587,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
         for (int k = 0; k < gun.labels.length; k++) {
             int bit = gun.bits[k];
-            int style = bit == kGunTrigger ? TouchButton.STYLE_ARCADE_RED : bit == kGunReload ? TouchButton.STYLE_SNES_BLUE : TouchButton.STYLE_PURPLE;
+            int style = bit == kGunTrigger ? TouchButton.STYLE_ARCADE_RED : bit == kGunReload ? TouchButton.STYLE_SNES_BLUE
+                    : bit == kGunCalib ? TouchButton.STYLE_ARCADE_YELLOW : TouchButton.STYLE_PURPLE;
             TouchButton button = new TouchButton(this, gun.labels[k], bit, this::setButtonPressed, style);
             int size = dp(bit == kGunTrigger ? 64 : 48);
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(size, size, Gravity.TOP | Gravity.START);
-            // (gunbtn3: from 0.0.379, the places by the face buttons; gunbtn2 0.0.375, gunbtn 0.0.373.)
-            String saved = prefs.getString("gunbtn3:" + layoutKey() + ":" + bit, null);
+            // (gunbtn4: from 0.0.384, PS2 by ✕; gunbtn3 0.0.379 by the face buttons; gunbtn2 0.0.375, gunbtn 0.0.373.)
+            String saved = prefs.getString("gunbtn4:" + layoutKey() + ":" + bit, null);
             boolean placed = false;
             if (saved != null) {
                 String[] parts = saved.split(",");
@@ -17649,6 +17652,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         //   portrait:  one row just above the face buttons, the trigger on the right.
         android.graphics.RectF face = null;
         android.graphics.RectF triangle = null;
+        android.graphics.RectF cross = null;
         for (View view : this.layoutControls) {
             if (view instanceof TouchButton && !this.gunButtons.contains(view) && view.getVisibility() == View.VISIBLE && view.getWidth() > 0) {
                 TouchButton key = (TouchButton) view;
@@ -17663,6 +17667,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
                 if (face == null) face = new android.graphics.RectF(one); else face.union(one);
                 if (isSonyPad() && key.bit() == 1024) triangle = one;
+                if (isSonyPad() && key.bit() == 2) cross = one;
             }
         }
         int extras = 0;
@@ -17700,7 +17705,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             boolean isTrigger = button.bit() == kGunTrigger;
             float triggerSize = dp(64);
             int nth = isTrigger ? -1 : extraIndex++;
-            if (face != null && besideTriangle && (button.bit() == kGunAuxA || button.bit() == kGunAuxB)) {
+            if (face != null && besideTriangle && cross != null && (isTrigger || button.bit() == kGunReload || button.bit() == kGunCalib)) {
+                // (0.0.384) GunCon 2: the trigger left of ✕, reload right of it, 보정 쏘기 under it.
+                float size = isTrigger ? triggerSize : baseSize;
+                if (button.bit() == kGunCalib) {
+                    targetX = cross.centerX();
+                    targetY = cross.bottom + gap + size / 2f;
+                } else {
+                    targetX = isTrigger ? cross.left - gap - size / 2f : cross.right + gap + size / 2f;
+                    targetY = cross.centerY();
+                }
+            } else if (face != null && besideTriangle && (button.bit() == kGunAuxA || button.bit() == kGunAuxB)) {
                 // GunCon 2 A left of △, B right of it.
                 targetX = button.bit() == kGunAuxA ? triangle.left - gap - baseSize / 2f : triangle.right + gap + baseSize / 2f;
                 targetY = triangle.centerY();
@@ -17791,7 +17806,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             unplaced.remove(button);
             // This button now counts as an obstacle for the next ones.
             obstaclesPlaced.add(new android.graphics.RectF(spot[0] + origin[0], spot[1] + origin[1], spot[0] + origin[0] + size, spot[1] + origin[1] + size));
-            editor.putString("gunbtn3:" + layoutKey() + ":" + button.bit(),
+            editor.putString("gunbtn4:" + layoutKey() + ":" + button.bit(),
                     Math.round(spot[0] / density) + "," + Math.round(spot[1] / density) + "," + Math.round(size / density));
             if (isTrigger) {
                 trigger = new float[]{spot[0] + origin[0] + size / 2f, spot[1] + origin[1] + size / 2f};
@@ -17960,6 +17975,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     buttons.append(k == 0 ? "" : " · ").append(shownGun.labels[k]);
                 }
                 body.addView(ps2Note("생기는 버튼: " + buttons + "\n빈 곳에 놓이고, 버튼 · 화면 배치 편집으로 옮길 수 있어요. 게임패드 버튼에도 붙일 수 있어요."
+                        + ("pcee2".equals(this.coreId) ? "\n보정 쏘기: 타임 크라이시스처럼 처음에 \"조준 조정\" 화면이 나오는 게임에서, 가운데 십자를 겨누고 발사 대신 이 버튼을 눌러요 (PCSX2의 Calibration Shot). 발사로는 다음 화면으로 넘어가지 않아요." : "")
                         + (shownGun.replacesPad ? "\n이 게임기는 총이 패드 자리를 대신해요: 키패드는 총에도 있는 버튼(START · SELECT(COIN) · 방향키)만 쓰이고, 나머지는 이 게임에서 쉬어요." : ""),
                         Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
             }
