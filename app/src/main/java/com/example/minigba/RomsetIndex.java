@@ -155,6 +155,17 @@ final class RomsetIndex {
     }
 
     // CRCs come from the ZIP's central directory, so nothing is decompressed.
+    // (0.0.390) The parent set of a set name in any engine's list, or null.
+    static String parentOf(Context context, String setName) {
+        Map<String, CoreSets> index = load(context);
+        if (index == null || setName == null) return null;
+        for (CoreSets sets : index.values()) {
+            int i = sets.names.indexOf(setName);
+            if (i >= 0 && sets.parents.get(i) != null) return sets.parents.get(i);
+        }
+        return null;
+    }
+
     static int[] zipCrcs(File zip) {
         List<Integer> list = new ArrayList<>();
         try (ZipFile zipFile = new ZipFile(zip)) {

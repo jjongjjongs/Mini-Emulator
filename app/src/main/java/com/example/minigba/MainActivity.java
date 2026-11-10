@@ -764,6 +764,7 @@ public final class MainActivity extends Activity {
                 continue;
             }
             for (File file : files) {
+                if (isHiddenGame(file)) continue;  // 목록에서 숨기기 (0.0.390)
                 String name;
                 try {
                     name = displayGameNameFor(file);
@@ -2301,7 +2302,11 @@ public final class MainActivity extends Activity {
 
     private int romCount(String mode) {
         File[] files = romDirFor(mode).listFiles(this::isRomFile);
-        return files == null ? 0 : files.length;
+        int n = 0;
+        for (File file : files == null ? new File[0] : files) {
+            if (!isHiddenGame(file)) n++;
+        }
+        return n;
     }
 
     private String emptyLibraryText() {
@@ -5623,6 +5628,51 @@ public final class MainActivity extends Activity {
         startGameActivity(resolved);
     }
 
+    // ---- 목록에서 숨기기 (0.0.390): per mode, romPrefs "hidden:<mode>:<file name>". A hidden
+    // game stays on disk with its saves and patches; the list, search and home cube leave it
+    // out, and the sort row's "🙈 숨김 N" shows the hidden ones (dimmed) to bring back. ----
+    private boolean showingHidden;
+    private TextView hiddenChip;
+
+    private boolean isHiddenGame(File file) {
+        return romPrefs().getBoolean("hidden:" + modeForFile(file) + ":" + file.getName(), false);
+    }
+
+    private void setHiddenGame(File file, boolean hidden) {
+        String key = "hidden:" + modeForFile(file) + ":" + file.getName();
+        if (hidden) {
+            romPrefs().edit().putBoolean(key, true).apply();
+        } else {
+            romPrefs().edit().remove(key).apply();
+        }
+        this.gameIndex = null;
+    }
+
+    // Arcade sets in the same folder that read this ZIP as their parent (split clones).
+    private List<File> clonesUsing(File file) {
+        List<File> out = new ArrayList<>();
+        String lower = file.getName().toLowerCase(Locale.ROOT);
+        File dir = file.getParentFile();
+        if (!lower.endsWith(".zip") || dir == null || !isArcadeMode(modeForFile(file)) || !RomsetIndex.isAvailable(this)) return out;
+        String base = baseNameWithoutExtension(file.getName());
+        File[] siblings = dir.listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(".zip"));
+        for (File sibling : siblings == null ? new File[0] : siblings) {
+            if (sibling.equals(file)) continue;
+            if (base.equalsIgnoreCase(RomsetIndex.parentOf(this, baseNameWithoutExtension(sibling.getName())))) out.add(sibling);
+        }
+        return out;
+    }
+
+    // The parent ZIP a clone reads beside it, or null.
+    private File parentZipFor(File file) {
+        File dir = file.getParentFile();
+        if (dir == null || !file.getName().toLowerCase(Locale.ROOT).endsWith(".zip") || !isArcadeMode(modeForFile(file)) || !RomsetIndex.isAvailable(this)) return null;
+        String parent = RomsetIndex.parentOf(this, baseNameWithoutExtension(file.getName()));
+        if (parent == null) return null;
+        File zip = new File(dir, parent + ".zip");
+        return zip.isFile() ? zip : null;
+    }
+
     private void refreshLibrary() {
         LinearLayout linearLayout = this.romList;
         if (linearLayout == null) {
@@ -5651,7 +5701,19 @@ public final class MainActivity extends Activity {
         }
         List<File> shown = new ArrayList<>();
         String query = this.libraryQuery.trim().toLowerCase(Locale.ROOT);
+        int hiddenCount = 0;
         for (File file : listFiles) {
+            if (isHiddenGame(file)) hiddenCount++;
+        }
+        if (hiddenCount == 0) this.showingHidden = false;
+        if (this.hiddenChip != null) {
+            this.hiddenChip.setVisibility(hiddenCount > 0 ? View.VISIBLE : View.GONE);
+            this.hiddenChip.setText("🙈 숨김 " + hiddenCount);
+            this.hiddenChip.setTextColor(Theme.text(this.showingHidden ? -1 : Color.rgb(109, 40, 217)));
+            this.hiddenChip.setBackground(rounded(this.showingHidden ? MODE_COLORS[modeIndex(this.currentMode)] : Color.rgb(237, 233, 254), dp(14)));
+        }
+        for (File file : listFiles) {
+            if (isHiddenGame(file) != this.showingHidden) continue;
             if (query.isEmpty() || displayGameNameFor(file).toLowerCase(Locale.ROOT).contains(query)
                     || file.getName().toLowerCase(Locale.ROOT).contains(query)) {
                 shown.add(file);
@@ -5668,7 +5730,9 @@ public final class MainActivity extends Activity {
         for (File file : shown) {
             LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(-1, -2);
             layoutParams.setMargins(0, 0, 0, dp(10));
-            this.romList.addView(createRomRow(file), layoutParams);
+            View row = createRomRow(file);
+            if (this.showingHidden) row.setAlpha(0.55f);
+            this.romList.addView(row, layoutParams);
         }
     }
 
@@ -5797,6 +5861,13 @@ public final class MainActivity extends Activity {
         }
         sb.append(str);
         sb.append("  |  게임: ").append(displayGameNameFor);
+        if (this.showingHidden) {
+            sb.append("  |  숨김 · 길게 눌러 \"다시 보이기\"");
+        }
+        File parentZip = parentZipFor(file);
+        if (parentZip != null) {
+            sb.append("  |  🔗 부모롬 ").append(parentZip.getName()).append(isHiddenGame(parentZip) ? " (숨김)" : "").append(" 함께 사용");
+        }
         if (isLink(file)) {
             File target = linkTarget(file);
             String rootPath = phoneRoot().getAbsolutePath();
@@ -5937,6 +6008,20 @@ public final class MainActivity extends Activity {
             chipParams.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
             chips.addView(chip, chipParams);
         }
+        TextView hidden = new TextView(this);
+        hidden.setTextSize(12.0f);
+        hidden.setTypeface(Typeface.DEFAULT_BOLD);
+        hidden.setGravity(17);
+        hidden.setPadding(dp(12), dp(6), dp(12), dp(6));
+        hidden.setVisibility(View.GONE);
+        hidden.setOnClickListener(view -> {
+            this.showingHidden = !this.showingHidden;
+            refreshLibrary();
+        });
+        this.hiddenChip = hidden;
+        LinearLayout.LayoutParams hiddenParams = new LinearLayout.LayoutParams(-2, -2);
+        hiddenParams.setMargins(dp(6), 0, 0, 0);
+        chips.addView(hidden, hiddenParams);
         updateSortChips();
         LinearLayout.LayoutParams chipsParams = new LinearLayout.LayoutParams(-1, -2);
         chipsParams.setMargins(0, dp(8), 0, dp(2));
@@ -6596,6 +6681,34 @@ public final class MainActivity extends Activity {
                         }
                     }), arcParams);
         }
+        // 목록에서 숨기기 (0.0.390), with a note when split clones read this file as their parent.
+        List<File> clones = clonesUsing(file);
+        if (!clones.isEmpty()) {
+            StringBuilder names = new StringBuilder();
+            for (File clone : clones) {
+                if (names.length() > 0) names.append(", ");
+                names.append(displayGameNameFor(clone));
+            }
+            TextView parentNote = new TextView(this);
+            parentNote.setText("🔗 " + names + "이(가) 이 파일을 함께 읽어요 (부모롬).\n지우면 그 게임이 실행되지 않아요. 숨기는 건 괜찮아요.");
+            parentNote.setTextSize(12.5f);
+            parentNote.setTextColor(Theme.text(Color.rgb(91, 33, 182)));
+            parentNote.setLineSpacing(0, 1.2f);
+            parentNote.setPadding(dp(12), dp(10), dp(12), dp(10));
+            parentNote.setBackground(rounded(Color.rgb(245, 243, 255), dp(12)));
+            LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+            noteParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(parentNote, noteParams);
+        }
+        final boolean hiddenNow = isHiddenGame(file);
+        LinearLayout.LayoutParams hideParams = new LinearLayout.LayoutParams(-1, dp(52));
+        hideParams.setMargins(0, dp(9), 0, 0);
+        panel.addView(createMenuActionRow(dialog, RoundIconView.FOLDER, Color.rgb(124, 58, 237),
+                hiddenNow ? "다시 보이기 (목록에 다시 넣기)" : "목록에서 숨기기 (파일 · 세이브는 그대로)", () -> {
+                    setHiddenGame(file, !hiddenNow);
+                    Toast.makeText(this, hiddenNow ? "목록에 다시 보여요" : "목록에서 숨겼어요 · 정렬 줄의 \"🙈 숨김\"에서 다시 볼 수 있어요", Toast.LENGTH_SHORT).show();
+                    refreshLibrary();
+                }), hideParams);
         LinearLayout row2 = new LinearLayout(this);
         row2.addView(createActionTile(dialog, RoundIconView.EXPORT, RoundIconView.COLOR_SAVE, "세이브\n내보내기", null, false, () -> startSaveExport(file)), actionGridParams(0));
         row2.addView(createActionTile(dialog, RoundIconView.IMPORT, RoundIconView.COLOR_LOAD, "세이브\n가져오기", null, false, () -> startSaveImport(file)), actionGridParams(1));
@@ -19133,8 +19246,15 @@ public final class MainActivity extends Activity {
         withSaves.setText("세이브와 저장 칸도 함께 지우기");
         withSaves.setTextSize(13.0f);
         withSaves.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        List<File> clones = clonesUsing(file);
+        StringBuilder cloneNames = new StringBuilder();
+        for (File clone : clones) {
+            if (cloneNames.length() > 0) cloneNames.append(", ");
+            cloneNames.append(displayGameNameFor(clone));
+        }
         new AppDialog.Builder(this).setTitle("ROM을 삭제할까요?")
-                .setMessage(displayGameNameFor(file) + " · " + formatSize(file.length()) + (isLink(file) ? "\n\n🔗 연결만 지워요. 폰에 있는 원본 파일은 그대로예요." : "\n\nMini Emulator 안에 가져온 복사본만 지워요. 원본 파일은 그대로 둡니다.")
+                .setMessage((clones.isEmpty() ? "" : "⚠ 부모롬이에요: " + cloneNames + "이(가) 이 파일을 함께 읽어서, 지우면 그 게임이 실행되지 않아요. 목록에서만 감추려면 \"목록에서 숨기기\"를 쓰세요.\n\n")
+                        + displayGameNameFor(file) + " · " + formatSize(file.length()) + (isLink(file) ? "\n\n🔗 연결만 지워요. 폰에 있는 원본 파일은 그대로예요." : "\n\nMini Emulator 안에 가져온 복사본만 지워요. 원본 파일은 그대로 둡니다.")
                         + (hasSaves ? "\n이 게임의 세이브 · 빠른 저장 · 내 칸은 남아요. 같이 지우려면 아래를 켜 주세요." : ""))
                 .setView(hasSaves ? withSaves : null)
                 .setNegativeButton(17039360, (DialogInterface.OnClickListener) null)
