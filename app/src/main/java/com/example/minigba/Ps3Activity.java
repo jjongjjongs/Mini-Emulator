@@ -576,7 +576,25 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             this.screenBaseW = dp(screenW);
             this.screenBaseH = dp(screenH);
             buildPadLandscape(controls);
-            addAt(controls, menu, 14, 6, 48, 56, Gravity.TOP | Gravity.START);
+            // (0.0.393) As the other consoles: 저장 · 재시작 top left, 회전 · 메뉴 top right.
+            LinearLayout left = new LinearLayout(this);
+            left.addView(cornerButton(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "저장", labelColor, v -> onSaveClicked(), v -> {
+                pickSlot(true);
+                return true;
+            }), new LinearLayout.LayoutParams(dp(48), -2));
+            left.addView(cornerButton(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", labelColor, v -> onResetClicked(), null), new LinearLayout.LayoutParams(dp(48), -2));
+            FrameLayout.LayoutParams leftParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+            leftParams.setMargins(dp(6), dp(6), 0, 0);
+            controls.addView(left, leftParams);
+            LinearLayout right = new LinearLayout(this);
+            right.addView(cornerButton(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "회전", labelColor, v -> toggleOrientation(), null), new LinearLayout.LayoutParams(dp(48), -2));
+            right.addView(cornerButton(RoundIconView.MENU, RoundIconView.COLOR_MENU, "메뉴", labelColor, v -> showPauseMenu(), null), new LinearLayout.LayoutParams(dp(48), -2));
+            FrameLayout.LayoutParams rightParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+            rightParams.setMargins(0, dp(6), dp(6), 0);
+            controls.addView(right, rightParams);
+            this.layoutGuards.clear();
+            this.layoutGuards.add(left);
+            this.layoutGuards.add(right);
             root.addView(controls, new FrameLayout.LayoutParams(-1, -1));
             holder.addView(screen, new FrameLayout.LayoutParams(this.screenBaseW, this.screenBaseH, Gravity.CENTER));
             shell.track(screen, controls);
@@ -588,15 +606,43 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setClipChildren(false);
-        LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(12), dp(8), dp(12), dp(4));
-        top.addView(menu);
-        TextView title = text(getIntent().getStringExtra(EXTRA_TITLE), 13, labelColor, true);
+        // (0.0.393) The top as the other consoles': 저장 · 재시작 · 화면 회전 · 메뉴 in one thin
+        // row, the game's name under it. The old row (menu button and name) stays as an
+        // invisible spacer, so the screen and the buttons keep their places.
+        FrameLayout top = new FrameLayout(this);
+        LinearLayout spacer = new LinearLayout(this);
+        spacer.setGravity(Gravity.CENTER_VERTICAL);
+        spacer.setPadding(dp(12), dp(8), dp(12), dp(4));
+        spacer.addView(menu);
+        spacer.setVisibility(View.INVISIBLE);
+        top.addView(spacer, new FrameLayout.LayoutParams(-1, -2));
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout pills = new LinearLayout(this);
+        pills.setPadding(dp(8), dp(4), dp(8), dp(4));
+        String[] names = {"저장", "재시작", "화면 회전", "메뉴"};
+        int[] icons = {RoundIconView.SAVE, RoundIconView.RESET, RoundIconView.ROTATE, RoundIconView.MENU};
+        int[] colors = {RoundIconView.COLOR_SAVE, RoundIconView.COLOR_RESET, RoundIconView.COLOR_ROTATE, RoundIconView.COLOR_MENU};
+        View.OnClickListener[] actions = {v -> onSaveClicked(), v -> onResetClicked(), v -> toggleOrientation(), v -> showPauseMenu()};
+        for (int k = 0; k < names.length; k++) {
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1);
+            params.setMargins(k == 0 ? 0 : dp(6), 0, 0, 0);
+            LinearLayout pill = pillButton(icons[k], colors[k], names[k], labelColor, actions[k]);
+            if (k == 0) {
+                pill.setOnLongClickListener(v -> {
+                    pickSlot(true);
+                    return true;
+                });
+            }
+            pills.addView(pill, params);
+        }
+        bar.addView(pills, new LinearLayout.LayoutParams(-1, dp(36)));
+        TextView title = text(getIntent().getStringExtra(EXTRA_TITLE), 11.5f, labelColor, true);
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        title.setPadding(dp(10), 0, dp(10), 0);
-        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        title.setPadding(dp(14), 0, dp(14), 0);
+        bar.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        top.addView(bar, new FrameLayout.LayoutParams(-1, -2));
         column.addView(top, new LinearLayout.LayoutParams(-1, -2));
         this.layoutGuards.clear();
         this.layoutGuards.add(top);
@@ -1035,53 +1081,80 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     private static final String[] TABS = {"기본", "성능", "화면", "조작", "게임기"};
     private int menuTab;
 
+    // (0.0.393) The same card as the other consoles' pause menu (GameActivity.showPauseDialog):
+    // tabs in a grey strip (down the left side in landscape), a content area of one height
+    // for every tab, 계속하기 at the bottom. A row's sheet opens over the menu, which stays.
+    private Dialog pauseDialog;
+    private volatile boolean stateBusy;
+    private Runnable menuRefresh;
+    private boolean menuKeepPaused;
+
+    // After a sheet over the menu closes: the menu shows the new values; with no menu, the
+    // game goes on.
+    private void resumeGame() {
+        // The menu is closing to save, load or restart: it stays paused for that.
+        if (this.leaving || this.menuKeepPaused || this.stateBusy) return;
+        if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
+            Runnable refresh = this.menuRefresh;
+            if (refresh != null) main.post(refresh);
+            return;
+        }
+        if (this.bootStarted && engineReady && this.layoutEditor == null) {
+            ARMSX3.instance.resume();
+        }
+    }
+
+    private void closeMenu(boolean keepPaused) {
+        if (this.pauseDialog != null) {
+            this.menuKeepPaused = keepPaused;
+            this.pauseDialog.dismiss();
+        }
+    }
+
     private void showPauseMenu() {
         if (!engineReady) {
             showExitDialog();
             return;
         }
+        if (this.pauseDialog != null) return;
         ARMSX3.instance.pause();
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        final boolean[] keepPaused = {false};
-        final LinearLayout panel = card();
+        boolean wide = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(16), dp(14), dp(14));
+        card.setBackground(roundRect(Color.WHITE, 24));
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(text("일시정지", 17, Color.rgb(31, 41, 51), true), new LinearLayout.LayoutParams(0, -2, 1));
+        header.setPadding(dp(4), 0, dp(4), 0);
+        header.addView(text("일시정지", 17, Color.rgb(31, 41, 51), true), new LinearLayout.LayoutParams(-2, -2));
         TextView game = text(getIntent().getStringExtra(EXTRA_TITLE), 12, Color.rgb(122, 130, 140), false);
         game.setSingleLine(true);
         game.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        header.addView(game, new LinearLayout.LayoutParams(0, -2, 1.4f));
         game.setGravity(Gravity.END);
-        panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
-        final LinearLayout tabs = new LinearLayout(this);
-        tabs.setPadding(dp(4), dp(4), dp(4), dp(4));
-        tabs.setBackground(roundRect(Color.rgb(241, 242, 246), 14));
-        LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(-1, dp(44));
-        tabsParams.setMargins(0, dp(10), 0, 0);
-        panel.addView(tabs, tabsParams);
+        LinearLayout.LayoutParams gameParams = new LinearLayout.LayoutParams(0, -2, 1);
+        gameParams.setMargins(dp(12), 0, 0, 0);
+        header.addView(game, gameParams);
+        LinearLayout tabBar = new LinearLayout(this);
+        tabBar.setOrientation(wide ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        tabBar.setPadding(dp(4), dp(4), dp(4), dp(4));
+        tabBar.setBackground(roundRect(Color.rgb(241, 243, 245), 14));
+        final TextView[] tabViews = new TextView[TABS.length];
         final LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(body, new LinearLayout.LayoutParams(-1, -2));
-        // A row's action: closes the menu (the sheet it opens pauses on its own).
-        final Choice close = choice -> {
-            keepPaused[0] = choice == 1;
-            dialog.dismiss();
-        };
+        final android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(body);
+        final Choice close = choice -> closeMenu(choice == 1);
         final Runnable[] fill = new Runnable[1];
         fill[0] = () -> {
-            tabs.removeAllViews();
-            for (int k = 0; k < TABS.length; k++) {
-                final int tab = k;
+            for (int k = 0; k < tabViews.length; k++) {
                 boolean on = k == this.menuTab;
-                TextView chip = text(TABS[k], 13.5f, on ? INDIGO : Color.rgb(75, 85, 99), on);
-                chip.setGravity(Gravity.CENTER);
-                if (on) chip.setBackground(roundRect(Color.WHITE, 11));
-                chip.setOnClickListener(v -> {
-                    this.menuTab = tab;
-                    fill[0].run();
-                });
-                tabs.addView(chip, new LinearLayout.LayoutParams(0, -1, 1));
+                tabViews[k].setTextColor(on ? Color.rgb(15, 118, 110) : Color.rgb(107, 114, 128));
+                tabViews[k].setBackground(on ? roundRect(Color.WHITE, 10) : null);
+                tabViews[k].setElevation(on ? dp(1) : 0);
             }
             body.removeAllViews();
             switch (this.menuTab) {
@@ -1089,22 +1162,81 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 case 2: fillScreenTab(body, close); break;
                 case 3: fillControlsTab(body, close); break;
                 case 4: fillSystemTab(body, close); break;
-                default: fillBasicTab(body, close); break;
+                default: fillBasicTab(body, close, () -> {
+                    this.menuTab = 1;
+                    fill[0].run();
+                    scroll.scrollTo(0, 0);
+                }); break;
             }
         };
-        fill[0].run();
-        TextView resume = pill("▶  계속하기", INDIGO, Color.WHITE);
+        for (int k = 0; k < TABS.length; k++) {
+            final int index = k;
+            TextView tab = text(TABS[k], 12.5f, Color.rgb(107, 114, 128), true);
+            tab.setGravity(Gravity.CENTER);
+            tab.setOnClickListener(v -> {
+                this.menuTab = index;
+                fill[0].run();
+                scroll.scrollTo(0, 0);
+            });
+            tabViews[k] = tab;
+            LinearLayout.LayoutParams tabParams = wide ? new LinearLayout.LayoutParams(-1, dp(42)) : new LinearLayout.LayoutParams(0, dp(34), 1);
+            if (wide && k > 0) tabParams.setMargins(0, dp(4), 0, 0);
+            tabBar.addView(tab, tabParams);
+        }
+        this.menuRefresh = () -> {
+            int y = scroll.getScrollY();
+            fill[0].run();
+            scroll.post(() -> scroll.scrollTo(0, y));
+        };
+        TextView resume = text("▶  계속하기", 16, Color.WHITE, true);
+        resume.setGravity(Gravity.CENTER);
+        resume.setBackground(roundRect(Color.rgb(22, 185, 207), 14));
         resume.setOnClickListener(v -> dialog.dismiss());
-        LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(50));
-        resumeParams.setMargins(0, dp(12), 0, 0);
-        panel.addView(resume, resumeParams);
-        dialog.setContentView(scrollable(panel));
+        int screenH = Math.round(metrics.heightPixels / metrics.density);
+        int contentDp = wide ? Math.max(160, screenH - 150) : Math.max(220, Math.min(380, screenH - 260));
+        int width = wide ? Math.min(metrics.widthPixels - dp(40), dp(600)) : Math.min(metrics.widthPixels - dp(40), dp(380));
+        if (wide) {
+            card.addView(tabBar, new LinearLayout.LayoutParams(dp(84), -2));
+            LinearLayout right = new LinearLayout(this);
+            right.setOrientation(LinearLayout.VERTICAL);
+            right.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, dp(contentDp));
+            scrollParams.setMargins(0, dp(10), 0, 0);
+            right.addView(scroll, scrollParams);
+            LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(46));
+            resumeParams.setMargins(0, dp(10), 0, 0);
+            right.addView(resume, resumeParams);
+            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -2, 1);
+            rightParams.setMargins(dp(12), 0, 0, 0);
+            card.addView(right, rightParams);
+        } else {
+            card.addView(header, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2);
+            barParams.setMargins(0, dp(10), 0, 0);
+            card.addView(tabBar, barParams);
+            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, dp(contentDp));
+            scrollParams.setMargins(0, dp(10), 0, 0);
+            card.addView(scroll, scrollParams);
+            LinearLayout.LayoutParams resumeParams = new LinearLayout.LayoutParams(-1, dp(50));
+            resumeParams.setMargins(0, dp(12), 0, 0);
+            card.addView(resume, resumeParams);
+        }
+        fill[0].run();
+        dialog.setContentView(card);
+        this.pauseDialog = dialog;
+        this.menuKeepPaused = false;
         dialog.setOnDismissListener(d -> {
-            if (!keepPaused[0] && !this.leaving) {
-                ARMSX3.instance.resume();
-            }
+            this.pauseDialog = null;
+            this.menuRefresh = null;
+            boolean keep = this.menuKeepPaused;
+            this.menuKeepPaused = false;
+            if (!keep) resumeGame();
         });
-        sizeDialog(dialog);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(width, -2);
+        }
         dialog.show();
     }
 
@@ -1112,49 +1244,188 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         return on ? "켜짐" : "꺼짐";
     }
 
-    private void fillBasicTab(LinearLayout body, Choice close) {
-        LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout row1 = new LinearLayout(this);
-        LinearLayout row2 = new LinearLayout(this);
-        row1.addView(menuTile(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", "4칸 · 시험", v -> {
-            close.picked(1);
+    private LinearLayout.LayoutParams tile4Params(int column) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1);
+        params.setMargins(column == 0 ? 0 : dp(3), 0, column == 3 ? 0 : dp(3), 0);
+        return params;
+    }
+
+    private void fillBasicTab(LinearLayout body, Choice close, Runnable toPerf) {
+        java.util.List<View> tiles = new java.util.ArrayList<>();
+        LinearLayout save = menuTile(RoundIconView.SAVE, RoundIconView.COLOR_SAVE, "빠른 저장", "길게: 4칸", v -> {
+            closeMenu(true);
+            quickSave(1);
+        });
+        save.setOnLongClickListener(v -> {
             pickSlot(true);
-        }), tileParams(0));
-        row1.addView(menuTile(RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", slotTime(1), v -> {
-            close.picked(1);
-            pickSlot(false);
-        }), tileParams(1));
-        row1.addView(menuTile(RoundIconView.PS_HOME, RoundIconView.COLOR_PS_HOME, "PS 홈 메뉴", "XMB", v -> {
-            close.picked(0);
-            ARMSX3.instance.openHomeMenu();
-        }), tileParams(2));
-        row2.addView(menuTile(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null, v -> {
-            close.picked(1);
+            return true;
+        });
+        tiles.add(save);
+        tiles.add(menuTile(RoundIconView.LOAD, RoundIconView.COLOR_LOAD, "불러오기", slotTime(1), v -> pickSlot(false)));
+        tiles.add(menuTile(RoundIconView.RESET, RoundIconView.COLOR_RESET, "재시작", null, v -> {
+            closeMenu(true);
             restartGame();
-        }), tileParams(0));
-        row2.addView(menuTile(RoundIconView.PATCH, Color.rgb(124, 58, 237), "게임 패치", "60fps 등", v -> {
-            close.picked(1);
-            showPatches();
-        }), tileParams(1));
-        row2.addView(menuTile(RoundIconView.EXIT, RoundIconView.COLOR_EXIT, "나가기", null, v -> {
+        }));
+        tiles.add(menuTile(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, landscape() ? "세로 화면" : "가로 화면", null, v -> {
+            closeMenu(false);
+            toggleOrientation();
+        }));
+        tiles.add(menuTile(RoundIconView.FILTER, RoundIconView.COLOR_FILTER, "스크린샷", "화면만", v -> takeScreenshot()));
+        tiles.add(menuTile(RoundIconView.PS_HOME, RoundIconView.COLOR_PS_HOME, "PS 홈", "XMB", v -> {
+            closeMenu(false);
+            ARMSX3.instance.openHomeMenu();
+        }));
+        int patches = enabledPatchCount();
+        tiles.add(menuTile(RoundIconView.PATCH, Color.rgb(124, 58, 237), "게임 패치", patches > 0 ? patches + "개 켜짐" : null, v -> showPatches()));
+        tiles.add(menuTile(RoundIconView.EXIT, RoundIconView.COLOR_EXIT, "나가기", null, v -> {
             this.leaving = true;
-            close.picked(1);
+            closeMenu(true);
             leave();
-        }), tileParams(2));
-        grid.addView(row1, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout.LayoutParams row2Params = new LinearLayout.LayoutParams(-1, -2);
-        row2Params.setMargins(0, dp(10), 0, 0);
-        grid.addView(row2, row2Params);
-        LinearLayout.LayoutParams gridParams = new LinearLayout.LayoutParams(-1, -2);
-        gridParams.setMargins(0, dp(12), 0, 0);
-        body.addView(grid, gridParams);
+        }));
+        LinearLayout row = null;
+        for (int k = 0; k < tiles.size(); k++) {
+            if (k % 4 == 0) {
+                row = new LinearLayout(this);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, k == 0 ? 0 : dp(6), 0, 0);
+                body.addView(row, rowParams);
+            }
+            row.addView(tiles.get(k), tile4Params(k % 4));
+        }
+        body.addView(menuRow(RoundIconView.LOAD, Color.rgb(202, 138, 4), "디스크 바꾸기", "여러 장짜리", v -> showDiscSwap()), rowParams(10));
+        TextView status = text("⚡ 화질 " + RES_NAMES[resIndex(this)].split(" ")[0] + " · 속도 우선 " + onOff(speedFirst(this, this.gamePath))
+                + " · SPU " + new String[]{"자동", "1", "2", "3", "4", "5", "6"}[spuThreads(this, this.gamePath)]
+                + " · 프레임 생성 " + (frameGenShaders() > 0 ? FG_NAMES[frameGenIndex(this)] : "꺼짐") + "   성능 탭 ›", 12, Color.rgb(17, 94, 89), true);
+        status.setPadding(dp(12), dp(10), dp(12), dp(10));
+        status.setBackground(roundRect(Color.rgb(240, 253, 250), 13));
+        status.setOnClickListener(v -> toPerf.run());
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
+        statusParams.setMargins(0, dp(8), 0, 0);
+        body.addView(status, statusParams);
+    }
+
+    private int enabledPatchCount() {
+        String serial = safe(() -> ARMSX3.instance.getTitleId());
+        if (serial.isEmpty()) return 0;
+        try {
+            org.json.JSONArray list = new org.json.JSONArray(ARMSX3.instance.patchesList(serial));
+            int count = 0;
+            for (int k = 0; k < list.length(); k++) {
+                org.json.JSONObject o = list.optJSONObject(k);
+                if (o != null && o.optBoolean("enabled")) count++;
+            }
+            return count;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    // 위쪽 "저장": a quick save into slot 1 (long press: pick the slot), as the other consoles'.
+    private void onSaveClicked() {
+        if (!engineReady || !this.bootStarted || this.layoutEditor != null) return;
+        ARMSX3.instance.pause();
+        quickSave(1);
+    }
+
+    private void onResetClicked() {
+        if (!engineReady || !this.bootStarted || this.layoutEditor != null) return;
+        ARMSX3.instance.pause();
+        restartGame();
+    }
+
+    // A pill on the case (GameActivity.createPillButton): a small round icon and its name.
+    private LinearLayout pillButton(int icon, int color, String label, int labelColor, View.OnClickListener onClick) {
+        LinearLayout pill = new LinearLayout(this);
+        pill.setGravity(Gravity.CENTER);
+        boolean lightLabel = Color.red(labelColor) + Color.green(labelColor) + Color.blue(labelColor) > 384;
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(14));
+        bg.setColor(lightLabel ? Color.argb(46, 0, 0, 0) : Color.argb(110, 255, 255, 255));
+        bg.setStroke(Math.max(1, dp(1)), lightLabel ? Color.argb(40, 255, 255, 255) : Color.argb(40, 0, 0, 0));
+        pill.setBackground(bg);
+        RoundIconView iconView = new RoundIconView(this, icon, color);
+        pill.addView(iconView, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView text = text(label, 11.5f, labelColor, true);
+        text.setShadowLayer(dp(2), 0, dp(1), lightLabel ? Color.argb(150, 0, 0, 0) : Color.argb(160, 255, 255, 255));
+        text.setSingleLine(true);
+        text.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.setMargins(dp(5), 0, 0, 0);
+        pill.addView(text, textParams);
+        pill.setClickable(true);
+        pill.setContentDescription(label);
+        pill.setOnClickListener(onClick);
+        pill.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                iconView.setPressedLook(true);
+                view.setAlpha(0.75f);
+            } else if (action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) {
+                iconView.setPressedLook(false);
+                view.setAlpha(1f);
+            }
+            return false;
+        });
+        return pill;
+    }
+
+    // Landscape corner button (GameActivity.createIconButton 34 / 10).
+    private LinearLayout cornerButton(int icon, int color, String label, int labelColor, View.OnClickListener onClick, View.OnLongClickListener onLong) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.addView(new RoundIconView(this, icon, color), new LinearLayout.LayoutParams(dp(34), dp(34)));
+        TextView text = text(label, 10, labelColor, true);
+        text.setSingleLine(true);
+        box.addView(text);
+        box.setClickable(true);
+        box.setContentDescription(label);
+        box.setOnClickListener(onClick);
+        if (onLong != null) box.setOnLongClickListener(onLong);
+        return box;
+    }
+
+    private void toggleOrientation() {
+        MainActivity.sharedSettings(this).edit().putBoolean("ps3_landscape", !landscape()).commit();
+        buildGameScreen();
+    }
+
+    // 스크린샷: the game's picture (not the case) into Pictures/Mini Emulator.
+    private void takeScreenshot() {
+        new Thread(() -> {
+            String message;
+            File shot = new File(getCacheDir(), "ps3shot.png");
+            try {
+                shot.delete();
+                if (!ARMSX3.instance.saveScreenshot(shot.getAbsolutePath()) || !shot.isFile() || shot.length() == 0) {
+                    throw new java.io.IOException("엔진이 화면을 저장하지 못했어요");
+                }
+                String name = "PS3 " + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.ROOT).format(new java.util.Date()) + ".png";
+                android.content.ContentValues values = new android.content.ContentValues();
+                values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png");
+                values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/Mini Emulator");
+                Uri uri = getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) throw new java.io.IOException("사진첩에 저장할 수 없어요");
+                try (OutputStream out = getContentResolver().openOutputStream(uri); InputStream in = new java.io.FileInputStream(shot)) {
+                    if (out == null) throw new java.io.IOException("사진첩에 저장할 수 없어요");
+                    byte[] buffer = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+                }
+                message = "사진첩(Pictures/Mini Emulator)에 저장했어요";
+            } catch (Throwable t) {
+                message = "스크린샷 실패: " + t.getMessage();
+            }
+            shot.delete();
+            String shown = message;
+            main.post(() -> toast(shown));
+        }, "ps3-shot").start();
     }
 
     private void fillPerformanceTab(LinearLayout body, Choice close) {
         boolean fast = speedFirst(this, this.gamePath);
         body.addView(menuRow(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", onOff(fast), v -> {
-            close.picked(1);
             showChoices(RoundIconView.BOLT, RoundIconView.COLOR_BOLT, "속도 우선", new String[]{"꺼짐", "켜짐"},
                     new String[]{"엔진 기본 설정 (정확도 우선)",
                             "· SPU 코드를 크게 묶어 번역 (SPU 블록 Mega)\n· 셰이더를 기다리지 않고 먼저 그림 (끊김 감소)\n· 화면 깊이 계산 느슨하게 (ZCULL)\n· 안티에일리어싱 끄고 셰이더 정밀도 낮춤\n· 화질 75%로 낮춤"},
@@ -1169,13 +1440,11 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                     toast("재시작하거나 게임을 다시 켜면 적용돼요");
                 }
             });
-        }), rowParams(12));
+        }), rowParams(0));
         body.addView(menuRow(RoundIconView.MULTI, Color.rgb(13, 148, 136), "프레임 생성 (부드럽게)", frameGenSummary(), v -> {
-            close.picked(1);
             showFrameGen();
         }), rowParams(8));
         body.addView(menuRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", RES_NAMES[resIndex(this)], v -> {
-            close.picked(1);
             showChoices(RoundIconView.HD, RoundIconView.COLOR_HD, "화질 (해상도)", RES_NAMES, RES_NOTES, resIndex(this),
                     "바로 적용돼요. 모든 PS3 게임에 같이 적용돼요.", choice -> {
                 MainActivity.sharedSettings(this).edit().putInt("ps3_res", RES_VALUES[choice]).commit();
@@ -1185,7 +1454,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         int spu = spuThreads(this, this.gamePath);
         String[] spuNames = {"자동", "1개", "2개", "3개", "4개", "5개", "6개"};
         body.addView(menuRow(RoundIconView.MULTI, RoundIconView.COLOR_FILTER, "SPU 스레드", spuNames[spu], v -> {
-            close.picked(1);
             showChoices(RoundIconView.MULTI, RoundIconView.COLOR_FILTER, "SPU 스레드", spuNames,
                     new String[]{"엔진이 정해요 (기본)", "가장 적게 · 게임에 따라 빨라지기도 해요", "적게", "중간", "보통 많이", "많이", "최대 (PS3와 같은 수)"},
                     spu, getIntent().getStringExtra(EXTRA_TITLE) + " · 이 게임에만 적용돼요. 재시작하거나 게임을 다시 켜면 적용돼요. "
@@ -1197,7 +1465,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }), rowParams(8));
         boolean turbo = MainActivity.sharedSettings(this).getBoolean("ps3_gpu_turbo", false);
         body.addView(menuRow(RoundIconView.BOLT, Color.rgb(234, 88, 12), "GPU 터보", onOff(turbo), v -> {
-            close.picked(1);
             showChoices(RoundIconView.BOLT, Color.rgb(234, 88, 12), "GPU 터보", new String[]{"꺼짐", "켜짐"},
                     new String[]{"폰이 GPU 속도를 알아서 (기본)", "GPU를 늘 최고 속도로 · 퀄컴(Adreno) 폰만 · 발열 · 배터리 늘어남"}, turbo ? 1 : 0,
                     "모든 PS3 게임에 같이 적용돼요. 바로 적용돼요.", choice -> {
@@ -1210,7 +1477,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             });
         }), rowParams(8));
         body.addView(menuRow(RoundIconView.PERF, RoundIconView.COLOR_PERF, "FPS · 부하 표시", onOff(perfOverlay(this)), v -> {
-            close.picked(1);
             showChoices(RoundIconView.PERF, RoundIconView.COLOR_PERF, "FPS · 부하 표시", new String[]{"꺼짐", "켜짐"},
                     new String[]{"표시 없음 (기본)", "화면 구석에 FPS와 CPU·GPU 사용량"}, perfOverlay(this) ? 1 : 0,
                     "엔진이 게임 화면 위에 직접 그려요.", choice -> {
@@ -1220,7 +1486,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }), rowParams(8));
         boolean cache = MainActivity.sharedSettings(this).getBoolean("ps3_spu_cache", true);
         body.addView(menuRow(RoundIconView.SAVE, Color.rgb(5, 150, 105), "SPU 코드 저장", onOff(cache), v -> {
-            close.picked(1);
             showChoices(RoundIconView.SAVE, Color.rgb(5, 150, 105), "SPU 코드 저장", new String[]{"꺼짐", "켜짐"},
                     new String[]{"매번 새로 번역 (저장 공간을 안 씀)", "번역한 SPU 코드를 저장 · 두 번째 실행부터 빨리 켜지고 덜 끊김 (기본)"}, cache ? 1 : 0,
                     "모든 PS3 게임에 같이 적용돼요. 게임을 다시 켜면 적용돼요.", choice -> {
@@ -1232,13 +1497,11 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
 
     private void fillScreenTab(LinearLayout body, Choice close) {
         body.addView(menuRow(RoundIconView.ROTATE, RoundIconView.COLOR_ROTATE, "화면 방향", landscape() ? "가로" : "세로", v -> {
-            close.picked(0);
-            MainActivity.sharedSettings(this).edit().putBoolean("ps3_landscape", !landscape()).commit();
-            buildGameScreen();
-        }), rowParams(12));
+            closeMenu(false);
+            toggleOrientation();
+        }), rowParams(0));
         boolean four = aspect43(this);
         body.addView(menuRow(RoundIconView.HD, RoundIconView.COLOR_HD, "화면 비율", four ? "4:3" : "16:9", v -> {
-            close.picked(1);
             showChoices(RoundIconView.HD, RoundIconView.COLOR_HD, "화면 비율", new String[]{"16:9 (와이드)", "4:3"},
                     new String[]{"PS3를 와이드 TV에 연결한 것처럼 (기본)", "PS3를 4:3 TV에 연결한 것처럼 · 게임이 4:3 화면을 그려요"}, four ? 1 : 0,
                     "모든 PS3 게임에 같이 적용돼요. 게임 화면 틀도 그 비율로 바뀌어요. 게임에 따라 다시 켜야 바뀌어요.", choice -> {
@@ -1249,7 +1512,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }), rowParams(8));
         int style = shellStyle();
         body.addView(menuRow(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES[Math.max(0, Math.min(ClearShellView.STYLE_NAMES.length - 1, style))], v -> {
-            close.picked(1);
             showChoices(RoundIconView.PALETTE, RoundIconView.COLOR_PALETTE, "배경", ClearShellView.STYLE_NAMES, ClearShellView.STYLE_NOTES, style,
                     "모든 게임에 같이 적용돼요. \"내 사진\"은 아래 \"사진 배경 만들기\"에서 사진을 고르면 돼요.", choice -> {
                 MainActivity.sharedSettings(this).edit().putInt("shell_style", choice).commit();
@@ -1258,7 +1520,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }), rowParams(8));
         boolean photo = PhotoBackground.rendered(this, "ps3", landscape()) != null;
         body.addView(menuRow(RoundIconView.PALETTE, Color.rgb(219, 39, 119), "사진 배경 만들기", photo ? "있음" : "없음", v -> {
-            close.picked(1);
+            closeMenu(true);
             Intent intent = new Intent(this, BgEditorActivity.class);
             intent.putExtra(BgEditorActivity.EXTRA_MODE, "ps3");
             intent.putExtra(BgEditorActivity.EXTRA_MODE_NAME, "PS3");
@@ -1270,12 +1532,11 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
 
     private void fillControlsTab(LinearLayout body, Choice close) {
         body.addView(menuRow(RoundIconView.MOVE, RoundIconView.COLOR_MOVE, "버튼 · 화면 배치 편집", loadLayoutEdits().isEmpty() ? "기본 배치" : "바꾼 배치", v -> {
-            close.picked(1);
+            closeMenu(true);
             startLayoutEditor();
-        }), rowParams(12));
+        }), rowParams(0));
         int faces = padFaceLayout();
         body.addView(menuRow(RoundIconView.PAD, Color.rgb(29, 78, 216), "패드 버튼", faces == 1 ? "닌텐도식" : "Xbox식", v -> {
-            close.picked(1);
             showChoices(RoundIconView.PAD, Color.rgb(29, 78, 216), "패드 버튼 (게임패드)", new String[]{"Xbox식", "닌텐도식"},
                     new String[]{"아래 A = ✕ · 오른쪽 B = ○ · 왼쪽 X = □ · 위 Y = △ (기본)", "아래 B = ✕ · 오른쪽 A = ○ · 왼쪽 Y = □ · 위 X = △"}, faces,
                     "버튼 자리는 PS3 패드와 같게 맞춰요. 연결한 패드 모두에 적용돼요.", choice ->
@@ -1284,7 +1545,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         int touchSens = stickSensIndex(false);
         int padSens = stickSensIndex(true);
         body.addView(menuRow(RoundIconView.PAD, RoundIconView.COLOR_FILTER, "스틱 감도", "화면 " + Math.round(SENS_VALUES[touchSens] * 100) + "% · 패드 " + Math.round(SENS_VALUES[padSens] * 100) + "%", v -> {
-            close.picked(1);
             showChoices(RoundIconView.PAD, RoundIconView.COLOR_FILTER, "스틱 감도 · 적용할 스틱", new String[]{"화면 스틱", "패드 스틱", "둘 다"},
                     new String[]{"지금 " + SENS_NAMES[touchSens], "지금 " + SENS_NAMES[padSens], "화면 · 패드 같이"}, -1,
                     "다음 화면에서 감도를 골라요. 모든 PS3 게임에 같이 적용돼요.", which -> {
@@ -1301,11 +1561,9 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }), rowParams(8));
         int turbo = Integer.bitCount(turboMask());
         body.addView(menuRow(RoundIconView.BOLT, Color.rgb(234, 88, 12), "연사", turbo == 0 ? "없음" : turbo + "개 버튼", v -> {
-            close.picked(1);
             showTurboSheet();
         }), rowParams(8));
         body.addView(menuRow(RoundIconView.ROTATE, Color.rgb(13, 148, 136), "자이로 (식스액시스)", onOff(gyroOn()), v -> {
-            close.picked(1);
             boolean now = gyroOn();
             showChoices(RoundIconView.ROTATE, Color.rgb(13, 148, 136), "자이로 (식스액시스)", new String[]{"꺼짐", "켜짐"},
                     new String[]{"폰을 기울여도 아무 일 없음 (기본)", "폰의 기울기 · 회전을 PS3 패드의 모션 센서로 (1P)"}, now ? 1 : 0,
@@ -1316,12 +1574,10 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }), rowParams(8));
         int max = this.players == null ? 1 : this.players.maxPlayers();
         body.addView(menuRow(RoundIconView.MULTI, Color.rgb(79, 70, 229), "멀티 패드 (2P~4P)", max <= 1 ? "1P만" : max + "명", v -> {
-            close.picked(1);
             showPlayers();
         }), rowParams(8));
         boolean hide = hidePadWithController();
         body.addView(menuRow(RoundIconView.PAD, RoundIconView.COLOR_MOVE, "패드를 쓰면 화면 버튼 감추기", onOff(hide), v -> {
-            close.picked(1);
             showChoices(RoundIconView.PAD, RoundIconView.COLOR_MOVE, "패드를 쓰면 화면 버튼 감추기", new String[]{"꺼짐", "켜짐"},
                     new String[]{"화면 버튼을 늘 보여요", "게임패드 버튼을 누르면 화면 버튼이 사라지고, 화면을 만지면 돌아와요 (기본)"}, hide ? 1 : 0,
                     "게임 화면의 크기 · 자리는 그대로예요.", choice -> {
@@ -1335,7 +1591,6 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         String[] hapticNames = {"꺼짐", "약하게", "보통", "강하게"};
         int haptic = Math.max(0, Math.min(3, MainActivity.sharedSettings(this).getInt("haptic_level", 0)));
         body.addView(menuRow(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", hapticNames[haptic], v -> {
-            close.picked(1);
             showChoices(RoundIconView.VIBRATE, RoundIconView.COLOR_VIBRATE, "버튼 진동", hapticNames, new String[]{"진동 없음 (기본)", "살짝 톡", "또렷하게 톡", "확실하게 툭"}, haptic,
                     "화면 버튼을 누를 때 짧게 진동해요.", choice -> {
                 MainActivity.sharedSettings(this).edit().putInt("haptic_level", choice).commit();
@@ -1347,11 +1602,9 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
 
     private void fillSystemTab(LinearLayout body, Choice close) {
         body.addView(menuRow(RoundIconView.LOAD, Color.rgb(71, 85, 105), "디스크 바꾸기", "여러 장짜리 게임", v -> {
-            close.picked(1);
             showDiscSwap();
-        }), rowParams(12));
+        }), rowParams(0));
         body.addView(menuRow(RoundIconView.DLC, Color.rgb(29, 78, 216), "업데이트 · DLC · 라이선스", "PKG · RAP · EDAT", v -> {
-            close.picked(1);
             pickInstallFile();
         }), rowParams(8));
         String version = safe(() -> ARMSX3.instance.getVersion());
@@ -1420,7 +1673,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             panel.addView(close, closeParams);
             dialog.setContentView(scrollable(panel));
             dialog.setOnDismissListener(d -> {
-                if (!this.leaving) ARMSX3.instance.resume();
+                resumeGame();
             });
             sizeDialog(dialog);
             dialog.show();
@@ -1518,7 +1771,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             startActivityForResult(intent, REQUEST_INSTALL_FILE);
         } catch (Exception e) {
             toast("파일을 고르는 화면을 열 수 없어요");
-            ARMSX3.instance.resume();
+            resumeGame();
         }
     }
 
@@ -1680,8 +1933,8 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                         .setOnDismissListener(d -> {
                             if (!this.bootStarted) {
                                 leave();
-                            } else if (!this.leaving) {
-                                ARMSX3.instance.resume();
+                            } else {
+                                resumeGame();
                             }
                         }).show();
             });
@@ -1732,6 +1985,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         showChoices(save ? RoundIconView.SAVE : RoundIconView.LOAD, save ? RoundIconView.COLOR_SAVE : RoundIconView.COLOR_LOAD,
                 save ? "빠른 저장 · 칸 고르기" : "불러오기 · 칸 고르기", names, notes, -1,
                 "저장은 엔진이 게임을 잠깐 멈췄다가 다시 이어 가요(시험 기능). 큰 게임은 1분 넘게 걸릴 수 있어요.", choice -> {
+                    closeMenu(true);
                     if (save) {
                         quickSave(choice + 1);
                     } else {
@@ -1742,25 +1996,29 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
 
     private void quickSave(int slot) {
         toast("저장 중… 잠깐 멈췄다가 이어져요");
+        this.stateBusy = true;
         new Thread(() -> {
             boolean ok = ARMSX3.instance.saveStateToSlot(slot);
             if (ok) {
                 MainActivity.sharedSettings(this).edit().putLong("ps3_state_time" + (slot == 1 ? "" : slot) + ":" + this.gamePath, System.currentTimeMillis()).commit();
             }
             main.post(() -> {
-                ARMSX3.instance.resume();
+                this.stateBusy = false;
+                resumeGame();
                 toast(ok ? "지금 장면을 저장했어요" : "이 게임은 빠른 저장이 안 돼요");
             });
         }, "ps3-save").start();
     }
 
     private void quickLoad(int slot) {
+        this.stateBusy = true;
         new Thread(() -> {
             boolean has = ARMSX3.instance.hasStateInSlot(slot);
             boolean ok = has && ARMSX3.instance.loadStateFromSlot(slot);
             main.post(() -> {
+                this.stateBusy = false;
                 if (!ok) {
-                    ARMSX3.instance.resume();
+                    resumeGame();
                 }
                 toast(!has ? "저장한 장면이 없어요" : ok ? "저장한 장면을 불러오는 중…" : "불러오지 못했어요");
             });
@@ -1914,7 +2172,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 return;
             }
             if (!this.leaving) {
-                ARMSX3.instance.resume();
+                resumeGame();
                 if (changed[0]) toast("재시작하면 패치가 적용돼요");
             }
         });
@@ -1978,7 +2236,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_BG_EDITOR) {
             buildGameScreen();
-            if (!this.leaving) ARMSX3.instance.resume();
+            resumeGame();
             return;
         }
         if (requestCode == REQUEST_FRAMEGEN_DLL) {
@@ -1988,8 +2246,8 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         if (requestCode == REQUEST_INSTALL_FILE) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
                 runInstall(data.getData());
-            } else if (!this.leaving) {
-                ARMSX3.instance.resume();
+            } else {
+                resumeGame();
             }
             return;
         }
@@ -2295,7 +2553,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         panel.addView(close, closeParams);
         dialog.setContentView(scrollable(panel));
         dialog.setOnDismissListener(d -> {
-            if (!this.leaving) ARMSX3.instance.resume();
+            resumeGame();
         });
         sizeDialog(dialog);
         dialog.show();
@@ -2434,11 +2692,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         closeParams.setMargins(0, dp(12), 0, 0);
         panel.addView(close, closeParams);
         dialog.setContentView(scrollable(panel));
-        dialog.setOnDismissListener(d -> {
-            if (!this.leaving) {
-                ARMSX3.instance.resume();
-            }
-        });
+        dialog.setOnDismissListener(d -> resumeGame());
         sizeDialog(dialog);
         dialog.show();
     }
@@ -2479,7 +2733,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         TextView name = text(label, 14, Color.rgb(31, 41, 51), true);
         name.setPadding(dp(12), 0, 0, 0);
         row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
-        row.addView(text(value + "  ›", 13.5f, Color.rgb(122, 130, 140), true));
+        row.addView(text(value + "  ›", 13.5f, color, true));
         row.setClickable(true);
         row.setOnClickListener(onClick);
         return row;
@@ -2547,9 +2801,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         panel.addView(row, rowParams);
         dialog.setContentView(panel);
         dialog.setOnDismissListener(d -> {
-            if (engineReady && !this.leaving) {
-                ARMSX3.instance.resume();
-            }
+            if (engineReady) resumeGame();
         });
         Window window = dialog.getWindow();
         if (window != null) {
@@ -2595,7 +2847,9 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         super.onResume();
         if (engineReady && this.bootStarted && !this.leaving) {
             ARMSX3.instance.setAppBackgrounded(false);
-            ARMSX3.instance.resume();
+            if (this.pauseDialog == null && this.layoutEditor == null) {
+                ARMSX3.instance.resume();
+            }
             startMotion();
         }
     }

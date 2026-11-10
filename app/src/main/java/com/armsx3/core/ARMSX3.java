@@ -134,4 +134,7 @@ public final class ARMSX3 {
     public native String getUser();
 
     public native String gameContentId(String gamePath);
+
+    // (0.0.393)
+    public native boolean saveScreenshot(String path);
 }
