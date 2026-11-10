@@ -18365,9 +18365,38 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final int red = Color.rgb(220, 38, 38);
         final int[] deadzone = {gunDeadzoneIndex()};
         final StickDeadzoneView[] zoneView = {null};
+        // 이 총 쏴 보기 (0.0.389): which listed gun fired last while the sheet is open.
+        final int[] shotIndex = {-1};
+        final Runnable[] rerender = {null};
+        final Runnable clearShot = () -> {
+            shotIndex[0] = -1;
+            if (rerender[0] != null) rerender[0].run();
+        };
         final android.app.Dialog dialog = new android.app.Dialog(this) {
+            private void noteShot(android.view.MotionEvent event) {
+                if (!isMouseEvent(event)) return;
+                int action = event.getActionMasked();
+                boolean press = action == android.view.MotionEvent.ACTION_BUTTON_PRESS || action == android.view.MotionEvent.ACTION_DOWN;
+                if (!press) return;
+                for (int k = 0; k < gunDevices.size(); k++) {
+                    if (gunDevices.get(k).getId() == event.getDeviceId()) {
+                        shotIndex[0] = k;
+                        gunHandler.removeCallbacks(clearShot);
+                        gunHandler.postDelayed(clearShot, 2500);
+                        if (rerender[0] != null) rerender[0].run();
+                        return;
+                    }
+                }
+            }
+
+            @Override
+            public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+                noteShot(event);  // still passed on, so a mouse can press the sheet's buttons
+                return super.dispatchTouchEvent(event);
+            }
             @Override
             public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+                noteShot(event);
                 // The 데드존 picture follows the controller's aiming stick while the sheet is open.
                 StickDeadzoneView view = zoneView[0];
                 if (view != null && isControllerEvent(event) && event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE) {
@@ -18499,9 +18528,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 body.addView(ps2Note(mice.isEmpty() ? "지금 연결된 마우스형 장치가 없어요. 총을 연결하면 바로 써요." : "연결됨: " + mice,
                         mice.isEmpty() ? Color.rgb(246, 247, 249) : Color.rgb(240, 253, 244), mice.isEmpty() ? Color.rgb(75, 85, 99) : Color.rgb(22, 101, 52)));
                 if (two[0] && !gunDevices.isEmpty()) {
+                    body.addView(ps2Note("이 총 쏴 보기: 이 창을 열어 둔 채 아무 총이나 쏘면, 그 총 줄에 \"← 방금 쏨\"이 잠깐 떠요.",
+                            Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
                     for (int k = 0; k < gunDevices.size(); k++) {
                         final int index = k;
-                        body.addView(backgroundChips(gunDevices.get(k).getName(), new String[]{"1P 총", "2P 총"}, devicePlayer[k] - 1, red, i -> {
+                        String label = gunDevices.get(k).getName() + (shotIndex[0] == k ? "  ← 방금 쏨 (" + devicePlayer[k] + "P)" : "");
+                        body.addView(backgroundChips(label, new String[]{"1P 총", "2P 총"}, devicePlayer[k] - 1, shotIndex[0] == k ? Color.rgb(37, 99, 235) : red, i -> {
                             devicePlayer[index] = i + 1;
                             render[0].run();
                         }));
@@ -18566,6 +18598,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
             }
         };
+        rerender[0] = render[0];
         render[0].run();
         LinearLayout buttons = new LinearLayout(this);
         TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
