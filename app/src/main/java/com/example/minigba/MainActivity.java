@@ -15262,7 +15262,32 @@ public final class MainActivity extends Activity {
         }).setNegativeButton("취소", null).show();
     }
 
+    // Why the last copyPlain failed (shown to the player).
+    private static volatile String lastCopyError;
+
     private static boolean copyPlain(File from, File to) {
+        if (from.isDirectory()) {
+            // A game folder (PS3, 0.0.394): the whole tree.
+            if (!to.isDirectory() && !to.mkdirs()) {
+                lastCopyError = "폴더를 만들 수 없어요: " + to.getName();
+                return false;
+            }
+            File[] files = from.listFiles();
+            if (files == null) {
+                lastCopyError = "폴더를 읽을 수 없어요: " + from.getName();
+                return false;
+            }
+            for (File f : files) {
+                File target = new File(to, f.getName());
+                if (f.isFile() && target.isFile() && target.length() == f.length()) {
+                    continue;
+                }
+                if (!copyPlain(f, target)) {
+                    return false;
+                }
+            }
+            return true;
+        }
         File temp = new File(to.getPath() + ".copying");
         try (InputStream in = new FileInputStream(from); OutputStream out = new FileOutputStream(temp)) {
             byte[] buffer = new byte[1 << 20];
@@ -15272,9 +15297,17 @@ public final class MainActivity extends Activity {
             }
         } catch (IOException e) {
             temp.delete();
+            String why = e.getMessage() == null ? e.toString() : e.getMessage();
+            lastCopyError = from.getName() + ": " + (why.contains("EFBIG") || why.contains("File too large")
+                    ? "고른 곳이 4GB보다 큰 파일을 담을 수 없는 저장소예요 (FAT32 SD카드 등). 휴대폰 내장 저장소의 폴더를 골라 주세요."
+                    : why.contains("ENOSPC") ? "저장 공간이 모자라요." : why);
             return false;
         }
-        return temp.renameTo(to) || (to.delete() && temp.renameTo(to));
+        if (temp.renameTo(to) || (to.delete() && temp.renameTo(to))) {
+            return true;
+        }
+        lastCopyError = to.getName() + "(으)로 이름을 바꾸지 못했어요";
+        return false;
     }
 
     // After a new game was made: in a phone folder it is linked into the app; "폰 폴더에도
@@ -15313,6 +15346,10 @@ public final class MainActivity extends Activity {
     private static final String PREF_EXPORT_FOLDER = "export_folder";
 
     private void exportGame(final File game) {
+        if (game.getName().toLowerCase(Locale.ROOT).endsWith(".ps3game")) {
+            showMessage("PSN 게임(PKG로 설치한 게임)은 PS3 엔진 안에 설치돼 있어서 파일로 내보낼 수 없어요. 설치했던 PKG 파일을 보관해 두면 다시 설치할 수 있어요.");
+            return;
+        }
         withAllFilesAccess(() -> {
             String last = settingsPrefs().getString(PREF_EXPORT_FOLDER, null);
             File start = last != null && new File(last).isDirectory() ? new File(last) : new File(phoneRoot(), Environment.DIRECTORY_DOWNLOADS);
@@ -15321,7 +15358,7 @@ public final class MainActivity extends Activity {
                 final List<File> parts = gameFiles(game);
                 long bytes = 0;
                 for (File part : parts) {
-                    bytes += part.length();
+                    bytes += romBytes(part);
                 }
                 long free = new android.os.StatFs(folder.getAbsolutePath()).getAvailableBytes();
                 if (free < bytes + 16L * 1024 * 1024) {
@@ -15334,21 +15371,28 @@ public final class MainActivity extends Activity {
                 progress.show();
                 new Thread(() -> {
                     boolean ok = true;
+                    lastCopyError = null;
                     for (File part : parts) {
                         File to = new File(folder, part.getName());
                         if (to.isFile() && to.length() == part.length()) {
                             continue;
                         }
-                        ok &= copyPlain(part, to);
+                        ok = ok && copyPlain(part, to);
                     }
                     final boolean done = ok;
+                    final String why = lastCopyError;
                     runOnUiThread(() -> {
                         progress.dismiss();
                         if (!done) {
-                            showError("내보내지 못했어요. 폴더와 공간을 확인해 주세요.");
+                            showError("내보내지 못했어요." + (why != null ? "\n" + why : " 폴더와 공간을 확인해 주세요."));
                             return;
                         }
                         final File exported = new File(folder, game.getName());
+                        if (game.isDirectory()) {
+                            // A PS3 game folder: copied whole; it stays in the app (no 연결 for folders).
+                            showMessage(phonePathText(exported) + " 폴더로 내보냈어요 (게임 폴더째, 한글패치 원본 백업 .mini_original 포함).\n\n앱 안의 게임은 그대로 있어요.");
+                            return;
+                        }
                         new AppDialog.Builder(this).setTitle("내보냈어요")
                                 .setMessage(phonePathText(exported) + "\n\n이제 앱을 지우거나 롬을 실수로 지워도 이 파일로 다시 가져올 수 있어요.\n\n"
                                         + "앱 안 복사본을 지우고 내보낸 파일을 🔗 연결로 쓰면 " + formatSize(romBytes(game)) + "가 비어요. 세이브는 그대로 이어져요.")
@@ -15472,12 +15516,12 @@ public final class MainActivity extends Activity {
                         if (to.isFile() && to.length() == part.length()) {
                             skipped++;
                         } else if (!copyPlain(part, to)) {
-                            error = part.getName() + "을(를) 복사하지 못했어요.";
+                            error = part.getName() + "을(를) 복사하지 못했어요." + (lastCopyError != null ? "\n" + lastCopyError : "");
                             break outer;
                         } else {
                             copied++;
                         }
-                        done += part.length();
+                        done += part.isDirectory() ? romBytes(part) : part.length();
                     }
                     if (toLinks) {
                         try {
@@ -19712,6 +19756,9 @@ public final class MainActivity extends Activity {
 
     // A game's size on disk, with a sheet's tracks.
     private static long romBytes(File file) {
+        if (file.isDirectory()) {
+            return Ps3Disc.treeBytes(file);
+        }
         long bytes = file.length();
         for (File disk : msxPlaylistDisks(file)) {
             bytes += romBytes(disk);
