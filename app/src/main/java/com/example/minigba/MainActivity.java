@@ -107,7 +107,7 @@ public final class MainActivity extends Activity {
             {MODE_PCE, "pce_fast", ".pce,.cue,.bin,.img,.chd,.m3u", ".pce / .cue+.bin / .chd", "roms_pce", "1016"},
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso,.m3u", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
-            {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso", "roms_ps2", "1019"},
+            {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso / .cue+.bin", "roms_ps2", "1019"},
             // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
             {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs,.m3u", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
@@ -196,7 +196,7 @@ public final class MainActivity extends Activity {
     private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
     private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
     private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
     private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
     private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
@@ -3256,6 +3256,10 @@ public final class MainActivity extends Activity {
     }
 
     private void importRoms(Intent intent, String mode) {
+        if (MODE_PS2.equals(mode) && ps2PickedBins(intent)) {
+            startPs2BinImport(intent);
+            return;
+        }
         if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
             // Disc images run to gigabytes; copy them off the UI thread.
             final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
@@ -3276,6 +3280,333 @@ public final class MainActivity extends Activity {
             return;
         }
         finishRomImport(copyRoms(intent, mode));
+    }
+
+    // ---- PS2, .cue / .bin 바꿔 넣기 (0.0.380): PS2 engines take .iso / .chd / .cso, so a
+    // picked .cue + .bin (or a lone .bin) is turned into a plain .iso of the 2048-byte sectors
+    // (Ps2BinImport), after a look at what it is and the room it needs. The other picked files
+    // go on through the usual import. ----
+    private static List<Uri> pickedUris(Intent intent) {
+        List<Uri> out = new ArrayList<>();
+        ClipData clip = intent.getClipData();
+        if (clip != null) {
+            for (int k = 0; k < clip.getItemCount(); k++) {
+                Uri uri = clip.getItemAt(k).getUri();
+                if (uri != null) out.add(uri);
+            }
+        } else if (intent.getData() != null) {
+            out.add(intent.getData());
+        }
+        return out;
+    }
+
+    private boolean ps2PickedBins(Intent intent) {
+        for (Uri uri : pickedUris(intent)) {
+            String name = displayNameFor(uri).toLowerCase(Locale.ROOT);
+            if (name.endsWith(".cue") || name.endsWith(".bin")) return true;
+        }
+        return false;
+    }
+
+    private static final class Ps2BinJob {
+        Uri bin;
+        Uri cue;
+        String title;
+        long size;
+        Ps2BinImport.Layout layout;
+        int tracks;
+        File made;
+    }
+
+    private void startPs2BinImport(Intent intent) {
+        final List<Uri> all = pickedUris(intent);
+        final android.app.ProgressDialog looking = new android.app.ProgressDialog(this);
+        looking.setTitle("PS2 게임 가져오기");
+        looking.setMessage(".cue / .bin 살펴보는 중…");
+        looking.setCancelable(false);
+        looking.show();
+        new Thread(() -> {
+            final List<Ps2BinJob> jobs = new ArrayList<>();
+            final List<Uri> rest = new ArrayList<>();
+            final StringBuilder errors = new StringBuilder();
+            java.util.Map<String, Uri> bins = new java.util.LinkedHashMap<>();
+            java.util.Set<Uri> used = new java.util.HashSet<>();
+            for (Uri uri : all) {
+                String name = displayNameFor(uri);
+                if (name.toLowerCase(Locale.ROOT).endsWith(".bin")) bins.put(name.toLowerCase(Locale.ROOT), uri);
+            }
+            for (Uri uri : all) {
+                String name = displayNameFor(uri);
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (lower.endsWith(".bin")) {
+                    continue;
+                }
+                if (!lower.endsWith(".cue")) {
+                    rest.add(uri);
+                    continue;
+                }
+                Ps2BinImport.Cue cue = null;
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    if (in != null) {
+                        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                        byte[] buffer = new byte[8192];
+                        int n;
+                        while ((n = in.read(buffer)) > 0 && bytes.size() < (1 << 20)) bytes.write(buffer, 0, n);
+                        cue = Ps2BinImport.parseCue(bytes.toByteArray());
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                }
+                if (cue == null) {
+                    errors.append(name).append(": .cue를 읽지 못했어요\n");
+                    continue;
+                }
+                Uri bin = bins.get(cue.file.toLowerCase(Locale.ROOT));
+                if (bin == null) {
+                    // Beside the .cue on the phone (with 모든 파일 접근).
+                    File real = realFileFor(uri);
+                    File[] side = real != null && real.getParentFile() != null ? real.getParentFile().listFiles() : null;
+                    for (int k = 0; side != null && k < side.length; k++) {
+                        if (side[k].isFile() && side[k].getName().equalsIgnoreCase(cue.file)) bin = Uri.fromFile(side[k]);
+                    }
+                }
+                if (bin == null) {
+                    errors.append(name).append(": 짝 파일 ").append(cue.file).append("을(를) 같이 골라 주세요\n");
+                    continue;
+                }
+                if (!cue.dataFirst) {
+                    errors.append(name).append(": 첫 트랙이 데이터가 아니에요 (PS2 게임 디스크가 아닌 것 같아요)\n");
+                    continue;
+                }
+                used.add(bin);
+                Ps2BinJob job = new Ps2BinJob();
+                job.bin = bin;
+                job.cue = uri;
+                job.title = baseNameWithoutExtension(name);
+                job.tracks = cue.tracks;
+                jobs.add(job);
+            }
+            for (Uri bin : bins.values()) {
+                if (used.contains(bin)) continue;
+                Ps2BinJob job = new Ps2BinJob();
+                job.bin = bin;
+                job.title = baseNameWithoutExtension(displayNameFor(bin));
+                jobs.add(job);
+            }
+            for (java.util.Iterator<Ps2BinJob> it = jobs.iterator(); it.hasNext(); ) {
+                Ps2BinJob job = it.next();
+                job.size = sizeForUri(job.bin);
+                byte[] head = new byte[Ps2BinImport.RAW_SUB * 2];
+                int got = 0;
+                try (InputStream in = getContentResolver().openInputStream(job.bin)) {
+                    while (in != null && got < head.length) {
+                        int n = in.read(head, got, head.length - got);
+                        if (n < 0) break;
+                        got += n;
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                }
+                job.layout = job.size > 0 ? Ps2BinImport.detect(head, got, job.size) : null;
+                if (job.layout == null) {
+                    errors.append(job.title).append(".bin: PS2 디스크 이미지로 읽지 못했어요\n");
+                    it.remove();
+                }
+            }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                looking.dismiss();
+                if (jobs.isEmpty()) {
+                    if (errors.length() > 0) showError(errors.toString().trim());
+                    continuePs2Import(rest, new ArrayList<>(), errors, 0);
+                    return;
+                }
+                showPs2BinConfirm(jobs, rest, errors);
+            });
+        }, "ps2-bin-look").start();
+    }
+
+    private static String megabytes(long bytes) {
+        return String.format(Locale.ROOT, "%.1f MB", bytes / 1048576.0);
+    }
+
+    private void showPs2BinConfirm(List<Ps2BinJob> jobs, List<Uri> rest, StringBuilder errors) {
+        long need = 0;
+        StringBuilder text = new StringBuilder();
+        for (Ps2BinJob job : jobs) {
+            long iso = job.layout.isoSize(job.size);
+            need += iso;
+            text.append("■ ").append(job.title).append('\n')
+                    .append("원본: .bin ").append(String.format(Locale.ROOT, "%,d", job.size)).append("바이트 (").append(megabytes(job.size)).append(")\n")
+                    .append("디스크 형식: ").append(job.layout.describe()).append('\n')
+                    .append("결과: .iso ").append(String.format(Locale.ROOT, "%,d", iso)).append("바이트 (").append(megabytes(iso)).append(")\n");
+            if (job.tracks > 1) {
+                text.append("트랙 ").append(job.tracks).append("개 중 첫 데이터 트랙만 써요 (오디오 트랙은 빠져요)\n");
+            }
+            text.append('\n');
+        }
+        long free = romDirFor(MODE_PS2).getUsableSpace();
+        text.append("필요한 빈 공간: 약 ").append(megabytes(need)).append(" · 지금 남은 공간 ").append(String.format(Locale.ROOT, "%.1f GB", free / 1073741824.0));
+        if (errors.length() > 0) {
+            text.append("\n\n못 넣는 파일:\n").append(errors.toString().trim());
+        }
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (8 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad * 2, pad, pad * 2, 0);
+        TextView info = new TextView(this);
+        info.setText(text);
+        info.setTextSize(13f);
+        info.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        box.addView(info);
+        TextView label = new TextView(this);
+        label.setText("\n바꾼 뒤 원본 .cue / .bin");
+        label.setTextSize(13f);
+        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        box.addView(label);
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        android.widget.RadioButton keep = new android.widget.RadioButton(this);
+        keep.setText("그대로 두기 (기본)");
+        keep.setId(View.generateViewId());
+        android.widget.RadioButton drop = new android.widget.RadioButton(this);
+        drop.setText("지우기 (바꾸기가 끝나고 검사가 맞을 때만)");
+        drop.setId(View.generateViewId());
+        group.addView(keep);
+        group.addView(drop);
+        group.check(keep.getId());
+        box.addView(group);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(box);
+        boolean enough = free <= 0 || free > need + (64L << 20);
+        AppDialog.Builder builder = new AppDialog.Builder(this).setTitle(".iso로 바꿔 넣기").setView(scroll)
+                .setNegativeButton("취소", (d, w) -> continuePs2Import(rest, new ArrayList<>(), new StringBuilder(), 0));
+        if (enough) {
+            builder.setPositiveButton("바꿔 넣기", (d, w) -> runPs2BinJobs(jobs, rest, drop.isChecked()));
+        } else {
+            info.append("\n\n빈 공간이 모자라요. 공간을 비우고 다시 골라 주세요.");
+        }
+        builder.show();
+    }
+
+    private void runPs2BinJobs(List<Ps2BinJob> jobs, List<Uri> rest, boolean dropOriginals) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setTitle(".iso로 바꾸는 중…");
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(1000);
+        progress.setProgressNumberFormat(null);
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            StringBuilder errors = new StringBuilder();
+            List<File> made = new ArrayList<>();
+            int duplicates = 0;
+            File romDir = romDirFor(MODE_PS2);
+            romDir.mkdirs();
+            for (int index = 0; index < jobs.size(); index++) {
+                Ps2BinJob job = jobs.get(index);
+                final long total = job.layout.isoSize(job.size);
+                final String head = (jobs.size() > 1 ? "(" + (index + 1) + "/" + jobs.size() + ") " : "") + job.title;
+                final long started = System.currentTimeMillis();
+                final long[] shown = {0};
+                File out = uniqueFile(romDir, sanitizeFileName(job.title + ".iso"));
+                try (InputStream in = getContentResolver().openInputStream(job.bin);
+                     java.io.OutputStream os = new java.io.BufferedOutputStream(new FileOutputStream(out), 1 << 20)) {
+                    if (in == null) throw new IOException("파일을 열 수 없어요");
+                    Ps2BinImport.convert(new java.io.BufferedInputStream(in, 1 << 20), os, job.layout, job.size, written -> {
+                        long now = System.currentTimeMillis();
+                        if (now - shown[0] > 250 || written >= total) {
+                            shown[0] = now;
+                            long elapsed = Math.max(1, now - started);
+                            long left = written > 0 ? (total - written) * elapsed / written / 1000 : 0;
+                            int permille = total > 0 ? (int) (written * 1000 / total) : 0;
+                            String message = head + "\n" + (written >> 20) + " / " + (total >> 20) + " MB · 남은 시간 약 " + left + "초";
+                            runOnUiThread(() -> {
+                                progress.setProgress(permille);
+                                progress.setMessage(message);
+                            });
+                        }
+                        return true;
+                    });
+                } catch (IOException | RuntimeException e) {
+                    out.delete();
+                    errors.append(job.title).append(": ").append(e.getMessage()).append('\n');
+                    continue;
+                }
+                if (out.length() != total) {
+                    out.delete();
+                    errors.append(job.title).append(": 만든 .iso 크기가 맞지 않아요\n");
+                    continue;
+                }
+                runOnUiThread(() -> progress.setMessage(head + "\n확인하는 중…"));
+                try {
+                    File kept = finalizeImportedRom(out, job.title);
+                    if (kept == null) {
+                        duplicates++;
+                    } else {
+                        job.made = kept;
+                        made.add(kept);
+                    }
+                } catch (IOException e) {
+                    errors.append(job.title).append(": ").append(e.getMessage()).append('\n');
+                    continue;
+                }
+                if (dropOriginals) {
+                    for (Uri original : new Uri[]{job.bin, job.cue}) {
+                        if (original != null && !deletePickedFile(original)) {
+                            errors.append(displayNameFor(original)).append(": 원본을 지우지 못했어요 (직접 지워 주세요)\n");
+                        }
+                    }
+                }
+            }
+            final int dup = duplicates;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                progress.dismiss();
+                boolean gun = false;
+                for (Ps2BinJob job : jobs) {
+                    String lower = job.title.toLowerCase(Locale.ROOT);
+                    if (job.made != null && (lower.contains("guncon") || lower.contains("time crisis") || lower.contains("vampire night"))) gun = true;
+                }
+                if (gun) {
+                    errors.append("건콘2 게임: 건콘은 PCSX2 엔진에서만 돼요 (게임 설정에서 엔진 바꾸기)\n");
+                }
+                continuePs2Import(rest, made, errors, dup);
+            });
+        }, "ps2-bin-convert").start();
+    }
+
+    private boolean deletePickedFile(Uri uri) {
+        try {
+            File real = "file".equals(uri.getScheme()) && uri.getPath() != null ? new File(uri.getPath()) : realFileFor(uri);
+            if (real != null && real.isFile()) {
+                return real.delete();
+            }
+            return android.provider.DocumentsContract.deleteDocument(getContentResolver(), uri);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // The rest of the picked files through the usual import, then one summary for all.
+    private void continuePs2Import(List<Uri> rest, List<File> made, StringBuilder errors, int duplicates) {
+        Intent restIntent = new Intent();
+        if (!rest.isEmpty()) {
+            ClipData clip = ClipData.newRawUri("", rest.get(0));
+            for (int k = 1; k < rest.size(); k++) clip.addItem(new ClipData.Item(rest.get(k)));
+            restIntent.setClipData(clip);
+        }
+        Runnable work = () -> {
+            ImportOutcome outcome = rest.isEmpty() ? new ImportOutcome() : copyRoms(restIntent, MODE_PS2);
+            outcome.mode = MODE_PS2;
+            outcome.picked += made.size() + (made.isEmpty() && duplicates == 0 && errors.length() > 0 ? 1 : 0) + duplicates;
+            outcome.imported += made.size();
+            outcome.duplicates += duplicates;
+            if (outcome.first == null && !made.isEmpty()) outcome.first = made.get(0);
+            if (errors.length() > 0) outcome.errors.insert(0, errors);
+            runOnUiThread(() -> {
+                if (!isFinishing() && !isDestroyed()) finishRomImport(outcome);
+            });
+        };
+        new Thread(work, "import").start();
     }
 
     private static final class ImportOutcome {
