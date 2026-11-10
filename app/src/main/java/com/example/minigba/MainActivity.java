@@ -2102,7 +2102,42 @@ public final class MainActivity extends Activity {
         crashHolder.setOrientation(1);
         this.crashCardHolder = crashHolder;
         linearLayout3.addView(crashHolder, new LinearLayout.LayoutParams(-1, -2));
-        linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        if (homeLandscape()) {
+            // 가로 (0.0.398): a thin title bar holding the actions as small buttons, so the
+            // list gets the height.
+            header.setPadding(dp(12), dp(5), dp(8), dp(5));
+            linearLayout2.setOrientation(0);
+            linearLayout2.setGravity(16);
+            textView.setTextSize(16.0f);
+            textView2.setText(MODE_NAMES[index]);
+            textView2.setSingleLine(true);
+            textView2.setPadding(dp(8), 0, 0, 0);
+            linearLayout2.getChildAt(0).setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+            linearLayout2.getChildAt(1).setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
+            header.updateViewLayout(linearLayout2, new LinearLayout.LayoutParams(-2, -2));
+            LinearLayout small = new LinearLayout(this);
+            small.setOrientation(0);
+            small.setGravity(8388629);
+            List<View> tiles = new ArrayList<>();
+            for (int k = 0; k < actionRow.getChildCount(); k++) tiles.add(actionRow.getChildAt(k));
+            actionRow.removeAllViews();
+            for (View tile : tiles) {
+                compactActionTile((LinearLayout) tile);
+                LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(-2, dp(34));
+                tileParams.setMargins(dp(6), 0, 0, 0);
+                small.addView(tile, tileParams);
+            }
+            android.widget.HorizontalScrollView strip = new android.widget.HorizontalScrollView(this);
+            strip.setHorizontalScrollBarEnabled(false);
+            strip.setFillViewport(true);
+            strip.addView(small, new FrameLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams stripParams = new LinearLayout.LayoutParams(0, -2, 1.0f);
+            stripParams.setMargins(dp(8), 0, dp(4), 0);
+            header.addView(strip, header.getChildCount() - 1, stripParams);
+            linearLayout3.setPadding(0, dp(6), 0, dp(2));
+        } else {
+            linearLayout3.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        }
         if (MODE_PCE.equals(this.currentMode)) {
             TextView banner = new TextView(this);
             banner.setTextSize(12.0f);
@@ -2195,6 +2230,12 @@ public final class MainActivity extends Activity {
         linearLayout.addView(this.emptyView, new LinearLayout.LayoutParams(-1, -2));
         linearLayout.addView(scrollView, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         linearLayout.addView(this.noteView, new LinearLayout.LayoutParams(-1, -2));
+        if (homeLandscape()) {
+            this.noteView.setVisibility(View.GONE);
+            linearLayout.setPadding(dp(12), dp(6), dp(12), dp(4));
+            searchParams.setMargins(0, 0, 0, 0);
+            searchBar.setLayoutParams(searchParams);
+        }
         setContentView(linearLayout);
         updateHomeStatusCards();
         updateNote();
@@ -2848,6 +2889,31 @@ public final class MainActivity extends Activity {
         tile.addView(statusView, new LinearLayout.LayoutParams(-1, -2));
         tile.setTag(statusView);
         return tile;
+    }
+
+    private boolean homeLandscape() {
+        return getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    // 가로 홈 (0.0.398): an action tile as a small pill on the title bar: icon and name side by
+    // side (its status line, still updated, stays hidden).
+    private void compactActionTile(LinearLayout tile) {
+        tile.setOrientation(0);
+        tile.setGravity(16);
+        tile.setPadding(dp(3), dp(3), dp(10), dp(3));
+        tile.setBackground(rounded(Color.argb(56, 0, 0, 0), dp(12)));
+        View icon = tile.getChildAt(0);
+        icon.setElevation(0);
+        icon.setPadding(dp(3), dp(3), dp(3), dp(3));
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(28), dp(28));
+        tile.updateViewLayout(icon, iconParams);
+        TextView title = (TextView) tile.getChildAt(1);
+        title.setTextColor(-1);
+        title.setTextSize(11.5f);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-2, -2);
+        titleParams.setMargins(dp(6), 0, 0, 0);
+        tile.updateViewLayout(title, titleParams);
+        tile.getChildAt(2).setVisibility(View.GONE);
     }
 
     private LinearLayout.LayoutParams actionTileParams() {
@@ -6056,7 +6122,15 @@ public final class MainActivity extends Activity {
             view.clearFocus();
             return true;
         });
-        bar.addView(search, new LinearLayout.LayoutParams(-1, dp(44)));
+        boolean wide = homeLandscape();
+        if (wide) {
+            // 가로 (0.0.398): search and sort on one line.
+            bar.setOrientation(0);
+            bar.setGravity(16);
+            bar.addView(search, new LinearLayout.LayoutParams(0, dp(38), 1.0f));
+        } else {
+            bar.addView(search, new LinearLayout.LayoutParams(-1, dp(44)));
+        }
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(0);
         String[] names = {"이름순", "최근 플레이", "즐겨찾기 먼저"};
@@ -6093,6 +6167,13 @@ public final class MainActivity extends Activity {
         hiddenParams.setMargins(dp(6), 0, 0, 0);
         chips.addView(hidden, hiddenParams);
         updateSortChips();
+        chips.setGravity(16);
+        if (wide) {
+            LinearLayout.LayoutParams chipsParams = new LinearLayout.LayoutParams(-2, -2);
+            chipsParams.setMargins(dp(10), 0, 0, 0);
+            bar.addView(chips, chipsParams);
+            return bar;
+        }
         LinearLayout.LayoutParams chipsParams = new LinearLayout.LayoutParams(-1, -2);
         chipsParams.setMargins(0, dp(8), 0, dp(2));
         bar.addView(chips, chipsParams);
@@ -21000,6 +21081,8 @@ public final class MainActivity extends Activity {
             bios = "PC-98: 바이오스 없이 내장 BIOS로 켜지고, 일본어는 동운 글꼴로 나와요. \"(Disk A)\" \"(Disk B)\"처럼 나뉜 디스크는 한 게임으로 묶여요 (FDD1 = A, FDD2 = B).";
         } else if (MODE_MSX.equals(this.currentMode)) {
             bios = "MSX: 롬팩은 C-BIOS, 디스크는 XBIOS로 바이오스 없이도 켜져요 (일부 게임은 원래 바이오스 필요 · 게임 중 메뉴 → 바이오스 상태). 여러 장으로 나뉜 디스크는 한 게임으로 묶여요.";
+        } else if (MODE_PS3.equals(this.currentMode)) {
+            bios = "PS3 게임은 PS3 펌웨어가 있어야 실행돼요 (PS3 펌웨어: " + ps3FirmwareStatusText() + ").";
         } else if (isConsoleMode(this.currentMode)) {
             bios = MODE_NAMES[modeIndex(this.currentMode)] + " 게임은 BIOS 없이 실행됩니다.";
         } else {
