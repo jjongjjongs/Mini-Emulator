@@ -3050,6 +3050,10 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int i, int i2, Intent intent) {
         super.onActivityResult(i, i2, intent);
+        if (i == REQUEST_PS2_RECIPE) {
+            onPs2RecipePicked(i2 == -1 ? intent : null);  // back to the confirm screen either way
+            return;
+        }
         if (i2 != -1 || intent == null) {
             return;
         }
@@ -3108,6 +3112,7 @@ public final class MainActivity extends Activity {
             onPrepPatchesPicked(intent);
             return;
         }
+
         if (i == REQUEST_PICK_PATCH) {
             if (this.patchRom != null && isDiscSheet(this.patchRom)) {
                 List<Uri> uris = new ArrayList<>();
@@ -3316,6 +3321,9 @@ public final class MainActivity extends Activity {
         Ps2BinImport.Layout layout;
         int tracks;
         File made;
+        Ps2Recipe recipe;   // a 레시피형 patch for this .bin (0.0.383)
+        boolean patch;
+        String note;
     }
 
     private void startPs2BinImport(Intent intent) {
@@ -3336,15 +3344,38 @@ public final class MainActivity extends Activity {
             final StringBuilder errors = new StringBuilder();
             java.util.Map<String, Uri> bins = new java.util.LinkedHashMap<>();
             java.util.Set<Uri> used = new java.util.HashSet<>();
+            List<Ps2Recipe> recipes = new ArrayList<>();
+            List<Uri> jsons = new ArrayList<>();
             for (Uri uri : all) {
                 String name = displayNameFor(uri);
-                if (name.toLowerCase(Locale.ROOT).endsWith(".bin")) bins.put(name.toLowerCase(Locale.ROOT), uri);
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (lower.endsWith(".json")) jsons.add(uri);
             }
             for (Uri uri : all) {
                 String name = displayNameFor(uri);
                 String lower = name.toLowerCase(Locale.ROOT);
-                if (lower.endsWith(".bin")) {
+                if (lower.endsWith(".bin") && !lower.equals("patch.bin")) bins.put(lower, uri);
+            }
+            for (Uri json : jsons) {
+                Uri payload = null;
+                for (Uri uri : all) {
+                    if (displayNameFor(uri).equalsIgnoreCase("patch.bin")) payload = uri;
+                }
+                Ps2Recipe recipe = loadRecipeJson(json, payload);
+                if (recipe != null) recipes.add(recipe);
+            }
+            for (Uri uri : all) {
+                String name = displayNameFor(uri);
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (lower.endsWith(".bin") || lower.endsWith(".json")) {
                     continue;
+                }
+                if (lower.endsWith(".zip") && sizeForUri(uri) < (600L << 20)) {
+                    Ps2Recipe recipe = loadRecipeZip(uri);
+                    if (recipe != null) {
+                        recipes.add(recipe);
+                        continue;
+                    }
                 }
                 if (!lower.endsWith(".cue")) {
                     rest.add(uri);
@@ -3417,7 +3448,17 @@ public final class MainActivity extends Activity {
                 if (job.layout == null) {
                     errors.append(job.title).append(".bin: PS2 디스크 이미지로 읽지 못했어요\n");
                     it.remove();
+                    continue;
                 }
+                // A 레시피형 patch picked with it, or beside it on the phone (0.0.383).
+                job.recipe = recipeFor(job, recipes);
+                if (job.recipe == null) {
+                    File real = "file".equals(job.bin.getScheme()) && job.bin.getPath() != null ? new File(job.bin.getPath()) : realFileFor(job.bin);
+                    if (real != null && real.getParentFile() != null) {
+                        job.recipe = recipeFor(job, findRecipesBeside(real.getParentFile()));
+                    }
+                }
+                job.patch = job.recipe != null;
             }
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
@@ -3483,6 +3524,277 @@ public final class MainActivity extends Activity {
         startPs2BinImport(uris, companions);
     }
 
+    // ---- 레시피형 패치 (0.0.383): patch.json (format …-bin-to-iso-v1) + patch.bin, loose or
+    // in a zip; see Ps2Recipe. ----
+    private Ps2Recipe recipeFor(Ps2BinJob job, List<Ps2Recipe> recipes) {
+        for (Ps2Recipe recipe : recipes) {
+            if (recipe.sourceSize == job.size && job.layout != null && job.layout.isoSize(job.size) == recipe.targetSize) return recipe;
+        }
+        return null;
+    }
+
+    private static String readSmallText(InputStream in) throws IOException {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[16384];
+        int n;
+        while ((n = in.read(buffer)) > 0) {
+            bytes.write(buffer, 0, n);
+            if (bytes.size() > (8 << 20)) throw new IOException("too big");
+        }
+        return new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    // patch.json from a Uri; patch.bin picked with it, else beside it on the phone.
+    private Ps2Recipe loadRecipeJson(Uri json, Uri payload) {
+        if (sizeForUri(json) > (8 << 20)) return null;
+        Ps2Recipe recipe;
+        try (InputStream in = getContentResolver().openInputStream(json)) {
+            recipe = in == null ? null : Ps2Recipe.parse(readSmallText(in));
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        if (recipe == null) return null;
+        Uri bin = payload;
+        File real = "file".equals(json.getScheme()) && json.getPath() != null ? new File(json.getPath()) : realFileFor(json);
+        if (bin == null && real != null && real.getParentFile() != null) {
+            File side = new File(real.getParentFile(), "patch.bin");
+            if (side.isFile()) bin = Uri.fromFile(side);
+        }
+        if (bin == null) return null;
+        final Uri source = bin;
+        recipe.payload = () -> getContentResolver().openInputStream(source);
+        recipe.sourceName = (real != null && real.getParentFile() != null ? real.getParentFile().getName() + "/" : "") + displayNameFor(json);
+        return recipe;
+    }
+
+    private static boolean isEntry(String name, String file) {
+        String lower = name.replace('\\', '/').toLowerCase(Locale.ROOT);
+        return lower.equals(file) || lower.endsWith("/" + file);
+    }
+
+    // A zip holding patch.json and patch.bin.
+    private Ps2Recipe loadRecipeZip(Uri zip) {
+        final String zipName = displayNameFor(zip);
+        File real = "file".equals(zip.getScheme()) && zip.getPath() != null ? new File(zip.getPath()) : realFileFor(zip);
+        if (real != null && real.isFile()) {
+            return loadRecipeZipFile(real);
+        }
+        String json = null;
+        try (java.util.zip.ZipInputStream in = new java.util.zip.ZipInputStream(getContentResolver().openInputStream(zip), StandardCharsets.ISO_8859_1)) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = in.getNextEntry()) != null) {
+                if (isEntry(entry.getName(), "patch.json")) {
+                    json = readSmallText(in);
+                    break;
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        Ps2Recipe recipe = json == null ? null : Ps2Recipe.parse(json);
+        if (recipe == null) return null;
+        recipe.payload = () -> {
+            java.util.zip.ZipInputStream in = new java.util.zip.ZipInputStream(getContentResolver().openInputStream(zip), StandardCharsets.ISO_8859_1);
+            java.util.zip.ZipEntry entry;
+            while ((entry = in.getNextEntry()) != null) {
+                if (isEntry(entry.getName(), "patch.bin")) return in;
+            }
+            in.close();
+            throw new IOException(zipName + " 안에 patch.bin이 없어요");
+        };
+        recipe.sourceName = zipName;
+        return recipe;
+    }
+
+    private static Ps2Recipe loadRecipeZipFile(final File file) {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(file, StandardCharsets.ISO_8859_1)) {
+            java.util.zip.ZipEntry json = null;
+            java.util.zip.ZipEntry bin = null;
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                if (isEntry(entry.getName(), "patch.json")) json = entry;
+                if (isEntry(entry.getName(), "patch.bin")) bin = entry;
+            }
+            if (json == null || bin == null) return null;
+            Ps2Recipe recipe;
+            try (InputStream in = zip.getInputStream(json)) {
+                recipe = Ps2Recipe.parse(readSmallText(in));
+            }
+            if (recipe == null) return null;
+            final String binName = bin.getName();
+            recipe.payload = () -> {
+                final java.util.zip.ZipFile open = new java.util.zip.ZipFile(file, StandardCharsets.ISO_8859_1);
+                java.util.zip.ZipEntry entry = open.getEntry(binName);
+                if (entry == null) {
+                    open.close();
+                    throw new IOException("patch.bin을 찾지 못했어요");
+                }
+                return new java.io.FilterInputStream(open.getInputStream(entry)) {
+                    @Override
+                    public void close() throws IOException {
+                        super.close();
+                        open.close();
+                    }
+                };
+            };
+            recipe.sourceName = file.getName();
+            return recipe;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    // patch.json + patch.bin in a folder (and its sub folders, a level down), or zips there.
+    private static List<Ps2Recipe> findRecipesBeside(File dir) {
+        List<Ps2Recipe> out = new ArrayList<>();
+        List<File> places = new ArrayList<>();
+        places.add(dir);
+        File[] subs = dir.listFiles(File::isDirectory);
+        for (int k = 0; subs != null && k < subs.length && k < 20; k++) places.add(subs[k]);
+        for (File place : places) {
+            File json = new File(place, "patch.json");
+            File bin = new File(place, "patch.bin");
+            if (json.isFile() && bin.isFile() && json.length() < (8 << 20)) {
+                try (InputStream in = new java.io.FileInputStream(json)) {
+                    Ps2Recipe recipe = Ps2Recipe.parse(readSmallText(in));
+                    if (recipe != null) {
+                        recipe.payload = () -> new java.io.FileInputStream(bin);
+                        recipe.sourceName = place.getName() + "/patch.json";
+                        out.add(recipe);
+                    }
+                } catch (IOException | RuntimeException ignored) {
+                }
+            }
+            File[] zips = place.listFiles((d, n) -> n.toLowerCase(Locale.ROOT).endsWith(".zip"));
+            for (File zip : zips == null ? new File[0] : zips) {
+                if (zip.length() < (600L << 20)) {
+                    Ps2Recipe recipe = loadRecipeZipFile(zip);
+                    if (recipe != null) out.add(recipe);
+                }
+            }
+        }
+        return out;
+    }
+
+    // The picked files hold a 레시피형 patch (zip, or patch.json + patch.bin): it goes on a
+    // copy of the .iso, kept only when that copy hashes to the patch's finished value. The
+    // .iso must be the plain conversion of the patch's original .bin (same size; the final
+    // check proves the rest).
+    private boolean offerPs2RecipeOnIso(final File iso, List<Uri> picked) {
+        boolean candidate = false;
+        for (Uri uri : picked) {
+            String lower = displayNameFor(uri).toLowerCase(Locale.ROOT);
+            candidate |= lower.endsWith(".json") || (lower.endsWith(".zip") && sizeForUri(uri) < (600L << 20));
+        }
+        if (!candidate) return false;
+        Ps2Recipe recipe = null;
+        Uri payload = null;
+        for (Uri uri : picked) if (displayNameFor(uri).equalsIgnoreCase("patch.bin")) payload = uri;
+        for (Uri uri : picked) {
+            String lower = displayNameFor(uri).toLowerCase(Locale.ROOT);
+            if (recipe == null && lower.endsWith(".json")) recipe = loadRecipeJson(uri, payload);
+            if (recipe == null && lower.endsWith(".zip")) recipe = loadRecipeZip(uri);
+        }
+        if (recipe == null) {
+            boolean json = false;
+            for (Uri uri : picked) json |= displayNameFor(uri).toLowerCase(Locale.ROOT).endsWith(".json");
+            if (!json) return false;  // a zip of ordinary patches: the usual way
+            this.prepError = payload == null ? "patch.json과 patch.bin을 같이 골라 주세요 (또는 둘이 든 ZIP)." : "읽을 수 있는 패치(patch.json …-bin-to-iso-v1)가 아니에요.";
+            renderPatchPrep();
+            return true;
+        }
+        if (this.prepDialog != null && this.prepDialog.isShowing()) {
+            this.prepDialog.dismiss();
+        }
+        if (iso.length() != recipe.targetSize) {
+            showError("이 패치는 이 .iso에 맞지 않아요.\n\n패치가 바라는 .iso 크기: " + String.format(Locale.ROOT, "%,d", recipe.targetSize)
+                    + "바이트\n이 .iso: " + String.format(Locale.ROOT, "%,d", iso.length()) + "바이트\n\n원본 .bin(" + String.format(Locale.ROOT, "%,d", recipe.sourceSize)
+                    + "바이트)을 PS2 › ROM 추가로 다시 넣으면서 패치를 함께 적용할 수도 있어요.");
+            return true;
+        }
+        long free = iso.getParentFile() == null ? 0 : iso.getParentFile().getUsableSpace();
+        final Ps2Recipe chosen = recipe;
+        String title = displayGameNameFor(iso);
+        new AppDialog.Builder(this).setTitle("레시피형 패치 적용")
+                .setMessage(title + "\n\n패치: " + recipe.sourceName + " · 조각 " + recipe.pieces() + "개 · " + megabytes(recipe.payloadBytes())
+                        + "\n이 .iso는 그대로 두고, 복사본에 패치해서 \"" + title + " " + recipe.suffix() + "\"로 넣어요."
+                        + "\n완성본 검사값(SHA-256)이 패치와 맞을 때만 넣어요.\n\n필요한 빈 공간: 약 " + megabytes(iso.length())
+                        + " · 남은 공간 " + String.format(Locale.ROOT, "%.1f GB", free / 1073741824.0))
+                .setNegativeButton("취소", null)
+                .setPositiveButton("패치해서 넣기", (d, w) -> {
+                    if (free > 0 && free < iso.length() + (64L << 20)) {
+                        showError("빈 공간이 모자라요.");
+                        return;
+                    }
+                    runPs2RecipeOnIso(iso, chosen, title);
+                })
+                .show();
+        return true;
+    }
+
+    private void runPs2RecipeOnIso(final File iso, final Ps2Recipe recipe, final String title) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setTitle("패치한 .iso 만드는 중…");
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(1000);
+        progress.setProgressNumberFormat(null);
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String error = null;
+            File made = null;
+            String outTitle = title + " " + recipe.suffix();
+            File out = uniqueFile(iso.getParentFile(), sanitizeFileName(outTitle + ".iso"));
+            Ps2Recipe.Progress show = (done, all) -> {
+                int permille = all > 0 ? (int) (done * 1000 / all) : 0;
+                runOnUiThread(() -> progress.setProgress(permille));
+            };
+            try {
+                runOnUiThread(() -> progress.setMessage("1/3 복사본 만드는 중…"));
+                try (InputStream in = new java.io.FileInputStream(iso); java.io.OutputStream os = new FileOutputStream(out)) {
+                    byte[] buffer = new byte[1 << 20];
+                    long done = 0;
+                    int n;
+                    while ((n = in.read(buffer)) > 0) {
+                        os.write(buffer, 0, n);
+                        done += n;
+                        show.at(done, iso.length());
+                    }
+                }
+                runOnUiThread(() -> progress.setMessage("2/3 패치 조각 덮어쓰는 중…"));
+                try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(out, "rw")) {
+                    recipe.apply(raf, show);
+                    raf.getFD().sync();
+                }
+                runOnUiThread(() -> progress.setMessage("3/3 완성본 확인하는 중…"));
+                String finished = Ps2Recipe.sha256Of(out, show);
+                if (!recipe.targetSha.equals(finished)) {
+                    throw new IOException("완성본 검사값이 패치와 달라요. 이 .iso가 패치의 원본에서 만든 것이 아니거나(다른 판본 · 이미 고친 파일), 패치 파일이 손상됐어요");
+                }
+                made = finalizeImportedRom(out, outTitle);
+                if (made == null) {
+                    error = "같은 게임(패치한 .iso)이 이미 목록에 있어요";
+                }
+            } catch (IOException | RuntimeException e) {
+                out.delete();
+                error = e.getMessage();
+            }
+            final String failure = error;
+            final File result = made;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                progress.dismiss();
+                refreshLibrary();
+                if (failure != null) {
+                    showError("패치하지 못했어요.\n\n" + failure + "\n\n원래 .iso는 그대로예요.");
+                } else {
+                    showMessage("패치를 적용해서 넣었어요 · 완성본 검사값 맞음\n\n" + result.getName() + "\n원래 .iso는 그대로 남아 있어요 (필요 없으면 지워도 돼요).");
+                }
+            });
+        }, "ps2-recipe-iso").start();
+    }
+
     private static String megabytes(long bytes) {
         return String.format(Locale.ROOT, "%.1f MB", bytes / 1048576.0);
     }
@@ -3500,8 +3812,14 @@ public final class MainActivity extends Activity {
             if (job.tracks > 1) {
                 text.append("트랙 ").append(job.tracks).append("개 중 첫 데이터 트랙만 써요 (오디오 트랙은 빠져요)\n");
             }
+            if (job.recipe != null) {
+                text.append("패치: ").append(job.recipe.sourceName).append(" · 조각 ").append(job.recipe.pieces()).append("개 · ")
+                        .append(megabytes(job.recipe.payloadBytes())).append(" · 이 원본용 (크기 맞음)\n");
+            }
             text.append('\n');
         }
+        boolean anyRecipe = false;
+        for (Ps2BinJob job : jobs) anyRecipe |= job.recipe != null;
         long free = romDirFor(MODE_PS2).getUsableSpace();
         text.append("필요한 빈 공간: 약 ").append(megabytes(need)).append(" · 지금 남은 공간 ").append(String.format(Locale.ROOT, "%.1f GB", free / 1073741824.0));
         if (errors.length() > 0) {
@@ -3533,17 +3851,110 @@ public final class MainActivity extends Activity {
         group.addView(drop);
         group.check(keep.getId());
         box.addView(group);
+        final android.widget.RadioButton[] patchOn = {null};
+        if (anyRecipe) {
+            TextView patchLabel = new TextView(this);
+            patchLabel.setText("\n패치 함께 적용");
+            patchLabel.setTextSize(13f);
+            patchLabel.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            patchLabel.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+            box.addView(patchLabel);
+            android.widget.RadioGroup patchGroup = new android.widget.RadioGroup(this);
+            android.widget.RadioButton apply = new android.widget.RadioButton(this);
+            apply.setText("패치 적용 (원본 · 완성본 검사값을 확인해요)");
+            apply.setId(View.generateViewId());
+            android.widget.RadioButton plain = new android.widget.RadioButton(this);
+            plain.setText("원본 그대로");
+            plain.setId(View.generateViewId());
+            patchGroup.addView(apply);
+            patchGroup.addView(plain);
+            patchGroup.check(apply.getId());
+            box.addView(patchGroup);
+            patchOn[0] = apply;
+        }
+        TextView pickPatch = new TextView(this);
+        pickPatch.setText(anyRecipe ? "다른 패치 고르기 ›" : "패치 고르기 (patch.json + patch.bin 또는 그 ZIP) ›");
+        pickPatch.setTextSize(13f);
+        pickPatch.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        pickPatch.setTextColor(Theme.text(Color.rgb(37, 99, 235)));
+        pickPatch.setPadding(0, pad * 2, 0, pad);
+        box.addView(pickPatch);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(box);
         boolean enough = free <= 0 || free > need + (64L << 20);
         AppDialog.Builder builder = new AppDialog.Builder(this).setTitle(".iso로 바꿔 넣기").setView(scroll)
                 .setNegativeButton("취소", (d, w) -> continuePs2Import(rest, new ArrayList<>(), new StringBuilder(), 0));
         if (enough) {
-            builder.setPositiveButton("바꿔 넣기", (d, w) -> runPs2BinJobs(jobs, rest, drop.isChecked()));
+            builder.setPositiveButton(anyRecipe ? "바꿔 넣기 · 패치" : "바꿔 넣기", (d, w) -> {
+                boolean patch = patchOn[0] != null && patchOn[0].isChecked();
+                for (Ps2BinJob job : jobs) job.patch = patch && job.recipe != null;
+                runPs2BinJobs(jobs, rest, drop.isChecked());
+            });
         } else {
             info.append("\n\n빈 공간이 모자라요. 공간을 비우고 다시 골라 주세요.");
         }
-        builder.show();
+        final Dialog shown = builder.show();
+        pickPatch.setOnClickListener(v -> {
+            if (shown != null) shown.dismiss();
+            this.pendingPs2Jobs = jobs;
+            this.pendingPs2Rest = rest;
+            this.pendingPs2Errors = errors;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            startActivityForResult(intent, REQUEST_PS2_RECIPE);
+        });
+    }
+
+    private static final int REQUEST_PS2_RECIPE = 1095;
+    private List<Ps2BinJob> pendingPs2Jobs;
+    private List<Uri> pendingPs2Rest;
+    private StringBuilder pendingPs2Errors;
+
+    // The patch picked from the confirm screen: a zip, or patch.json (+ patch.bin).
+    private void onPs2RecipePicked(Intent intent) {
+        final List<Ps2BinJob> jobs = this.pendingPs2Jobs;
+        final List<Uri> rest = this.pendingPs2Rest;
+        final StringBuilder errors = this.pendingPs2Errors;
+        this.pendingPs2Jobs = null;
+        if (jobs == null) return;
+        final List<Uri> picked = intent == null ? new ArrayList<>() : pickedUris(intent);
+        new Thread(() -> {
+            List<Ps2Recipe> recipes = new ArrayList<>();
+            Uri payload = null;
+            for (Uri uri : picked) if (displayNameFor(uri).equalsIgnoreCase("patch.bin")) payload = uri;
+            boolean jsonOnly = false;
+            for (Uri uri : picked) {
+                String lower = displayNameFor(uri).toLowerCase(Locale.ROOT);
+                Ps2Recipe recipe = null;
+                if (lower.endsWith(".zip")) recipe = loadRecipeZip(uri);
+                if (lower.endsWith(".json")) {
+                    recipe = loadRecipeJson(uri, payload);
+                    jsonOnly |= recipe == null && payload == null;
+                }
+                if (recipe != null) recipes.add(recipe);
+            }
+            final boolean needBin = jsonOnly;
+            int matched = 0;
+            for (Ps2BinJob job : jobs) {
+                Ps2Recipe recipe = recipeFor(job, recipes);
+                if (recipe != null) {
+                    job.recipe = recipe;
+                    matched++;
+                }
+            }
+            final int found = matched;
+            final int read = recipes.size();
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (found == 0) {
+                    Toast.makeText(this, needBin ? "patch.json과 patch.bin을 같이 골라 주세요"
+                            : read > 0 ? "고른 패치가 이 원본과 크기가 맞지 않아요" : "읽을 수 있는 패치(patch.json …-bin-to-iso-v1)가 아니에요", Toast.LENGTH_LONG).show();
+                }
+                showPs2BinConfirm(jobs, rest, errors);
+            });
+        }, "ps2-recipe").start();
     }
 
     private void runPs2BinJobs(List<Ps2BinJob> jobs, List<Uri> rest, boolean dropOriginals) {
@@ -3566,8 +3977,11 @@ public final class MainActivity extends Activity {
                 final String head = (jobs.size() > 1 ? "(" + (index + 1) + "/" + jobs.size() + ") " : "") + job.title;
                 final long started = System.currentTimeMillis();
                 final long[] shown = {0};
-                File out = uniqueFile(romDir, sanitizeFileName(job.title + ".iso"));
-                try (InputStream in = getContentResolver().openInputStream(job.bin);
+                String outTitle = job.patch ? job.title + " " + job.recipe.suffix() : job.title;
+                File out = uniqueFile(romDir, sanitizeFileName(outTitle + ".iso"));
+                java.security.MessageDigest sourceDigest = job.patch ? Ps2Recipe.sha256() : null;
+                try (InputStream raw = getContentResolver().openInputStream(job.bin);
+                     InputStream in = raw == null || sourceDigest == null ? raw : new java.security.DigestInputStream(raw, sourceDigest);
                      java.io.OutputStream os = new java.io.BufferedOutputStream(new FileOutputStream(out), 1 << 20)) {
                     if (in == null) throw new IOException("파일을 열 수 없어요");
                     Ps2BinImport.convert(new java.io.BufferedInputStream(in, 1 << 20), os, job.layout, job.size, written -> {
@@ -3595,9 +4009,52 @@ public final class MainActivity extends Activity {
                     errors.append(job.title).append(": 만든 .iso 크기가 맞지 않아요\n");
                     continue;
                 }
+                if (job.patch) {
+                    // 레시피형 패치: only on the original it was made for, and kept only when the
+                    // finished .iso hashes to the patch's value.
+                    if (!job.recipe.sourceSha.equals(Ps2Recipe.hex(sourceDigest.digest()))) {
+                        job.note = "원본 .bin의 검사값이 패치가 바라는 값과 달라서(다른 판본 · 다른 덤프 · 이미 고친 파일) 패치 없이 넣었어요";
+                        File plain = uniqueFile(romDir, sanitizeFileName(job.title + ".iso"));
+                        if (out.renameTo(plain)) out = plain;
+                        outTitle = job.title;
+                    } else {
+                        try (java.io.RandomAccessFile iso = new java.io.RandomAccessFile(out, "rw")) {
+                            job.recipe.apply(iso, (done, all) -> {
+                                int permille = all > 0 ? (int) (done * 1000 / all) : 0;
+                                runOnUiThread(() -> {
+                                    progress.setProgress(permille);
+                                    progress.setMessage(head + "\n패치 조각 덮어쓰는 중… " + (done >> 20) + " / " + (all >> 20) + " MB");
+                                });
+                            });
+                            iso.getFD().sync();
+                        } catch (IOException | RuntimeException e) {
+                            out.delete();
+                            errors.append(job.title).append(": 패치하지 못했어요 · ").append(e.getMessage()).append('\n');
+                            continue;
+                        }
+                        String finished;
+                        try {
+                            finished = Ps2Recipe.sha256Of(out, (done, all) -> {
+                                int permille = all > 0 ? (int) (done * 1000 / all) : 0;
+                                runOnUiThread(() -> {
+                                    progress.setProgress(permille);
+                                    progress.setMessage(head + "\n완성본 확인하는 중… " + (done >> 20) + " / " + (all >> 20) + " MB");
+                                });
+                            });
+                        } catch (IOException e) {
+                            finished = "";
+                        }
+                        if (!job.recipe.targetSha.equals(finished)) {
+                            out.delete();
+                            errors.append(job.title).append(": 패치한 .iso의 검사값이 맞지 않아 넣지 않았어요 (패치 파일 손상 · 다른 버전)\n");
+                            continue;
+                        }
+                        job.note = "패치를 적용했어요 · 완성본 검사값 맞음";
+                    }
+                }
                 runOnUiThread(() -> progress.setMessage(head + "\n확인하는 중…"));
                 try {
-                    File kept = finalizeImportedRom(out, job.title);
+                    File kept = finalizeImportedRom(out, outTitle);
                     if (kept == null) {
                         duplicates++;
                     } else {
@@ -3624,6 +4081,9 @@ public final class MainActivity extends Activity {
                 for (Ps2BinJob job : jobs) {
                     String lower = job.title.toLowerCase(Locale.ROOT);
                     if (job.made != null && (lower.contains("guncon") || lower.contains("time crisis") || lower.contains("vampire night"))) gun = true;
+                }
+                for (Ps2BinJob job : jobs) {
+                    if (job.note != null && job.made != null) errors.append(job.title).append(": ").append(job.note).append('\n');
                 }
                 if (gun) {
                     errors.append("건콘2 게임: 건콘은 PCSX2 엔진에서만 돼요 (게임 설정에서 엔진 바꾸기)\n");
@@ -10432,6 +10892,9 @@ public final class MainActivity extends Activity {
         }
         if (picked.isEmpty() && intent.getData() != null) {
             picked.add(intent.getData());
+        }
+        if (MODE_PS2.equals(modeForFile(file)) && file.getName().toLowerCase(Locale.ROOT).endsWith(".iso") && offerPs2RecipeOnIso(file, picked)) {
+            return;  // 레시피형 패치 on an .iso made from a .bin (0.0.383)
         }
         boolean sheet = isDiscSheet(file);
         boolean gdi = file.getName().toLowerCase(Locale.ROOT).endsWith(".gdi");
