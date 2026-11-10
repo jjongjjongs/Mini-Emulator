@@ -1676,6 +1676,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                     applyEngineSettings(this, this.gamePath);
                     if ((choice == 1) != circle) toast("재시작하면 적용돼요");
                 })), rowParams(8));
+        body.addView(menuRow(RoundIconView.EXPORT, Color.rgb(71, 85, 105), "엔진 기록 내보내기", "ARMSX3.log", v -> showLogExport()), rowParams(8));
         String version = safe(() -> ARMSX3.instance.getVersion());
         String serial = safe(() -> ARMSX3.instance.getTitleId());
         TextView info = text("엔진: ARMSX3 1.6.7 (RPCS3 휴대폰판)" + (version.isEmpty() ? "" : " · " + version)
@@ -1687,6 +1688,136 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         LinearLayout.LayoutParams infoParams = new LinearLayout.LayoutParams(-1, -2);
         infoParams.setMargins(0, dp(8), 0, 0);
         body.addView(info, infoParams);
+    }
+
+    // ---- 엔진 기록 내보내기 (0.0.400): the engine's own log (ARMSX3.log and the run before's),
+    // zipped into Download/Mini Emulator, to see where a game stops. ----
+    private void showLogExport() {
+        ARMSX3.instance.pause();
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout panel = card();
+        panel.addView(text("엔진 기록 내보내기", 17, Color.rgb(31, 41, 51), true));
+        final String name = "PS3 기록 " + safeFileName(getIntent().getStringExtra(EXTRA_TITLE)) + " "
+                + new java.text.SimpleDateFormat("MMdd_HHmm", java.util.Locale.ROOT).format(new java.util.Date()) + ".zip";
+        TextView about = text("게임을 켠 뒤부터 엔진이 남긴 기록(ARMSX3.log, 바로 전 실행 것 포함)을 zip 하나로\n다운로드/" + MainActivity.DOWNLOAD_FOLDER + "/" + name + "에 저장해요.\n\n"
+                + "저장한 뒤 그 파일을 보내 주면 어느 단계에서 무엇을 기다리다 멈췄는지 볼 수 있어요.\n\n"
+                + "기록에는 게임 이름 · 폰 기종 · 엔진 설정 · 폴더 경로가 들어 있어요. 개인 사진 · 계정 정보는 없어요.", 13, Color.rgb(75, 85, 99), false);
+        about.setPadding(dp(4), dp(10), dp(4), 0);
+        panel.addView(about);
+        TextView save = pill("저장하기", Color.rgb(15, 118, 110), Color.WHITE);
+        save.setOnClickListener(v -> {
+            save.setEnabled(false);
+            save.setText("저장하는 중…");
+            new Thread(() -> {
+                String message = exportLogs(name);
+                main.post(() -> {
+                    dialog.dismiss();
+                    new android.app.AlertDialog.Builder(this).setTitle("엔진 기록").setMessage(message).setPositiveButton("확인", null).show();
+                });
+            }, "ps3-log").start();
+        });
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(48));
+        saveParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(save, saveParams);
+        TextView close = pill("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        panel.addView(close, closeParams);
+        dialog.setContentView(scrollable(panel));
+        dialog.setOnDismissListener(d -> resumeGame());
+        sizeDialog(dialog);
+        dialog.show();
+    }
+
+    private static String safeFileName(String name) {
+        String s = name == null ? "" : name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return s.length() > 40 ? s.substring(0, 40) : s;
+    }
+
+    private static void findLogs(File dir, int depth, java.util.List<File> out) {
+        File[] files = dir == null ? null : dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            if (f.isDirectory()) {
+                String n = f.getName();
+                if (depth > 0 && !n.equals("dev_hdd0") && !n.equals("dev_flash") && !n.equals("lsfg")) findLogs(f, depth - 1, out);
+            } else {
+                String n = f.getName().toLowerCase(java.util.Locale.ROOT);
+                if ((n.startsWith("armsx3") || n.equals("tty.log") || n.equals("spu.log")) && n.endsWith(".log")) out.add(f);
+            }
+        }
+    }
+
+    // The logs into one zip in Download/Mini Emulator; a message for the player.
+    private String exportLogs(String name) {
+        java.util.List<File> logs = new java.util.ArrayList<>();
+        findLogs(rootDir(this), 3, logs);
+        findLogs(getCacheDir(), 2, logs);
+        findLogs(getFilesDir(), 1, logs);
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        Uri uri = null;
+        try {
+            android.content.ContentValues values = new android.content.ContentValues();
+            values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+            values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/zip");
+            values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/" + MainActivity.DOWNLOAD_FOLDER);
+            uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new java.io.IOException("다운로드 폴더에 파일을 만들 수 없어요");
+            int count = 0;
+            try (OutputStream raw = getContentResolver().openOutputStream(uri);
+                 java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(raw)) {
+                // What the app set, first: the engine's version, the phone, our settings.
+                StringBuilder info = new StringBuilder();
+                info.append("Mini Emulator PS3 기록\n게임: ").append(getIntent().getStringExtra(EXTRA_TITLE))
+                        .append("\n게임 번호: ").append(safe(() -> ARMSX3.instance.getTitleId()))
+                        .append("\n경로: ").append(this.gamePath)
+                        .append("\n엔진: ").append(safe(() -> ARMSX3.instance.getVersion()))
+                        .append("\n폰: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+                        .append(Build.VERSION.SDK_INT >= 31 ? " · " + Build.SOC_MODEL : "").append(" · Android ").append(Build.VERSION.RELEASE)
+                        .append("\n엔진 상태: ").append(safe(() -> String.valueOf(ARMSX3.instance.getState())))
+                        .append("\n설정: 화질 ").append(RES_VALUES[resIndex(this)]).append("% · 속도 우선 ").append(speedFirst(this, this.gamePath))
+                        .append(" · SPU ").append(spuThreads(this, this.gamePath)).append(" · 선명하게 ").append(UPSCALE_VALUES[upscaleIndex(this)])
+                        .append(" · 언어 ").append(LANG_VALUES[langIndex(this)]).append(" · 프레임 생성 ").append(FG_VALUES[frameGenIndex(this)])
+                        .append(" · GPU 터보 ").append(MainActivity.sharedSettings(this).getBoolean("ps3_gpu_turbo", false)).append('\n');
+                String error = safe(() -> ARMSX3.instance.takeGameError());
+                if (!error.isEmpty()) info.append("게임 오류: ").append(error).append('\n');
+                zip.putNextEntry(new java.util.zip.ZipEntry("정보.txt"));
+                zip.write(info.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+                byte[] buffer = new byte[1 << 16];
+                for (File log : logs) {
+                    String entry = log.getName();
+                    if (!seen.add(entry)) entry = log.getParentFile().getName() + "_" + entry;
+                    zip.putNextEntry(new java.util.zip.ZipEntry(entry));
+                    try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(log, "r")) {
+                        // A very long log: its last 30 MB (where it stopped).
+                        long start = Math.max(0, in.length() - (30L << 20));
+                        in.seek(start);
+                        int n;
+                        while ((n = in.read(buffer)) > 0) zip.write(buffer, 0, n);
+                    }
+                    zip.closeEntry();
+                    count++;
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                android.content.ContentValues done = new android.content.ContentValues();
+                done.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0);
+                getContentResolver().update(uri, done, null, null);
+            }
+            return count == 0 ? "엔진 기록 파일을 찾지 못했어요. 정보만 담아 저장했어요:\n다운로드/" + MainActivity.DOWNLOAD_FOLDER + "/" + name
+                    : "기록 " + count + "개를 저장했어요:\n다운로드/" + MainActivity.DOWNLOAD_FOLDER + "/" + name + "\n\n이 파일을 보내 주세요.";
+        } catch (Throwable t) {
+            if (uri != null) {
+                try {
+                    getContentResolver().delete(uri, null, null);
+                } catch (Throwable ignored) {
+                }
+            }
+            return "저장하지 못했어요: " + t.getMessage();
+        }
     }
 
     // ---- 프레임 생성 ----
