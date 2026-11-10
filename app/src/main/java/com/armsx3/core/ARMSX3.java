@@ -119,4 +119,19 @@ public final class ARMSX3 {
     public native boolean isRestartPending();
 
     public native String patchEngineVersion();
+
+    // (0.0.392)
+    public native int frameGenImportShaders(String path);
+
+    public native int frameGenShaderCount();
+
+    public native String frameGenShaderError();
+
+    public native String probeDiscInfo(String isoPath, String iconOut);
+
+    public native int discSwapState();
+
+    public native String getUser();
+
+    public native String gameContentId(String gamePath);
 }

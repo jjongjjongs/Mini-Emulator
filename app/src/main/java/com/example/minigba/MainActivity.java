@@ -111,7 +111,9 @@ public final class MainActivity extends Activity {
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso,.m3u", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso / .cue+.bin", "roms_ps2", "1019"},
             // PS3 discs (ISO) on ARMSX3 (RPCS3 for Android), run by Ps3Activity, not GameActivity (0.0.391).
-            {MODE_PS3, "rpcs3", ".iso", ".iso", "roms_ps3", "1040"},
+            // (0.0.392) .ps3game: a PSN game installed from a .pkg (its folder on the PS3 hard disk);
+            // a game folder (PS3_GAME/PARAM.SFO inside) is listed too, see isRomFile.
+            {MODE_PS3, "rpcs3", ".iso,.ps3game", ".iso / .pkg / 폴더", "roms_ps3", "1040"},
             // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
             {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs,.m3u", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
@@ -3128,6 +3130,27 @@ public final class MainActivity extends Activity {
             onCloudFolderPicked(intent);
             return;
         }
+        if (i == REQUEST_PS3_INSTALL) {
+            List<Uri> uris = new ArrayList<>();
+            android.content.ClipData clip = intent.getClipData();
+            if (clip != null) {
+                for (int k = 0; k < clip.getItemCount(); k++) {
+                    if (clip.getItemAt(k).getUri() != null) uris.add(clip.getItemAt(k).getUri());
+                }
+            } else if (intent.getData() != null) {
+                uris.add(intent.getData());
+            }
+            if (!uris.isEmpty()) startPs3Install(uris, this.ps3PendingGame);
+            return;
+        }
+        if (i == REQUEST_PS3_HANPATCH) {
+            if (intent.getData() != null) onPs3HanPatchPicked(intent.getData());
+            return;
+        }
+        if (i == REQUEST_PS3_SAVE_IMPORT) {
+            if (intent.getData() != null) onPs3SaveImportPicked(intent.getData());
+            return;
+        }
         if (i == REQUEST_IMPORT_PS3_FIRMWARE) {
             // The install runs in the PS3 engine's own process; Ps3Activity shows its progress.
             Intent install = new Intent(this, Ps3Activity.class);
@@ -4167,6 +4190,8 @@ public final class MainActivity extends Activity {
         final StringBuilder errors = new StringBuilder();
         // DOS: {game zip, conf text, conf name} to offer after the import.
         final List<Object[]> dosConfs = new ArrayList<>();
+        // PS3: .pkg / .rap / .edat picked with the games, installed by the engine (0.0.392).
+        final List<Uri> ps3Installs = new ArrayList<>();
     }
 
     // DOS: a picked or neighbouring .conf; read as bytes (ISO-8859-1 keeps them for the batch file).
@@ -4198,6 +4223,15 @@ public final class MainActivity extends Activity {
     private void finishRomImport(ImportOutcome outcome) {
         if (outcome.picked == 0) {
             return;
+        }
+        if (!outcome.ps3Installs.isEmpty()) {
+            List<Uri> installs = new ArrayList<>(outcome.ps3Installs);
+            outcome.ps3Installs.clear();
+            outcome.picked -= installs.size();
+            startPs3Install(installs, null);
+            if (outcome.picked <= 0) {
+                return;
+            }
         }
         if (!outcome.dosConfs.isEmpty()) {
             List<Object[]> confs = new ArrayList<>(outcome.dosConfs);
@@ -4291,6 +4325,14 @@ public final class MainActivity extends Activity {
             if ((lowerCase.endsWith(".rar") || lowerCase.endsWith(".7z") || RarReader.isSplitName(lowerCase)) && !MODE_NAOMI.equals(mode)
                     && !"arcade".equals(mode) && !"neogeo".equals(mode)) {
                 outcome.archives.add(uri2);  // after this: 압축 파일 안의 게임 (split parts grouped)
+                continue;
+            }
+            if (MODE_PS3.equals(mode) && (lowerCase.endsWith(".pkg") || lowerCase.endsWith(".rap") || lowerCase.endsWith(".edat"))) {
+                outcome.ps3Installs.add(uri2);
+                continue;
+            }
+            if (MODE_PS3.equals(mode) && lowerCase.endsWith(".ps3game")) {
+                sb.append(displayNameFor).append(": 지원하지 않는 파일\n");
                 continue;
             }
             if (!isRomNameFor(mode, lowerCase) && !lowerCase.endsWith(".zip")) {
@@ -5762,6 +5804,10 @@ public final class MainActivity extends Activity {
 
     private boolean isRomFile(File file) {
         File dir = file.getParentFile();
+        if (file.isDirectory()) {
+            // PS3 game folders (0.0.392): an unpacked disc, e.g. one with a Korean patch laid over it.
+            return romDirFor(MODE_PS3).equals(dir) && Ps3Disc.isGameFolder(file);
+        }
         if ((romDirFor(MODE_MSX).equals(dir) || romDirFor(MODE_DC).equals(dir) || romDirFor(MODE_PS1).equals(dir) || romDirFor(MODE_SS).equals(dir)
                 || romDirFor(MODE_MCD).equals(dir) || romDirFor(MODE_PCE).equals(dir) || romDirFor(MODE_GC).equals(dir)) && isGroupedMsxDisk(file)) {
             return false;
@@ -6704,6 +6750,9 @@ public final class MainActivity extends Activity {
                             pickArcadePatch(file);
                         }
                     }), arcParams);
+        }
+        if (MODE_PS3.equals(modeForFile(file))) {
+            addPs3GameRows(panel, dialog, file);
         }
         // 목록에서 숨기기 (0.0.390), with a note when split clones read this file as their parent.
         List<File> clones = clonesUsing(file);
@@ -15755,12 +15804,365 @@ public final class MainActivity extends Activity {
             showPs3FirmwareSheet();
             return;
         }
+        String path = file.getAbsolutePath();
+        if (file.getName().toLowerCase(Locale.ROOT).endsWith(".ps3game")) {
+            path = ps3GameLink(file);
+            if (path == null || !new File(path).isDirectory()) {
+                showError("이 PSN 게임의 설치 폴더가 없어요. PKG를 다시 설치해 주세요.");
+                return;
+            }
+        }
         Intent intent = new Intent(this, Ps3Activity.class);
         intent.putExtra(Ps3Activity.EXTRA_ACTION, Ps3Activity.ACTION_BOOT);
-        intent.putExtra(Ps3Activity.EXTRA_PATH, file.getAbsolutePath());
+        intent.putExtra(Ps3Activity.EXTRA_PATH, path);
         intent.putExtra(Ps3Activity.EXTRA_TITLE, displayGameNameFor(file));
         markRecentlyPlayed(file);
         startActivity(intent);
+    }
+
+    // ---- PS3 · 게임 길게 누르기 (0.0.392) ----
+    private static final int REQUEST_PS3_INSTALL = 1391;
+    private static final int REQUEST_PS3_HANPATCH = 1392;
+    private static final int REQUEST_PS3_SAVE_IMPORT = 1393;
+    private File ps3PendingGame;
+
+    /** A .ps3game entry's game folder on the PS3 hard disk. */
+    private static String ps3GameLink(File link) {
+        try {
+            String text = new String(java.nio.file.Files.readAllBytes(link.toPath()), StandardCharsets.UTF_8).trim();
+            return text.isEmpty() ? null : text;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** What the engine opens for a list entry: the .iso, the game folder, or the PSN game's folder. */
+    private static File ps3GameRoot(File file) {
+        if (file.getName().toLowerCase(Locale.ROOT).endsWith(".ps3game")) {
+            String path = ps3GameLink(file);
+            return path == null ? null : new File(path);
+        }
+        return file;
+    }
+
+    private void startPs3Install(List<Uri> uris, File game) {
+        String unsupported = Ps3Activity.unsupportedReason(this);
+        if (unsupported != null) {
+            showError(unsupported);
+            return;
+        }
+        Intent install = new Intent(this, Ps3Activity.class);
+        install.putExtra(Ps3Activity.EXTRA_ACTION, Ps3Activity.ACTION_INSTALL);
+        install.putExtra(Ps3Activity.EXTRA_ROM_DIR, romDirFor(MODE_PS3).getAbsolutePath());
+        File root = game == null ? null : ps3GameRoot(game);
+        if (root != null) {
+            install.putExtra(Ps3Activity.EXTRA_PATH, root.getAbsolutePath());
+        }
+        install.setData(uris.get(0));
+        android.content.ClipData clip = android.content.ClipData.newRawUri("pkg", uris.get(0));
+        for (int k = 1; k < uris.size(); k++) {
+            clip.addItem(new android.content.ClipData.Item(uris.get(k)));
+        }
+        install.setClipData(clip);
+        install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivity(install);
+    }
+
+    private void addPs3GameRows(LinearLayout panel, Dialog dialog, File file) {
+        final File root = ps3GameRoot(file);
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(-1, dp(52));
+        p1.setMargins(0, dp(9), 0, 0);
+        panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(124, 58, 237), "게임 패치 (60fps · 해상도 …) · 켜고 끄기", () -> {
+            if (root == null) return;
+            String unsupported = Ps3Activity.unsupportedReason(this);
+            if (unsupported != null) {
+                showError(unsupported);
+                return;
+            }
+            Intent intent = new Intent(this, Ps3Activity.class);
+            intent.putExtra(Ps3Activity.EXTRA_ACTION, Ps3Activity.ACTION_PATCHES);
+            intent.putExtra(Ps3Activity.EXTRA_PATH, root.getAbsolutePath());
+            intent.putExtra(Ps3Activity.EXTRA_TITLE, displayGameNameFor(file));
+            startActivity(intent);
+        }), p1);
+        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(-1, dp(52));
+        p2.setMargins(0, dp(9), 0, 0);
+        boolean patched = root != null && root.isDirectory() && Ps3Disc.hasBackup(root);
+        panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(190, 18, 60),
+                patched ? "한글패치 덮어쓰기 (한 번 더 · 원본은 백업돼 있음)" : "한글패치 덮어쓰기 (패치 zip의 파일을 게임 폴더에)", () -> ps3HanPatch(file)), p2);
+        if (patched) {
+            LinearLayout.LayoutParams p3 = new LinearLayout.LayoutParams(-1, dp(52));
+            p3.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.RESET, Color.rgb(71, 85, 105), "한글패치 되돌리기 (원본 파일로)", () -> {
+                new AppDialog.Builder(this).setTitle("원본으로 되돌리기").setMessage("패치가 바꾼 파일을 백업해 둔 원본으로 되돌리고, 패치가 새로 넣은 파일은 지워요.")
+                        .setPositiveButton("되돌리기", (d, w) -> new Thread(() -> {
+                            String message;
+                            try {
+                                message = "원본으로 되돌렸어요 (파일 " + Ps3Disc.restore(root) + "개)";
+                            } catch (IOException e) {
+                                message = "되돌리지 못했어요: " + e.getMessage();
+                            }
+                            String shown = message;
+                            runOnUiThread(() -> showMessage(shown));
+                        }, "ps3-restore").start()).setNegativeButton("취소", null).show();
+            }), p3);
+        }
+        LinearLayout.LayoutParams p4 = new LinearLayout.LayoutParams(-1, dp(52));
+        p4.setMargins(0, dp(9), 0, 0);
+        panel.addView(createMenuActionRow(dialog, RoundIconView.DLC, Color.rgb(29, 78, 216), "업데이트 · DLC · 라이선스(.rap) 설치", () -> {
+            this.ps3PendingGame = file;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            startActivityForResult(intent, REQUEST_PS3_INSTALL);
+        }), p4);
+    }
+
+    // ---- PS3 세이브: the game's save folders (savedata/<title id>…) as one zip ----
+    private void ps3SaveExport(File file) {
+        File root = ps3GameRoot(file);
+        final String id = root == null ? "" : Ps3Disc.titleId(root);
+        if (id.isEmpty()) {
+            showError("이 게임의 PS3 게임 번호(BLUS… 등)를 읽지 못했어요.");
+            return;
+        }
+        final List<File> saves = Ps3Disc.saves(this, id);
+        if (saves.isEmpty()) {
+            showError("이 게임(" + id + ")의 PS3 세이브가 없어요. 게임 안에서 저장한 뒤 해 주세요.");
+            return;
+        }
+        final String name = displayGameNameFor(file) + " PS3 세이브 (" + id + ").zip";
+        new Thread(() -> {
+            String message;
+            Uri uri = null;
+            try {
+                uri = createDownload(name, "application/zip");
+                if (uri == null) throw new IOException("다운로드 폴더에 파일을 만들 수 없어요");
+                try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                    if (out == null) throw new IOException("파일을 열 수 없어요");
+                    Ps3Disc.zipSaves(saves, out);
+                }
+                finishDownload(uri);
+                message = "다운로드/" + DOWNLOAD_FOLDER + "/" + downloadName(uri, name) + "에 저장했어요.\n세이브 폴더 " + saves.size() + "개 (" + id + ")";
+            } catch (IOException | RuntimeException e) {
+                if (uri != null) {
+                    try {
+                        getContentResolver().delete(uri, null, null);
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+                message = "세이브 내보내기 실패: " + e.getMessage();
+            }
+            String shown = message;
+            runOnUiThread(() -> showMessage(shown));
+        }, "ps3-save-export").start();
+    }
+
+    private void ps3SaveImport(File file) {
+        this.ps3PendingGame = file;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,
+                android.provider.DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:" + Environment.DIRECTORY_DOWNLOADS + "/" + DOWNLOAD_FOLDER));
+        startActivityForResult(intent, REQUEST_PS3_SAVE_IMPORT);
+    }
+
+    private void onPs3SaveImportPicked(Uri uri) {
+        File file = this.ps3PendingGame;
+        File root = file == null ? null : ps3GameRoot(file);
+        final String id = root == null ? "" : Ps3Disc.titleId(root);
+        if (id.isEmpty()) {
+            showError("이 게임의 PS3 게임 번호를 읽지 못했어요.");
+            return;
+        }
+        new Thread(() -> {
+            String message;
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) throw new IOException("파일을 열 수 없어요");
+                int count = Ps3Disc.unzipSaves(this, id, in);
+                message = count < 0 ? "이 zip에는 " + id + " 게임의 세이브 폴더가 없어요. 이 게임에서 \"세이브 내보내기\"로 만든 zip인지 확인해 주세요."
+                        : "세이브 폴더 " + count + "개를 넣었어요. 있던 세이브는 savedata_backup에 옮겨 두었어요.";
+            } catch (IOException | RuntimeException e) {
+                message = "세이브 가져오기 실패: " + e.getMessage();
+            }
+            String shown = message;
+            runOnUiThread(() -> showMessage(shown));
+        }, "ps3-save-import").start();
+    }
+
+    // ---- 한글패치 덮어쓰기 (PS3): a patch zip's files laid over a game folder, the originals
+    // kept in .mini_original. An .iso cannot have its files changed, so it is first unpacked
+    // into a game folder beside it (the .iso stays). ----
+    private void ps3HanPatch(File file) {
+        File root = ps3GameRoot(file);
+        if (root == null || !root.exists()) {
+            showError("게임 파일을 찾을 수 없어요.");
+            return;
+        }
+        this.ps3PendingGame = file;
+        if (root.isDirectory()) {
+            pickPs3HanPatch();
+            return;
+        }
+        long need = root.length();
+        long free = root.getParentFile().getUsableSpace();
+        new AppDialog.Builder(this).setTitle("한글패치 덮어쓰기 · ISO")
+                .setMessage("ISO 안의 파일은 바꿀 수 없어서, 먼저 ISO를 게임 폴더로 풀고 그 폴더에 패치 파일을 덮어써요.\n\n"
+                        + "· 목록에 \"" + baseNameWithoutExtension(file.getName()) + " (한글패치)\" 폴더 게임이 새로 생겨요. 원래 ISO는 그대로 남아요 (필요 없으면 지워도 돼요).\n"
+                        + "· 저장 공간이 약 " + String.format(Locale.ROOT, "%.1f", need / 1073741824.0) + " GB 더 필요해요 (남은 공간 " + String.format(Locale.ROOT, "%.1f", free / 1073741824.0) + " GB).\n"
+                        + "· 복호화된 ISO만 풀 수 있어요.\n\n다음 화면에서 한글패치 zip을 골라 주세요.")
+                .setPositiveButton("패치 zip 고르기", (d, w) -> {
+                    if (free < need + (256L << 20)) {
+                        showError("저장 공간이 모자라요. " + String.format(Locale.ROOT, "%.1f", (need - free) / 1073741824.0 + 0.25) + " GB 이상 비운 뒤 해 주세요.");
+                        return;
+                    }
+                    pickPs3HanPatch();
+                })
+                .setNegativeButton("취소", null).show();
+    }
+
+    private void pickPs3HanPatch() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, REQUEST_PS3_HANPATCH);
+    }
+
+    private void onPs3HanPatchPicked(Uri uri) {
+        final File file = this.ps3PendingGame;
+        final File root = file == null ? null : ps3GameRoot(file);
+        if (root == null) return;
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        dialog.setCancelable(false);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(20), dp(20), dp(20), dp(20));
+        panel.setBackground(rounded(-1, dp(22)));
+        TextView title = new TextView(this);
+        title.setText("한글패치 덮어쓰기");
+        title.setTextSize(17);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        panel.addView(title);
+        final TextView status = new TextView(this);
+        status.setTextSize(13);
+        status.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+        status.setPadding(0, dp(8), 0, 0);
+        status.setText("준비 중…");
+        panel.addView(status);
+        final android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, dp(10));
+        barParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(bar, barParams);
+        final boolean[] cancel = {false};
+        TextView stop = new TextView(this);
+        stop.setText("취소");
+        stop.setGravity(17);
+        stop.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+        stop.setBackground(rounded(Color.rgb(241, 242, 244), dp(12)));
+        stop.setOnClickListener(v -> {
+            cancel[0] = true;
+            stop.setText("취소하는 중…");
+        });
+        LinearLayout.LayoutParams stopParams = new LinearLayout.LayoutParams(-1, dp(46));
+        stopParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(stop, stopParams);
+        dialog.setContentView(panel);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            dialog.getWindow().setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380)), -2);
+        }
+        dialog.show();
+        new Thread(() -> {
+            String message;
+            File game = root;
+            File made = null;
+            try {
+                if (!root.isDirectory()) {
+                    // The .iso unpacked into "<name> (한글패치)".
+                    String base = baseNameWithoutExtension(file.getName()) + " (한글패치)";
+                    File dest = new File(root.getParentFile(), base);
+                    for (int n = 2; dest.exists(); n++) dest = new File(root.getParentFile(), base + " " + n);
+                    made = dest;
+                    try (Ps3Disc.Iso iso = new Ps3Disc.Iso(root)) {
+                        if (iso.find("PS3_GAME/PARAM.SFO") == null) throw new IOException("PS3 게임 디스크가 아니에요");
+                        if (!Ps3Disc.decrypted(iso)) throw new IOException("암호화된 ISO라 풀 수 없어요. 복호화된(decrypted) ISO로 해 주세요");
+                        final long total = Math.max(1, Ps3Disc.totalBytes(iso, iso.root()));
+                        final long[] lastShown = {0};
+                        Ps3Disc.extract(iso, iso.root(), dest, done -> {
+                            if (done - lastShown[0] > (32L << 20) || done == total) {
+                                lastShown[0] = done;
+                                runOnUiThread(() -> {
+                                    status.setText("ISO를 폴더로 푸는 중… " + (done >> 20) + " / " + (total >> 20) + " MB");
+                                    bar.setProgress((int) (1000 * done / total));
+                                });
+                            }
+                            return !cancel[0];
+                        }, new long[]{0});
+                    }
+                    game = dest;
+                }
+                if (cancel[0]) throw new IOException("취소했어요");
+                runOnUiThread(() -> status.setText("패치 파일을 덮어쓰는 중…"));
+                boolean hdd = !new File(game, "PS3_GAME").isDirectory() && new File(game, "PARAM.SFO").isFile();
+                java.util.Map<String, List<String>> index = Ps3Disc.index(game);
+                int written = 0;
+                int skipped = 0;
+                boolean eboot = false;
+                StringBuilder skippedNames = new StringBuilder();
+                try (InputStream raw = getContentResolver().openInputStream(uri)) {
+                    if (raw == null) throw new IOException("패치 파일을 열 수 없어요");
+                    try (ZipInputStream zip = new ZipInputStream(new java.io.BufferedInputStream(raw), StandardCharsets.ISO_8859_1)) {
+                        ZipEntry entry;
+                        while ((entry = zip.getNextEntry()) != null) {
+                            if (cancel[0]) throw new IOException("취소했어요");
+                            if (entry.isDirectory()) continue;
+                            String name = decodeZipEntryName(entry.getName());
+                            String target = Ps3Disc.targetFor(game, name, index);
+                            if (target != null && hdd) {
+                                target = target.replaceFirst("^(?i)PS3_GAME/", "");
+                            }
+                            if (target == null) {
+                                skipped++;
+                                if (skippedNames.length() < 200) skippedNames.append(skippedNames.length() == 0 ? "" : ", ").append(new File(name).getName());
+                                continue;
+                            }
+                            if (target.toUpperCase(Locale.ROOT).endsWith("EBOOT.BIN")) eboot = true;
+                            Ps3Disc.put(game, target, zip);
+                            written++;
+                            final int now = written;
+                            runOnUiThread(() -> status.setText("패치 파일을 덮어쓰는 중… " + now + "개"));
+                        }
+                    }
+                }
+                if (written == 0) {
+                    throw new IOException("zip 안에서 게임에 넣을 파일을 찾지 못했어요. 한글패치 zip이 맞는지 확인해 주세요");
+                }
+                String id = Ps3Disc.titleId(game);
+                boolean update = !hdd && !id.isEmpty() && new File(Ps3Activity.rootDir(this), "config/dev_hdd0/game/" + id + "/USRDIR/EBOOT.BIN").isFile();
+                message = "패치 파일 " + written + "개를 덮어썼어요" + (made != null ? ".\n목록에 \"" + made.getName() + "\" 폴더 게임이 생겼어요." : ".")
+                        + "\n바뀐 원본은 게임 폴더의 .mini_original에 백업해 두었어요 (길게 눌러 \"한글패치 되돌리기\")."
+                        + (skipped > 0 ? "\n\n넣지 않은 파일 " + skipped + "개 (설명서 · 그림 · 윈도 프로그램 또는 자리가 애매한 파일): " + skippedNames : "")
+                        + (eboot && update ? "\n\n⚠ 이 게임은 업데이트가 설치돼 있어서, 업데이트의 EBOOT.BIN이 먼저 쓰여요. 패치 안내에 업데이트 버전용 EBOOT가 따로 있으면 그것을 \"업데이트 · DLC\" 대신 안내대로 넣어 주세요." : "");
+                made = null;  // kept
+            } catch (IOException | RuntimeException e) {
+                message = "한글패치를 덮어쓰지 못했어요: " + e.getMessage();
+            }
+            if (made != null) {
+                // A half-unpacked folder goes.
+                Ps3Disc.deleteTree(made);
+            }
+            String shown = message;
+            runOnUiThread(() -> {
+                dialog.dismiss();
+                refreshLibrary();
+                showMessage(shown);
+            });
+        }, "ps3-hanpatch").start();
     }
 
     private void showPs3FirmwareSheet() {
@@ -18526,6 +18928,10 @@ public final class MainActivity extends Activity {
     }
 
     private void startSaveExport(File file) {
+        if (MODE_PS3.equals(modeForFile(file))) {
+            ps3SaveExport(file);
+            return;
+        }
         migrateSaveFileIfNeeded(file);
         File saveFileFor = saveFileFor(file);
         File stateFileFor = stateFileFor(file);
@@ -18548,6 +18954,10 @@ public final class MainActivity extends Activity {
     }
 
     private void startSaveImport(File file) {
+        if (MODE_PS3.equals(modeForFile(file))) {
+            ps3SaveImport(file);
+            return;
+        }
         migrateSaveFileIfNeeded(file);
         this.pendingSaveRom = file;
         this.pendingSaveFile = saveFileFor(file);
@@ -20148,6 +20558,10 @@ public final class MainActivity extends Activity {
 
     // Deletes a game's file, and for a .cue sheet the tracks no other sheet uses.
     private boolean deleteRomFiles(File file) {
+        if (file.isDirectory() && Ps3Disc.isGameFolder(file)) {
+            Ps3Disc.deleteTree(file);
+            return !file.exists();
+        }
         if (isVitaPkg(file)) {
             vitaZrifFile(file).delete();
             vitaWorkBinFile(file).delete();
