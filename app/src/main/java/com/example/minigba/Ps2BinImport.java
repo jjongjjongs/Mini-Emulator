@@ -185,4 +185,76 @@ final class Ps2BinImport {
         first = first.substring(first.lastIndexOf('/') + 1);
         return new Cue(first, tracks, dataFirst);
     }
+
+    // ---- Is it a PS2 disc? (0.0.381) A PS2 game on CD looks like a PS1 one from outside
+    // (.cue + .bin, Mode 2); its SYSTEM.CNF names the program with "BOOT2" (PS1: "BOOT"). ----
+    private static final java.util.Map<String, Boolean> PS2_SEEN = new java.util.concurrent.ConcurrentHashMap<>();
+
+    static boolean isPs2Disc(java.io.File image) {
+        if (image == null || !image.isFile()) {
+            return false;
+        }
+        String key = image.getAbsolutePath() + ":" + image.length() + ":" + image.lastModified();
+        Boolean seen = PS2_SEEN.get(key);
+        if (seen != null) {
+            return seen;
+        }
+        boolean ps2 = false;
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(image, "r")) {
+            byte[] head = new byte[RAW_SUB * 2];
+            int got = raf.read(head);
+            Layout layout = got > 0 ? detect(head, got, raf.length()) : null;
+            if (layout != null) {
+                byte[] pvd = sector(raf, layout, 16);
+                if (pvd != null && pvd[1] == 'C' && pvd[2] == 'D' && pvd[3] == '0' && pvd[4] == '0' && pvd[5] == '1') {
+                    long rootLba = le32(pvd, 156 + 2);
+                    long rootSize = le32(pvd, 156 + 10);
+                    int count = (int) Math.min(16, (rootSize + USER - 1) / USER);
+                    for (int k = 0; k < count && !ps2; k++) {
+                        byte[] dir = sector(raf, layout, rootLba + k);
+                        if (dir == null) break;
+                        int at = 0;
+                        while (at < USER) {
+                            int len = dir[at] & 0xFF;
+                            if (len == 0) break;
+                            int nameLen = dir[at + 32] & 0xFF;
+                            if (at + 33 + nameLen <= USER) {
+                                String name = new String(dir, at + 33, nameLen, StandardCharsets.ISO_8859_1).toUpperCase(Locale.ROOT);
+                                if (name.equals("SYSTEM.CNF;1") || name.equals("SYSTEM.CNF")) {
+                                    byte[] cnf = sector(raf, layout, le32(dir, at + 2));
+                                    String text = cnf == null ? "" : new String(cnf, StandardCharsets.ISO_8859_1).toUpperCase(Locale.ROOT);
+                                    ps2 = text.contains("BOOT2");
+                                    break;
+                                }
+                            }
+                            at += len;
+                        }
+                    }
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+        }
+        PS2_SEEN.put(key, ps2);
+        return ps2;
+    }
+
+    private static long le32(byte[] b, int at) {
+        return (b[at] & 0xFFL) | (b[at + 1] & 0xFFL) << 8 | (b[at + 2] & 0xFFL) << 16 | (b[at + 3] & 0xFFL) << 24;
+    }
+
+    private static byte[] sector(java.io.RandomAccessFile raf, Layout layout, long lba) throws IOException {
+        long at = lba * layout.sectorSize;
+        if (at + layout.sectorSize > raf.length()) {
+            return null;
+        }
+        byte[] raw = new byte[layout.sectorSize];
+        raf.seek(at);
+        raf.readFully(raw);
+        if (layout.plain()) {
+            return raw;
+        }
+        byte[] data = new byte[USER];
+        System.arraycopy(raw, (raw[15] & 0xFF) == 2 ? 24 : 16, data, 0, USER);
+        return data;
+    }
 }

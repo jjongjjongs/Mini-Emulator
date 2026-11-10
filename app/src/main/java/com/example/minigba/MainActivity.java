@@ -3319,7 +3319,12 @@ public final class MainActivity extends Activity {
     }
 
     private void startPs2BinImport(Intent intent) {
-        final List<Uri> all = pickedUris(intent);
+        startPs2BinImport(pickedUris(intent), new java.util.HashMap<>());
+    }
+
+    // picked: what the player chose; companions: other .bin files of the same folder (by
+    // lower-case name), where a picked .cue's data file may be.
+    private void startPs2BinImport(final List<Uri> all, final java.util.Map<String, Uri> companions) {
         final android.app.ProgressDialog looking = new android.app.ProgressDialog(this);
         looking.setTitle("PS2 게임 가져오기");
         looking.setMessage(".cue / .bin 살펴보는 중…");
@@ -3361,6 +3366,9 @@ public final class MainActivity extends Activity {
                     continue;
                 }
                 Uri bin = bins.get(cue.file.toLowerCase(Locale.ROOT));
+                if (bin == null) {
+                    bin = companions.get(cue.file.toLowerCase(Locale.ROOT));
+                }
                 if (bin == null) {
                     // Beside the .cue on the phone (with 모든 파일 접근).
                     File real = realFileFor(uri);
@@ -4308,6 +4316,9 @@ public final class MainActivity extends Activity {
     }
 
     private boolean isFolderCandidate(String mode, String lowerCaseName) {
+        if (MODE_PS2.equals(mode) && (lowerCaseName.endsWith(".cue") || lowerCaseName.endsWith(".bin"))) {
+            return true;  // turned into .iso (0.0.381)
+        }
         if (isConsoleMode(mode) || MODE_GBA.equals(mode)) {
             return isRomNameFor(mode, lowerCaseName) || lowerCaseName.endsWith(".zip");
         }
@@ -4333,9 +4344,30 @@ public final class MainActivity extends Activity {
             try {
                 boolean arcade = isArcadeMode(mode);
                 File romDir = romDirFor(mode);
-                for (PickedFile picked : listTree(treeUri)) {
+                List<PickedFile> tree = listTree(treeUri);
+                java.util.Set<String> cueBases = new java.util.HashSet<>();
+                this.ps2FolderBins.clear();
+                if (MODE_PS2.equals(mode)) {
+                    for (PickedFile picked : tree) {
+                        String lower = picked.name.toLowerCase(Locale.US);
+                        if (lower.endsWith(".cue")) cueBases.add(baseNameWithoutExtension(lower));
+                        if (lower.endsWith(".bin")) this.ps2FolderBins.put(lower, picked.uri);
+                    }
+                }
+                for (PickedFile picked : tree) {
                     String lower = picked.name.toLowerCase(Locale.US);
                     if (!isFolderCandidate(mode, lower)) {
+                        continue;
+                    }
+                    if (MODE_PS2.equals(mode) && (lower.endsWith(".cue") || lower.endsWith(".bin"))) {
+                        // The .cue stands for its .bin (and a track like "(Track 1).bin" is in a sheet).
+                        if (lower.endsWith(".bin") && (cueBases.contains(baseNameWithoutExtension(lower)) || !cueBases.isEmpty() && lower.contains("(track"))) {
+                            continue;
+                        }
+                        String base = baseNameWithoutExtension(picked.name);
+                        boolean present = new File(romDir, sanitizeFileName(base + ".iso")).exists();
+                        String detail = picked.name + (present ? " · 이미 있음" : " · .iso로 바꿔 넣기");
+                        items.add(new FolderItem(picked, base, detail, present));
                         continue;
                     }
                     String base = baseNameWithoutExtension(picked.name);
@@ -4587,7 +4619,22 @@ public final class MainActivity extends Activity {
     }
 
     // Copies the chosen files in the background and sums up what happened.
+    private final java.util.Map<String, Uri> ps2FolderBins = new java.util.concurrent.ConcurrentHashMap<>();
+
     private void importFolderItems(String mode, List<FolderItem> items) {
+        if (MODE_PS2.equals(mode)) {
+            boolean bins = false;
+            List<Uri> uris = new ArrayList<>();
+            for (FolderItem item : items) {
+                String lower = item.file.name.toLowerCase(Locale.US);
+                bins |= lower.endsWith(".cue") || lower.endsWith(".bin");
+                uris.add(item.file.uri);
+            }
+            if (bins) {
+                startPs2BinImport(uris, new java.util.HashMap<>(this.ps2FolderBins));
+                return;
+            }
+        }
         runImport("폴더에서 가져오기", reporter -> {
             boolean arcade = isArcadeMode(mode);
             int added = 0;
@@ -13785,7 +13832,24 @@ public final class MainActivity extends Activity {
 
     private boolean isLinkableGame(File file, String mode) {
         String lower = file.getName().toLowerCase(Locale.US);
-        return file.isFile() && isRomNameFor(mode, lower) && !isTrackOfSheet(file);
+        return file.isFile() && isRomNameFor(mode, lower) && !isTrackOfSheet(file) && !isPs2DiscForPs1(file, mode);
+    }
+
+    // (0.0.381) A PS2 game on CD (.cue + .bin like a PS1 one) is not a PS1 game: kept out of
+    // the PS1 list; it goes in through PS2 (.iso made from it).
+    private static boolean isPs2DiscForPs1(File file, String mode) {
+        if (!MODE_PS1.equals(mode)) {
+            return false;
+        }
+        String lower = file.getName().toLowerCase(Locale.US);
+        File image = file;
+        if (lower.endsWith(".cue")) {
+            List<String> tracks = cueTracks(file);
+            image = tracks.isEmpty() || file.getParentFile() == null ? null : new File(file.getParentFile(), tracks.get(0));
+        } else if (!lower.endsWith(".bin") && !lower.endsWith(".img") && !lower.endsWith(".iso")) {
+            return false;
+        }
+        return Ps2BinImport.isPs2Disc(image);
     }
 
     // Games under a folder (sub folders too, a few levels down).
@@ -15017,6 +15081,10 @@ public final class MainActivity extends Activity {
             return;
         }
         String mode = modeForFile(file);
+        if (isPs2DiscForPs1(file, mode)) {
+            showError("이 디스크는 PS2 게임이에요 (CD로 나온 PS2 게임은 파일 모양이 PS1과 같아요).\n\nPS2 › 게임 추가에서 .cue / .bin을 고르면 .iso로 바꿔 넣어요. PS1 목록의 이 항목은 지워도 돼요.");
+            return;
+        }
         if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
             new AppDialog.Builder(this).setTitle("Neo Geo BIOS가 필요합니다").setMessage("neogeo.zip을 등록해야 Neo Geo 게임을 실행할 수 있어요.").setNegativeButton("취소", null).setPositiveButton("BIOS 등록", (dialog, which) -> openNeoGeoBiosPicker()).show();
             return;

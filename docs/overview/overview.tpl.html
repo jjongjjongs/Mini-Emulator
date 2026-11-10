@@ -635,6 +635,12 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>PS2 · 폴더에서 .cue / .bin 가져오기 · PS1과 구분 (0.0.381)</h3>
+<ul>
+<li>0.0.380에서는 파일 고르기에서만 .cue / .bin을 받아서, PS2 › 게임 추가 › 폴더에서는 목록에 뜨지 않았습니다. 이제 폴더에서도 .cue(또는 .cue가 없는 .bin)가 "… · .iso로 바꿔 넣기"로 뜨고, 고르면 같은 확인 · 바꾸기 과정을 거칩니다. .cue가 가리키는 .bin은 같은 폴더에서 찾습니다.</li>
+<li>CD로 나온 PS2 게임(예: 타임 크라이시스 2)은 파일 모양이 PS1과 같아서, PS1 연결 폴더에 두면 PS1 게임으로 잡혔습니다. 이제 디스크 안 SYSTEM.CNF가 "BOOT2"(PS2)인지 확인해 PS1 연결 폴더 목록에서는 뺍니다. 이미 PS1 목록에 들어간 것은 실행하면 "PS2 게임"이라고 알려 주며, 지워도 됩니다.</li>
+<li>아직 실제 기기에서 확인하지 않았습니다.</li>
+</ul>
 <h3>PS2 · .cue / .bin을 .iso로 바꿔 넣기 (0.0.380)</h3>
 <ul>
 <li>PS2 게임 추가(파일 고르기)에서 이제 <b>.cue + .bin</b>도 고를 수 있습니다. .cue와 .bin을 같이 고르거나, .bin 하나만 골라도 됩니다(모든 파일 접근이 켜져 있으면 .cue만 골라도 옆의 .bin을 찾습니다).</li>
@@ -644,7 +650,7 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>섹터의 동기 표시가 깨져 있으면 멈추고 알려 줍니다. 트랙이 여러 개인 디스크는 첫 데이터 트랙만 쓰고 그 사실을 알려 줍니다.</li>
 <li>건콘2 게임이면 "건콘은 PCSX2 엔진에서만 된다"고 함께 알려 줍니다.</li>
 <li>한글패치처럼 전용 패처(.exe)가 원본 .bin을 받는 경우에는, PC에서 패처로 만든 .iso를 넣는 쪽이 맞습니다.</li>
-<li>시안과 다른 점: 바꾸는 동안은 진행 창이 떠 있고(알림으로 진행은 아님), "폴더에서 가져오기"에서는 아직 .cue / .bin을 받지 않습니다.</li>
+<li>시안과 다른 점: 바꾸는 동안은 진행 창이 떠 있습니다(알림으로 진행은 아님). 폴더에서 가져오기는 0.0.381부터.</li>
 <li>아직 실제 기기에서 확인하지 않았습니다.</li>
 </ul>
 <figure><img src="img/ps2cuebin.jpg" alt="PS2 cue bin 바꿔 넣기 시안"><figcaption>PS2 .cue / .bin → .iso 바꿔 넣기 시안.</figcaption></figure>
