@@ -35,6 +35,12 @@
             android:process=":game"
             android:exported="false"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
+        <!-- PS3 on the ARMSX3 engine: its own process, ended when the game is left. -->
+        <activity
+            android:name="com.example.minigba.Ps3Activity"
+            android:process=":ps3"
+            android:exported="false"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
         <activity
             android:name="com.example.minigba.BgEditorActivity"
             android:process=":game"

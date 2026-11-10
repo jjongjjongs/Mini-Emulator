@@ -41,11 +41,11 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <div class="card"><b>L3 · R3와 게임별 스틱 감도</b><p class="mute">PS1 · PS2 스틱 누르기 버튼, 0.05 단위 감도 조절, 게임패드 버튼 직접 설정.</p></div>
 </div>
 
-<h2 id="s2">2. 지원 게임기 23종</h2>
+<h2 id="s2">2. 지원 게임기 24종</h2>
 <p>첫 화면에서 게임기를 고르면 그 게임기의 목록이 열립니다. 엔진은 libretro 코어를 앱 안에 넣어 쓰고, 일부 게임기는 엔진을 바꿀 수 있습니다.</p>
 <table><tr><th>게임기</th><th>엔진</th><th>파일 형식</th></tr>
 <tr><td>GBA · GBC</td><td>mGBA (Game Boy Advance)</td><td>.gba · .gbc · .gb · .zip</td></tr><tr><td>닌텐도 DS</td><td>melonDS DS</td><td>.nds · .zip</td></tr><tr><td>닌텐도 3DS</td><td>Citra (시험판)</td><td>.3ds · .cci · .cxi</td></tr>
-<tr><td>Wii U</td><td>Cemu (실험적)</td><td>.wua · .wud · .wux</td></tr><tr><td>슈퍼패미컴</td><td>Snes9x</td><td>.sfc · .smc · .zip</td></tr><tr><td>패미컴</td><td>FCEUmm</td><td>.nes · .zip</td></tr><tr><td>메가드라이브</td><td>Genesis Plus GX</td><td>.md · .gen · .bin · .zip</td></tr><tr><td>메가CD · 32X</td><td>PicoDrive</td><td>.cue+.bin · .chd · .32x</td></tr><tr><td>마스터시스템 · 게임기어</td><td>Genesis Plus GX</td><td>.sms · .gg · .sg · .zip</td></tr><tr><td>PC엔진</td><td>Beetle PCE Fast</td><td>.pce · .zip (HuCard)</td></tr><tr><td>닌텐도 64</td><td>Mupen64Plus-Next</td><td>.z64 · .n64 · .v64 · .zip</td></tr><tr><td>PSP</td><td>PPSSPP</td><td>.iso · .cso · .pbp</td></tr><tr><td>PS1</td><td>PCSX ReARMed</td><td>.cue+.bin · .chd · .pbp</td></tr><tr><td>PS2</td><td>PCSX2 계열 (pcee2) · Play!</td><td>.iso · .chd · .cso</td></tr><tr><td>세가 새턴</td><td>YabaSanshiro</td><td>.cue+.bin · .chd · .iso</td></tr><tr><td>드림캐스트</td><td>Flycast</td><td>.chd · .cdi</td></tr>
+<tr><td>Wii U</td><td>Cemu (실험적)</td><td>.wua · .wud · .wux</td></tr><tr><td>슈퍼패미컴</td><td>Snes9x</td><td>.sfc · .smc · .zip</td></tr><tr><td>패미컴</td><td>FCEUmm</td><td>.nes · .zip</td></tr><tr><td>메가드라이브</td><td>Genesis Plus GX</td><td>.md · .gen · .bin · .zip</td></tr><tr><td>메가CD · 32X</td><td>PicoDrive</td><td>.cue+.bin · .chd · .32x</td></tr><tr><td>마스터시스템 · 게임기어</td><td>Genesis Plus GX</td><td>.sms · .gg · .sg · .zip</td></tr><tr><td>PC엔진</td><td>Beetle PCE Fast</td><td>.pce · .zip (HuCard)</td></tr><tr><td>닌텐도 64</td><td>Mupen64Plus-Next</td><td>.z64 · .n64 · .v64 · .zip</td></tr><tr><td>PSP</td><td>PPSSPP</td><td>.iso · .cso · .pbp</td></tr><tr><td>PS1</td><td>PCSX ReARMed</td><td>.cue+.bin · .chd · .pbp</td></tr><tr><td>PS2</td><td>PCSX2 계열 (pcee2) · Play!</td><td>.iso · .chd · .cso</td></tr><tr><td>PS3</td><td>ARMSX3 1.6.7 (시험판)</td><td>.iso · 펌웨어 PS3UPDAT.PUP 필요</td></tr><tr><td>세가 새턴</td><td>YabaSanshiro</td><td>.cue+.bin · .chd · .iso</td></tr><tr><td>드림캐스트</td><td>Flycast</td><td>.chd · .cdi</td></tr>
 <tr><td>Naomi · Atomiswave</td><td>Flycast (아케이드)</td><td>ROM .zip (+ .chd) · naomi.zip · naomi2.zip · awbios.zip</td></tr><tr><td>원더스완 · 컬러</td><td>Beetle Cygne</td><td>.ws · .wsc · .zip</td></tr><tr><td>네오지오 포켓 · 컬러</td><td>Beetle NeoPop</td><td>.ngp · .ngc · .zip</td></tr><tr><td>PC-98</td><td>NP2kai</td><td>.hdm · .fdi · .d88 · .nfd · .hdi (나뉜 디스크는 .cmd로 묶음) · .hfe · .scp는 변환해서</td></tr><tr><td>DOS (고전 PC)</td><td>DOSBox Pure</td><td>게임 폴더 .zip · .iso · .img (7z · rar은 zip으로 바꿔 넣음)</td></tr><tr><td>Neo Geo</td><td>FinalBurn Neo</td><td>ROM .zip · neogeo.zip BIOS 필요</td></tr><tr><td>아케이드</td><td>MAME 2003-Plus · FBNeo · MAME 2010/2015</td><td>ROM .zip</td></tr>
 
 
@@ -635,6 +635,18 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <li>PS1 · PS2 · N64 등은 기기 간 통신 기능이 원래 없어서 이 줄이 없습니다.</li>
 </ul>
 <figure><img src="img/wifi.jpg" alt="와이파이 멀티 시안"><figcaption>와이파이 멀티 흐름: 설정 줄 → 역할 → 방장 찾기. (시안의 게임 화면 상태 배지는 넣지 않았습니다.)</figcaption></figure>
+<h3>PS3 모드 다시 넣음 · ARMSX3 1.6.7 (0.0.391)</h3>
+<ul>
+<li>0.0.149에서 뺐던 PS3 모드를 새 엔진 <b>ARMSX3 1.6.7</b>(RPCS3 휴대폰판, 시험판)로 다시 넣었습니다. 첫 화면 PS2 다음에 PS3가 있습니다. 게임은 직접 뜬 디스크 .iso를 넣습니다.</li>
+<li><b>PS3 펌웨어</b>: 본인이 받은 공식 PS3UPDAT.PUP를 "PS3 펌웨어" 타일에서 골라 설치합니다. 펌웨어는 앱에 들어 있지 않습니다. 설치 전에는 목록에 "펌웨어 필요"가 뜹니다.</li>
+<li><b>게임 패치</b> (일시정지 메뉴): 이 게임에 맞는 RPCS3 패치(60fps 해제, 해상도 고정 해제 등)를 켜고 끕니다. "최신 목록 받기"는 rpcs3.net의 공개 패치 목록을 받아 검사값(SHA-256)을 확인한 뒤 씁니다. "patch.yml 가져오기"로 가진 파일을 더할 수도 있습니다. 바꾼 패치는 게임을 다시 시작하면 적용됩니다.</li>
+<li><b>상태 저장 슬롯 4개</b>: 저장 · 불러오기에서 슬롯을 고르고, 슬롯마다 저장한 시각이 보입니다. PS3 엔진은 저장할 때 게임을 잠깐 다시 켜므로 몇 초 멈춥니다.</li>
+<li><b>성능 설정</b>: 해상도 배율, 속도 우선, SPU 스레드, 성능 표시, <b>GPU 터보</b>(Adreno GPU 휴대폰에서만, 발열이 늘어남).</li>
+<li><b>게임패드</b>: 연결한 패드(블루투스 · USB)가 1P 패드로 바로 들어갑니다. A=✕ B=○ X=□ Y=△, L1/R1/L2/R2, 스틱 두 개, L3/R3, Start/Select, 홈 버튼=PS 버튼. 화면 패드와 함께 쓸 수 있습니다.</li>
+<li>시안과 다른 점: 배치 편집 · 배경 사진 · 연사 · 자이로 · 2P~4P 패드 · PKG/RAP/DLC 설치 메뉴 · 프레임 생성 · 건콘3은 다음 단계로 미뤘습니다. 실시간 자막 번역은 0.0.141에서 뺀 기능이라 이번에 넣지 않았습니다.</li>
+<li>휴대폰 성능에 따라 속도 차이가 큽니다. 아직 실제 기기에서 확인하지 않았습니다.</li>
+</ul>
+<figure><img src="img/ps3mode.jpg" alt="PS3 모드 시안"><figcaption>PS3 모드 시안 (일부는 다음 단계).</figcaption></figure>
 <h3>목록에서 숨기기 · 부모롬 안내 (0.0.390)</h3>
 <ul>
 <li>게임을 길게 눌러 <b>목록에서 숨기기</b>: 파일 · 세이브 · 패치는 그대로 두고 목록 · 검색 · 홈 화면 개수에서만 뺍니다. 게임 모드마다 따로입니다.</li>
@@ -1651,7 +1663,7 @@ code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-siz
 <figure><img src="img/five.jpg" alt="설정 등 시안"><figcaption>Kronos · 라이선스 · PS2 CD CHD · 패치 기록 · 세이브 백업 관리 시안 (Kronos는 제외됨, 0.0.238).</figcaption></figure>
 <h2 id="s13">11. 보류 · 제외된 기능</h2>
 <table><tr><th>기능</th><th>상태</th><th>이유</th></tr>
-<tr><td>PS3 (ARMSX3)</td><td>제외 (0.0.149)</td><td>휴대폰에서 실사용 속도가 안 나오고 발열이 큼. 엔진이 개선되면 다시 검토</td></tr>
+<tr><td>PS3 (ARMSX3)</td><td>다시 넣음 (0.0.391)</td><td>0.0.149에 뺐다가 ARMSX3 1.6.7로 시험판 복귀</td></tr>
 <tr><td>실시간 자막 번역</td><td>제외 (0.0.141)</td><td>품질이 만족스럽지 않고 게임이 느려짐</td></tr>
 <tr><td>PSP 속도 우선 "강하게"</td><td>제외 (0.0.154)</td><td>프레임 스킵이 오히려 속도를 절반으로 떨어뜨림</td></tr>
 <tr><td>3DS Vulkan 렌더</td><td>보류</td><td>libretro Citra가 그래픽 API를 OpenGL로 고정해 둠 (Vulkan 코드는 있으나 꺼져 있음)</td></tr>

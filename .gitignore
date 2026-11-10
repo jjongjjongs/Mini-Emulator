@@ -47,3 +47,8 @@ app/src/main/assets/dos/
 app/src/main/jniLibs/arm64-v8a/libbluemsx_libretro_android.so
 app/src/main/assets/msx_system.zip
 app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+
+# PS3 engine: cores/fetch-armsx3.sh takes it from an ARMSX3 release
+app/src/main/jniLibs/arm64-v8a/libarmsx3-core.so
+app/src/main/jniLibs/arm64-v8a/libarmsx3-jni.so
+app/src/main/assets/ps3/

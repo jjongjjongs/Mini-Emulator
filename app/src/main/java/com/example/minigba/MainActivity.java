@@ -88,6 +88,8 @@ public final class MainActivity extends Activity {
     private static final String MODE_PSP = "psp";
     private static final String MODE_PS1 = "ps1";
     private static final String MODE_PS2 = "ps2";
+    private static final String MODE_PS3 = "ps3";
+    private static final int REQUEST_IMPORT_PS3_FIRMWARE = 1041;
     private static final String MODE_NDS = "nds";
     private static final String MODE_N3DS = "3ds";
     private static final String MODE_WIIU = "wiiu";
@@ -108,6 +110,8 @@ public final class MainActivity extends Activity {
             {MODE_PSP, "ppsspp", ".iso,.cso,.pbp,.chd", ".iso / .cso / .pbp", "roms_psp", "1017"},
             {MODE_PS1, "pcsx_rearmed", ".cue,.bin,.img,.chd,.pbp,.iso,.m3u", ".cue+.bin / .chd / .pbp", "roms_ps1", "1018"},
             {MODE_PS2, "play", ".iso,.chd,.cso", ".iso / .chd / .cso / .cue+.bin", "roms_ps2", "1019"},
+            // PS3 discs (ISO) on ARMSX3 (RPCS3 for Android), run by Ps3Activity, not GameActivity (0.0.391).
+            {MODE_PS3, "rpcs3", ".iso", ".iso", "roms_ps3", "1040"},
             // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
             {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs,.m3u", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
@@ -193,13 +197,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_PS3, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "PS3", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "ARMSX3 1.6.7 (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".iso · 펌웨어 필요", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ps3, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(79, 70, 229), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -1935,6 +1939,14 @@ public final class MainActivity extends Activity {
         if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
             return "BIOS 필요";
         }
+        if (MODE_PS3.equals(mode)) {
+            if (Ps3Activity.unsupportedReason(this) != null) {
+                return "지원 안 됨";
+            }
+            if (!Ps3Activity.firmwareInstalled(this)) {
+                return "펌웨어 필요";
+            }
+        }
         return "엔진 준비됨";
     }
 
@@ -2059,6 +2071,9 @@ public final class MainActivity extends Activity {
                 LinearLayout keysTile = createActionCard("Wii U 키 파일", wiiuKeysStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showWiiuKeysSheet());
                 this.wiiuKeysStatusView = (TextView) keysTile.getTag();
                 actionRow.addView(keysTile, actionTileParams());
+            }
+            if (MODE_PS3.equals(this.currentMode)) {
+                actionRow.addView(createActionCard("PS3 펌웨어", ps3FirmwareStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPs3FirmwareSheet()), actionTileParams());
             }
             if (MODE_PS2.equals(this.currentMode) && pcsx2Shipped()) {
                 LinearLayout ps2BiosTile = createActionCard("PS2 BIOS", ps2BiosStatusText(), R.drawable.action_bios, Color.rgb(239, 84, 103), view -> showPs2BiosSheet());
@@ -3113,6 +3128,15 @@ public final class MainActivity extends Activity {
             onCloudFolderPicked(intent);
             return;
         }
+        if (i == REQUEST_IMPORT_PS3_FIRMWARE) {
+            // The install runs in the PS3 engine's own process; Ps3Activity shows its progress.
+            Intent install = new Intent(this, Ps3Activity.class);
+            install.putExtra(Ps3Activity.EXTRA_ACTION, Ps3Activity.ACTION_FIRMWARE);
+            install.setData(intent.getData());
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(install);
+            return;
+        }
         if (i == REQUEST_PICK_PATCH_PREP) {
             onPrepPatchesPicked(intent);
             return;
@@ -3270,7 +3294,7 @@ public final class MainActivity extends Activity {
             startPs2BinImport(intent);
             return;
         }
-        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
+        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PS3.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
             // Disc images run to gigabytes; copy them off the UI thread.
             final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
             progress.setTitle(MODE_NAMES[modeIndex(mode)] + " 게임 가져오기");
@@ -15720,7 +15744,120 @@ public final class MainActivity extends Activity {
         showMessage("실행 코어: " + coreDisplayName(strArr[i]));
     }
 
+    private void launchPs3Game(File file) {
+        String unsupported = Ps3Activity.unsupportedReason(this);
+        if (unsupported != null) {
+            showError(unsupported);
+            return;
+        }
+        if (!Ps3Activity.firmwareInstalled(this)) {
+            showError("PS3 게임은 PS3 펌웨어가 있어야 해요. 먼저 펌웨어를 설치해 주세요.");
+            showPs3FirmwareSheet();
+            return;
+        }
+        Intent intent = new Intent(this, Ps3Activity.class);
+        intent.putExtra(Ps3Activity.EXTRA_ACTION, Ps3Activity.ACTION_BOOT);
+        intent.putExtra(Ps3Activity.EXTRA_PATH, file.getAbsolutePath());
+        intent.putExtra(Ps3Activity.EXTRA_TITLE, displayGameNameFor(file));
+        markRecentlyPlayed(file);
+        startActivity(intent);
+    }
+
+    private void showPs3FirmwareSheet() {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(18), dp(20), dp(18), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(0);
+        header.setGravity(16);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.action_bios);
+        icon.setBackground(rounded(Color.rgb(239, 84, 103), dp(20)));
+        icon.setPadding(dp(3), dp(3), dp(3), dp(3));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(1);
+        titles.setPadding(dp(10), 0, 0, 0);
+        TextView title = new TextView(this);
+        title.setText("PS3 펌웨어 설치");
+        title.setTextSize(17.0f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(Color.rgb(31, 41, 51));
+        titles.addView(title);
+        TextView sub = new TextView(this);
+        boolean installed = Ps3Activity.firmwareInstalled(this);
+        sub.setText(installed ? "설치됨 · 다시 설치하려면 파일을 골라요" : "한 번만 하면 돼요 · 약 200MB");
+        sub.setTextSize(12.0f);
+        sub.setTextColor(Color.rgb(122, 130, 140));
+        titles.addView(sub);
+        header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1.0f));
+        panel.addView(header);
+        TextView steps = new TextView(this);
+        String unsupported = Ps3Activity.unsupportedReason(this);
+        steps.setText(unsupported != null ? unsupported
+                : "① PlayStation 공식 사이트에서 PS3 시스템 업데이트 파일 PS3UPDAT.PUP를 받아요.\n② 아래 '파일 고르기'로 그 파일을 골라요.\n③ 설치가 끝나면 게임을 추가해서 할 수 있어요 (1~2분).");
+        steps.setTextSize(13.0f);
+        steps.setTextColor(Color.rgb(55, 65, 81));
+        steps.setLineSpacing(0, 1.35f);
+        LinearLayout.LayoutParams stepsParams = new LinearLayout.LayoutParams(-1, -2);
+        stepsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(steps, stepsParams);
+        LinearLayout buttons = new LinearLayout(this);
+        TextView close = new TextView(this);
+        close.setText("닫기");
+        close.setGravity(17);
+        close.setTextSize(15.0f);
+        close.setTypeface(Typeface.DEFAULT_BOLD);
+        close.setTextColor(Color.rgb(75, 85, 99));
+        close.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
+        close.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        if (unsupported == null) {
+            TextView pick = new TextView(this);
+            pick.setText("파일 고르기");
+            pick.setGravity(17);
+            pick.setTextSize(15.0f);
+            pick.setTypeface(Typeface.DEFAULT_BOLD);
+            pick.setTextColor(-1);
+            pick.setBackground(rounded(Color.rgb(239, 84, 103), dp(14)));
+            pick.setOnClickListener(v -> {
+                dialog.dismiss();
+                Intent intent = new Intent("android.intent.action.OPEN_DOCUMENT");
+                intent.addCategory("android.intent.category.OPENABLE");
+                intent.setType("*/*");
+                startActivityForResult(intent, REQUEST_IMPORT_PS3_FIRMWARE);
+            });
+            LinearLayout.LayoutParams pickParams = new LinearLayout.LayoutParams(0, dp(48), 1.6f);
+            pickParams.setMargins(dp(10), 0, 0, 0);
+            buttons.addView(pick, pickParams);
+        }
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(16), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        dialog.setContentView(panel);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(40), dp(380)), -2);
+        }
+        dialog.show();
+    }
+
+    private String ps3FirmwareStatusText() {
+        if (Ps3Activity.unsupportedReason(this) != null) {
+            return "지원 안 됨";
+        }
+        return Ps3Activity.firmwareInstalled(this) ? "설치됨" : "설치 안 됨";
+    }
+
     private void launchGame(File file) {
+        if (MODE_PS3.equals(modeForFile(file))) {
+            launchPs3Game(file);
+            return;
+        }
         if (MODE_PC98.equals(modeForFile(file)) && Pc98Flux.isFluxImage(file.getName().toLowerCase(Locale.ROOT))) {
             showPc98FluxPrompt(file);   // .hfe / .scp: converted first (0.0.320)
             return;
@@ -25073,6 +25210,9 @@ public final class MainActivity extends Activity {
     }
 
     private String coreDisplayName(String str) {
+        if ("rpcs3".equals(str)) {
+            return "ARMSX3 1.6.7 (RPCS3)";
+        }
         if ("mame2003plus".equals(str)) {
             return "MAME 2003-Plus";
         }

@@ -50,6 +50,7 @@ final class RoundIconView extends View {
     static final int DLC = 35;
     static final int WARN = 36;
     static final int ZIP = 37;
+    static final int PS_HOME = 38;
 
     static final int COLOR_SAVE = Color.rgb(47, 128, 237);
     static final int COLOR_RESET = Color.rgb(242, 153, 74);
@@ -79,6 +80,7 @@ final class RoundIconView extends View {
     static final int COLOR_WIFI = Color.rgb(13, 148, 136);
     static final int COLOR_DS = Color.rgb(219, 39, 119);
     static final int COLOR_DLC = Color.rgb(14, 116, 144);
+    static final int COLOR_PS_HOME = Color.rgb(79, 70, 229);
 
     private final int icon;
     private final int color;
@@ -530,6 +532,16 @@ final class RoundIconView extends View {
                 canvas.drawCircle(14, 10, 3.4f, cap);
                 break;
             }
+            case PS_HOME:
+                // The PS button: "PS" in a ring.
+                canvas.drawCircle(12, 12, 9.2f, line);
+                Paint psLabel = new Paint(Paint.ANTI_ALIAS_FLAG);
+                psLabel.setColor(Color.WHITE);
+                psLabel.setTextAlign(Paint.Align.CENTER);
+                psLabel.setTextSize(8.6f);
+                psLabel.setFakeBoldText(true);
+                canvas.drawText("PS", 12, 15.1f, psLabel);
+                break;
             case PATCH:
                 // A page with a folded corner and a plus.
                 path.moveTo(7, 3);
