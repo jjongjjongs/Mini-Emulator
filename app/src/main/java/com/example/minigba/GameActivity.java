@@ -417,6 +417,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     public boolean dispatchTouchEvent(android.view.MotionEvent event) {
+        if (isMouseEvent(event) && gunMouseOn() && this.pauseDialog == null && onGunMouse(event)) {
+            return true;  // 라이트건 (0.0.386)
+        }
         if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
             showPadMenuButton();
         }
@@ -940,6 +943,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (isMouseEvent(event) && gunMouseOn() && this.pauseDialog == null
+                && (event.getKeyCode() == KeyEvent.KEYCODE_BACK || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD)) {
+            // A light gun's side buttons come as back / forward keys (0.0.386).
+            GunSetup gun = gunSetup();
+            if (gun != null && event.getRepeatCount() == 0 && (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP)) {
+                int bit = event.getKeyCode() == KeyEvent.KEYCODE_BACK ? kGunAuxB : kGunCalib;
+                int want = event.getAction() == KeyEvent.ACTION_DOWN ? this.gunMouseHeld | bit : this.gunMouseHeld & ~bit;
+                setGunMouseBits(want, gun);
+            }
+            return true;
+        }
         if (isKeyboardPc() && this.dosControls != null && !isControllerEvent(event)) {
             // A physical keyboard types into DOS (and the PC-98).
             int dosKey = DosControls.fromAndroid(event.getKeyCode());
@@ -1076,7 +1090,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private void applyMappedAxes(android.view.MotionEvent event, android.util.SparseIntArray table, float x, float y) {
         if (hasLeftStick()) {
             onAnalogChanged(x, y);
-            onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+            onAnalogRightChanged(gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_Z), gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_RZ));
         }
         int directions = 0;
         for (int k = 0; k < table.size(); k++) {
@@ -1322,6 +1336,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             for (int k = 0; k < gun.labels.length; k++) {
                 targets.add(new PadMapping.Target(gun.bits[k], gun.labels[k], middle));
             }
+            targets.add(new PadMapping.Target(kGunCenter, "조준 가운데로", middle));
         }
         return targets;
     }
@@ -1450,6 +1465,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     @Override
     public boolean dispatchGenericMotionEvent(android.view.MotionEvent event) {
+        if (isMouseEvent(event) && gunMouseOn() && this.pauseDialog == null && event.getActionMasked() != android.view.MotionEvent.ACTION_SCROLL && onGunMouse(event)) {
+            return true;  // 라이트건 (0.0.386): hover and button events
+        }
+        int aimSide = isControllerEvent(event) && event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE && playerFor(event.getDevice()) <= 0 ? gunStickSide() : 0;
+        if (aimSide != 0) {
+            // 패드 스틱으로 조준 (0.0.386): that stick moves the aim and is held still for the game.
+            if (aimSide == 1) {
+                onGunStick(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+            } else {
+                onGunStick(padAxis(event, android.view.MotionEvent.AXIS_X), padAxis(event, android.view.MotionEvent.AXIS_Y));
+            }
+        }
         if (!isControllerEvent(event) || event.getActionMasked() != android.view.MotionEvent.ACTION_MOVE) {
             return super.dispatchGenericMotionEvent(event);
         }
@@ -1458,8 +1485,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             otherPlayerMotion(player, event);
             return true;
         }
-        float x = padAxis(event, android.view.MotionEvent.AXIS_X);
-        float y = padAxis(event, android.view.MotionEvent.AXIS_Y);
+        float x = aimSide == 2 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_X);
+        float y = aimSide == 2 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_Y);
         android.util.SparseIntArray table = padMapFor(event.getDevice());
         if (table != null) {
             applyMappedAxes(event, table, x, y);
@@ -1470,7 +1497,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (isSonyPad() || isN64() || isDreamcast() || hasLeftStick()) {
             // PSP / PS1 / PS2 / N64 / Dreamcast read the sticks as sticks.
             onAnalogChanged(x, y);
-            onAnalogRightChanged(padAxis(event, android.view.MotionEvent.AXIS_Z), padAxis(event, android.view.MotionEvent.AXIS_RZ));
+            onAnalogRightChanged(gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_Z), gunStickSide() == 1 ? 0f : padAxis(event, android.view.MotionEvent.AXIS_RZ));
         } else {
             stick = directionsFor(x, y, 0.5f);
         }
@@ -2093,6 +2120,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private final int[] buttonHolds = new int[32];
 
     private void setButtonPressed(int i, boolean z) {
+        if ((i & kGunCenter) != 0) {
+            if (z) {
+                // 조준 가운데로 (0.0.386)
+                this.gunAimX = 0.5f;
+                this.gunAimY = 0.5f;
+                sendGunAim();
+            }
+            i &= ~kGunCenter;
+            if (i == 0) return;
+        }
         int held = 0;
         for (int b = 0; b < 32; b++) {
             if ((i & (1 << b)) != 0) {
@@ -17239,6 +17276,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private static final int kGunStart = 1 << 28;
     // (0.0.384) 보정 쏘기: Time Crisis and other GunCon 2 games' aim calibration (bridge).
     private static final int kGunCalib = 1 << 29;
+    // (0.0.386) 조준 가운데로: a controller button that puts the aim back in the middle.
+    private static final int kGunCenter = 1 << 30;
     private static final int RETRO_MOUSE = 2;
     private static final int RETRO_LIGHTGUN = 4;
 
@@ -17551,6 +17590,153 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         if (cross != null && surface != null) {
             boolean shown = MainActivity.sharedSettings(this).getBoolean("gun_cross:" + this.saveBaseName, true);
             cross.setAim(shown, surface.getX() + this.gunAimX * surface.getWidth(), surface.getY() + this.gunAimY * surface.getHeight());
+            cross.setBorder(gunMouseOn() && MainActivity.sharedSettings(this).getBoolean("gun_border:" + this.saveBaseName, false)
+                    ? new android.graphics.RectF(surface.getX(), surface.getY(), surface.getX() + surface.getWidth(), surface.getY() + surface.getHeight()) : null);
+        }
+    }
+
+    // ---- (0.0.386) 패드 스틱으로 조준: the chosen stick moves the aim (per game: gun_stick 0 끔,
+    // 1 오른쪽, 2 왼쪽; gun_stick_speed %; gun_stick_accel). Leaning further moves faster; with
+    // 가속, a lean held for a while speeds up too. The stick doesn't reach the game meanwhile. ----
+    private float gunStickX;
+    private float gunStickY;
+    private long gunStickSince;
+    private long gunStickLast;
+    private boolean gunStickRunning;
+    private final android.os.Handler gunHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private int gunStickSide() {
+        if (!gunOn()) return 0;
+        int side = gunInt("gun_stick", 1);
+        return side >= 0 && side <= 2 ? side : 0;
+    }
+
+    private void onGunStick(float x, float y) {
+        float mag = (float) Math.hypot(x, y);
+        if (mag < 0.18f) {
+            x = 0f;
+            y = 0f;
+        }
+        this.gunStickX = x;
+        this.gunStickY = y;
+        if ((x != 0f || y != 0f) && !this.gunStickRunning) {
+            this.gunStickRunning = true;
+            this.gunStickSince = android.os.SystemClock.uptimeMillis();
+            this.gunStickLast = this.gunStickSince;
+            this.gunHandler.post(this.gunStickTick);
+        }
+    }
+
+    private final Runnable gunStickTick = new Runnable() {
+        @Override
+        public void run() {
+            float x = gunStickX;
+            float y = gunStickY;
+            if ((x == 0f && y == 0f) || destroyed) {
+                gunStickRunning = false;
+                return;
+            }
+            long now = android.os.SystemClock.uptimeMillis();
+            float dt = Math.min(0.05f, (now - gunStickLast) / 1000f);
+            gunStickLast = now;
+            float mag = Math.min(1f, (float) Math.hypot(x, y));
+            float curve = (mag - 0.18f) / 0.82f;
+            curve = curve * curve;
+            float speed = 0.9f * gunInt("gun_stick_speed", 100) / 100f;  // screens per second at full lean
+            if (MainActivity.sharedSettings(GameActivity.this).getBoolean("gun_stick_accel:" + saveBaseName, true)) {
+                float held = (now - gunStickSince) / 600f;
+                speed *= 0.35f + 0.65f * Math.min(1f, held);
+            }
+            float step = speed * curve * dt / Math.max(0.0001f, mag);
+            gunAimX = Math.max(0f, Math.min(1f, gunAimX + x * step));
+            gunAimY = Math.max(0f, Math.min(1f, gunAimY + y * step));
+            sendGunAim();
+            gunHandler.postDelayed(this, 16);
+        }
+    };
+
+    // ---- (0.0.386) 라이트건: a gun that the phone sees as a mouse. Where it points (the
+    // pointer over the picture) is the aim; its buttons are the gun's. Pointing off the picture
+    // and pulling the trigger is an off-screen shot (재장전), as with a real gun. ----
+    private int gunMouseButtons;
+    private int gunMouseHeld;   // the gun bits it holds down
+    private boolean gunMouseOff;
+
+    private boolean gunMouseOn() {
+        return gunOn() && MainActivity.sharedSettings(this).getBoolean("gun_mouse:" + this.saveBaseName, true);
+    }
+
+    private static boolean isMouseEvent(android.view.InputEvent event) {
+        return (event.getSource() & android.view.InputDevice.SOURCE_MOUSE) == android.view.InputDevice.SOURCE_MOUSE;
+    }
+
+    // Names of the mouse-like devices connected now (for the sheet).
+    private String connectedMice() {
+        StringBuilder out = new StringBuilder();
+        for (int id : android.view.InputDevice.getDeviceIds()) {
+            android.view.InputDevice device = android.view.InputDevice.getDevice(id);
+            if (device != null && !device.isVirtual() && (device.getSources() & android.view.InputDevice.SOURCE_MOUSE) == android.view.InputDevice.SOURCE_MOUSE) {
+                if (out.length() > 0) out.append(", ");
+                out.append(device.getName());
+            }
+        }
+        return out.toString();
+    }
+
+    private boolean onGunMouse(android.view.MotionEvent event) {
+        SurfaceView surface = this.surfaceView;
+        GunSetup gun = gunSetup();
+        if (surface == null || gun == null) {
+            return false;
+        }
+        int[] at = new int[2];
+        surface.getLocationOnScreen(at);
+        int w = surface.getWidth();
+        int h = surface.getHeight();
+        if (w <= 0 || h <= 0) {
+            return true;
+        }
+        float fx = (event.getRawX() - at[0]) / w;
+        float fy = (event.getRawY() - at[1]) / h;
+        boolean off = fx < 0f || fy < 0f || fx > 1f || fy > 1f;
+        int action = event.getActionMasked();
+        if (action != android.view.MotionEvent.ACTION_HOVER_EXIT) {
+            if (!off) {
+                this.gunAimX = fx;
+                this.gunAimY = fy;
+            }
+            this.gunMouseOff = off;
+            sendGunAim();
+        }
+        int buttons = event.getButtonState();
+        if (buttons != this.gunMouseButtons || action == android.view.MotionEvent.ACTION_DOWN || action == android.view.MotionEvent.ACTION_UP) {
+            this.gunMouseButtons = buttons;
+            int want = 0;
+            if ((buttons & android.view.MotionEvent.BUTTON_PRIMARY) != 0) want |= off ? kGunReload : kGunTrigger;
+            if ((buttons & android.view.MotionEvent.BUTTON_SECONDARY) != 0) want |= kGunReload;
+            if ((buttons & android.view.MotionEvent.BUTTON_TERTIARY) != 0) want |= kGunAuxA;
+            if ((buttons & android.view.MotionEvent.BUTTON_BACK) != 0) want |= kGunAuxB;
+            if ((buttons & android.view.MotionEvent.BUTTON_FORWARD) != 0) want |= kGunCalib;
+            setGunMouseBits(want, gun);
+        }
+        return true;
+    }
+
+    private void setGunMouseBits(int want, GunSetup gun) {
+        int allowed = kGunCenter;
+        for (int bit : gun.bits) allowed |= bit;
+        if ((allowed & kGunAuxB) == 0 && (want & kGunAuxB) != 0) want = (want & ~kGunAuxB) | kGunStart;  // 총 START where there's no B
+        want &= allowed;
+        int changed = want ^ this.gunMouseHeld;
+        for (int bit = 1; bit != 0; bit <<= 1) {
+            if ((changed & bit) != 0) setButtonPressed(bit, (want & bit) != 0);
+        }
+        this.gunMouseHeld = want;
+    }
+
+    private void hideMousePointer(View view) {
+        if (gunMouseOn() && android.os.Build.VERSION.SDK_INT >= 24) {
+            view.setPointerIcon(android.view.PointerIcon.getSystemIcon(this, android.view.PointerIcon.TYPE_NULL));
         }
     }
 
@@ -17561,6 +17747,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         GunCrosshairView cross = new GunCrosshairView(this);
         parent.addView(cross, new FrameLayout.LayoutParams(-1, -1));
+        hideMousePointer(parent);
+        if (this.surfaceView != null) hideMousePointer(this.surfaceView);
         this.gunCrosshair = cross;
         parent.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> v.post(this::sendGunAim));
     }
@@ -17994,6 +18182,12 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final int[] dy = {gunInt("gun_dy", 0)};
         final int[] sens = {gunInt("gun_sens", 100)};
         final int[] lift = {gunLift()};
+        final int[] stick = {gunInt("gun_stick", 1)};
+        final int[] stickSpeed = {gunInt("gun_stick_speed", 100)};
+        final boolean[] stickAccel = {prefs.getBoolean("gun_stick_accel:" + base, true)};
+        final boolean[] mouse = {prefs.getBoolean("gun_mouse:" + base, true)};
+        final boolean[] border = {prefs.getBoolean("gun_border:" + base, false)};
+        final String mice = connectedMice();
         final boolean wasKeys = prefs.getBoolean("gun_keys:" + base, true);
         final boolean[] keysOn = {wasKeys};
         final java.util.Map<Integer, Integer> keyChosen = new java.util.HashMap<>();
@@ -18071,6 +18265,28 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         + "\n화면 맨 아래를 쏘려면 손가락을 게임 화면 아래 여백까지 내려도 돼요. 게임 화면에서 누르기 시작했으면 밖으로 나가도 조준이 따라가요.",
                         Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
             }
+            // (0.0.386) 패드 스틱 · 라이트건
+            body.addView(backgroundChips("🎮 패드 스틱으로 조준", new String[]{"끔", "오른쪽 스틱", "왼쪽 스틱"}, stick[0], red, i -> {
+                stick[0] = i;
+                render[0].run();
+            }));
+            if (stick[0] != 0) {
+                body.addView(gunSlider("조준 속도", stickSpeed, 40, 250, "%"));
+                body.addView(ps2Switch("천천히 시작해서 빨라지기", "조금 기울이면 정밀하게, 오래 기울이면 빠르게", stickAccel[0], v -> stickAccel[0] = v));
+                body.addView(ps2Note("조준에 쓰는 스틱은 이 게임에 원래 스틱 입력을 보내지 않아요. 발사 · 재장전 · 보정 쏘기 · \"조준 가운데로\"는 패드 버튼 설정에서 붙여요.",
+                        Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
+            }
+            body.addView(backgroundChips("🔫 라이트건 (마우스처럼 연결되는 총)", new String[]{"끔", "켬"}, mouse[0] ? 1 : 0, red, i -> {
+                mouse[0] = i == 1;
+                render[0].run();
+            }));
+            if (mouse[0]) {
+                body.addView(ps2Note(mice.isEmpty() ? "지금 연결된 마우스형 장치가 없어요. 총을 연결하면 바로 써요." : "연결됨: " + mice,
+                        mice.isEmpty() ? Color.rgb(246, 247, 249) : Color.rgb(240, 253, 244), mice.isEmpty() ? Color.rgb(75, 85, 99) : Color.rgb(22, 101, 52)));
+                body.addView(ps2Switch("화면 둘레에 흰 테두리", "Sinden처럼 테두리를 보고 위치를 재는 총용 · 게임 화면 밖에만 그려요", border[0], v -> border[0] = v));
+                body.addView(ps2Note("총이 가리키는 곳 = 조준점. 방아쇠(왼쪽 클릭) 발사 · 오른쪽 클릭 재장전 · 가운데 클릭 건콘 A · 옆 버튼 건콘 B / 보정 쏘기. 게임 화면 밖을 겨누고 쏘면 화면 밖 쏘기(재장전)예요. 어긋나면 아래 \"조준 맞추기\"나 총 자체 프로그램으로 맞춰요.",
+                        Color.rgb(246, 247, 249), Color.rgb(55, 65, 81)));
+            }
             body.addView(ps2Switch("조준점 보이기", "손가락이 가려도 어디를 겨누는지 보여요", cross[0], v -> cross[0] = v));
             body.addView(gunSlider("조준 맞추기 · 좌우", dx, -15, 15, "%"));
             body.addView(gunSlider("조준 맞추기 · 위아래", dy, -15, 15, "%"));
@@ -18132,7 +18348,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         apply.setOnClickListener(v -> {
             prefs.edit().putBoolean("gun_on:" + base, on[0]).putInt("gun_aim:" + base, aim[0]).putInt("gun_type:" + base, type[0])
                     .putInt("gun_port:" + base, port[0]).putBoolean("gun_cross:" + base, cross[0]).putInt("gun_dx:" + base, dx[0])
-                    .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).putInt("gun_lift:" + base, lift[0]).putBoolean("gun_keys:" + base, keysOn[0]).commit();
+                    .putInt("gun_dy:" + base, dy[0]).putInt("gun_sens:" + base, sens[0]).putInt("gun_lift:" + base, lift[0]).putInt("gun_stick:" + base, stick[0]).putInt("gun_stick_speed:" + base, stickSpeed[0])
+                    .putBoolean("gun_stick_accel:" + base, stickAccel[0]).putBoolean("gun_mouse:" + base, mouse[0]).putBoolean("gun_border:" + base, border[0]).putBoolean("gun_keys:" + base, keysOn[0]).commit();
             GunSetup appliedGun = gunSetupFor(type[0], port[0]);
             if (appliedGun != null && keysOn[0] && gunKeysPossible(appliedGun, keyChoices)) {
                 int[] functions = gunKeyFunctions(appliedGun);

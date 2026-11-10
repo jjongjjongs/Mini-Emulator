@@ -18,6 +18,10 @@ final class GunCrosshairView extends View {
     private float x;
     private float y;
     private boolean shown;
+    // (0.0.386) A white frame just outside the picture, for light guns that find the screen
+    // by its edge (Sinden); null when off.
+    private android.graphics.RectF border;
+    private final Paint white = new Paint();
 
     GunCrosshairView(Context context) {
         super(context);
@@ -33,6 +37,14 @@ final class GunCrosshairView extends View {
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
     }
 
+    void setBorder(android.graphics.RectF picture) {
+        if (java.util.Objects.equals(picture, this.border)) {
+            return;
+        }
+        this.border = picture == null ? null : new android.graphics.RectF(picture);
+        invalidate();
+    }
+
     /** The aim in this view's coordinates, or hidden. */
     void setAim(boolean shown, float x, float y) {
         if (shown == this.shown && x == this.x && y == this.y) {
@@ -46,6 +58,16 @@ final class GunCrosshairView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (this.border != null) {
+            float w = Math.max(6f, Math.min(this.border.width(), this.border.height()) * 0.03f);
+            this.white.setColor(Color.WHITE);
+            this.white.setStyle(Paint.Style.FILL);
+            android.graphics.RectF b = this.border;
+            canvas.drawRect(b.left - w, b.top - w, b.right + w, b.top, this.white);
+            canvas.drawRect(b.left - w, b.bottom, b.right + w, b.bottom + w, this.white);
+            canvas.drawRect(b.left - w, b.top, b.left, b.bottom, this.white);
+            canvas.drawRect(b.right, b.top, b.right + w, b.bottom, this.white);
+        }
         if (!this.shown) {
             return;
         }
