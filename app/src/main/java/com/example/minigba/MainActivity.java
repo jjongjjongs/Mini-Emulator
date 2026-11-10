@@ -15868,6 +15868,14 @@ public final class MainActivity extends Activity {
         startActivity(intent);
     }
 
+    // A sheet taller than the screen (landscape) scrolls (0.0.398).
+    private View scrollWrap(View panel) {
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.addView(panel);
+        return scroll;
+    }
+
     // ---- PS3 · 게임 길게 누르기 (0.0.392) ----
     private static final int REQUEST_PS3_INSTALL = 1391;
     private static final int REQUEST_PS3_HANPATCH = 1392;
@@ -16371,7 +16379,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(16), 0, 0);
         panel.addView(buttons, buttonsParams);
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -22008,7 +22016,7 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -22152,7 +22160,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -22326,7 +22334,7 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -24624,7 +24632,7 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -24767,7 +24775,7 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -24959,7 +24967,7 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -25384,7 +25392,7 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -25648,7 +25656,7 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
-        dialog.setContentView(panel);
+        dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
