@@ -1801,6 +1801,11 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "mame2003-plus_xy_device") == 0) return "lightgun";
         if (strcmp(key, "mame2003-plus_crosshair_enabled") == 0) return "disabled";
         if (strcmp(key, "fbneo-lightgun-crosshair-emulation") == 0) return "always hide";
+        // (0.0.378) SwanStation drew its own white crosshair beside the app's.
+        if (strcmp(key, "swanstation_Controller_ShowCrosshair") == 0) return "false";
+        if (strcmp(key, "pcsx_rearmed_crosshair1") == 0) return "disabled";
+        if (strcmp(key, "pcsx_rearmed_crosshair2") == 0) return "disabled";
+        if (strcmp(key, "reicast_lightgun1_crosshair") == 0) return "disabled";
     }
     if (strncmp(key, "dosbox_pure_", 12) == 0) {
         return dos::option(key);
