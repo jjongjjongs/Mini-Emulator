@@ -61,6 +61,11 @@ final class NativeGba {
     // Where the gun points, -32767..32767 across and down the picture.
     static native void setGunAim(int x, int y);
 
+    // 2P 총 (0.0.387): a second gun on its own port; its buttons come from 2P's input.
+    static native void setGun2(boolean on, int port, int device);
+
+    static native void setGunAim2(int x, int y);
+
     static native void setN3dsScale(int scale);
 
     // 3DS CIA install through the Citra core; see the bridge for the status codes.

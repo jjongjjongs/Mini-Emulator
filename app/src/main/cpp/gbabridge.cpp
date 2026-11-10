@@ -1601,6 +1601,15 @@ constexpr int kCalibAim = 7;
 constexpr int kCalibDark = 5;
 int calibLeft = 0;    // frames of the sequence still to run (emulation thread)
 bool calibHeld = false;
+// (0.0.387) 2P 총: a second gun on its own port, its buttons from 2P's input (player 1 here).
+std::atomic<bool> on2{false};
+std::atomic<int> port2{1};
+std::atomic<unsigned> device2{0};
+std::atomic<int> x2{0};
+std::atomic<int> y2{0};
+std::atomic<bool> aimed2{false};
+int calibLeft2 = 0;
+bool calibHeld2 = false;
 }  // namespace gun
 // PSP 텍스처 다듬기 (0.0.367), per game, as indices into the values below: texture shader,
 // upscale level, upscale type, deposterize, texture filter, smart 2D filter, anisotropic.
@@ -1809,7 +1818,7 @@ const char* fixedVariable(const char* key) {
         if (strcmp(key, "snes9x_lightgun_mode") == 0) return "Lightgun";
         if (strcmp(key, "genesis_plus_gx_gun_input") == 0) return "lightgun";
         if (strcmp(key, "genesis_plus_gx_gun_cursor") == 0) return "disabled";
-        if (strcmp(key, "pcsx2_lightgun") == 0) return "usb1";
+        if (strcmp(key, "pcsx2_lightgun") == 0) return gun::on2.load() ? "both" : "usb1";
         if (strcmp(key, "mame2003-plus_xy_device") == 0) return "lightgun";
         if (strcmp(key, "mame2003-plus_crosshair_enabled") == 0) return "disabled";
         if (strcmp(key, "fbneo-lightgun-crosshair-emulation") == 0) return "always hide";
@@ -3399,21 +3408,22 @@ int16_t joypadPressed(Core* core, int mask, unsigned id);
 // The light gun's answers (건슈팅): where it points, and its buttons from the app's bits; the
 // reload button is a shot off the screen (offscreen, with the trigger, for the cores that
 // only know that).
-int16_t gunState(Core* core, unsigned id) {
-    int mask = core->inputMask.load() | core->frameLatch.load();
-    if (gun::calibLeft > 0) {
+int16_t gunState(Core* core, unsigned id, int which) {
+    int mask = which == 0 ? core->inputMask.load() | core->frameLatch.load() : core->playerMask[1].load() | core->playerFrameLatch[1].load();
+    int calibLeft = which == 0 ? gun::calibLeft : gun::calibLeft2;
+    if (calibLeft > 0) {
         // 보정 쏘기 in progress: the trigger, at the aim and then off the screen.
-        mask = (mask & ~(kGunTrigger | kGunReload)) | (gun::calibLeft > gun::kCalibDark ? kGunTrigger : kGunReload);
+        mask = (mask & ~(kGunTrigger | kGunReload)) | (calibLeft > gun::kCalibDark ? kGunTrigger : kGunReload);
     }
     bool reload = (mask & kGunReload) != 0;
     bool pad = gun::replacesPad.load();
     switch (id) {
         case RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X:
-            return reload ? -0x8000 : static_cast<int16_t>(gun::x.load());
+            return reload ? -0x8000 : static_cast<int16_t>(which == 0 ? gun::x.load() : gun::x2.load());
         case RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y:
-            return reload ? -0x8000 : static_cast<int16_t>(gun::y.load());
+            return reload ? -0x8000 : static_cast<int16_t>(which == 0 ? gun::y.load() : gun::y2.load());
         case RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN:
-            return reload || !gun::aimed.load() ? 1 : 0;
+            return reload || !(which == 0 ? gun::aimed.load() : gun::aimed2.load()) ? 1 : 0;
         case RETRO_DEVICE_ID_LIGHTGUN_TRIGGER:
             return (mask & kGunTrigger) != 0 || reload ? 1 : 0;
         case RETRO_DEVICE_ID_LIGHTGUN_RELOAD:
@@ -3444,7 +3454,9 @@ int16_t gunState(Core* core, unsigned id) {
 int16_t RETRO_CALLCONV inputStateCallback(unsigned port, unsigned device, unsigned index, unsigned id) {
     Core* core = gCore;
     if ((device & RETRO_DEVICE_MASK) == RETRO_DEVICE_LIGHTGUN) {
-        return core != nullptr && gun::on.load() && static_cast<int>(port) == gun::port.load() ? gunState(core, id) : 0;
+        if (core != nullptr && gun::on.load() && static_cast<int>(port) == gun::port.load()) return gunState(core, id, 0);
+        if (core != nullptr && gun::on.load() && gun::on2.load() && static_cast<int>(port) == gun::port2.load()) return gunState(core, id, 1);
+        return 0;
     }
     if (device == RETRO_DEVICE_KEYBOARD) {
         return port == 0 && dos::held(id) ? 1 : 0;
@@ -4278,6 +4290,10 @@ void runLoop(Core* core) {
                 bool calib = ((core->inputMask.load() | core->frameLatch.load()) & kGunCalib) != 0;
                 if (calib && !gun::calibHeld && gun::calibLeft == 0) gun::calibLeft = gun::kCalibAim + gun::kCalibDark;
                 gun::calibHeld = calib;
+                if (gun::calibLeft2 > 0) gun::calibLeft2--;
+                bool calib2 = gun::on2.load() && ((core->playerMask[1].load() | core->playerFrameLatch[1].load()) & kGunCalib) != 0;
+                if (calib2 && !gun::calibHeld2 && gun::calibLeft2 == 0) gun::calibLeft2 = gun::kCalibAim + gun::kCalibDark;
+                gun::calibHeld2 = calib2;
             }
             core->retroRun();
             applyMemoryCheats(core);
@@ -4663,6 +4679,9 @@ JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_create(
     // 건슈팅 (0.0.373): the light gun plugged into its port (after the pads above).
     if (gun::on.load() && gun::device.load() != 0 && core->retroSetControllerPortDevice != nullptr) {
         core->retroSetControllerPortDevice(static_cast<unsigned>(gun::port.load()), gun::device.load());
+    }
+    if (gun::on.load() && gun::on2.load() && gun::device2.load() != 0 && core->retroSetControllerPortDevice != nullptr) {
+        core->retroSetControllerPortDevice(static_cast<unsigned>(gun::port2.load()), gun::device2.load());
     }
 
     retro_system_av_info info{};
@@ -5216,6 +5235,20 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGun(JNIEnv* /*env*/
 }
 
 // Where the gun points, -0x7fff..0x7fff across and down the picture.
+// (0.0.387) 2P 총: on / off, its port and device (set before the game starts).
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGun2(JNIEnv* /*env*/, jclass /*cls*/, jboolean on, jint port, jint device) {
+    gun::on2.store(on == JNI_TRUE);
+    gun::port2.store(port >= 0 && port < 4 ? port : 1);
+    gun::device2.store(static_cast<unsigned>(device));
+    gun::aimed2.store(false);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGunAim2(JNIEnv* /*env*/, jclass /*cls*/, jint x, jint y) {
+    gun::x2.store(x < -0x7fff ? -0x7fff : x > 0x7fff ? 0x7fff : x);
+    gun::y2.store(y < -0x7fff ? -0x7fff : y > 0x7fff ? 0x7fff : y);
+    gun::aimed2.store(true);
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setGunAim(JNIEnv* /*env*/, jclass /*cls*/, jint x, jint y) {
     gun::x.store(x < -0x7fff ? -0x7fff : x > 0x7fff ? 0x7fff : x);
     gun::y.store(y < -0x7fff ? -0x7fff : y > 0x7fff ? 0x7fff : y);
