@@ -428,6 +428,16 @@ final class EngineLog {
             text.append("\n== 엔진 기록 (").append(log.getName()).append(", 마지막 800줄) ==\n");
             for (String line : tail(log, 800)) text.append(line).append('\n');
         }
+        if (X360.equals(mode)) {
+            // The names under content/ (and what was moved aside), non-ASCII as \\uXXXX.
+            text.append("\n== content 폴더 ==\n");
+            listTree(X360Activity.contentRoot(context), "", 7, text);
+            File aside = new File(X360Activity.rootDir(context), "content_aside");
+            if (aside.isDirectory()) {
+                text.append("\n== content_aside (옮겨 둔 것) ==\n");
+                listTree(aside, "", 8, text);
+            }
+        }
         text.append("\n== 앱 로그 ==\n").append(logcat(exit == null ? 0 : exit.pid));
         return text.toString();
     }
@@ -451,6 +461,21 @@ final class EngineLog {
             return "다운로드/" + MainActivity.DOWNLOAD_FOLDER + "/" + name + "에 저장했어요.\n이 파일을 채팅에 올려 주시면 원인을 볼 수 있어요.";
         } catch (Exception e) {
             return "저장하지 못했어요: " + e.getMessage();
+        }
+    }
+
+    private static void listTree(File dir, String indent, int depth, StringBuilder out) {
+        File[] kids = dir.listFiles();
+        if (kids == null || out.length() > 200000) return;
+        java.util.Arrays.sort(kids);
+        for (File f : kids) {
+            StringBuilder name = new StringBuilder();
+            for (char c : f.getName().toCharArray()) {
+                if (c >= 0x20 && c < 0x7F) name.append(c);
+                else name.append(String.format(Locale.ROOT, "\\u%04X", (int) c));
+            }
+            out.append(indent).append(name).append(f.isDirectory() ? "/" : "  " + f.length()).append('\n');
+            if (f.isDirectory() && depth > 0) listTree(f, indent + "  ", depth - 1, out);
         }
     }
 

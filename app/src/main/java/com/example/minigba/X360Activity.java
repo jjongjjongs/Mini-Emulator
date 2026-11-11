@@ -1597,6 +1597,34 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         android.system.Os.symlink(target.getAbsolutePath(), link.getPath());
     }
 
+    // (0.0.421) The engine reads every name under content/ (the hard disk's Content folder)
+    // as it starts a game; a name that isn't plain ASCII (a 한글 patched game's save, written
+    // with Korean bytes in its name) ended every start after the first with
+    // utf8::not_enough_room (the crash's stack: HostPathDevice populating the Content
+    // device). Such files and folders are moved, as they are, to content_aside/<time>/ (the
+    // shell moves them byte for byte; Java can't name them). Returns how many.
+    static int setAsideOddNames(Context context) {
+        File root = contentRoot(context);
+        if (!root.isDirectory()) return 0;
+        File aside = new File(rootDir(context), "content_aside/" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.ROOT).format(new java.util.Date()));
+        String script = "export LC_ALL=C; find \"$1\" -mindepth 1 -name \"*[! -~]*\" -prune -exec sh -c "
+                + "'rel=${0#\"$1\"/}; d=\"$2/$(dirname \"$rel\")\"; mkdir -p \"$d\" && mv \"$0\" \"$d/\" && echo moved' {} \"$1\" \"$2\" \\; | wc -l";
+        try {
+            Process process = new ProcessBuilder("sh", "-c", script, "sh", root.getAbsolutePath(), aside.getAbsolutePath()).redirectErrorStream(true).start();
+            String out;
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
+                StringBuilder all = new StringBuilder();
+                for (String line; (line = reader.readLine()) != null; ) all.append(line).append('\n');
+                out = all.toString().trim();
+            }
+            process.waitFor();
+            String last = out.contains("\n") ? out.substring(out.lastIndexOf('\n') + 1) : out;
+            return Integer.parseInt(last.trim());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     // A profile (게이머태그) to sign in with: games save under it. Made once, kept.
     private static String ensureProfile(Context context) {
         xendroid.compose.Emulator emu = engine();
@@ -1643,6 +1671,10 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
             try {
                 if (getIntent().getBooleanExtra(EXTRA_RESET_TITLE_DATA, false)) {
                     setAsideTitleRecord(app, this.gamePath);
+                }
+                final int moved = setAsideOddNames(app);
+                if (moved > 0) {
+                    main.post(() -> toast("엔진이 읽지 못하는 이름의 파일 " + moved + "개를 content_aside로 옮겨 뒀어요 (한글패치 게임의 세이브일 수 있어요)"));
                 }
                 String xuid = ensureProfile(app);
                 writeConfig(app, xuid);
