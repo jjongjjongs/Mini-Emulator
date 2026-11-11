@@ -4495,6 +4495,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             fillCheatNotFound(panel);
             dialog = cardDialog(panel, 0);
         } else {
+            // (0.0.408) On a short (landscape) screen two columns: the header, search and
+            // buttons on the left, the list on the right as tall as the window.
+            boolean twoColumns = ShortScreen.isShort(this);
             panel.addView(cheatBanner(source), marginTop(-1, -2, 10));
             EditText search = searchBox("🔍  치트 검색 (이름이 영어예요)");
             panel.addView(search, marginTop(-1, dp(38), 10));
@@ -4502,9 +4505,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             rows.setOrientation(1);
             android.widget.ScrollView scroll = new android.widget.ScrollView(this);
             scroll.addView(rows);
-            LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
-            scrollParams.setMargins(0, dp(8), 0, 0);
-            panel.addView(scroll, scrollParams);
+            LinearLayout sheet = null;
+            if (twoColumns) {
+                panel.setBackground(null);
+                panel.setPadding(0, 0, 0, 0);
+                panel.addView(new View(this), new LinearLayout.LayoutParams(-1, 0, 1.0f));
+                sheet = new LinearLayout(this);
+                sheet.setOrientation(0);
+                sheet.setPadding(dp(14), dp(14), dp(14), dp(14));
+                sheet.setBackground(roundRect(Color.WHITE, dp(24)));
+                sheet.addView(panel, new LinearLayout.LayoutParams(dp(250), -1));
+                LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(0, -1, 1.0f);
+                listParams.setMargins(dp(14), 0, 0, 0);
+                sheet.addView(scroll, listParams);
+            } else {
+                LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1.0f);
+                scrollParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(scroll, scrollParams);
+            }
             Runnable fill = () -> fillCheatRows(rows, search.getText().toString());
             onTextChanged(search, fill);
             fill.run();
@@ -4514,14 +4532,26 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             add.setTextSize(13.5f);
             add.setOnClickListener(view -> showCheatEditor(null));
             buttons.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1.0f));
-            TextView file = dialogButton(isPs2() ? "파일에서 (.pnach · .cht)" : "psp".equals(this.gameMode) ? "파일에서 (.cht · .ini)" : "파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+            TextView file = dialogButton(twoColumns ? "파일에서" : isPs2() ? "파일에서 (.pnach · .cht)" : "psp".equals(this.gameMode) ? "파일에서 (.cht · .ini)" : "파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
             file.setTextSize(13.5f);
             file.setOnClickListener(view -> openCheatFile());
             LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(0, dp(44), 1.0f);
             fileParams.setMargins(dp(8), 0, 0, 0);
             buttons.addView(file, fileParams);
             panel.addView(buttons, marginTop(-1, -2, 10));
-            dialog = cardDialog(panel, 0.86f);
+            if (sheet != null) {
+                dialog = new android.app.Dialog(this);
+                dialog.requestWindowFeature(1);
+                dialog.setContentView(sheet);
+                android.view.Window window = dialog.getWindow();
+                if (window != null) {
+                    window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+                    android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
+                    window.setLayout(Math.min(metrics.widthPixels - dp(32), dp(760)), Math.round(metrics.heightPixels * 0.9f));
+                }
+            } else {
+                dialog = cardDialog(panel, 0.86f);
+            }
         }
         TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
         close.setOnClickListener(view -> dialog.dismiss());
