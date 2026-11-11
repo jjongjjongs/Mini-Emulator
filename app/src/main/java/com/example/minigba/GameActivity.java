@@ -6780,6 +6780,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     NativeGba.setNoAutoState(stvBoard());
                     NativeGba.setMotionEnabled(motionActive());
                     NativeGba.setPlayers(0, 1, multitapNow());
+                    if (isSaturn()) {
+                        NativeGba.setSaturnOptions(ssOption("ss_sh2") == 1, ssOption("ss_bios") == 1, ssOption("ss_poly"));
+                    }
                     if (isDolphin()) {
                         int lan = gcLanMode();
                         NativeGba.setGcLan(lan == 2 && gcLanHost() == null ? 0 : lan, lan == 2 ? gcLanHost() : null);
@@ -8514,7 +8517,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     // 게임기 탭: settings only some consoles have.
     private boolean hasDeviceTab() {
-        return isPsp() || isNds() || isWonderSwan() || isWiiU() || isDolphin() || isPs1() || isN3ds();
+        return isPsp() || isNds() || isWonderSwan() || isWiiU() || isDolphin() || isPs1() || isN3ds() || isSaturn();
     }
 
     // The pause menu: one card with tabs (기본 · 성능 · 화면 · 조작 · 게임기), a content area
@@ -9040,6 +9043,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         if (isWonderSwan()) {
             panel.addView(createWonderSwanTallRow(dialog), tabRowParams(panel));
+        }
+        if (isSaturn()) {
+            addSaturnRows(panel, dialog);
         }
         if (isDolphin()) {
             if (!isWiiGame()) {
@@ -12651,6 +12657,44 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
 
     private boolean wonderSwanTall() {
         return MainActivity.sharedSettings(this).getBoolean("ws_tall:" + this.saveBaseName, false);
+    }
+
+    // ---- 새턴 호환 설정 (0.0.403): per game, read when the engine starts. ----
+    private static final String[] SS_SH2_NAMES = {"다이나렉 (빠름)", "인터프리터 (정확)"};
+    private static final String[] SS_SH2_NOTES = {"새턴 CPU 명령을 미리 번역해 빠르게 · 대부분 게임 (기본)",
+            "명령 하나씩 정확하게 · 느림 (빠른 폰이면 대부분 제 속도) · 한글패치처럼 프로그램을 고친 게임이나 멈추는 게임에"};
+    private static final String[] SS_BIOS_NAMES = {"진짜 BIOS", "내장 BIOS (HLE)"};
+    private static final String[] SS_BIOS_NOTES = {"등록한 saturn_bios.bin · 가장 정확 (기본)",
+            "엔진이 흉내 낸 BIOS · 진짜 BIOS로 검은 화면인 게임에 · 세이브 관리 화면 없음"};
+    private static final String[] SS_POLY_NAMES = {"기본 (원근 보정)", "GPU 분할", "CPU 분할"};
+    private static final String[] SS_POLY_NOTES = {"대부분 게임 (기본)", "3D 면이 일그러지거나 깨질 때", "위로도 안 될 때 · 느림"};
+
+    private int ssOption(String key) {
+        return Math.max(0, MainActivity.sharedSettings(this).getInt(key + ":" + this.saveBaseName, 0));
+    }
+
+    private void addSaturnRows(LinearLayout panel, android.app.Dialog menu) {
+        String[][] names = {SS_SH2_NAMES, SS_BIOS_NAMES, SS_POLY_NAMES};
+        String[][] notes = {SS_SH2_NOTES, SS_BIOS_NOTES, SS_POLY_NOTES};
+        String[] keys = {"ss_sh2", "ss_bios", "ss_poly"};
+        String[] titles = {"SH-2 처리 방식", "BIOS", "폴리곤 그리기"};
+        int[] colors = {Color.rgb(71, 85, 105), Color.rgb(190, 18, 60), Color.rgb(124, 58, 237)};
+        int[] icons = {RoundIconView.GEAR, RoundIconView.CARD, RoundIconView.HD};
+        for (int k = 0; k < keys.length; k++) {
+            final int index = k;
+            final int current = Math.min(names[k].length - 1, ssOption(keys[k]));
+            panel.addView(createSettingRow(icons[k], colors[k], titles[k], names[k][current],
+                    view -> showChoiceDialog(icons[index], colors[index], titles[index], names[index], notes[index], current,
+                            "이 게임에만 적용돼요. 지금 장면을 저장하고 게임을 다시 켜서\n그 장면 그대로 이어져요.\n멈추거나 검은 화면인 게임은 SH-2를 인터프리터로, 그다음 BIOS를 내장으로 바꿔 보세요.",
+                            Color.rgb(241, 245, 249), Color.rgb(51, 65, 85), "적용하고 이어하기", choice -> {
+                        if (choice == ssOption(keys[index])) {
+                            return;
+                        }
+                        MainActivity.sharedSettings(this).edit().putInt(keys[index] + ":" + this.saveBaseName, choice).commit();
+                        menu.dismiss();
+                        relaunchGame();
+                    })), tabRowParams(panel));
+        }
     }
 
     private LinearLayout createWonderSwanTallRow(android.app.Dialog menu) {

@@ -1750,6 +1750,10 @@ std::atomic<bool> gWiiLink{false};
 // GameCube / Wii resolution (1-3) and picture shape (0 the game's, 1 4:3, 2 stretched 16:9,
 // 3 widescreen hack) for the next game.
 std::atomic<int> gDolphinScale{1};
+// 새턴 호환 설정 (0.0.403), per game: SH-2 interpreter, the engine's own BIOS, polygon mode.
+std::atomic<bool> gSsInterpreter{false};
+std::atomic<bool> gSsHleBios{false};
+std::atomic<int> gSsPolygon{0};
 std::atomic<bool> gWiiPointerStick{false};
 std::atomic<int> gDolphinAspect{0};
 
@@ -2054,7 +2058,11 @@ const char* fixedVariable(const char* key) {
     // Mega CD / 32X: the six-button pad the touch layout shows (A B C / X Y Z, MODE).
     if (strcmp(key, "picodrive_input1") == 0) return "6 button pad";
     // Saturn: the real BIOS (the app asks for one), native resolution and the dynarec.
-    if (strcmp(key, "yabasanshiro_force_hle_bios") == 0) return "disabled";
+    if (strcmp(key, "yabasanshiro_force_hle_bios") == 0) return gSsHleBios.load() ? "enabled" : "disabled";
+    if (strcmp(key, "yabasanshiro_polygon_mode") == 0) {
+        int mode = gSsPolygon.load();
+        return mode == 1 ? "gpu_tesselation" : mode == 2 ? "cpu_tesselation" : "perspective_correction";
+    }
     // GameCube / Wii: hardware renderer at native resolution; shaders compiled in the
     // background (a missing effect for a moment instead of a stutter); the Wii remote's
     // pointer follows a finger on the screen; no on-screen messages.
@@ -2080,7 +2088,7 @@ const char* fixedVariable(const char* key) {
     // Wii games in 16:9, the shape the app gives their screen.
     if (strcmp(key, "dolphin_widescreen") == 0) return "enabled";
     if (strcmp(key, "yabasanshiro_resolution_mode") == 0) return "original";
-    if (strcmp(key, "yabasanshiro_sh2coretype") == 0) return "dynarec";
+    if (strcmp(key, "yabasanshiro_sh2coretype") == 0) return gSsInterpreter.load() ? "interpreter" : "dynarec";
     // Super Game Boy borders would turn the 160x144 Game Boy picture into 256x224.
     if (strcmp(key, "mgba_sgb_borders") == 0) return "OFF";
     // MAME 2010 otherwise stops on info/warning screens that wait for a key press.
@@ -5085,6 +5093,12 @@ JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiRoom(JNIEnv* env
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiimmfi(JNIEnv* /*env*/, jclass /*cls*/, jboolean on) {
     gWiimmfi.store(on == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setSaturnOptions(JNIEnv* /*env*/, jclass /*cls*/, jboolean interpreter, jboolean hleBios, jint polygon) {
+    gSsInterpreter.store(interpreter == JNI_TRUE);
+    gSsHleBios.store(hleBios == JNI_TRUE);
+    gSsPolygon.store(polygon >= 0 && polygon <= 2 ? polygon : 0);
 }
 
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setWiiPointer(JNIEnv* /*env*/, jclass /*cls*/, jboolean stick) {

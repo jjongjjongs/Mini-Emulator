@@ -16527,7 +16527,7 @@ public final class MainActivity extends Activity {
 
     private void startGameActivity(File file) {
         String mode = modeForFile(file);
-        if (MODE_SS.equals(mode) && !saturnBiosFile().isFile()) {
+        if (MODE_SS.equals(mode) && !saturnBiosFile().isFile() && settingsPrefs().getInt("ss_bios:" + saveBaseNameFor(file), 0) != 1) {
             showError("세가 새턴 게임은 새턴 BIOS가 필요해요. 새턴 화면의 BIOS 칸에서 가져와 주세요.");
             showSaturnBiosSheet();
             return;
@@ -22238,7 +22238,7 @@ public final class MainActivity extends Activity {
         header.addView(titles, titlesParams);
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
         TextView note = new TextView(this);
-        note.setText(android.text.Html.fromHtml("새턴 게임은 진짜 BIOS가 꼭 있어야 켜져요 (이 엔진은 대체 BIOS를 쓰지 않아요).<br>"
+        note.setText(android.text.Html.fromHtml("새턴 게임은 기본으로 진짜 BIOS로 켜요. 안 켜지거나 검은 화면인 게임은 게임 중 메뉴 › 게임기 › BIOS에서 내장 BIOS(HLE)로 바꿀 수 있어요.<br>"
                 + "직접 가진 새턴에서 추출한 <b>512KB .bin</b> 파일을 골라 주세요 (예: sega_101.bin, mpr-17933.bin).<br>"
                 + "무거운 기종이라 휴대폰에 따라 느릴 수 있어요.", 0));
         note.setTextSize(12.0f);

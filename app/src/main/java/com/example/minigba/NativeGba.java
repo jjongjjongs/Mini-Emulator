@@ -186,6 +186,9 @@ final class NativeGba {
     // stretched, 3 widescreen hack) for the next game.
     static native void setDolphinVideo(int scale, int aspect);
 
+    // 새턴 호환 설정 (0.0.403): read when the core starts.
+    static native void setSaturnOptions(boolean interpreter, boolean hleBios, int polygon);
+
     // Wii: the remote's pointer from the right stick instead of a finger on the screen.
     static native void setWiiPointer(boolean stick);
 
