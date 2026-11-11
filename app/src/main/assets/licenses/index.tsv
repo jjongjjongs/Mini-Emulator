@@ -40,3 +40,4 @@ xbios	XBIOS 1.0	CC BY-NC-ND 4.0 (© 2026 GHOST)	MSX 대체 바이오스 · 디�
 np2kai	NP2kai (Neko Project II kai)	MIT (일부 부분 BSD · GPL-2.0 등, 파일 안에 모두)	PC-98 엔진 · 동운(東雲) 글꼴로 만든 font.bmp (퍼블릭 도메인)	https://github.com/AZO234/NP2kai
 tinysoundfont	TinySoundFont	MIT	PC-98 MIDI 음악 (사운드폰트 합성기)	https://github.com/schellingb/TinySoundFont
 xendroid	XenDroid (Xenia)	WTFPL · BSD-3-Clause	Xbox 360 엔진	https://github.com/rfandango/XenDroid
+hakux	HakuX	GPL-3.0-or-later (일부 LGPL · GPL-2.0 · BSD 등, 파일 안에) · SDL3 zlib	초대 Xbox 엔진 · SDL3	https://github.com/rfandango/hakuX

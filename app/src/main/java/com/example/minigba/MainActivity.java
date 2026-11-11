@@ -91,6 +91,8 @@ public final class MainActivity extends Activity {
     private static final String MODE_PS3 = "ps3";
     // (0.0.412) Xbox 360 on XenDroid (Xenia), run by X360Activity in its own process.
     private static final String MODE_X360 = "x360";
+    // (0.0.415) The original Xbox on HakuX, run by XboxActivity in its own process.
+    private static final String MODE_XBOX = "xbox";
     private static final int REQUEST_IMPORT_PS3_FIRMWARE = 1041;
     private static final String MODE_NDS = "nds";
     private static final String MODE_N3DS = "3ds";
@@ -118,6 +120,8 @@ public final class MainActivity extends Activity {
             {MODE_PS3, "rpcs3", ".iso,.ps3game", ".iso / .pkg / 폴더", "roms_ps3", "1040"},
             // Xbox 360 discs (.iso), packed discs (.zar) and a game folder's default.xex on XenDroid (0.0.412).
             {MODE_X360, "xenia", ".iso,.zar,.xex", ".iso / .zar / .xex", "roms_x360", "1091"},
+            // Original Xbox discs (.iso, XISO or a full image) on HakuX (0.0.415): no BIOS needed.
+            {MODE_XBOX, "hakux", ".iso", ".iso / .xiso", "roms_xbox", "1092"},
             // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
             {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs,.m3u", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
@@ -206,13 +210,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_PS3, MODE_X360, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "PS3", "Xbox 360", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "ARMSX3 1.6.7 (시험판)", "XenDroid (시험판)", "Dolphin (시험판)", "YabaSanshiro · Beetle Saturn", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".iso · 펌웨어 필요", ".iso · .zar · .xex · 고사양 폰", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_PS3, MODE_XBOX, MODE_X360, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "PS3", "Xbox (초대)", "Xbox 360", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "ARMSX3 1.6.7 (시험판)", "HakuX (시험판)", "XenDroid (시험판)", "Dolphin (시험판)", "YabaSanshiro · Beetle Saturn", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".iso · 펌웨어 필요", ".iso · .xiso · BIOS 필요 없음", ".iso · .zar · .xex · 고사양 폰", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ps3, R.drawable.console_x360, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(79, 70, 229), Color.rgb(16, 124, 16), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ps3, R.drawable.console_xbox, R.drawable.console_x360, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(79, 70, 229), Color.rgb(31, 41, 55), Color.rgb(16, 124, 16), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -289,6 +293,7 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         relaunchGameIfAsked(intent);
         relaunchX360IfAsked(intent);
+        relaunchXboxIfAsked(intent);
         importPresetIfOpened(intent);
     }
 
@@ -1956,6 +1961,9 @@ public final class MainActivity extends Activity {
         if (MODE_X360.equals(mode) && X360Activity.unsupportedReason(this) != null) {
             return "지원 안 됨";
         }
+        if (MODE_XBOX.equals(mode) && XboxActivity.unsupportedReason(this) != null) {
+            return "지원 안 됨";
+        }
         if (MODE_PS3.equals(mode)) {
             if (Ps3Activity.unsupportedReason(this) != null) {
                 return "지원 안 됨";
@@ -3490,7 +3498,7 @@ public final class MainActivity extends Activity {
             startPs2BinImport(intent);
             return;
         }
-        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PS3.equals(mode) || MODE_X360.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
+        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PS3.equals(mode) || MODE_X360.equals(mode) || MODE_XBOX.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
             // Disc images run to gigabytes; copy them off the UI thread.
             final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
             progress.setTitle(MODE_NAMES[modeIndex(mode)] + " 게임 가져오기");
@@ -7125,7 +7133,7 @@ public final class MainActivity extends Activity {
     private File patchRom;
 
     private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP,
-            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS, MODE_GC, MODE_MSX, MODE_PC98, MODE_X360};
+            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS, MODE_GC, MODE_MSX, MODE_PC98, MODE_X360, MODE_XBOX};
 
     // Cartridge games, and PS1 (BIN/CUE, ISO), PSP and PS2 (ISO) discs. Compressed images
     // (CHD, CSO, PBP) would have to be unpacked first; arcade sets are not patched here.
@@ -7158,7 +7166,7 @@ public final class MainActivity extends Activity {
             // is not a game file to patch.
             return name.endsWith(".3ds") || name.endsWith(".cci") || name.endsWith(".cxi");
         }
-        if (MODE_X360.equals(mode)) {
+        if (MODE_X360.equals(mode) || MODE_XBOX.equals(mode)) {
             // (0.0.414) A disc image; a .zar or a lone .xex is not one.
             return name.endsWith(".iso");
         }
@@ -7231,7 +7239,7 @@ public final class MainActivity extends Activity {
         TextView value = new TextView(this);
         String mode = modeForFile(file);
         boolean disc = MODE_PS1.equals(mode) || MODE_PSP.equals(mode) || MODE_PS2.equals(mode);
-        value.setText(MODE_X360.equals(mode) ? "xdelta·PPF·파일  ›" : MODE_DC.equals(mode) ? "xdelta·.dcp  ›" : disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
+        value.setText(MODE_X360.equals(mode) || MODE_XBOX.equals(mode) ? "xdelta·PPF·파일  ›" : MODE_DC.equals(mode) ? "xdelta·.dcp  ›" : disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
         value.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
@@ -12530,7 +12538,7 @@ public final class MainActivity extends Activity {
                     onOverlayPicked(game, uris.get(0), false);
                     return;
                 }
-                if (!anyPatch && MODE_X360.equals(modeForFile(game)) && archiveName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                if (!anyPatch && (MODE_X360.equals(modeForFile(game)) || MODE_XBOX.equals(modeForFile(game))) && archiveName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
                     openXdvdfsPatch(game, uris.get(0), archiveName);  // (0.0.414) 파일 바꾸기 패치
                     return;
                 }
@@ -16710,10 +16718,12 @@ public final class MainActivity extends Activity {
             return;
         }
         if (X360Activity.isOriginalXboxDisc(new File(path))) {
+            // (0.0.415) Over to the original Xbox mode, with its name, saves and patches.
             new AppDialog.Builder(this).setTitle("초대 Xbox 게임이에요")
                     .setMessage("이 디스크는 Xbox 360이 아니라 초대 Xbox(2001~2005년) 게임이에요 (안에 default.xbe가 있어요).\n\n"
-                            + "Xbox 360 엔진(XenDroid)으로는 켜지지 않아서 검은 화면만 나와요. 초대 Xbox 모드는 준비 중이에요.")
-                    .setPositiveButton("확인", null).show();
+                            + "Xbox 360 엔진으로는 켜지지 않아요. 초대 Xbox 모드로 옮겨서 켤까요?")
+                    .setNegativeButton("취소", null)
+                    .setPositiveButton("옮기고 실행", (d, w) -> moveToXboxMode(new File(path), title)).show();
             return;
         }
         Intent intent = new Intent(this, X360Activity.class);
@@ -16733,6 +16743,83 @@ public final class MainActivity extends Activity {
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             if (!isFinishing() && !isDestroyed()) launchX360Game(path, title);
         }, 700);
+    }
+
+    // ---- 초대 Xbox (0.0.415) ----
+    // XboxActivity's 재시작 · 불러오기 · the title's relaunch into another XBE: the core runs once
+    // per process, so the game is opened again from here, in a new one.
+    static final String EXTRA_RELAUNCH_XBOX = "com.example.minigba.RELAUNCH_XBOX";
+    static final String EXTRA_RELAUNCH_XBOX_TITLE = "com.example.minigba.RELAUNCH_XBOX_TITLE";
+
+    private void launchXboxGame(String path, String title, Intent extras) {
+        String unsupported = XboxActivity.unsupportedReason(this);
+        if (unsupported != null) {
+            showError(unsupported);
+            return;
+        }
+        File game = new File(path);
+        if (!XboxActivity.isXboxDisc(game)) {
+            try {
+                if (Xdvdfs.read(game).entries.containsKey("default.xex")) {
+                    showError("Xbox 360 게임이에요 (안에 default.xex가 있어요). Xbox 360 모드에 넣어 주세요.");
+                    return;
+                }
+            } catch (IOException e) {
+                showError("초대 Xbox 디스크 이미지가 아니에요. 게임 디스크를 뽑은 .iso(XISO 또는 전체 이미지)를 넣어 주세요.\n(" + e.getMessage() + ")");
+                return;
+            }
+        }
+        Intent intent = new Intent(this, XboxActivity.class);
+        intent.putExtra(XboxActivity.EXTRA_PATH, path);
+        intent.putExtra(XboxActivity.EXTRA_TITLE, title);
+        if (extras != null) {
+            String state = extras.getStringExtra(XboxActivity.EXTRA_LOADSTATE);
+            if (state != null) intent.putExtra(XboxActivity.EXTRA_LOADSTATE, state);
+            if (extras.getBooleanExtra(XboxActivity.EXTRA_RELAUNCH, false)) intent.putExtra(XboxActivity.EXTRA_RELAUNCH, true);
+        }
+        startActivity(intent);
+    }
+
+    private void relaunchXboxIfAsked(Intent intent) {
+        String path = intent == null ? null : intent.getStringExtra(EXTRA_RELAUNCH_XBOX);
+        if (path == null) {
+            return;
+        }
+        String title = intent.getStringExtra(EXTRA_RELAUNCH_XBOX_TITLE);
+        final Intent extras = new Intent(intent);
+        intent.removeExtra(EXTRA_RELAUNCH_XBOX);
+        intent.removeExtra(XboxActivity.EXTRA_LOADSTATE);
+        intent.removeExtra(XboxActivity.EXTRA_RELAUNCH);
+        // A moment for the old core process to end.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (!isFinishing() && !isDestroyed()) launchXboxGame(path, title, extras);
+        }, 700);
+    }
+
+    // An original Xbox disc found in the Xbox 360 list: moved to the original Xbox's folder
+    // (its name and patch record go along), then started.
+    private void moveToXboxMode(File game, String title) {
+        File dir = romDirFor(MODE_XBOX);
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        File target = uniqueFile(dir, game.getName());
+        if (!game.renameTo(target)) {
+            showError("초대 Xbox 모드로 옮기지 못했어요. 홈에서 초대 Xbox 모드를 골라 ROM 추가로 넣어 주세요.");
+            return;
+        }
+        android.content.SharedPreferences prefs = romPrefs();
+        android.content.SharedPreferences.Editor edit = prefs.edit();
+        for (String key : new String[]{"title:", "patched:", "source:"}) {
+            String value = prefs.getString(key + game.getName(), null);
+            if (value != null && !target.getName().equals(game.getName())) {
+                edit.putString(key + target.getName(), value).remove(key + game.getName());
+            }
+        }
+        edit.apply();
+        refreshLibrary();
+        Toast.makeText(this, "초대 Xbox 모드로 옮겼어요", Toast.LENGTH_SHORT).show();
+        launchXboxGame(target.getAbsolutePath(), title, null);
+        markRecentlyPlayed(target);
     }
 
     // A sheet taller than the screen (landscape) scrolls (0.0.398).
@@ -17269,6 +17356,11 @@ public final class MainActivity extends Activity {
         }
         if (MODE_X360.equals(modeForFile(file))) {
             launchX360Game(file.getAbsolutePath(), displayGameNameFor(file));
+            markRecentlyPlayed(file);
+            return;
+        }
+        if (MODE_XBOX.equals(modeForFile(file))) {
+            launchXboxGame(file.getAbsolutePath(), displayGameNameFor(file), null);
             markRecentlyPlayed(file);
             return;
         }

@@ -47,6 +47,12 @@
             android:process=":x360"
             android:exported="false"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
+        <!-- Original Xbox (0.0.415): HakuX's core on SDL3 runs once per process. -->
+        <activity
+            android:name="com.example.minigba.XboxActivity"
+            android:process=":xbox"
+            android:exported="false"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard|uiMode"/>
         <activity
             android:name="com.example.minigba.BgEditorActivity"
             android:process=":game"
