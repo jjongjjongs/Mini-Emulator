@@ -4457,12 +4457,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     private android.app.Dialog cardDialog(View content, float heightShare) {
         android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
-        dialog.setContentView(content);
+        View shown = heightShare > 0 ? ShortScreen.fit(this, content) : content;
+        dialog.setContentView(shown);
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400));
-            window.setLayout(width, heightShare > 0 ? Math.round(getResources().getDisplayMetrics().heightPixels * heightShare) : -2);
+            window.setLayout(width, ShortScreen.height(shown, content, heightShare > 0 ? Math.round(getResources().getDisplayMetrics().heightPixels * heightShare) : -2));
         }
         return dialog;
     }
@@ -4513,7 +4514,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             add.setTextSize(13.5f);
             add.setOnClickListener(view -> showCheatEditor(null));
             buttons.addView(add, new LinearLayout.LayoutParams(0, dp(44), 1.0f));
-            TextView file = dialogButton(isPs2() ? "파일에서 (.pnach · .cht)" : "파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
+            TextView file = dialogButton(isPs2() ? "파일에서 (.pnach · .cht)" : "psp".equals(this.gameMode) ? "파일에서 (.cht · .ini)" : "파일에서 (.cht)", Color.rgb(241, 242, 244), Color.rgb(55, 65, 81));
             file.setTextSize(13.5f);
             file.setOnClickListener(view -> openCheatFile());
             LinearLayout.LayoutParams fileParams = new LinearLayout.LayoutParams(0, dp(44), 1.0f);
@@ -4626,7 +4627,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             panel.addView(createSettingRow(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "", view -> showCheatVersionPicker()), marginTop(-1, dp(52), 12));
         }
         panel.addView(createSettingRow(RoundIconView.CHEAT, CHEAT_RED, "직접 입력", "", view -> showCheatEditor(null)), marginTop(-1, dp(52), collection ? 8 : 12));
-        panel.addView(createSettingRow(RoundIconView.IMPORT, Color.rgb(75, 85, 99), isPs2() ? "파일에서 가져오기 (.pnach · .cht)" : "파일에서 가져오기 (.cht)", "", view -> openCheatFile()), marginTop(-1, dp(52), 8));
+        panel.addView(createSettingRow(RoundIconView.IMPORT, Color.rgb(75, 85, 99), isPs2() ? "파일에서 가져오기 (.pnach · .cht)" : "psp".equals(this.gameMode) ? "파일에서 가져오기 (.cht · .ini)" : "파일에서 가져오기 (.cht)", "", view -> openCheatFile()), marginTop(-1, dp(52), 8));
         if (!collection) {
             return;
         }
@@ -18976,12 +18977,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
-        dialog.setContentView(panel);
+        View shown = ShortScreen.fit(this, panel);
+        dialog.setContentView(shown);
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(440)),
-                    (int) (getResources().getDisplayMetrics().heightPixels * 0.86f));
+                    ShortScreen.height(shown, panel, (int) (getResources().getDisplayMetrics().heightPixels * 0.86f)));
         }
         dialog.show();
     }
@@ -19473,12 +19475,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
-        dialog.setContentView(panel);
+        View shown = ShortScreen.fit(this, panel);
+        dialog.setContentView(shown);
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(440)),
-                    (int) (getResources().getDisplayMetrics().heightPixels * 0.86f));
+                    ShortScreen.height(shown, panel, (int) (getResources().getDisplayMetrics().heightPixels * 0.86f)));
         }
         dialog.show();
     }

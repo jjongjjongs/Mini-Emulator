@@ -4926,11 +4926,12 @@ public final class MainActivity extends Activity {
     }
 
     private void showCardDialog(Dialog dialog, View content, int height) {
-        dialog.setContentView(content);
+        View shown = height > 0 ? ShortScreen.fit(this, content) : content;
+        dialog.setContentView(shown);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(0));
-            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), height);
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), ShortScreen.height(shown, content, height));
         }
         dialog.show();
     }
@@ -10555,12 +10556,13 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
         closeParams.setMargins(dp(14), 0, dp(14), dp(14));
         frame.addView(close, closeParams);
-        dialog.setContentView(frame);
+        View shown = ShortScreen.fit(this, frame);
+        dialog.setContentView(shown);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(0));
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
-            window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(460)), (int) (metrics.heightPixels * 0.86f));
+            window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(460)), ShortScreen.height(shown, frame, (int) (metrics.heightPixels * 0.86f)));
         }
         return body;
     }
@@ -20152,12 +20154,13 @@ public final class MainActivity extends Activity {
             confirmMultiDelete(selected, true, dialog);
         });
         render[0].run();
-        dialog.setContentView(panel);
+        View sheetView = ShortScreen.fit(this, panel);
+        dialog.setContentView(sheetView);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(0));
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
-            window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(460)), (int) (metrics.heightPixels * 0.88f));
+            window.setLayout(Math.min(metrics.widthPixels - dp(24), dp(460)), ShortScreen.height(sheetView, panel, (int) (metrics.heightPixels * 0.88f)));
             window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         dialog.show();
