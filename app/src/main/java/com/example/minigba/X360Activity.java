@@ -37,6 +37,9 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
     static final String EXTRA_ACTION = "com.example.minigba.X360_ACTION";
     static final String EXTRA_PATH = "com.example.minigba.X360_PATH";
     static final String EXTRA_TITLE = "com.example.minigba.X360_TITLE";
+    // (0.0.419) Set for a patched game (or one whose last start ended in a crash): its title
+    // record in the profile (<title id>.gpd) is put aside before the start.
+    static final String EXTRA_RESET_TITLE_DATA = "com.example.minigba.X360_RESET_TITLE_DATA";
 
     private static final int INDIGO = Color.rgb(16, 124, 16);
 
@@ -1493,6 +1496,34 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         }
     }
 
+    // (0.0.419) The title's record in the profile (<title id>.gpd: its name and achievements,
+    // made by the engine on the game's first start from the game's own data). A 한글 patch's
+    // strings there ended the next start with utf8::not_enough_room ("엔진 준비 중" each time
+    // after the first); moved aside (<title id>.gpd.bak), the engine makes it again as on a
+    // first start. Saves are elsewhere (content/<xuid>/<title id>) and stay.
+    static int setAsideTitleRecord(Context context, String gamePath) {
+        String id = gamePath == null ? null : Xdvdfs.titleId(new File(gamePath));
+        if (id == null) return 0;
+        return setAside(contentRoot(context), id.toLowerCase(java.util.Locale.ROOT) + ".gpd", 8);
+    }
+
+    private static int setAside(File dir, String name, int depth) {
+        File[] files = dir == null ? null : dir.listFiles();
+        if (files == null) return 0;
+        int moved = 0;
+        for (File f : files) {
+            if (f.isDirectory()) {
+                if (depth > 0) moved += setAside(f, name, depth - 1);
+            } else if (f.getName().toLowerCase(java.util.Locale.ROOT).equals(name)) {
+                File bak = new File(f.getPath() + ".bak");
+                //noinspection ResultOfMethodCallIgnored
+                bak.delete();
+                if (f.renameTo(bak)) moved++;
+            }
+        }
+        return moved;
+    }
+
     // A profile (게이머태그) to sign in with: games save under it. Made once, kept.
     private static String ensureProfile(Context context) {
         xendroid.compose.Emulator emu = engine();
@@ -1537,6 +1568,9 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         new Thread(() -> {
             String error = null;
             try {
+                if (getIntent().getBooleanExtra(EXTRA_RESET_TITLE_DATA, false)) {
+                    setAsideTitleRecord(app, this.gamePath);
+                }
                 String xuid = ensureProfile(app);
                 writeConfig(app, xuid);
             } catch (Throwable t) {

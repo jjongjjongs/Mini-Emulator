@@ -16745,6 +16745,13 @@ public final class MainActivity extends Activity {
         Intent intent = new Intent(this, X360Activity.class);
         intent.putExtra(X360Activity.EXTRA_PATH, path);
         intent.putExtra(X360Activity.EXTRA_TITLE, title);
+        // (0.0.419) A patched game, or one whose last start ended in "엔진 준비 중": its title
+        // record in the profile is put aside first (X360Activity.setAsideTitleRecord).
+        boolean crashedStarting = EngineLog.stage(this, EngineLog.X360) == EngineLog.PREPARING && title != null
+                && title.equals(EngineLog.title(this, EngineLog.X360));
+        if (patchedFrom(new File(path)) != null || crashedStarting) {
+            intent.putExtra(X360Activity.EXTRA_RESET_TITLE_DATA, true);
+        }
         startActivity(intent);
     }
 

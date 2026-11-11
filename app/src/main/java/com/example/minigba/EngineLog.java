@@ -159,7 +159,11 @@ final class EngineLog {
                 exit.time = info.getTimestamp();
                 exit.pid = info.getPid();
                 try (InputStream trace = info.getTraceInputStream()) {
-                    if (trace != null) exit.trace = printable(trace, 400);
+                    if (trace != null) {
+                        byte[] data = readAll(trace);
+                        String frames = info.getReason() == ApplicationExitInfo.REASON_CRASH_NATIVE ? tombstoneFrames(data) : "";
+                        exit.trace = (frames.isEmpty() ? "" : "-- 스택 (rel_pc) --\n" + frames + "\n") + printable(new java.io.ByteArrayInputStream(data), 400);
+                    }
                 } catch (Exception ignored) {
                     // no trace kept
                 }
@@ -183,6 +187,132 @@ final class EngineLog {
             case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE: return "자원을 너무 많이 씀";
             case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE: return "시작 실패";
             default: return "기타 (" + reason + ")";
+        }
+    }
+
+    private static byte[] readAll(InputStream in) throws java.io.IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        for (int n; (n = in.read(buffer)) > 0 && bytes.size() < (4 << 20); ) bytes.write(buffer, 0, n);
+        return bytes.toByteArray();
+    }
+
+    // (0.0.419) A native crash's tombstone (protobuf): the crashing thread's frames first,
+    // "#nn rel_pc file (function+offset)". Frames are found by shape (BacktraceFrame: 1
+    // rel_pc, 4 function_name, 5 function_offset, 6 file_name), threads by their id (1) and
+    // name (2) around them; the tombstone's tid (field 5) picks the crashing one.
+    static String tombstoneFrames(byte[] data) {
+        StringBuilder out = new StringBuilder();
+        long[] tid = {-1};
+        List<String> threads = new ArrayList<>();
+        try {
+            walk(data, 0, data.length, 0, tid, threads, null);
+        } catch (RuntimeException ignored) {
+            // a damaged tombstone: what was found so far
+        }
+        String crashing = null;
+        for (String t : threads) {
+            if (t.startsWith("tid " + tid[0] + " ")) crashing = t;
+        }
+        if (crashing != null) out.append(crashing);
+        for (String t : threads) {
+            if (t != crashing && out.length() < 60000) out.append(t);
+        }
+        return out.toString();
+    }
+
+    private static long varint(byte[] d, int[] pos, int end) {
+        long v = 0;
+        int shift = 0;
+        while (pos[0] < end) {
+            int b = d[pos[0]++] & 0xFF;
+            v |= (long) (b & 0x7F) << shift;
+            if ((b & 0x80) == 0) return v;
+            shift += 7;
+            if (shift > 63) throw new IllegalStateException();
+        }
+        throw new IllegalStateException();
+    }
+
+    // Whether [from, end) parses as protobuf fields to the end.
+    private static boolean looksLikeMessage(byte[] d, int from, int end) {
+        int[] pos = {from};
+        try {
+            int fields = 0;
+            while (pos[0] < end) {
+                long key = varint(d, pos, end);
+                int type = (int) (key & 7);
+                if (key >>> 3 == 0) return false;
+                if (type == 0) varint(d, pos, end);
+                else if (type == 1) pos[0] += 8;
+                else if (type == 5) pos[0] += 4;
+                else if (type == 2) {
+                    long len = varint(d, pos, end);
+                    if (len < 0 || pos[0] + len > end) return false;
+                    pos[0] += (int) len;
+                } else return false;
+                fields++;
+            }
+            return pos[0] == end && fields > 0;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static String utf8(byte[] d, int from, int len) {
+        return new String(d, from, len, StandardCharsets.UTF_8);
+    }
+
+    // Walks one message; frame-shaped messages are formatted, thread-shaped ones collect
+    // their frames.
+    private static void walk(byte[] d, int from, int end, int depth, long[] tid, List<String> threads, StringBuilder frames) {
+        if (depth > 6) return;
+        int[] pos = {from};
+        long relPc = -1;
+        long fnOffset = 0;
+        String fn = null;
+        String file = null;
+        long threadId = -1;
+        String threadName = null;
+        StringBuilder mine = new StringBuilder();
+        int frameCount = 0;
+        while (pos[0] < end) {
+            long key = varint(d, pos, end);
+            int field = (int) (key >>> 3);
+            int type = (int) (key & 7);
+            if (type == 0) {
+                long v = varint(d, pos, end);
+                if (field == 1) { relPc = v; threadId = v; }
+                if (field == 5) { fnOffset = v; if (depth == 0) tid[0] = v; }
+            } else if (type == 1) {
+                pos[0] += 8;
+            } else if (type == 5) {
+                pos[0] += 4;
+            } else if (type == 2) {
+                int len = (int) varint(d, pos, end);
+                int start = pos[0];
+                pos[0] += len;
+                if (field == 4 && depth > 0) fn = utf8(d, start, len);
+                if (field == 6 && depth > 0) file = utf8(d, start, len);
+                if (field == 2 && depth > 0 && len < 64) threadName = utf8(d, start, len);
+                if (len > 2 && looksLikeMessage(d, start, start + len)) {
+                    int before = mine.length();
+                    walk(d, start, start + len, depth + 1, tid, threads, mine);
+                    if (mine.length() > before) frameCount++;
+                }
+            } else {
+                return;
+            }
+        }
+        if (file != null && relPc >= 0 && (file.endsWith(".so") || file.contains(".so ") || file.startsWith("/")) && frames != null) {
+            String shortFile = file.substring(file.lastIndexOf('/') + 1);
+            frames.append(String.format(Locale.ROOT, "  pc %08x  %s", relPc, shortFile));
+            if (fn != null && !fn.isEmpty()) frames.append(" (").append(fn).append('+').append(fnOffset).append(')');
+            frames.append('\n');
+        } else if (frameCount >= 2 && threadId >= 0) {
+            threads.add("tid " + threadId + " " + (threadName == null ? "" : threadName) + "\n" + mine);
+        } else if (frames != null && mine.length() > 0) {
+            frames.append(mine);
         }
     }
 
