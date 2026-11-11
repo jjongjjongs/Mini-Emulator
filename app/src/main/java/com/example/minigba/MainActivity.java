@@ -3445,6 +3445,8 @@ public final class MainActivity extends Activity {
             onArcadePatchPicked(intent);
         } else if (i == REQUEST_VITA_LICENSE) {
             onVitaLicensePicked(intent);
+        } else if (i == REQUEST_X360_PATCH) {
+            onX360PatchPicked(intent);
         } else if (i == REQUEST_VITA_KOPATCH) {
             onVitaKoPatchPicked(intent);
         } else if (i == REQUEST_VITA_ADDON) {
@@ -7027,6 +7029,11 @@ public final class MainActivity extends Activity {
             patchParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createPatchRow(dialog, file), patchParams);
         }
+        if (MODE_X360.equals(mode) && !file.getName().toLowerCase(Locale.ROOT).endsWith(".zar")) {
+            LinearLayout.LayoutParams gameParams = new LinearLayout.LayoutParams(-1, dp(52));
+            gameParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(16, 124, 16), "게임 패치 (60fps · 화질 등, 켜고 끄기)", () -> showX360GamePatches(file)), gameParams);
+        }
         if (overlayKind(file) != null) {
             LinearLayout.LayoutParams overlayParams = new LinearLayout.LayoutParams(-1, dp(52));
             overlayParams.setMargins(0, dp(9), 0, 0);
@@ -7118,7 +7125,7 @@ public final class MainActivity extends Activity {
     private File patchRom;
 
     private static final String[] PATCHABLE_MODES = {MODE_GBA, MODE_NDS, MODE_SNES, MODE_NES, MODE_MD, MODE_SMS, MODE_PCE, MODE_N64, MODE_WS, MODE_NGP,
-            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS, MODE_GC, MODE_MSX, MODE_PC98};
+            MODE_PS1, MODE_PSP, MODE_PS2, MODE_MCD, MODE_SS, MODE_DC, MODE_N3DS, MODE_GC, MODE_MSX, MODE_PC98, MODE_X360};
 
     // Cartridge games, and PS1 (BIN/CUE, ISO), PSP and PS2 (ISO) discs. Compressed images
     // (CHD, CSO, PBP) would have to be unpacked first; arcade sets are not patched here.
@@ -7151,6 +7158,10 @@ public final class MainActivity extends Activity {
             // is not a game file to patch.
             return name.endsWith(".3ds") || name.endsWith(".cci") || name.endsWith(".cxi");
         }
+        if (MODE_X360.equals(mode)) {
+            // (0.0.414) A disc image; a .zar or a lone .xex is not one.
+            return name.endsWith(".iso");
+        }
         if (MODE_GC.equals(mode)) {
             // A plain disc image (0.0.313); RVZ, WIA, GCZ, CISO and WBFS are compressed.
             return name.endsWith(".iso") || name.endsWith(".gcm");
@@ -7172,6 +7183,10 @@ public final class MainActivity extends Activity {
         if (name.endsWith(".chd") || name.endsWith(".cso") || name.endsWith(".pbp")) {
             return "압축된 디스크(" + name.substring(name.lastIndexOf('.') + 1).toUpperCase(Locale.ROOT)
                     + ")는 패치할 수 없어요. 패치는 보통 BIN/CUE나 ISO용이라, 그 형식의 원본이 필요해요.";
+        }
+        if (MODE_X360.equals(modeForFile(file)) && !name.endsWith(".iso")) {
+            return "패치는 디스크 이미지(.iso)에만 쓸 수 있어요. ." + name.substring(name.lastIndexOf('.') + 1)
+                    + " 게임은 패치 대신 게임 메뉴의 \"게임 패치\"(엔진이 실행할 때 고치는 패치)를 써 주세요.";
         }
         if (MODE_GC.equals(modeForFile(file)) && !(name.endsWith(".iso") || name.endsWith(".gcm"))) {
             return "압축된 디스크(" + name.substring(name.lastIndexOf('.') + 1).toUpperCase(Locale.ROOT)
@@ -7216,7 +7231,7 @@ public final class MainActivity extends Activity {
         TextView value = new TextView(this);
         String mode = modeForFile(file);
         boolean disc = MODE_PS1.equals(mode) || MODE_PSP.equals(mode) || MODE_PS2.equals(mode);
-        value.setText(MODE_DC.equals(mode) ? "xdelta·.dcp  ›" : disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
+        value.setText(MODE_X360.equals(mode) ? "xdelta·PPF·파일  ›" : MODE_DC.equals(mode) ? "xdelta·.dcp  ›" : disc ? "PPF·xdelta  ›" : "IPS·BPS·xdelta  ›");
         value.setTextSize(12.5f);
         value.setTypeface(Typeface.DEFAULT_BOLD);
         value.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
@@ -11548,6 +11563,20 @@ public final class MainActivity extends Activity {
             openPatchArchive(file, first, displayNameFor(first.get(0)));
             return;
         }
+        // (0.0.414) An Xbox 360 .patch.toml is a game patch the engine applies: to that screen.
+        if (MODE_X360.equals(modeForFile(file))) {
+            for (Uri uri : picked) {
+                String name = displayNameFor(uri);
+                if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".toml")) {
+                    if (this.prepDialog != null && this.prepDialog.isShowing()) {
+                        this.prepDialog.dismiss();
+                    }
+                    this.pendingX360PatchGame = file;
+                    onX360PatchPicked(new Intent().setData(uri));
+                    return;
+                }
+            }
+        }
         // A PS2 .pnach is a 덧씌우는 패치: over to that screen.
         if (overlayKind(file) != null) {
             for (Uri uri : picked) {
@@ -12501,6 +12530,10 @@ public final class MainActivity extends Activity {
                     onOverlayPicked(game, uris.get(0), false);
                     return;
                 }
+                if (!anyPatch && MODE_X360.equals(modeForFile(game)) && archiveName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                    openXdvdfsPatch(game, uris.get(0), archiveName);  // (0.0.414) 파일 바꾸기 패치
+                    return;
+                }
                 if (!anyPatch) {
                     this.prepError = archiveName + " 안에 패치 파일(IPS · UPS · BPS · PPF · xdelta · APS · RUP · BDF)이 없어요.";
                     renderPatchPrep();
@@ -12509,6 +12542,356 @@ public final class MainActivity extends Activity {
                 showArchivePatches(game, archiveName, list);
             });
         }, "patch-archive-read").start();
+    }
+
+    // ---- (0.0.414) Xbox 360 게임 패치: the engine's .patch.toml patches for this game, on / off ----
+    private static final int REQUEST_X360_PATCH = 1096;
+    private File pendingX360PatchGame;
+
+    private void showX360GamePatches(final File game) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("게임 ID를 읽는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String id = romPrefs().getString("x360id:" + game.getName(), null);
+            if (id == null) {
+                id = Xdvdfs.titleId(game);
+                if (id != null) romPrefs().edit().putString("x360id:" + game.getName(), id).apply();
+            }
+            final String titleId = id;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) return;
+                if (titleId == null) {
+                    showError(X360Activity.isOriginalXboxDisc(game) ? "초대 Xbox 게임이라 Xbox 360 게임 패치가 없어요."
+                            : "게임 ID를 읽지 못했어요. default.xex가 든 Xbox 360 디스크 이미지(.iso)나 .xex 파일이어야 해요.");
+                    return;
+                }
+                renderX360GamePatches(game, titleId);
+            });
+        }, "x360-title").start();
+    }
+
+    private void renderX360GamePatches(final File game, final String titleId) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(Theme.bg(-1), dp(24)));
+        cardHeader(panel, RoundIconView.PATCH, Color.rgb(16, 124, 16), "게임 패치", displayGameNameFor(game) + " · " + titleId);
+        TextView about = new TextView(this);
+        about.setText("엔진이 게임을 켤 때 메모리를 고치는 패치예요. 게임 파일은 그대로고, 켜고 끄면 다음 실행부터 적용돼요. 판(TU)마다 따로 있어서, 게임 판과 맞는 것만 엔진이 적용해요.");
+        about.setTextSize(11.5f);
+        about.setTextColor(Theme.text(Color.rgb(100, 108, 118)));
+        about.setPadding(0, dp(8), 0, dp(4));
+        panel.addView(about);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(1);
+        int count = 0;
+        for (String[] f : X360Patches.files(this, titleId)) {
+            boolean added = "added".equals(f[1]);
+            List<X360Patches.Patch> patches;
+            try {
+                patches = X360Patches.parse(X360Patches.read(this, f[0], added), f[0], added);
+            } catch (IOException e) {
+                continue;
+            }
+            if (patches.isEmpty()) continue;
+            TextView group = new TextView(this);
+            String version = patches.get(0).version;
+            group.setText((added ? "내 패치 · " : "엔진 기본 · ") + (version.isEmpty() ? "기본 판" : version));
+            group.setTextSize(11.5f);
+            group.setTypeface(Typeface.DEFAULT_BOLD);
+            group.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+            group.setPadding(dp(2), dp(10), 0, dp(4));
+            list.addView(group);
+            for (final X360Patches.Patch patch : patches) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(0);
+                row.setGravity(16);
+                row.setPadding(dp(12), dp(8), dp(8), dp(8));
+                row.setBackground(rounded(Theme.bg(Color.rgb(246, 247, 249)), dp(12)));
+                LinearLayout texts = new LinearLayout(this);
+                texts.setOrientation(1);
+                TextView name = new TextView(this);
+                name.setText(patch.name.isEmpty() ? "패치 " + (patch.index + 1) : patch.name);
+                name.setTextSize(13.5f);
+                name.setTypeface(Typeface.DEFAULT_BOLD);
+                name.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+                texts.addView(name);
+                String sub = (patch.desc.isEmpty() ? "" : patch.desc) + (patch.author.isEmpty() ? "" : (patch.desc.isEmpty() ? "" : " · ") + patch.author);
+                if (!sub.isEmpty()) {
+                    TextView desc = new TextView(this);
+                    desc.setText(sub);
+                    desc.setTextSize(11f);
+                    desc.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+                    texts.addView(desc);
+                }
+                row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1.0f));
+                android.widget.Switch toggle = new android.widget.Switch(this);
+                toggle.setChecked(X360Patches.isOn(this, patch));
+                toggle.setOnCheckedChangeListener((b, on) -> {
+                    X360Patches.set(this, patch, on);
+                    new Thread(() -> X360Patches.sync(getApplicationContext()), "x360-patch-sync").start();
+                });
+                row.addView(toggle);
+                row.setOnClickListener(v -> toggle.toggle());
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+                rowParams.setMargins(0, dp(3), 0, dp(3));
+                list.addView(row, rowParams);
+                count++;
+            }
+        }
+        if (count == 0) {
+            TextView none = new TextView(this);
+            none.setText("이 게임(" + titleId + ")용 패치가 엔진에 없어요. 받은 .patch.toml이 있으면 아래 \"패치 파일 추가\"로 넣어 주세요.");
+            none.setTextSize(12.5f);
+            none.setTextColor(Theme.text(Color.rgb(100, 108, 118)));
+            none.setPadding(dp(2), dp(10), dp(2), dp(10));
+            list.addView(none);
+        }
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(0);
+        TextView add = new TextView(this);
+        add.setText("패치 파일 추가");
+        TextView close = new TextView(this);
+        close.setText("닫기");
+        for (TextView b : new TextView[]{add, close}) {
+            b.setGravity(17);
+            b.setTextSize(14f);
+            b.setTypeface(Typeface.DEFAULT_BOLD);
+        }
+        add.setTextColor(-1);
+        add.setBackground(rounded(Color.rgb(16, 124, 16), dp(14)));
+        close.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        close.setBackground(rounded(Theme.bg(Color.rgb(238, 240, 243)), dp(14)));
+        add.setOnClickListener(v -> {
+            dialog.dismiss();
+            this.pendingX360PatchGame = game;
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            try {
+                startActivityForResult(intent, REQUEST_X360_PATCH);
+            } catch (Exception e) {
+                showError("파일을 고르는 화면을 열 수 없어요.");
+            }
+        });
+        close.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        addParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(add, addParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+
+        if (ShortScreen.twoColumns(this)) {
+            // Landscape: the title and buttons left, the patches right.
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            buttons.setLayoutParams(buttonsParams);
+            buttons.setOrientation(1);
+            add.setLayoutParams(new LinearLayout.LayoutParams(-1, dp(46)));
+            LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+            closeParams.setMargins(0, dp(8), 0, 0);
+            buttons.removeAllViews();
+            buttons.addView(add);
+            buttons.addView(close, closeParams);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), list, rounded(Theme.bg(-1), dp(20)), 280);
+        } else {
+            panel.addView(list);
+            panel.addView(buttons, buttonsParams);
+            ScrollView scroll = new ScrollView(this);
+            scroll.addView(panel);
+            dialog.setContentView(scroll);
+            Window window = dialog.getWindow();
+            if (window != null) {
+                window.setBackgroundDrawable(new ColorDrawable(0));
+                window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+            }
+        }
+        dialog.show();
+    }
+
+    private void onX360PatchPicked(Intent data) {
+        final File game = this.pendingX360PatchGame;
+        this.pendingX360PatchGame = null;
+        if (data == null || data.getData() == null || game == null) return;
+        final Uri uri = data.getData();
+        final String shown = displayNameFor(uri);
+        new Thread(() -> {
+            String error = null;
+            String id = null;
+            File temp = new File(getCacheDir(), "x360_patch.toml");
+            try {
+                copyUriToFile(uri, temp);
+                id = X360Patches.add(this, temp, shown);
+                X360Patches.sync(getApplicationContext());
+            } catch (IOException e) {
+                error = e.getMessage();
+            } finally {
+                temp.delete();
+            }
+            final String why = error;
+            final String added = id;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                if (why != null) {
+                    showError(why);
+                    return;
+                }
+                String gameId = romPrefs().getString("x360id:" + game.getName(), null);
+                if (gameId != null && !gameId.equalsIgnoreCase(added)) {
+                    showError("넣었지만, 이 패치는 다른 게임(" + added + ")용이에요. 이 게임은 " + gameId + "예요.");
+                    return;
+                }
+                Toast.makeText(this, "패치 파일을 넣었어요. 켤 패치를 골라 주세요.", Toast.LENGTH_SHORT).show();
+                renderX360GamePatches(game, added);
+            });
+        }, "x360-patch-add").start();
+    }
+
+    // ---- Xbox 파일 바꾸기 패치: a zip of the disc's own files (media/…, default.xex)
+    // makes a copy of the image with them replaced (Xdvdfs). ----
+    private void openXdvdfsPatch(final File game, final Uri uri, final String zipName) {
+        if (this.prepDialog != null && this.prepDialog.isShowing()) {
+            this.prepDialog.dismiss();
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("디스크 안의 파일과 맞춰 보는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            File zipFile = new File(getCacheDir(), "xdvdfs_patch.zip");
+            String error = null;
+            Xdvdfs disc = null;
+            Xdvdfs.Plan plan = null;
+            try {
+                copyUriToFile(uri, zipFile);
+                disc = Xdvdfs.read(game);
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(zipFile)) {
+                    plan = Xdvdfs.plan(disc, zip);
+                }
+                if (plan == null || plan.targets.isEmpty()) {
+                    error = zipName + " 안에 패치 파일(xdelta · PPF 등)도, 이 디스크에 있는 파일도 없어요.\n파일 바꾸기 패치라면 zip 안 폴더가 디스크와 같아야 해요 (예: media/…, default.xex).";
+                }
+            } catch (IOException e) {
+                error = e.getMessage();
+            }
+            final String why = error;
+            final Xdvdfs found = disc;
+            final Xdvdfs.Plan made = plan;
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    zipFile.delete();
+                    return;
+                }
+                if (why != null) {
+                    zipFile.delete();
+                    showError(why);
+                    return;
+                }
+                confirmXdvdfsPatch(game, zipFile, zipName, found, made);
+            });
+        }, "xdvdfs-plan").start();
+    }
+
+    private void confirmXdvdfsPatch(final File game, final File zipFile, final String zipName, final Xdvdfs disc, final Xdvdfs.Plan plan) {
+        final String gameName = displayGameNameFor(game);
+        final String newName = gameName + " (한글)";
+        long needed = game.length() + plan.grows;
+        StringBuilder text = new StringBuilder();
+        text.append("원본: ").append(gameName).append(" · ").append(formatSize(game.length())).append('\n');
+        text.append("패치: ").append(zipName).append('\n');
+        text.append("바꿀 파일 ").append(plan.targets.size()).append("개");
+        if (!plan.prefix.isEmpty()) {
+            text.append(" (zip 안 \"").append(plan.prefix).append("\" 아래)");
+        }
+        text.append('\n');
+        for (int k = 0; k < Math.min(6, plan.targets.size()); k++) {
+            text.append("  · ").append(plan.targets.get(k).shownPath).append('\n');
+        }
+        if (plan.targets.size() > 6) {
+            text.append("  · … 외 ").append(plan.targets.size() - 6).append("개\n");
+        }
+        if (!plan.unknown.isEmpty()) {
+            text.append("\n디스크에 없는 파일 ").append(plan.unknown.size()).append("개는 넣지 못해요 (새 파일은 더할 수 없어요):\n");
+            for (int k = 0; k < Math.min(4, plan.unknown.size()); k++) {
+                text.append("  · ").append(plan.unknown.get(k)).append('\n');
+            }
+            if (plan.unknown.size() > 4) {
+                text.append("  · … 외 ").append(plan.unknown.size() - 4).append("개\n");
+            }
+        }
+        text.append("\n새 게임: ").append(newName).append("\n필요한 공간: ").append(formatSize(needed)).append(" (원본은 그대로 둬요)");
+        new AppDialog.Builder(this).setTitle("파일 바꾸기 패치")
+                .setMessage(text.toString())
+                .setNegativeButton("취소", (d, w) -> zipFile.delete())
+                .setPositiveButton("적용", (d, w) -> runXdvdfsPatch(game, zipFile, zipName, disc, plan, newName))
+                .show();
+    }
+
+    private void runXdvdfsPatch(final File game, final File zipFile, final String zipName, final Xdvdfs disc, final Xdvdfs.Plan plan, final String newName) {
+        File dir = outputDirFor(game);
+        final File out = uniqueFile(dir, sanitizeSaveBaseName(newName) + ".iso");
+        final File temp = new File(dir, "." + out.getName() + ".patching");
+        long needed = game.length() + plan.grows;
+        long free = new android.os.StatFs(dir.getAbsolutePath()).getAvailableBytes();
+        if (free < needed + 64L * 1024 * 1024) {
+            zipFile.delete();
+            showError("저장 공간이 부족해요. 패치한 복사본을 만들려면 " + formatSize(needed) + " 정도가 필요한데, 남은 공간은 " + formatSize(free) + "예요.");
+            return;
+        }
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL);
+        progress.setMax(1000);
+        progress.setMessage("패치를 적용하는 중… 디스크가 커서 몇 분 걸릴 수 있어요");
+        progress.setCancelable(false);
+        progress.show();
+        this.patchRunning = true;
+        new Thread(() -> {
+            String error = null;
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(zipFile)) {
+                final long[] last = {0};
+                Xdvdfs.apply(game, disc, zip, plan, temp, (done, total) -> {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - last[0] < 250) return;
+                    last[0] = now;
+                    int at = (int) (done * 1000 / Math.max(1, total));
+                    runOnUiThread(() -> progress.setProgress(at));
+                });
+                if (!temp.renameTo(out)) {
+                    throw new IOException("패치한 게임을 저장하지 못했어요.");
+                }
+            } catch (IOException e) {
+                error = e.getMessage();
+                temp.delete();
+            } finally {
+                zipFile.delete();
+            }
+            final String why = error;
+            runOnUiThread(() -> {
+                this.patchRunning = false;
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (why != null) {
+                    showError("패치하지 못했어요: " + why);
+                    return;
+                }
+                romPrefs().edit().putString("title:" + out.getName(), newName).putString("patched:" + out.getName(), displayGameNameFor(game)).apply();
+                File placed = finishNewGame(game, out, false);
+                recordPatch(placed, "파일 바꾸기", java.util.Collections.singletonList(zipName + " · 파일 " + plan.targets.size() + "개"));
+                Toast.makeText(this, "패치를 적용했어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
+                refreshLibrary();
+            });
+        }, "xdvdfs-patch").start();
     }
 
     // "추천" for the patch made for this ROM (its checksum, or an xdelta reading exactly its size).
@@ -16320,6 +16703,7 @@ public final class MainActivity extends Activity {
     static final String EXTRA_RELAUNCH_X360_TITLE = "com.example.minigba.RELAUNCH_X360_TITLE";
 
     private void launchX360Game(String path, String title) {
+        X360Patches.sync(this);  // (0.0.414) the game patches as chosen
         String unsupported = X360Activity.unsupportedReason(this);
         if (unsupported != null) {
             showError(unsupported);
