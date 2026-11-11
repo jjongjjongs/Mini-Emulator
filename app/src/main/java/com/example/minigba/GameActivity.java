@@ -12589,7 +12589,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
     }
 
     private boolean isSaturn() {
-        return "yabasanshiro".equals(this.coreId);
+        return "yabasanshiro".equals(this.coreId) || MainActivity.CORE_BEETLE_SS.equals(this.coreId);
+    }
+
+    private boolean isBeetleSaturn() {
+        return MainActivity.CORE_BEETLE_SS.equals(this.coreId);
     }
 
     // Saturn pad as YabaSanshiro reads it: A/B/C are libretro B/A/L, X/Y/Z are Y/X/R, and
@@ -12673,7 +12677,65 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         return Math.max(0, MainActivity.sharedSettings(this).getInt(key + ":" + this.saveBaseName, 0));
     }
 
+    private static final String[] SS_ENGINE_NAMES = {"YabaSanshiro (빠름)", "Beetle Saturn (정확)"};
+    private static final String[] SS_ENGINE_NOTES = {"가볍고 고해상도 가능 · 대부분 게임 (기본)",
+            "가장 정확한 새턴 에뮬레이터 (메드나펜) · 한글패치처럼 프로그램을 고친 게임, YabaSanshiro에서 멈추거나 깨지는 게임에 · 무거움 · 원래 해상도만"};
+
+    private LinearLayout createSaturnEngineRow(android.app.Dialog menu) {
+        final int current = isBeetleSaturn() ? 1 : 0;
+        final int color = Color.rgb(15, 118, 110);
+        return createSettingRow(RoundIconView.GEAR, color, "새턴 엔진", SS_ENGINE_NAMES[current],
+                view -> showChoiceDialog(RoundIconView.GEAR, color, "새턴 엔진 · 이 게임만", SS_ENGINE_NAMES, SS_ENGINE_NOTES, current,
+                        "엔진을 바꾸면 빠른 저장(장면)은 그 엔진에서만 열려요. 게임 안의 세이브(본체 RAM)도 엔진마다 따로예요.\n"
+                                + "Beetle Saturn은 게임 지역에 맞는 진짜 BIOS를 써요 (새턴 화면 › 새턴 BIOS). 느리면 YabaSanshiro로 되돌리세요.",
+                        Color.rgb(240, 253, 250), Color.rgb(17, 94, 89), "적용 (다시 켜기)", choice -> {
+                    if (choice == current) {
+                        return;
+                    }
+                    if (choice == 1 && !new File(getApplicationInfo().nativeLibraryDir, "libmednafen_saturn_libretro_android.so").isFile()) {
+                        Toast.makeText(this, "이 버전에는 Beetle Saturn 엔진이 들어 있지 않아요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    File system = new File(getFilesDir(), "system");
+                    if (choice == 1 && !new File(system, MainActivity.SS_BIOS_JP).isFile() && !new File(system, MainActivity.SS_BIOS_US).isFile()
+                            && !new File(system, "saturn_bios.bin").isFile()) {
+                        Toast.makeText(this, "Beetle Saturn은 진짜 새턴 BIOS가 있어야 해요. 새턴 화면의 \"새턴 BIOS\" 칸에서 넣어 주세요.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (choice == 1) {
+                        // An older import only as saturn_bios.bin: also under the region's name.
+                        File bios = new File(system, "saturn_bios.bin");
+                        File jp = new File(system, MainActivity.SS_BIOS_JP);
+                        File us = new File(system, MainActivity.SS_BIOS_US);
+                        if (bios.isFile() && !jp.isFile() && !us.isFile()) {
+                            try {
+                                java.nio.file.Files.copy(bios.toPath(), jp.toPath());
+                            } catch (java.io.IOException ignored) {
+                                // Beetle Saturn says so when it starts.
+                            }
+                        }
+                    }
+                    String core = choice == 1 ? MainActivity.CORE_BEETLE_SS : "yabasanshiro";
+                    MainActivity.sharedSettings(this).edit().putString(MainActivity.ssEngineKey(romFileName()), core).commit();
+                    menu.dismiss();
+                    relaunchWithCore(core);
+                }));
+    }
+
     private void addSaturnRows(LinearLayout panel, android.app.Dialog menu) {
+        panel.addView(createSaturnEngineRow(menu), tabRowParams(panel));
+        if (isBeetleSaturn()) {
+            // SH-2 · BIOS · 폴리곤 are YabaSanshiro's: Beetle Saturn always runs the accurate way.
+            String[] titles = {"SH-2 처리 방식", "BIOS", "폴리곤 그리기"};
+            int[] colors = {Color.rgb(71, 85, 105), Color.rgb(190, 18, 60), Color.rgb(124, 58, 237)};
+            for (int k = 0; k < titles.length; k++) {
+                LinearLayout row = createSettingRow(RoundIconView.GEAR, colors[k], titles[k], "YabaSanshiro 전용",
+                        view -> Toast.makeText(this, "YabaSanshiro일 때만 쓰는 설정이에요. Beetle Saturn은 늘 정확한 방식 · 진짜 BIOS로 돌아요.", Toast.LENGTH_SHORT).show());
+                row.setAlpha(0.4f);
+                panel.addView(row, tabRowParams(panel));
+            }
+            return;
+        }
         String[][] names = {SS_SH2_NAMES, SS_BIOS_NAMES, SS_POLY_NAMES};
         String[][] notes = {SS_SH2_NOTES, SS_BIOS_NOTES, SS_POLY_NOTES};
         String[] keys = {"ss_sh2", "ss_bios", "ss_poly"};
@@ -20291,6 +20353,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             case "ngp":
             case "picodrive":
             case "yabasanshiro":
+            case "mednafen_saturn":
             case "dolphin":
             case "dosbox_pure":
             case "np2kai":

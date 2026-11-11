@@ -182,6 +182,9 @@ public final class MainActivity extends Activity {
         if (CORE_SWAN.equals(core)) {
             core = CORE_PCSX;  // the second PS1 engine takes the PS1 files
         }
+        if (CORE_BEETLE_SS.equals(core)) {
+            core = "yabasanshiro";  // the second Saturn engine takes the Saturn files
+        }
         // One engine can serve several modes (Genesis Plus GX: Mega Drive and Master System).
         for (String[] console : CONSOLES) {
             if (console[1].equals(core) && hasExtension(lowerCaseName, console[2])) {
@@ -201,7 +204,7 @@ public final class MainActivity extends Activity {
     // Game modes shown on the picker. Only GBA ships an engine so far.
     private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_PS3, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
     private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "PS3", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "ARMSX3 1.6.7 (시험판)", "Dolphin (시험판)", "YabaSanshiro", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "ARMSX3 1.6.7 (시험판)", "Dolphin (시험판)", "YabaSanshiro · Beetle Saturn", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
     private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".iso · 펌웨어 필요", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
     private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ps3, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
@@ -16527,7 +16530,14 @@ public final class MainActivity extends Activity {
 
     private void startGameActivity(File file) {
         String mode = modeForFile(file);
-        if (MODE_SS.equals(mode) && !saturnBiosFile().isFile() && settingsPrefs().getInt("ss_bios:" + saveBaseNameFor(file), 0) != 1) {
+        if (MODE_SS.equals(mode) && CORE_BEETLE_SS.equals(coreFor(file))) {
+            syncSaturnRegionBios();
+            if (!new File(systemDir(), SS_BIOS_JP).isFile() && !new File(systemDir(), SS_BIOS_US).isFile()) {
+                showError("Beetle Saturn은 진짜 새턴 BIOS가 있어야 해요. 새턴 화면의 BIOS 칸에서 가져와 주세요.");
+                showSaturnBiosSheet();
+                return;
+            }
+        } else if (MODE_SS.equals(mode) && !saturnBiosFile().isFile() && settingsPrefs().getInt("ss_bios:" + saveBaseNameFor(file), 0) != 1) {
             showError("세가 새턴 게임은 새턴 BIOS가 필요해요. 새턴 화면의 BIOS 칸에서 가져와 주세요.");
             showSaturnBiosSheet();
             return;
@@ -21915,6 +21925,9 @@ public final class MainActivity extends Activity {
             if (MODE_PS1.equals(mode)) {
                 return ps1CoreFor(file);
             }
+            if (MODE_SS.equals(mode) && CORE_BEETLE_SS.equals(settingsPrefs().getString(ssEngineKey(file.getName()), null)) && beetleSaturnShipped()) {
+                return CORE_BEETLE_SS;
+            }
             return console[1];
         }
         return MODE_GBA;
@@ -21922,6 +21935,18 @@ public final class MainActivity extends Activity {
 
     // ---- PS1: two engines, picked per game (게임기 탭 › PS1 엔진). SwanStation (high quality)
     // for new games; a game already played on PCSX ReARMed (a scene saved there) stays on it.
+    // ---- 새턴: two engines, picked per game (게임기 탭 › 새턴 엔진, 0.0.404). Beetle Saturn
+    // (Mednafen, accurate) needs the BIOS of the game's region under its own file name.
+    static final String CORE_BEETLE_SS = "mednafen_saturn";
+
+    static String ssEngineKey(String romName) {
+        return "ss_engine:" + romName;
+    }
+
+    private boolean beetleSaturnShipped() {
+        return new File(getApplicationInfo().nativeLibraryDir, "libmednafen_saturn_libretro_android.so").isFile();
+    }
+
     static final String CORE_SWAN = "swanstation";
     static final String CORE_PCSX = "pcsx_rearmed";
 
@@ -22187,6 +22212,46 @@ public final class MainActivity extends Activity {
         return new File(systemDir(), "saturn_bios.bin");
     }
 
+    // Beetle Saturn's names: the Japanese BIOS and the North American / European one.
+    static final String SS_BIOS_JP = "sega_101.bin";
+    static final String SS_BIOS_US = "mpr-17933.bin";
+    private static final java.util.Set<String> SS_BIOS_US_MD5 = new java.util.HashSet<>(java.util.Arrays.asList(
+            "3240872c70984b6cbfda1586cab68dbe"));   // mpr-17933 (v1.00, NA / EU)
+
+    private static String md5Of(byte[] data) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            StringBuilder hex = new StringBuilder();
+            for (byte b : md.digest(data)) hex.append(String.format(Locale.ROOT, "%02x", b & 0xFF));
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return "";
+        }
+    }
+
+    // A BIOS file under the name of its region (a known NA/EU dump; anything else counts as
+    // Japanese, the BIOS most Saturn players have). Returns the file written.
+    private File storeSaturnRegionBios(byte[] data) throws IOException {
+        File target = new File(systemDir(), SS_BIOS_US_MD5.contains(md5Of(data)) ? SS_BIOS_US : SS_BIOS_JP);
+        try (FileOutputStream out = new FileOutputStream(target)) {
+            out.write(data);
+        }
+        return target;
+    }
+
+    // A BIOS imported before 0.0.404 (saturn_bios.bin only) also under its region's name.
+    private void syncSaturnRegionBios() {
+        File bios = saturnBiosFile();
+        if (!bios.isFile() || bios.length() != 524288) return;
+        try {
+            byte[] data = java.nio.file.Files.readAllBytes(bios.toPath());
+            File target = new File(systemDir(), SS_BIOS_US_MD5.contains(md5Of(data)) ? SS_BIOS_US : SS_BIOS_JP);
+            if (!target.isFile()) storeSaturnRegionBios(data);
+        } catch (IOException | RuntimeException ignored) {
+            // Beetle Saturn says so when it starts.
+        }
+    }
+
     private String saturnBiosStatusText() {
         return saturnBiosFile().isFile() ? "등록됨" : "필요";
     }
@@ -22237,6 +22302,20 @@ public final class MainActivity extends Activity {
         titlesParams.setMargins(dp(12), 0, 0, 0);
         header.addView(titles, titlesParams);
         panel.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        syncSaturnRegionBios();
+        boolean jp = new File(systemDir(), SS_BIOS_JP).isFile();
+        boolean us = new File(systemDir(), SS_BIOS_US).isFile();
+        TextView regions = new TextView(this);
+        regions.setText("Beetle Saturn용 (게임 지역에 맞는 BIOS)\n· 일본판 (sega_101.bin): " + (jp ? "등록됨 ✓" : "없음")
+                + "\n· 북미·유럽판 (mpr-17933.bin): " + (us ? "등록됨 ✓" : "없음") + "\n고른 BIOS가 어느 지역판인지 앱이 알아서 나눠 둬요.");
+        regions.setTextSize(12.0f);
+        regions.setLineSpacing(0.0f, 1.3f);
+        regions.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        regions.setPadding(dp(12), dp(10), dp(12), dp(10));
+        regions.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams regionsParams = new LinearLayout.LayoutParams(-1, -2);
+        regionsParams.setMargins(0, dp(12), 0, 0);
+        panel.addView(regions, regionsParams);
         TextView note = new TextView(this);
         note.setText(android.text.Html.fromHtml("새턴 게임은 기본으로 진짜 BIOS로 켜요. 안 켜지거나 검은 화면인 게임은 게임 중 메뉴 › 게임기 › BIOS에서 내장 BIOS(HLE)로 바꿀 수 있어요.<br>"
                 + "직접 가진 새턴에서 추출한 <b>512KB .bin</b> 파일을 골라 주세요 (예: sega_101.bin, mpr-17933.bin).<br>"
@@ -22263,6 +22342,8 @@ public final class MainActivity extends Activity {
             delete.setOnClickListener(view -> new AppDialog.Builder(this).setTitle("새턴 BIOS 삭제").setMessage("BIOS를 지우면 새턴 게임을 실행할 수 없어요.").setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> {
                 dialog.dismiss();
                 saturnBiosFile().delete();
+                new File(systemDir(), SS_BIOS_JP).delete();
+                new File(systemDir(), SS_BIOS_US).delete();
                 showMessage("새턴 BIOS를 삭제했습니다.");
                 updateHomeStatusCards();
             }).show());
@@ -22310,7 +22391,8 @@ public final class MainActivity extends Activity {
             try (FileOutputStream out = new FileOutputStream(saturnBiosFile())) {
                 out.write(data);
             }
-            showMessage("새턴 BIOS를 가져왔습니다. 새턴 게임을 실행할 수 있어요.");
+            File region = storeSaturnRegionBios(data);
+            showMessage("새턴 BIOS를 가져왔습니다 (" + (SS_BIOS_US.equals(region.getName()) ? "북미·유럽판" : "일본판") + "). 새턴 게임을 실행할 수 있어요.");
             updateHomeStatusCards();
         } catch (IOException e) {
             showError("새턴 BIOS 가져오기 실패: " + e.getMessage());
@@ -25935,6 +26017,9 @@ public final class MainActivity extends Activity {
         }
         if ("yabasanshiro".equals(str)) {
             return "YabaSanshiro";
+        }
+        if (CORE_BEETLE_SS.equals(str)) {
+            return "Beetle Saturn";
         }
         if ("dolphin".equals(str)) {
             return "Dolphin";

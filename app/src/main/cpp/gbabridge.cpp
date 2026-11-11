@@ -717,6 +717,7 @@ const char* coreLibraryFor(const std::string& coreId) {
     if (coreId == "ngp") return "libmednafen_ngp_libretro_android.so";
     if (coreId == "picodrive") return "libpicodrive_libretro_android.so";
     if (coreId == "yabasanshiro") return "libyabasanshiro_libretro_android.so";
+    if (coreId == "mednafen_saturn") return "libmednafen_saturn_libretro_android.so";
     if (coreId == "dolphin") return "libdolphin_libretro_android.so";
     if (coreId == "dosbox_pure") return "libdosbox_pure_libretro_android.so";
     if (coreId == "bluemsx") return "libbluemsx_libretro_android.so";
@@ -3576,7 +3577,14 @@ int16_t joypadPressed(Core* core, int mask, unsigned id) {
                        core->coreId == "melonds" || core->coreId == "mupen64plus_next" || core->coreId == "flycast" ||
                        core->coreId == "wswan" || core->coreId == "ngp" || core->coreId == "picodrive" ||
                        core->coreId == "yabasanshiro" || core->coreId == "citra" || core->coreId == "cemu" || core->coreId == "dolphin" ||
-                       core->coreId == "dosbox_pure" || core->coreId == "bluemsx" || core->coreId == "vita3k";
+                       core->coreId == "dosbox_pure" || core->coreId == "bluemsx" || core->coreId == "vita3k" ||
+                       core->coreId == "mednafen_saturn";
+        // Beetle Saturn reads C from R and Z from L, YabaSanshiro the other way round: the
+        // pad's C and Z keep their places on either engine (0.0.404).
+        if (core->coreId == "mednafen_saturn") {
+            if (id == RETRO_DEVICE_ID_JOYPAD_L) id = RETRO_DEVICE_ID_JOYPAD_R;
+            else if (id == RETRO_DEVICE_ID_JOYPAD_R) id = RETRO_DEVICE_ID_JOYPAD_L;
+        }
         bit = buttonBitFor(id, !console);
     }
     return (mask & bit) != 0 ? 1 : 0;
