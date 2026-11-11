@@ -3,7 +3,6 @@ package com.example.minigba;
 import android.app.ActivityManager;
 import android.app.ApplicationExitInfo;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 
@@ -35,29 +34,68 @@ final class EngineLog {
     private EngineLog() {
     }
 
-    private static SharedPreferences prefs(Context context) {
-        return context.getSharedPreferences("engine_runs", Context.MODE_PRIVATE);
+    // The run marks are written by the engine's process and read by the home screen's, so
+    // they are a small file each (SharedPreferences are cached per process).
+    private static File runFile(Context context, String mode) {
+        return new File(context.getFilesDir(), "engine_run_" + mode + ".properties");
+    }
+
+    private static synchronized java.util.Properties load(Context context, String mode) {
+        java.util.Properties props = new java.util.Properties();
+        try (java.io.FileInputStream in = new java.io.FileInputStream(runFile(context, mode))) {
+            props.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // none yet
+        }
+        return props;
+    }
+
+    private static synchronized void store(Context context, String mode, java.util.Properties props) {
+        File file = runFile(context, mode);
+        File temp = new File(file.getPath() + ".tmp");
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(temp)) {
+            props.store(new java.io.OutputStreamWriter(out, StandardCharsets.UTF_8), null);
+            out.getFD().sync();
+        } catch (Exception ignored) {
+            return;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        temp.renameTo(file);
+    }
+
+    private static void put(Context context, String mode, String key, String value) {
+        java.util.Properties props = load(context, mode);
+        props.setProperty(key, value);
+        store(context, mode, props);
     }
 
     static void markStart(Context context, String mode, String title) {
-        prefs(context).edit().putString(mode + ":title", title == null ? "" : title).putLong(mode + ":start", System.currentTimeMillis())
-                .putInt(mode + ":stage", PREPARING).putBoolean(mode + ":shown", false).commit();
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("title", title == null ? "" : title);
+        props.setProperty("start", String.valueOf(System.currentTimeMillis()));
+        props.setProperty("stage", String.valueOf(PREPARING));
+        props.setProperty("shown", "false");
+        store(context, mode, props);
     }
 
     static void markRunning(Context context, String mode) {
-        prefs(context).edit().putInt(mode + ":stage", RUNNING).commit();
+        put(context, mode, "stage", String.valueOf(RUNNING));
     }
 
     static void markEnded(Context context, String mode) {
-        prefs(context).edit().putInt(mode + ":stage", ENDED).commit();
+        put(context, mode, "stage", String.valueOf(ENDED));
     }
 
     static String title(Context context, String mode) {
-        return prefs(context).getString(mode + ":title", "");
+        return load(context, mode).getProperty("title", "");
     }
 
     static long start(Context context, String mode) {
-        return prefs(context).getLong(mode + ":start", 0);
+        try {
+            return Long.parseLong(load(context, mode).getProperty("start", "0"));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     static String stageName(int stage) {
@@ -66,18 +104,22 @@ final class EngineLog {
 
     // The last run ended suddenly (and the process is gone, not still running).
     static boolean endedSuddenly(Context context, String mode) {
-        int stage = prefs(context).getInt(mode + ":stage", 0);
+        int stage = stage(context, mode);
         return (stage == PREPARING || stage == RUNNING) && !processAlive(context, mode);
     }
 
     static int stage(Context context, String mode) {
-        return prefs(context).getInt(mode + ":stage", 0);
+        try {
+            return Integer.parseInt(load(context, mode).getProperty("stage", "0"));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     // Shown once per sudden end.
     static boolean takeUnshownCrash(Context context, String mode) {
-        if (!endedSuddenly(context, mode) || prefs(context).getBoolean(mode + ":shown", false)) return false;
-        prefs(context).edit().putBoolean(mode + ":shown", true).apply();
+        if (!endedSuddenly(context, mode) || "true".equals(load(context, mode).getProperty("shown"))) return false;
+        put(context, mode, "shown", "true");
         return true;
     }
 

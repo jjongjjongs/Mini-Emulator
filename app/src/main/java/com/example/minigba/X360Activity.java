@@ -1475,6 +1475,14 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         text = setToml(text, "Console", "widescreen", aspect43(context) ? "false" : "true");
         text = setToml(text, "GPU", "framerate_limit", String.valueOf(FPS_VALUES[fpsIndex(context)]));
         text = setToml(text, "Display", "show_debug_overlay", fpsOverlay(context) ? "true" : "false");
+        // (0.0.418) No "recently played" list: the engine writes the game's title there and
+        // builds its (hidden) menu from it on the next start; a Korean title (a 한글 patch)
+        // ended that start with utf8::not_enough_room. The list is not used by this app.
+        text = setToml(text, "General", "recent_titles_entry_amount", "0");
+        for (File recent : new File[]{new File(rootDir(context), "recent.toml"), new File(context.getFilesDir(), "recent.toml")}) {
+            //noinspection ResultOfMethodCallIgnored
+            recent.delete();
+        }
         if (xuid != null) {
             text = setToml(text, "Profiles", "logged_profile_slot_0_xuid", "\"" + xuid + "\"");
         }
