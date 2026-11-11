@@ -778,6 +778,37 @@ final class Cheats {
         return list;
     }
 
+    // (0.0.407) PSP: a CWCheat file as PPSSPP keeps it (<게임 ID>.ini, cheat.db): "_C0 이름" (or _C1,
+    // on) starts a cheat, its "_L 0x… 0x…" lines are the code; _S / _G name the game.
+    static boolean looksCwCheat(String text) {
+        return java.util.regex.Pattern.compile("(?m)^\\s*_C[01]").matcher(text).find()
+                && java.util.regex.Pattern.compile("(?m)^\\s*_L\\s").matcher(text).find();
+    }
+
+    static List<Cheat> parseCwCheat(String text) {
+        List<Cheat> list = new ArrayList<>();
+        String name = null;
+        StringBuilder code = new StringBuilder();
+        java.util.regex.Pattern codeLine = java.util.regex.Pattern.compile("^_L\\s+(0x[0-9A-Fa-f]{8})\\s+(0x[0-9A-Fa-f]{8})");
+        for (String raw : (text.replace("\r", "") + "\n_C0 ").split("\n")) {
+            String line = raw.trim();
+            if (line.startsWith("_C")) {
+                if (name != null && code.length() > 0) {
+                    list.add(new Cheat(name.isEmpty() ? "치트 " + (list.size() + 1) : name, code.toString(), false, true));
+                }
+                code.setLength(0);
+                name = line.length() > 3 ? line.substring(3).trim() : "";
+                continue;
+            }
+            java.util.regex.Matcher m = codeLine.matcher(line);
+            if (name != null && m.find()) {
+                if (code.length() > 0) code.append('+');
+                code.append("_L ").append(m.group(1)).append(' ').append(m.group(2));
+            }
+        }
+        return list;
+    }
+
     static List<Cheat> parsePnach(String text, String fileName) {
         List<Cheat> out = new ArrayList<>();
         String name = null;
