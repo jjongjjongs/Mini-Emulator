@@ -5492,7 +5492,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.addView(sub);
         final int purple = Color.rgb(124, 58, 237);
         final android.widget.GridLayout grid = new android.widget.GridLayout(this);
-        grid.setColumnCount(2);
+        final boolean filterColumns = ShortScreen.twoColumns(this);
+        grid.setColumnCount(filterColumns ? 3 : 2);
         panel.addView(grid, new LinearLayout.LayoutParams(-1, -2));
         final java.util.List<FilterPreview> previews = new java.util.ArrayList<>();
         final Runnable[] paint = new Runnable[1];
@@ -5502,7 +5503,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 shown.add(f);
             }
         }
-        int cell = (Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)) - dp(32) - dp(12)) / 2;
+        int cell = filterColumns
+                // (0.0.409) Landscape: three to a row in the right column (the window less the
+                // padding, the left column and the gap).
+                ? (Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(760)) - dp(32) - dp(240) - dp(16) - dp(20)) / 3
+                : (Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)) - dp(32) - dp(12)) / 2;
         final java.util.List<LinearLayout> tiles = new java.util.ArrayList<>();
         for (final int f : shown) {
             LinearLayout tile = new LinearLayout(this);
@@ -5626,8 +5631,17 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         };
         paint[0].run();
-        dialog.setContentView(scroll);
         dialog.setOnDismissListener(d -> refresh.run());
+        if (filterColumns) {
+            ShortScreen.detach(grid);
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ((LinearLayout.LayoutParams) close.getLayoutParams()).setMargins(0, dp(10), 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, close), grid, background, 240);
+            dialog.show();
+            return;
+        }
+        dialog.setContentView(scroll);
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
@@ -10711,6 +10725,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         buttonsParams.setMargins(0, dp(14), 0, 0);
         panel.addView(buttons, buttonsParams);
 
+        if (ShortScreen.twoColumns(this)) {
+            // (0.0.409) Landscape: the scope, note and buttons left, the styles right.
+            ShortScreen.detach(list);
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), list, background, 270);
+            dialog.show();
+            return;
+        }
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(panel);
         dialog.setContentView(scroll);
@@ -18793,9 +18816,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(body);
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+        // (0.0.409) Landscape: the switch, the gun and its port stay left; every option from
+        // 조준 움직이는 방법 on moves to the right column after each render.
+        final boolean gunColumns = ShortScreen.twoColumns(this);
+        final LinearLayout bodyRight = new LinearLayout(this);
+        bodyRight.setOrientation(1);
+        final int[] split = {-1};
         final Runnable[] render = new Runnable[1];
         render[0] = () -> {
             body.removeAllViews();
+            split[0] = -1;
             body.addView(ps2Switch("건슈팅 모드", "켜고 끄면 게임을 다시 켜요 (총을 꽂고 빼요)", on[0], v -> {
                 on[0] = v;
                 render[0].run();
@@ -18819,6 +18849,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         : "1P에 꽂으면 그 게임에서 키패드는 쉬어요 (실제 기계처럼 패드를 빼고 총을 꽂아요). 건콘에는 START가 없어서, 시작 · 메뉴는 총의 A · B나 화면 밖 쏘기로 해요.",
                         Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
             }
+            split[0] = body.getChildCount();
             body.addView(backgroundChips("조준 움직이는 방법", GUN_AIM_NAMES, aim[0], red, i -> {
                 aim[0] = i;
                 render[0].run();
@@ -18958,6 +18989,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                         Color.rgb(254, 242, 242), Color.rgb(153, 27, 27)));
             }
         };
+        if (gunColumns) {
+            final Runnable inner = render[0];
+            render[0] = () -> {
+                bodyRight.removeAllViews();
+                inner.run();
+                while (split[0] >= 0 && body.getChildCount() > split[0]) {
+                    View moved = body.getChildAt(split[0]);
+                    body.removeViewAt(split[0]);
+                    bodyRight.addView(moved);
+                }
+            };
+        }
         rerender[0] = render[0];
         render[0].run();
         LinearLayout buttons = new LinearLayout(this);
@@ -19007,6 +19050,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
+        if (gunColumns) {
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, panel, bodyRight, background, 330);
+            dialog.show();
+            return;
+        }
         View shown = ShortScreen.fit(this, panel);
         dialog.setContentView(shown);
         android.view.Window window = dialog.getWindow();

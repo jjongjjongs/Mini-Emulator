@@ -207,6 +207,23 @@ final class StickSensitivityDialog {
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
 
+        if (ShortScreen.twoColumns(this.context)) {
+            // (0.0.409) Landscape: the value, −/+ and scope left with the buttons, the stick
+            // choice, ruler, quick values and note right.
+            LinearLayout right = new LinearLayout(this.context);
+            right.setOrientation(LinearLayout.VERTICAL);
+            for (android.view.View view : new android.view.View[]{targetLabel, targetRow, this.ruler, chipRow, note}) {
+                android.view.ViewGroup.LayoutParams params = view.getLayoutParams();
+                ShortScreen.detach(view);
+                right.addView(view, params);
+            }
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this.context, panel, buttons), right, background, 290);
+            refresh();
+            dialog.show();
+            return;
+        }
         android.widget.ScrollView scroll = new android.widget.ScrollView(this.context);
         scroll.addView(panel);
         dialog.setContentView(scroll);
