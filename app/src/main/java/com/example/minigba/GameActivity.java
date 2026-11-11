@@ -1870,7 +1870,36 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         final android.app.Dialog dialog = new android.app.Dialog(this);
         dialog.requestWindowFeature(1);
         final Runnable[] build = new Runnable[1];
-        build[0] = () -> dialog.setContentView(scrollWrap(playersPanel(dialog, build[0])));
+        // (0.0.410) Landscape: the header, note and close left, the player slots right.
+        final boolean playerColumns = ShortScreen.twoColumns(this);
+        build[0] = () -> {
+            View built = playersPanel(dialog, build[0]);
+            View inner = built instanceof android.widget.ScrollView && ((android.widget.ScrollView) built).getChildCount() > 0
+                    ? ((android.widget.ScrollView) built).getChildAt(0) : built;
+            if (playerColumns && inner instanceof LinearLayout) {
+                LinearLayout panel = (LinearLayout) inner;
+                ShortScreen.detach(panel);
+                LinearLayout right = new LinearLayout(this);
+                right.setOrientation(1);
+                for (int k = 0; k < panel.getChildCount(); ) {
+                    View child = panel.getChildAt(k);
+                    if ("player_slot".equals(child.getTag())) {
+                        android.view.ViewGroup.LayoutParams params = child.getLayoutParams();
+                        panel.removeViewAt(k);
+                        right.addView(child, params);
+                    } else {
+                        k++;
+                    }
+                }
+                View close = panel.getChildCount() > 0 ? panel.getChildAt(panel.getChildCount() - 1) : null;
+                android.graphics.drawable.Drawable card = panel.getBackground();
+                panel.setBackground(null);
+                panel.setPadding(0, 0, 0, 0);
+                ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, close), right, card, 300);
+            } else {
+                dialog.setContentView(scrollWrap(built));
+            }
+        };
         build[0].run();
         this.holdPause = true;
         if (this.pauseDialog != null && this.pauseDialog.isShowing()) {
@@ -1884,7 +1913,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         }
         dialog.show();
-        if (dialog.getWindow() != null) {
+        if (dialog.getWindow() != null && !playerColumns) {
             dialog.getWindow().setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
         }
     }
@@ -1942,6 +1971,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 slotBackground.setStroke(dp(1), Theme.line(Color.rgb(203, 213, 225)), dp(4), dp(3));
             }
             slot.setBackground(slotBackground);
+            slot.setTag("player_slot");
             slot.addView(playerChip(p, !empty), new LinearLayout.LayoutParams(dp(30), dp(22)));
             LinearLayout texts = new LinearLayout(this);
             texts.setOrientation(1);
@@ -7629,6 +7659,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(-1, dp(46));
         cancelParams.setMargins(0, dp(12), 0, 0);
         panel.addView(cancel, cancelParams);
+        if (ShortScreen.twoColumns(this)) {
+            // (0.0.410) Landscape: the memo and the quick slot left, 내 칸 right.
+            LinearLayout right = ShortScreen.takeChildren(this, panel, section, cancel);
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, cancel), right, card, 300);
+            dialog.show();
+            return;
+        }
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel);
@@ -8909,6 +8949,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
         panel.addView(title);
+        final View[] secondGroup = new View[1];
         LinearLayout[] rows = new LinearLayout[2];
         Runnable[] render = new Runnable[1];
         String[][][] texts = {
@@ -8926,6 +8967,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             label.setTextColor(Theme.text(Color.rgb(51, 65, 85)));
             label.setPadding(0, dp(12), 0, dp(6));
             panel.addView(label);
+            if (g == 1) secondGroup[0] = label;
             rows[g] = new LinearLayout(this);
             panel.addView(rows[g]);
             LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -8986,6 +9028,24 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
+        if (ShortScreen.twoColumns(this) && secondGroup[0] != null) {
+            // (0.0.410) Landscape: 반투명 처리 left with the note and buttons, 그리기 방식 right.
+            LinearLayout right = new LinearLayout(this);
+            right.setOrientation(1);
+            int at = panel.indexOfChild(secondGroup[0]);
+            for (int k = 0; k < 3 && at >= 0 && at < panel.getChildCount(); k++) {
+                View view = panel.getChildAt(at);
+                android.view.ViewGroup.LayoutParams params = view.getLayoutParams();
+                panel.removeViewAt(at);
+                right.addView(view, params);
+            }
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), right, card, 320);
+            dialog.show();
+            return;
+        }
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(panel);
         dialog.setContentView(scroll);
@@ -14140,6 +14200,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
+        if (ShortScreen.twoColumns(this) && !cheats.isEmpty()) {
+            // (0.0.410) Landscape: the title, note and buttons left, the cheats right.
+            ShortScreen.detach(listScroll);
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), listScroll, card, 280);
+            dialog.show();
+            return;
+        }
         dialog.setContentView(panel);
         android.view.Window window = dialog.getWindow();
         if (window != null) {
@@ -15987,7 +16057,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
         closeParams.setMargins(0, dp(14), 0, 0);
         panel.addView(close, closeParams);
-        dialog.setContentView(panel);
+        // (0.0.410) Landscape: the buttons to pick left, speed and switches right.
+        final boolean turboColumns = ShortScreen.twoColumns(this);
+        if (turboColumns) {
+            LinearLayout right = ShortScreen.takeChildren(this, panel, speedLabel, close);
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, close), right, background, 330);
+        } else {
+            dialog.setContentView(panel);
+        }
         dialog.setOnDismissListener(d -> {
             applyTurbo();
             if (MainActivity.sharedSettings(this).getBoolean(turboKey("button"), false) != (this.turboPill != null)) {
@@ -15996,7 +16075,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             refresh.run();
         });
         android.view.Window window = dialog.getWindow();
-        if (window != null) {
+        if (window != null && !turboColumns) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(420)), -2);
         }
@@ -19492,6 +19571,11 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         scroll.addView(body);
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1.0f));
         final Runnable[] render = new Runnable[1];
+        // (0.0.410) Landscape: the shader part left, upscaling and filters right.
+        final boolean texColumns = ShortScreen.twoColumns(this);
+        final LinearLayout bodyRight = new LinearLayout(this);
+        bodyRight.setOrientation(1);
+        final int[] split = {-1};
         render[0] = () -> {
             body.removeAllViews();
             LinearLayout previews = new LinearLayout(this);
@@ -19511,6 +19595,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             body.addView(ps2Note(vulkan ? "Vulkan일 때만 돼요. 켜면 아래 업스케일보다 먼저예요. 처음엔 MMPX나 2xBRZ를 추천해요."
                     : "지금 PSP는 OpenGL로 돌고 있어서(Vulkan이 꺼져 있음) 텍스처 셰이더는 효과가 없어요. 아래 업스케일을 쓰세요.",
                     vulkan ? Color.rgb(238, 242, 255) : Color.rgb(254, 243, 199), vulkan ? Color.rgb(55, 48, 163) : Color.rgb(146, 64, 14)));
+            split[0] = body.getChildCount();
             body.addView(backgroundChips("텍스처 업스케일 · CPU · 무거움", PSP_TEX_LEVELS, t[1], accent, i -> { t[1] = i; render[0].run(); }));
             if (t[1] != 0) {
                 body.addView(backgroundChips("업스케일 방식", PSP_TEX_TYPES, t[2], accent, i -> { t[2] = i; render[0].run(); }));
@@ -19526,6 +19611,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 body.addView(ps2Note("속도 우선 중이라 업스케일 · 비등방 필터는 꺼진 채로 돌아요 (속도 우선을 끄면 적용).", Color.rgb(240, 253, 250), Color.rgb(17, 94, 89)));
             }
         };
+        if (texColumns) {
+            final Runnable inner = render[0];
+            render[0] = () -> {
+                bodyRight.removeAllViews();
+                inner.run();
+                while (split[0] >= 0 && body.getChildCount() > split[0]) {
+                    View moved = body.getChildAt(split[0]);
+                    body.removeViewAt(split[0]);
+                    bodyRight.addView(moved);
+                }
+            };
+        }
         render[0].run();
         LinearLayout buttons = new LinearLayout(this);
         TextView reset = dialogButton("기본으로", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
@@ -19555,6 +19652,13 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
+        if (texColumns) {
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, panel, bodyRight, background, 330);
+            dialog.show();
+            return;
+        }
         View shown = ShortScreen.fit(this, panel);
         dialog.setContentView(shown);
         android.view.Window window = dialog.getWindow();
@@ -19737,6 +19841,16 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
         buttonsParams.setMargins(0, dp(14), 0, 0);
         panel.addView(buttons, buttonsParams);
+        if (ShortScreen.twoColumns(this) && panel.indexOfChild(sub) + 1 < panel.indexOfChild(again)) {
+            // (0.0.410) Landscape: the title, the collection line and buttons left, the patches right.
+            LinearLayout right = ShortScreen.takeChildren(this, panel, panel.getChildAt(panel.indexOfChild(sub) + 1), again);
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), right, card, 280);
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
@@ -20301,6 +20415,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.addView(sub);
         final String scope = shapeScope();
         final android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        // (0.0.410) Landscape: a live picture of the shape on the left, the settings right.
+        final boolean shapeColumns = ShortScreen.twoColumns(this);
+        final ShapePreview preview = new ShapePreview(this);
+        final Runnable showShape = () -> {
+            int a = shapeAspectMode();
+            preview.set(screenAspect(), shapeScaleMode() == 1, shapeCornerDp(), shapeBorder(),
+                    SHAPE_ASPECT_NAMES[Math.max(0, Math.min(SHAPE_ASPECT_NAMES.length - 1, a))] + " · " + (shapeScaleMode() == 1 ? "픽셀 정확" : "맞춤")
+                            + " · 모서리 " + shapeCornerDp() + "dp" + (shapeBorder() ? " · 테두리" : ""));
+        };
 
         if (!is3d() && !isMame139()) {
             panel.addView(shapeSection("배율"));
@@ -20315,6 +20438,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                     for (int k = 0; k < 2; k++) setShapeChip(chips[k], k == mode);
                     applyScreenShape();
                     updateScreenFilters();
+                    showShape.run();
                 });
                 chips[i] = chip;
                 LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
@@ -20339,6 +20463,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 chip.setOnClickListener(view -> {
                     prefs.edit().putInt(scope + ":aspect", mode).apply();
                     for (int k = 0; k < chips.length; k++) setShapeChip(chips[k], k == mode);
+                    showShape.run();
                 });
                 chips[i] = chip;
                 LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(0, dp(34), 1.0f);
@@ -20371,6 +20496,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 if (fromUser) {
                     prefs.edit().putInt(scope + ":corner", progress).apply();
                     applyScreenShape();
+                    showShape.run();
                 }
             }
 
@@ -20388,6 +20514,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         panel.addView(shapeToggle("화면 테두리 선", "얇은 어두운 선으로 화면과 케이스 경계를 또렷하게", shapeBorder(), on -> {
             prefs.edit().putInt(scope + ":border", on ? 1 : 0).apply();
             applyScreenShape();
+            showShape.run();
         }));
         final String gameScope = "shape:game:" + this.saveBaseName;
         panel.addView(shapeToggle("이 게임에만 적용", "켜면 지금 값이 이 게임의 설정으로 복사돼요", prefs.getBoolean(gameScope + ":on", false), on -> {
@@ -20426,6 +20553,33 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, -2);
         actionsParams.setMargins(0, dp(14), 0, 0);
         panel.addView(actions, actionsParams);
+        if (shapeColumns) {
+            showShape.run();
+            LinearLayout left = new LinearLayout(this);
+            left.setOrientation(1);
+            for (View view : new View[]{title, sub}) {
+                ShortScreen.detach(view);
+                left.addView(view);
+            }
+            LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(190));
+            previewParams.setMargins(0, dp(10), 0, 0);
+            left.addView(preview, previewParams);
+            TextView previewNote = new TextView(this);
+            previewNote.setText("미리보기는 값을 바꾸는 즉시 바뀌어요. 뒤의 게임 화면도 같이 바뀌어요 (비율은 창을 닫을 때).");
+            previewNote.setTextSize(10.5f);
+            previewNote.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+            previewNote.setPadding(dp(2), dp(6), 0, 0);
+            left.addView(previewNote);
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, left, actions), panel, background, 300);
+            android.view.Window shapeWindow = dialog.getWindow();
+            if (shapeWindow != null) {
+                shapeWindow.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            }
+            dialog.show();
+            return;
+        }
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel);

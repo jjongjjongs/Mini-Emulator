@@ -726,12 +726,16 @@ public final class MainActivity extends Activity {
         addTileGrid(parent, indexes, counts, current, onPick, onChanged, null);
     }
 
+    // Cubes to a row: 3, or 5 in the landscape 모드 변경 sheet while it is open (0.0.410).
+    private int tileColumns = 3;
+
     private void addTileGrid(LinearLayout parent, List<Integer> indexes, java.util.Map<String, Integer> counts, String current,
                              java.util.function.Consumer<String> onPick, Runnable onChanged, java.util.Map<String, Long> played) {
         List<String> favorites = favoriteModes();
         LinearLayout row = null;
+        final int columns = Math.max(3, this.tileColumns);
         for (int k = 0; k < indexes.size(); k++) {
-            if (k % 3 == 0) {
+            if (k % columns == 0) {
                 row = new LinearLayout(this);
                 row.setOrientation(0);
                 LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
@@ -745,13 +749,13 @@ public final class MainActivity extends Activity {
             View tile = createModeTile(index, count == null ? 0 : count, favorites.contains(mode), mode.equals(current), () -> onPick.accept(mode), onChanged,
                     last == null || last <= 0 ? null : playedAgo(last));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
-            params.setMargins(k % 3 == 0 ? 0 : dp(10), 0, 0, 0);
+            params.setMargins(k % columns == 0 ? 0 : dp(10), 0, 0, 0);
             row.addView(tile, params);
         }
         if (row != null) {
             // The empty places get invisible tiles: a row of one or two is then measured like a
             // full one (with plain spacers its tiles came out 0 tall and could not be seen).
-            for (int fill = indexes.size() % 3; fill != 0 && fill < 3; fill++) {
+            for (int fill = indexes.size() % columns; fill != 0 && fill < columns; fill++) {
                 SquareLayout empty = new SquareLayout(this);
                 empty.setVisibility(View.INVISIBLE);
                 LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1.0f);
@@ -2256,6 +2260,53 @@ public final class MainActivity extends Activity {
         return view;
     }
 
+    // (0.0.410) A bottom sheet (BIOS, keys) on a landscape screen, in the portrait look: the
+    // header and its state left with the buttons under them, the long explanation right.
+    // False (and nothing changed) when the sheet has no buttons at its end or no long note.
+    private boolean showSheetColumns(Dialog dialog, LinearLayout panel) {
+        if (!ShortScreen.twoColumns(this)) {
+            return false;
+        }
+        int count = panel.getChildCount();
+        int firstButton = count;
+        while (firstButton > 0 && panel.getChildAt(firstButton - 1).isClickable()) {
+            firstButton--;
+        }
+        if (firstButton == count) {
+            return false;
+        }
+        View note = null;
+        int longest = 0;
+        for (int k = 0; k < firstButton; k++) {
+            View child = panel.getChildAt(k);
+            if (child instanceof TextView && !child.isClickable()) {
+                int length = ((TextView) child).getText().length();
+                if (length > longest) {
+                    longest = length;
+                    note = child;
+                }
+            }
+        }
+        if (note == null || longest < 60) {
+            return false;
+        }
+        View buttonStart = panel.getChildAt(firstButton);
+        View first = panel.getChildAt(0);
+        if (first != null && first != note && first.getLayoutParams() != null && first.getLayoutParams().width == dp(40)) {
+            panel.removeView(first);  // the sheet's grip
+        }
+        LinearLayout buttons = ShortScreen.takeChildren(this, panel, buttonStart, null);
+        android.view.ViewGroup.LayoutParams noteParams = note.getLayoutParams();
+        if (noteParams instanceof LinearLayout.LayoutParams) {
+            ((LinearLayout.LayoutParams) noteParams).topMargin = 0;
+        }
+        ShortScreen.detach(note);
+        panel.setBackground(null);
+        panel.setPadding(0, 0, 0, 0);
+        ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), note, rounded(Theme.bg(-1), dp(20)), 330);
+        return true;
+    }
+
     private void showModeSwitcher() {
         final Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(1);
@@ -2275,14 +2326,21 @@ public final class MainActivity extends Activity {
         title.setPadding(dp(6), 0, 0, dp(10));
         sheet.addView(title);
         this.gameIndex = null;
-        sheet.addView(createModeBrowser(this.currentMode, mode -> {
+        // (0.0.410) Landscape: the same cubes, five to a row on the right; the search and the
+        // settings rows on the left.
+        final boolean modeColumns = ShortScreen.twoColumns(this);
+        if (modeColumns) {
+            this.tileColumns = 5;
+        }
+        LinearLayout browser = createModeBrowser(this.currentMode, mode -> {
             dialog.dismiss();
             onModePicked(mode);
         }, file -> {
             dialog.dismiss();
             onModePicked(modeForFile(file));
             launchGame(file);
-        }), new LinearLayout.LayoutParams(-1, -2));
+        });
+        sheet.addView(browser, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout settingsRow = settingsRow("⚙ 설정", "세이브 백업 · 패치 기록 · 라이선스", () -> {
             dialog.dismiss();
             showSettings();
@@ -2346,6 +2404,24 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams crashParams = new LinearLayout.LayoutParams(-1, -2);
             crashParams.setMargins(0, dp(10), 0, 0);
             sheet.addView(crashRow, crashParams);
+        }
+        if (modeColumns && browser.getChildCount() > 0) {
+            dialog.setOnDismissListener(d -> this.tileColumns = 3);
+            View search = browser.getChildAt(0);
+            android.view.ViewGroup.LayoutParams searchParams = search.getLayoutParams();
+            browser.removeView(search);
+            sheet.removeView(browser);
+            sheet.addView(search, 1, searchParams);
+            View right = browser.getChildCount() > 0 ? browser.getChildAt(0) : browser;
+            ShortScreen.detach(right);
+            sheet.setBackground(null);
+            sheet.setPadding(0, 0, 0, 0);
+            GradientDrawable card = new GradientDrawable();
+            card.setColor(Theme.bg(-1));
+            card.setCornerRadius(dp(20));
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, sheet, null), right, card, 260);
+            dialog.show();
+            return;
         }
         // Twelve modes outgrow a landscape screen; the list scrolls then.
         ScrollView sheetScroll = new ScrollView(this);
@@ -6769,6 +6845,7 @@ public final class MainActivity extends Activity {
         } else {
             row1.addView(createActionTile(dialog, RoundIconView.ERASE, RoundIconView.COLOR_EXIT, "세이브 삭제", null, true, () -> confirmDeleteSave(file)), actionGridParams(2));
         }
+        row1.setTag("tiles");
         panel.addView(row1, new LinearLayout.LayoutParams(-1, -2));
         if (MODE_NAOMI.equals(modeForFile(file))) {
             LinearLayout naomiRow = new LinearLayout(this);
@@ -6783,6 +6860,7 @@ public final class MainActivity extends Activity {
             naomiRow.addView(createActionTile(dialog, RoundIconView.CARD, RoundIconView.COLOR_CARD, "기판 BIOS", naomiBiosStatusText(), false, this::showNaomiBiosSheet), actionGridParams(2));
             LinearLayout.LayoutParams naomiParams = new LinearLayout.LayoutParams(-1, -2);
             naomiParams.setMargins(0, dp(8), 0, 0);
+            naomiRow.setTag("tiles");
             panel.addView(naomiRow, naomiParams);
         }
         if (MODE_DOS.equals(modeForFile(file))) {
@@ -6795,6 +6873,7 @@ public final class MainActivity extends Activity {
                     () -> showDosSettings(file)), actionGridParams(1));
             LinearLayout.LayoutParams dosParams = new LinearLayout.LayoutParams(-1, -2);
             dosParams.setMargins(0, dp(8), 0, 0);
+            dosRow.setTag("tiles");
             panel.addView(dosRow, dosParams);
             if (DosSetup.isZip(file)) {
                 LinearLayout.LayoutParams hanParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -6990,6 +7069,27 @@ public final class MainActivity extends Activity {
         deletesParams.setMargins(0, dp(9), 0, 0);
         panel.addView(deletes, deletesParams);
 
+        if (ShortScreen.twoColumns(this)) {
+            // (0.0.410) Landscape, as in portrait: the name, ▶ 실행 and the tiles left, the
+            // menu rows (and ROM 삭제) right.
+            int last = -1;
+            for (int k = 0; k < panel.getChildCount(); k++) {
+                if ("tiles".equals(panel.getChildAt(k).getTag())) last = k;
+            }
+            if (last >= 0 && last + 1 < panel.getChildCount()) {
+                LinearLayout right = ShortScreen.takeChildren(this, panel, panel.getChildAt(last + 1), null);
+                View firstRow = right.getChildAt(0);
+                if (firstRow != null && firstRow.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                    ((LinearLayout.LayoutParams) firstRow.getLayoutParams()).topMargin = 0;
+                }
+                android.graphics.drawable.Drawable card = panel.getBackground();
+                panel.setBackground(null);
+                panel.setPadding(0, 0, 0, 0);
+                ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, null), right, card, 330);
+                dialog.show();
+                return;
+            }
+        }
         // (0.0.397) Taller than the screen with a console's own rows (PS3): it scrolls.
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
@@ -22392,6 +22492,10 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
@@ -22592,6 +22696,10 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
@@ -22767,6 +22875,10 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
@@ -25065,6 +25177,10 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
@@ -25208,6 +25324,10 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
@@ -25400,6 +25520,10 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         android.view.Window window = dialog.getWindow();
         if (window != null) {
@@ -25575,6 +25699,10 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(44));
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         ScrollView scroll = new ScrollView(this);
         scroll.addView(panel);
         dialog.setContentView(scroll);
@@ -25825,6 +25953,10 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {
@@ -26089,6 +26221,10 @@ public final class MainActivity extends Activity {
         closeParams.setMargins(0, dp(8), 0, 0);
         panel.addView(close, closeParams);
 
+        if (showSheetColumns(dialog, panel)) {
+            dialog.show();
+            return;
+        }
         dialog.setContentView(scrollWrap(panel));  // scrolls when taller than the screen (landscape, 0.0.398)
         Window window = dialog.getWindow();
         if (window != null) {

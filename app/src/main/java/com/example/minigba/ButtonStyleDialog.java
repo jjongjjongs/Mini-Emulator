@@ -213,7 +213,8 @@ final class ButtonStyleDialog {
         panel.addView(perBox);
 
         // ---- 모양 · 글자 ----
-        panel.addView(section("모양 · 글자"));
+        TextView shapeSection = section("모양 · 글자");
+        panel.addView(shapeSection);
         LinearLayout shapeRow = chipRow();
         for (int i = 0; i < ButtonStyle.SHAPE_NAMES.length; i++) {
             final int shape = i;
@@ -293,10 +294,41 @@ final class ButtonStyleDialog {
         actions.addView(finish, buttonParams(1.0f, true));
         panel.addView(actions, actionsParams);
 
-        ScrollView scroll = new ScrollView(activity);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.addView(panel);
-        this.dialog.setContentView(scroll);
+        if (landscape) {
+            // (0.0.410) Landscape: two columns over the game screen (the buttons stay in view
+            // beside it as the live picture): colours left, shape · size · press right, the
+            // actions under both.
+            LinearLayout right = ShortScreen.takeChildren(activity, panel, shapeSection, actions);
+            ShortScreen.detach(actions);
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            LinearLayout columns = new LinearLayout(activity);
+            columns.setOrientation(LinearLayout.HORIZONTAL);
+            ScrollView leftScroll = new ScrollView(activity);
+            leftScroll.setVerticalScrollBarEnabled(false);
+            leftScroll.addView(panel);
+            ScrollView rightScroll = new ScrollView(activity);
+            rightScroll.setVerticalScrollBarEnabled(false);
+            rightScroll.addView(right);
+            columns.addView(leftScroll, new LinearLayout.LayoutParams(0, -1, 1.0f));
+            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0, -1, 1.0f);
+            rightParams.setMargins(dp(12), 0, 0, 0);
+            columns.addView(rightScroll, rightParams);
+            LinearLayout root = new LinearLayout(activity);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setPadding(dp(14), dp(10), dp(14), dp(10));
+            root.setBackground(background);
+            root.addView(columns, new LinearLayout.LayoutParams(-1, 0, 1.0f));
+            LinearLayout.LayoutParams bottomParams = new LinearLayout.LayoutParams(-1, dp(44));
+            bottomParams.setMargins(0, dp(8), 0, 0);
+            root.addView(actions, bottomParams);
+            this.dialog.setContentView(root);
+        } else {
+            ScrollView scroll = new ScrollView(activity);
+            scroll.setVerticalScrollBarEnabled(false);
+            scroll.addView(panel);
+            this.dialog.setContentView(scroll);
+        }
         this.dialog.setOnDismissListener(d -> {
             if (!this.done) {
                 // Backed out: the buttons go back to what was saved.
@@ -321,7 +353,7 @@ final class ButtonStyleDialog {
             int minHeight = dp(230);
             if (screen != null && screen.width() > dp(200) && screen.height() > dp(120)) {
                 // Fill the screen's frame, growing downward a little when it is very short.
-                int width = Math.min(screen.width(), dp(440));
+                int width = Math.min(screen.width(), this.landscape ? dp(620) : dp(440));
                 int height = Math.min(Math.max(screen.height(), minHeight), metrics.heightPixels - screen.top - dp(8));
                 window.setGravity(Gravity.TOP | Gravity.START);
                 WindowManager.LayoutParams params = window.getAttributes();
@@ -331,7 +363,7 @@ final class ButtonStyleDialog {
                 window.setLayout(width, height);
             } else if (this.landscape) {
                 window.setGravity(Gravity.CENTER);
-                window.setLayout(Math.min(metrics.widthPixels - dp(40), dp(430)), Math.min(metrics.heightPixels - dp(24), dp(360)));
+                window.setLayout(Math.min(metrics.widthPixels - dp(40), dp(620)), Math.min(metrics.heightPixels - dp(24), dp(360)));
             } else {
                 window.setGravity(Gravity.TOP);
                 WindowManager.LayoutParams params = window.getAttributes();

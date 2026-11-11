@@ -2937,8 +2937,23 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
         closeParams.setMargins(0, dp(12), 0, 0);
         panel.addView(close, closeParams);
-        dialog.setContentView(scrollable(panel));
         dialog.setOnDismissListener(d -> resumeGame());
+        if (ShortScreen.twoColumns(this) && names.length > 0) {
+            // (0.0.410) Landscape: the title, note and close left, the choices right.
+            View firstOption = panel.getChildAt(panel.indexOfChild(header) + 1);
+            LinearLayout right = ShortScreen.takeChildren(this, panel, firstOption, noteView);
+            View top = right.getChildAt(0);
+            if (top != null && top.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                ((LinearLayout.LayoutParams) top.getLayoutParams()).topMargin = 0;
+            }
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, close), right, card, 280);
+            dialog.show();
+            return;
+        }
+        dialog.setContentView(scrollable(panel));
         sizeDialog(dialog);
         dialog.show();
     }

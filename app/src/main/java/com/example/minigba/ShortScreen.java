@@ -30,6 +30,23 @@ final class ShortScreen {
         }
     }
 
+    /** panel's children from first (inclusive) up to stop (exclusive, null: the end), moved in order into a new column. */
+    static LinearLayout takeChildren(Context context, LinearLayout panel, View first, View stop) {
+        LinearLayout column = new LinearLayout(context);
+        column.setOrientation(LinearLayout.VERTICAL);
+        int start = panel.indexOfChild(first);
+        if (start < 0) {
+            return column;
+        }
+        while (panel.getChildCount() > start && panel.getChildAt(start) != stop) {
+            View view = panel.getChildAt(start);
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            panel.removeViewAt(start);
+            column.addView(view, params);
+        }
+        return column;
+    }
+
     /** A left column: content scrolls if it must, bottom (the buttons) always shows under it. */
     static LinearLayout leftWithBottom(Context context, LinearLayout content, View bottom) {
         ViewGroup.LayoutParams bottomParams = bottom == null ? null : bottom.getLayoutParams();

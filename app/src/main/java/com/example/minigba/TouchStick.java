@@ -198,6 +198,7 @@ final class TouchStick {
         body.setOrientation(LinearLayout.VERTICAL);
         panel.addView(body);
         final Runnable[] fill = new Runnable[1];
+        final int[] split = {-1};
         fill[0] = () -> {
             body.removeAllViews();
             int area = area(prefs, game);
@@ -214,6 +215,7 @@ final class TouchStick {
                 onChanged.run();
             }));
             body.addView(hint(context, "스틱식: 민 거리만큼 기울고, 손을 멈춰도 계속 돌아요.\n마우스식: 미는 속도만큼 기울어요. 빨리 밀면 빨리 돌고, 멈추면 바로 멈춰요."));
+            split[0] = body.getChildCount();
             body.addView(label(context, "감도"));
             body.addView(segment(context, SENS_NAMES, sens(prefs, game), choice -> {
                 prefs.edit().putInt("touch_rstick_sens:" + game, choice).commit();
@@ -241,6 +243,22 @@ final class TouchStick {
             noteParams.setMargins(0, dp(d, 12), 0, 0);
             body.addView(note, noteParams);
         };
+        // (0.0.410) Landscape: area and way left, sensitivity, curve, up-down and the note right.
+        final boolean columns = ShortScreen.twoColumns(context);
+        final LinearLayout bodyRight = new LinearLayout(context);
+        bodyRight.setOrientation(LinearLayout.VERTICAL);
+        if (columns) {
+            final Runnable inner = fill[0];
+            fill[0] = () -> {
+                bodyRight.removeAllViews();
+                inner.run();
+                while (split[0] >= 0 && body.getChildCount() > split[0]) {
+                    android.view.View moved = body.getChildAt(split[0]);
+                    body.removeViewAt(split[0]);
+                    bodyRight.addView(moved);
+                }
+            };
+        }
         fill[0].run();
         TextView close = text(context, "닫고 게임에서 바로 밀어 보기", 14, Color.rgb(75, 85, 99), true);
         close.setGravity(Gravity.CENTER);
@@ -249,6 +267,14 @@ final class TouchStick {
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(d, 48));
         closeParams.setMargins(0, dp(d, 12), 0, 0);
         panel.addView(close, closeParams);
+        if (columns) {
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(context, panel, close), bodyRight, card, 300);
+            dialog.show();
+            return dialog;
+        }
         android.widget.ScrollView scroll = new android.widget.ScrollView(context);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel);
