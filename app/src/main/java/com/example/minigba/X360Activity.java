@@ -1524,6 +1524,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
             return;
         }
         buildGameScreen();
+        EngineLog.markStart(this, EngineLog.X360, getIntent().getStringExtra(EXTRA_TITLE));
         final Context app = getApplicationContext();
         new Thread(() -> {
             String error = null;
@@ -1580,7 +1581,32 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
             if (this.statusView != null) this.statusView.setVisibility(View.GONE);
         }, 6000);
         main.post(this.guestPrompts);
+        main.postDelayed(this.watchFirstFrame, 300);
     }
+
+    // (0.0.417) The pad goes to the engine only once it shows frames: before that its window
+    // isn't made, and a key during the start (the engine's boot thread still going) can end it
+    // (XenDroid's own note). The run is marked 실행 중 for the crash notice then.
+    private volatile boolean inputReady;
+    private final Runnable watchFirstFrame = new Runnable() {
+        @Override
+        public void run() {
+            if (X360Activity.this.leaving || !X360Activity.this.booted) return;
+            double frame = 0;
+            try {
+                frame = engine().last_frame_time_ms();
+            } catch (Throwable ignored) {
+                // not yet
+            }
+            if (frame > 0) {
+                X360Activity.this.inputReady = true;
+                EngineLog.markRunning(X360Activity.this, EngineLog.X360);
+                pushPad();
+                return;
+            }
+            main.postDelayed(this, 300);
+        }
+    };
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
@@ -1929,7 +1955,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
     // The whole pad to the engine, as key events: a button only when it changes, a stick as
     // the two codes of each axis (as XenDroid's own frontend does).
     private void pushPad() {
-        if (!this.booted || this.leaving) {
+        if (!this.booted || !this.inputReady || this.leaving) {
             return;
         }
         xendroid.compose.Emulator emu = engine();
@@ -2153,6 +2179,11 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         final android.widget.EditText field = new android.widget.EditText(this);
         field.setText(gamertag(this));
         field.setSingleLine(true);
+        // (0.0.417) The dialog is white: the text dark (it took the game screen's light colour).
+        field.setTextColor(Color.rgb(31, 41, 51));
+        field.setHintTextColor(Color.rgb(156, 163, 175));
+        field.setHint("Player 1");
+        field.setSelection(field.getText().length());
         field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(15)});
         new AppDialog.Builder(this).setTitle("게이머태그")
                 .setMessage("게임 안 세이브는 이 프로필에 저장돼요. 영문 · 숫자 · 띄어쓰기, 15자까지 (영문으로 시작).")
@@ -2174,6 +2205,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
     // home screen opens it again; MainActivity.EXTRA_RELAUNCH_X360).
     private void restartGame() {
         this.leaving = true;
+        EngineLog.markEnded(this, EngineLog.X360);
         Intent again = new Intent(this, MainActivity.class);
         again.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         again.putExtra(MainActivity.EXTRA_RELAUNCH_X360, this.gamePath);
@@ -2247,6 +2279,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
     // Stops the game and ends this process (the engine runs once per process).
     private void leave() {
         this.leaving = true;
+        EngineLog.markEnded(this, EngineLog.X360);
         main.removeCallbacks(this.guestPrompts);
         try {
             if (this.booted) {

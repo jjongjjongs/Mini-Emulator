@@ -1385,6 +1385,7 @@ public final class XboxActivity extends com.rfandango.haku_x.NativeCoreActivity 
         }
         engineReady = true;
         this.booted = true;
+        EngineLog.markStart(this, EngineLog.XBOX, getIntent().getStringExtra(EXTRA_TITLE));
         buildGameScreen();
         main.postDelayed(this.poll, 500);
     }
@@ -1475,6 +1476,7 @@ public final class XboxActivity extends com.rfandango.haku_x.NativeCoreActivity 
                 }
                 if (!XboxActivity.this.frameShown && nativeGetFrameShown()) {
                     XboxActivity.this.frameShown = true;
+                    EngineLog.markRunning(XboxActivity.this, EngineLog.XBOX);
                     XboxActivity.this.statusHidden = true;
                     if (XboxActivity.this.statusView != null) XboxActivity.this.statusView.setVisibility(View.GONE);
                 }
@@ -2080,6 +2082,7 @@ public final class XboxActivity extends com.rfandango.haku_x.NativeCoreActivity 
 
     private void restartWith(String state, boolean relaunch) {
         this.leaving = true;
+        EngineLog.markEnded(this, EngineLog.XBOX);
         Intent again = new Intent(this, MainActivity.class);
         again.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         again.putExtra(MainActivity.EXTRA_RELAUNCH_XBOX, this.gamePath);
@@ -2155,6 +2158,7 @@ public final class XboxActivity extends com.rfandango.haku_x.NativeCoreActivity 
     // Ends this process (the core runs once per process).
     private void leave() {
         this.leaving = true;
+        EngineLog.markEnded(this, EngineLog.XBOX);
         main.removeCallbacks(this.poll);
         finish();
         main.postDelayed(() -> android.os.Process.killProcess(android.os.Process.myPid()), 300);

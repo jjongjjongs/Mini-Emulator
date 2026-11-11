@@ -2515,6 +2515,10 @@ public final class MainActivity extends Activity {
             return;
         }
         resumeAfterAllFilesAccess();
+        // (0.0.417) An Xbox engine that ended suddenly: said once (the process may still be
+        // going away just now, so looked at again a moment later).
+        maybeShowEngineCrash();
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::maybeShowEngineCrash, 1500);
         if (this.cloudAfterGame) {
             this.cloudAfterGame = false;
             cloudAutoBackup(true);
@@ -7041,6 +7045,18 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams gameParams = new LinearLayout.LayoutParams(-1, dp(52));
             gameParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createMenuActionRow(dialog, RoundIconView.PATCH, Color.rgb(16, 124, 16), "게임 패치 (60fps · 화질 등, 켜고 끄기)", () -> showX360GamePatches(file)), gameParams);
+        }
+        if (MODE_X360.equals(mode) || MODE_XBOX.equals(mode)) {
+            // (0.0.417) 엔진 기록 · 셰이더 캐시
+            final String engine = MODE_X360.equals(mode) ? EngineLog.X360 : EngineLog.XBOX;
+            LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(-1, dp(52));
+            logParams.setMargins(0, dp(9), 0, 0);
+            String last = EngineLog.start(this, engine) <= 0 ? "" : "  (" + EngineLog.when(EngineLog.start(this, engine))
+                    + (EngineLog.endedSuddenly(this, engine) ? " · 갑자기 꺼짐)" : ")");
+            panel.addView(createMenuActionRow(dialog, RoundIconView.EXPORT, Color.rgb(71, 85, 105), "엔진 기록 보내기" + last, () -> saveEngineLog(engine)), logParams);
+            LinearLayout.LayoutParams cacheParams = new LinearLayout.LayoutParams(-1, dp(52));
+            cacheParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createMenuActionRow(dialog, RoundIconView.TRASH, Color.rgb(190, 18, 60), "셰이더 캐시 지우기 (준비 중에 꺼질 때)", () -> confirmClearShaderCache(engine)), cacheParams);
         }
         if (overlayKind(file) != null) {
             LinearLayout.LayoutParams overlayParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -16743,6 +16759,64 @@ public final class MainActivity extends Activity {
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             if (!isFinishing() && !isDestroyed()) launchX360Game(path, title);
         }, 700);
+    }
+
+    // ---- (0.0.417) 엔진 기록 ----
+    private boolean engineCrashShowing;
+
+    private void maybeShowEngineCrash() {
+        if (isFinishing() || isDestroyed() || this.engineCrashShowing) return;
+        for (final String engine : new String[]{EngineLog.X360, EngineLog.XBOX}) {
+            if (!EngineLog.endedSuddenly(this, engine)) continue;
+            EngineLog.Exit exit = EngineLog.lastExit(this, engine);
+            if (exit != null && exit.code == android.app.ApplicationExitInfo.REASON_USER_REQUESTED) {
+                EngineLog.markEnded(this, engine);  // closed from the recent apps: not a crash
+                continue;
+            }
+            if (!EngineLog.takeUnshownCrash(this, engine)) continue;
+            StringBuilder text = new StringBuilder();
+            text.append(EngineLog.title(this, engine)).append(" · ").append(EngineLog.when(EngineLog.start(this, engine))).append(" · ")
+                    .append(EngineLog.stageName(EngineLog.stage(this, engine))).append("\n\n종료 이유: ")
+                    .append(exit == null ? "알 수 없음 (안드로이드 기록 없음)" : exit.reason);
+            java.util.List<String> tail = EngineLog.tail(EngineLog.engineLogFile(this, engine), 3);
+            if (!tail.isEmpty()) {
+                text.append("\n\n엔진 기록 마지막 줄:");
+                for (String line : tail) text.append('\n').append(line.length() > 160 ? line.substring(0, 160) + "…" : line);
+            }
+            text.append("\n\n원인을 찾으려면 \"기록 보내기\"로 파일을 저장해서 채팅에 올려 주세요. 엔진 준비 중에 꺼졌다면 \"셰이더 캐시 지우기\" 뒤에 다시 켜 보세요.");
+            this.engineCrashShowing = true;
+            new AppDialog.Builder(this).setTitle("지난번 게임이 갑자기 꺼졌어요").setMessage(text.toString())
+                    .setNegativeButton("닫기", null)
+                    .setNeutralButton("셰이더 캐시 지우기", (d, w) -> confirmClearShaderCache(engine))
+                    .setPositiveButton("기록 보내기", (d, w) -> saveEngineLog(engine))
+                    .setOnDismissListener(d -> this.engineCrashShowing = false).show();
+            return;
+        }
+    }
+
+    private void saveEngineLog(final String engine) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("엔진 기록을 모으는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            String message = EngineLog.save(getApplicationContext(), engine);
+            runOnUiThread(() -> {
+                progress.dismiss();
+                if (isFinishing() || isDestroyed()) return;
+                new AppDialog.Builder(this).setTitle("엔진 기록").setMessage(message).setPositiveButton("확인", null).show();
+            });
+        }, "engine-log").start();
+    }
+
+    private void confirmClearShaderCache(final String engine) {
+        new AppDialog.Builder(this).setTitle("셰이더 캐시를 지울까요?")
+                .setMessage((EngineLog.X360.equals(engine) ? "Xbox 360" : "초대 Xbox") + " 엔진이 저장해 둔 그래픽 준비 파일을 지워요. 세이브 · 게임 파일은 그대로예요.\n다음 실행은 셰이더를 다시 만드느라 처음에 조금 느려요.")
+                .setNegativeButton("취소", null)
+                .setPositiveButton("지우기", (d, w) -> new Thread(() -> {
+                    long freed = EngineLog.clearShaderCache(getApplicationContext(), engine);
+                    runOnUiThread(() -> Toast.makeText(this, "셰이더 캐시를 지웠어요 (" + formatSize(freed) + ")", Toast.LENGTH_LONG).show());
+                }, "shader-clear").start()).show();
     }
 
     // ---- 초대 Xbox (0.0.415) ----
