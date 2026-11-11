@@ -579,6 +579,14 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         SurfaceView surface = new SurfaceView(this);
         surface.getHolder().addCallback(this);
         screen.addView(surface, new FrameLayout.LayoutParams(-1, -1));
+        // 화면 터치로 오른쪽 스틱 (0.0.401).
+        final boolean[] mine = {false};
+        screen.setOnTouchListener((view, event) -> {
+            TouchStick stick = this.touchStick;
+            if (stick == null || stick.area() == TouchStick.OFF || this.layoutEditor != null) return false;
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) mine[0] = stick.claims(view, event);
+            return mine[0] && stick.onTouch(event);
+        });
         this.statusView = text("PS3 엔진을 시작하는 중…\n처음에는 셰이더와 코드를 준비하느라 오래 걸릴 수 있어요.", 13, Color.rgb(205, 214, 244), false);
         this.statusView.setGravity(Gravity.CENTER);
         this.statusView.setVisibility(this.statusHidden ? View.GONE : View.VISIBLE);
@@ -750,6 +758,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
     // moves, the photo background's button see-through and the turbo marks.
     private void finishScreen(View root, android.view.ViewGroup controls) {
         this.contentRoot = root;
+        touchStick();
         this.layoutControls.clear();
         this.layoutIds.clear();
         this.layoutBase.clear();
@@ -816,6 +825,28 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }
         view.setScaleX(scaleX);
         view.setScaleY(scaleY);
+    }
+
+    // ---- 화면 터치로 오른쪽 스틱 (0.0.401): a drag on the game screen tilts the right stick. ----
+    private AnalogStickView rightStick;
+    private TouchStick touchStick;
+
+    private AnalogStickView rightStickView() {
+        this.rightStick = new AnalogStickView(this, (x, y) -> onStick(false, x, y));
+        return this.rightStick;
+    }
+
+    private TouchStick touchStick() {
+        if (this.touchStick == null) {
+            this.touchStick = new TouchStick(this, (x, y) -> {
+                this.rightX = Math.max(0, Math.min(255, Math.round(128 + x * 127)));
+                this.rightY = Math.max(0, Math.min(255, Math.round(128 + y * 127)));
+                if (this.rightStick != null) this.rightStick.showKnob(x, y);
+                pushPad();
+            });
+        }
+        this.touchStick.configure(MainActivity.sharedSettings(this), this.gamePath);
+        return this.touchStick;
     }
 
     private void startLayoutEditor() {
@@ -900,7 +931,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
             addAt(pad, face, offsets[k][0], offsets[k][1], 46, 46, Gravity.TOP | Gravity.END);
         }
         addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), 34, 12, 104, 104, Gravity.BOTTOM | Gravity.START);
-        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(false, x, y)), 34, 12, 104, 104, Gravity.BOTTOM | Gravity.END);
+        addAt(pad, rightStickView(), 34, 12, 104, 104, Gravity.BOTTOM | Gravity.END);
         int[] xs = {-150, -76, 0, 76, 150};
         String[] names = {"L3", "SELECT", "PS", "START", "R3"};
         int[] ids = {D1_L3, D1_SELECT, D1_PS, D1_START, D1_R3};
@@ -935,7 +966,7 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
         }
         // Sticks; a tap on the stick view itself is not L3/R3, those are small buttons beside them.
         addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), 24, 110, 116, 116, Gravity.BOTTOM | Gravity.START);
-        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(false, x, y)), 24, 110, 116, 116, Gravity.BOTTOM | Gravity.END);
+        addAt(pad, rightStickView(), 24, 110, 116, 116, Gravity.BOTTOM | Gravity.END);
         addAt(pad, new TouchButton(this, "L3", D1_L3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 146, 40, 40, Gravity.BOTTOM | Gravity.START);
         addAt(pad, new TouchButton(this, "R3", D1_R3 << D1_SHIFT, buttons, TouchButton.STYLE_DARK), 146, 146, 40, 40, Gravity.BOTTOM | Gravity.END);
         // SELECT, PS, START along the middle.
@@ -1604,6 +1635,11 @@ public final class Ps3Activity extends Activity implements SurfaceHolder.Callbac
                 });
             });
         }), rowParams(8));
+        body.addView(menuRow(RoundIconView.PAD, Color.rgb(13, 148, 136), "화면 터치로 오른쪽 스틱", TouchStick.summary(MainActivity.sharedSettings(this), this.gamePath), v ->
+                TouchStick.showSheet(this, MainActivity.sharedSettings(this), this.gamePath, getIntent().getStringExtra(EXTRA_TITLE), null, () -> {
+                    touchStick();
+                    if (this.menuRefresh != null) main.post(this.menuRefresh);
+                })), rowParams(8));
         int turbo = Integer.bitCount(turboMask());
         body.addView(menuRow(RoundIconView.BOLT, Color.rgb(234, 88, 12), "연사", turbo == 0 ? "없음" : turbo + "개 버튼", v -> {
             showTurboSheet();

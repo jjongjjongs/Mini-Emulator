@@ -6370,6 +6370,9 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(-1, dp(52));
                 rightParams.setMargins(0, dp(8), 0, 0);
                 panel.addView(createStickRow(true, refresh), rightParams);
+                LinearLayout.LayoutParams touchParams = new LinearLayout.LayoutParams(-1, dp(52));
+                touchParams.setMargins(0, dp(8), 0, 0);
+                panel.addView(createTouchStickRow(refresh), touchParams);
             }
             if (hasLeftStick()) {
                 LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -11790,6 +11793,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;
         }
         if (!isDualScreen() && !isDolphin() && !isVita()) {
+            applyTouchStick(screen, null);
             return;
         }
         if (isN3ds() || isNds()) {
@@ -11800,7 +11804,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 }
             });
         }
-        screen.setOnTouchListener((view, event) -> {
+        View.OnTouchListener base = (view, event) -> {
             if ((isN3ds() || isNds()) && n3dsTouchOutside(event)) {
                 return true;
             }
@@ -11822,6 +11826,76 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             float fy = Math.max(0.0f, Math.min(1.0f, event.getY() / height));
             NativeGba.setPointer(handle, Math.round((fx * 2.0f - 1.0f) * 32767.0f), Math.round((fy * 2.0f - 1.0f) * 32767.0f), pressed);
             return true;
+        };
+        applyTouchStick(screen, base);
+    }
+
+    // ---- 화면 터치로 오른쪽 스틱 (0.0.401) ----
+    private TouchStick touchStick;
+
+    // The modes with a right stick on the pad (Wii: with the classic controller only).
+    private boolean hasRightStick() {
+        return isDualShock() || isWiiU() || (isDolphin() && (!isWiiGame() || wiiControl() == 2));
+    }
+
+    private int touchStickArea() {
+        if (!hasRightStick() || gunOn()) return TouchStick.OFF;
+        return TouchStick.area(MainActivity.sharedSettings(this), this.saveBaseName);
+    }
+
+    // The screen's touch: the stick's part (the right half, or all of it), the rest what the
+    // screen did before (Vita's front touch, the Wii U GamePad's screen, the Wii pointer).
+    private void applyTouchStick(View screen, View.OnTouchListener base) {
+        if (touchStickArea() == TouchStick.OFF) {
+            if (base != null) screen.setOnTouchListener(base);
+            return;
+        }
+        TouchStick stick = new TouchStick(this, (x, y) -> {
+            onAnalogRightChanged(x, y);
+            for (AnalogStickView view : this.rightSticks) view.showKnob(x, y);
+        });
+        stick.configure(MainActivity.sharedSettings(this), this.saveBaseName);
+        this.touchStick = stick;
+        final boolean[] mine = {false};
+        screen.setOnTouchListener((view, event) -> {
+            TouchStick current = this.touchStick;
+            if (current == null || current.area() == TouchStick.OFF) {
+                return base != null && base.onTouch(view, event);
+            }
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                mine[0] = current.claims(view, event);
+            }
+            if (mine[0]) {
+                return current.onTouch(event);
+            }
+            return base != null && base.onTouch(view, event);
+        });
+    }
+
+    private String touchStickConflict() {
+        if (isVita()) return "PS Vita: \"오른쪽 절반\"이면 왼쪽 절반은 원래대로 Vita 앞면 터치예요. \"화면 전체\"면 앞면 터치는 쉬어요.";
+        if (isWiiU()) return "Wii U: \"오른쪽 절반\"이면 왼쪽 절반은 원래대로 게임패드 화면 터치예요. \"화면 전체\"면 게임패드 화면 터치는 쉬어요.";
+        if (isDolphin() && isWiiGame()) return "Wii: 클래식 컨트롤러로 할 때만 써요 (리모컨 포인터는 화면 터치를 써서).";
+        return null;
+    }
+
+    private LinearLayout createTouchStickRow(Runnable refresh) {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        String shown = gunOn() ? "건슈팅 중 · 쉬어요" : TouchStick.summary(prefs, this.saveBaseName);
+        return createSettingRow(RoundIconView.PAD, Color.rgb(13, 148, 136), "화면 터치로 오른쪽 스틱", shown, view -> {
+            if (gunOn()) {
+                Toast.makeText(this, "건슈팅 터치 조준이 켜져 있어서 쉬고 있어요. 건슈팅을 끄면 써요.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            TouchStick.showSheet(this, prefs, this.saveBaseName, this.gameTitle, touchStickConflict(), () -> {
+                if (this.touchStick != null) {
+                    this.touchStick.configure(prefs, this.saveBaseName);
+                } else if (TouchStick.area(prefs, this.saveBaseName) != TouchStick.OFF) {
+                    // Turned on for the first time: the screen takes it on the next build.
+                    rebuildContent();
+                }
+                refresh.run();
+            });
         });
     }
 

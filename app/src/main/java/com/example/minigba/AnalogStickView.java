@@ -110,6 +110,16 @@ final class AnalogStickView extends View {
         return true;
     }
 
+    // 화면 터치로 오른쪽 스틱 (0.0.401): the cap shows a tilt that came from elsewhere.
+    void showKnob(float x, float y) {
+        if (x == knobX && y == knobY) {
+            return;
+        }
+        knobX = x;
+        knobY = y;
+        invalidate();
+    }
+
     private void update(float x, float y) {
         if (x == knobX && y == knobY) {
             return;
