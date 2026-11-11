@@ -1267,6 +1267,46 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         return null;
     }
 
+    // (0.0.413) An original Xbox disc (default.xbe, not default.xex) put in the Xbox 360 list:
+    // Xenia cannot run it (a black screen). The disc's XDVDFS volume is looked for where the
+    // game partition sits in a plain or full image (XGD1 / XGD2 / XGD3), and its root folder
+    // read for the start file. True only when it is surely an original Xbox game.
+    static boolean isOriginalXboxDisc(File file) {
+        if (file == null || !file.isFile() || !file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".iso")) {
+            return false;
+        }
+        long[] partitions = {0L, 0x18300000L, 0xFD90000L, 0x2080000L};
+        byte[] magic = "MICROSOFT*XBOX*MEDIA".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        try (java.io.RandomAccessFile in = new java.io.RandomAccessFile(file, "r")) {
+            for (long base : partitions) {
+                if (base + 0x10000 + 2048 > in.length()) continue;
+                byte[] head = new byte[32];
+                in.seek(base + 0x10000);
+                in.readFully(head);
+                boolean match = true;
+                for (int k = 0; k < magic.length; k++) {
+                    if (head[k] != magic[k]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (!match) continue;
+                long rootSector = (head[20] & 0xFFL) | (head[21] & 0xFFL) << 8 | (head[22] & 0xFFL) << 16 | (head[23] & 0xFFL) << 24;
+                long rootSize = (head[24] & 0xFFL) | (head[25] & 0xFFL) << 8 | (head[26] & 0xFFL) << 16 | (head[27] & 0xFFL) << 24;
+                long at = base + rootSector * 2048L;
+                if (rootSize <= 0 || rootSize > (1 << 20) || at + rootSize > in.length()) return false;
+                byte[] root = new byte[(int) rootSize];
+                in.seek(at);
+                in.readFully(root);
+                String names = new String(root, java.nio.charset.StandardCharsets.ISO_8859_1).toLowerCase(java.util.Locale.ROOT);
+                return names.contains("default.xbe") && !names.contains("default.xex");
+            }
+        } catch (Exception ignored) {
+            // Unreadable: let the engine try.
+        }
+        return false;
+    }
+
     private static volatile String gpuName;
     private static volatile boolean gpuKnown;
 

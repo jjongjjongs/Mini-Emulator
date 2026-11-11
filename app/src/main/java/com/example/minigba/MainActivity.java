@@ -16325,6 +16325,13 @@ public final class MainActivity extends Activity {
             showError(unsupported);
             return;
         }
+        if (X360Activity.isOriginalXboxDisc(new File(path))) {
+            new AppDialog.Builder(this).setTitle("초대 Xbox 게임이에요")
+                    .setMessage("이 디스크는 Xbox 360이 아니라 초대 Xbox(2001~2005년) 게임이에요 (안에 default.xbe가 있어요).\n\n"
+                            + "Xbox 360 엔진(XenDroid)으로는 켜지지 않아서 검은 화면만 나와요. 초대 Xbox 모드는 준비 중이에요.")
+                    .setPositiveButton("확인", null).show();
+            return;
+        }
         Intent intent = new Intent(this, X360Activity.class);
         intent.putExtra(X360Activity.EXTRA_PATH, path);
         intent.putExtra(X360Activity.EXTRA_TITLE, title);
