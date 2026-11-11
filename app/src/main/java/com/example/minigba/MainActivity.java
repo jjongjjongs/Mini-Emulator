@@ -6944,6 +6944,11 @@ public final class MainActivity extends Activity {
             overlayParams.setMargins(0, dp(9), 0, 0);
             panel.addView(createOverlayRow(dialog, file), overlayParams);
         }
+        if (isGcCompressed(file)) {
+            LinearLayout.LayoutParams unpackParams = new LinearLayout.LayoutParams(-1, dp(52));
+            unpackParams.setMargins(0, dp(9), 0, 0);
+            panel.addView(createGcUnpackRow(dialog, file), unpackParams);
+        }
         if (isDcChd(file, mode)) {
             LinearLayout.LayoutParams unpackParams = new LinearLayout.LayoutParams(-1, dp(52));
             unpackParams.setMargins(0, dp(9), 0, 0);
@@ -7111,6 +7116,10 @@ public final class MainActivity extends Activity {
         row.setOnClickListener(view -> {
             dialog.dismiss();
             romPrefs().edit().putBoolean("patch_seen", true).apply();
+            if (isGcCompressed(file)) {
+                showGcUnpack(file, true);  // (0.0.406) to .iso first, then the patch
+                return;
+            }
             String why = unpatchableReason(file);
             if (why != null) {
                 showError(why);
@@ -9292,6 +9301,230 @@ public final class MainActivity extends Activity {
             showChdUnpack(file, false);
         });
         return row;
+    }
+
+    // ---- (0.0.406) "ISO로 풀기": a compressed GameCube / Wii disc as a plain .iso (Dolphin) ----
+
+    private boolean isGcCompressed(File file) {
+        if (file == null || file.isDirectory() || !MODE_GC.equals(modeForFile(file))) {
+            return false;
+        }
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        return name.endsWith(".rvz") || name.endsWith(".wia") || name.endsWith(".gcz") || name.endsWith(".ciso") || name.endsWith(".wbfs");
+    }
+
+    private static String extensionUpper(File file) {
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        return dot < 0 ? "" : name.substring(dot + 1).toUpperCase(Locale.ROOT);
+    }
+
+    private LinearLayout createGcUnpackRow(Dialog dialog, File file) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(0);
+        row.setGravity(16);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        row.setBackground(rounded(Color.rgb(246, 247, 249), dp(14)));
+        row.addView(new RoundIconView(this, RoundIconView.FOLDER, MODE_COLORS[modeIndex(MODE_GC)]), new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView label = new TextView(this);
+        label.setText("ISO로 풀기");
+        label.setTextSize(14.0f);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        label.setTextColor(Theme.text(Color.rgb(31, 41, 51)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(-2, -2);
+        labelParams.setMargins(dp(12), 0, 0, 0);
+        row.addView(label, labelParams);
+        row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1.0f));
+        TextView value = new TextView(this);
+        value.setText(extensionUpper(file) + " → .iso  ›");
+        value.setTextSize(12.5f);
+        value.setTypeface(Typeface.DEFAULT_BOLD);
+        value.setTextColor(Theme.text(Color.rgb(122, 130, 140)));
+        row.addView(value);
+        row.setClickable(true);
+        row.setOnClickListener(view -> {
+            dialog.dismiss();
+            showGcUnpack(file, false);
+        });
+        return row;
+    }
+
+    private void showGcUnpack(final File disc, final boolean thenPatch) {
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("디스크를 확인하는 중…");
+        progress.setCancelable(false);
+        progress.show();
+        new Thread(() -> {
+            long size;
+            try {
+                size = NativeGba.dolphinPlainSize(disc.getAbsolutePath());
+            } catch (Throwable error) {
+                size = -1;
+            }
+            final long bytes = size;
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                progress.dismiss();
+                if (bytes <= 0) {
+                    showError("이 " + extensionUpper(disc) + " 파일을 게임큐브 · Wii 디스크로 읽지 못했어요. 파일이 깨졌거나, 이 APK에 게임큐브 · Wii 엔진이 없을 수 있어요.");
+                    return;
+                }
+                showGcUnpackDialog(disc, thenPatch, bytes);
+            });
+        }, "gc-size").start();
+    }
+
+    private void showGcUnpackDialog(final File disc, final boolean thenPatch, final long bytes) {
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(1);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(1);
+        panel.setPadding(dp(16), dp(18), dp(16), dp(16));
+        panel.setBackground(rounded(-1, dp(24)));
+        final String kind = extensionUpper(disc);
+        boolean wii = bytes > 2L * 1024 * 1024 * 1024;
+        int color = MODE_COLORS[modeIndex(MODE_GC)];
+        cardHeader(panel, RoundIconView.FOLDER, color, thenPatch ? "패치하려면 ISO로 풀어야 해요" : "ISO로 풀기",
+                displayGameNameFor(disc) + " · " + kind + (wii ? " · Wii" : " · 게임큐브"));
+        TextView text = new TextView(this);
+        text.setText(thenPatch ? kind + "는 압축돼 있어서 바로 패치할 수 없어요. 먼저 Dolphin 엔진으로 .iso로 풀고, 이어서 패치 창(PPF · xdelta)으로 넘어가요."
+                : kind + "를 압축 안 된 .iso 한 파일로 풀어서 목록에 새 게임으로 추가해요. 풀어 두면 패치(PPF · xdelta)를 쓸 수 있어요. 게임은 그대로 실행돼요.");
+        text.setTextSize(13.0f);
+        text.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        text.setLineSpacing(0, 1.15f);
+        text.setPadding(0, dp(10), 0, 0);
+        panel.addView(text);
+        long free = new android.os.StatFs(outputDirFor(disc).getAbsolutePath()).getAvailableBytes();
+        final boolean fits = free > bytes + 64L * 1024 * 1024;
+        TextView sizes = new TextView(this);
+        sizes.setText("풀면 크기: 약 " + formatSize(bytes) + " (" + kind + " " + formatSize(disc.length()) + ")\n남은 공간: " + formatSize(free) + (fits ? " ✓" : " · 부족해요")
+                + "\n걸리는 시간: " + (bytes > 2L * 1024 * 1024 * 1024 ? "3~10분" : "1~3분"));
+        sizes.setTextSize(12.0f);
+        sizes.setTextColor(Theme.text(fits ? Color.rgb(55, 65, 81) : Color.rgb(185, 28, 28)));
+        sizes.setLineSpacing(0, 1.2f);
+        sizes.setPadding(dp(12), dp(9), dp(12), dp(9));
+        sizes.setBackground(rounded(Color.rgb(246, 247, 249), dp(12)));
+        LinearLayout.LayoutParams sizesParams = new LinearLayout.LayoutParams(-1, -2);
+        sizesParams.setMargins(0, dp(10), 0, 0);
+        panel.addView(sizes, sizesParams);
+        final android.widget.CheckBox remove = new android.widget.CheckBox(this);
+        remove.setText("풀고 나서 원본 " + kind + " 지우기");
+        remove.setTextSize(13.0f);
+        remove.setTextColor(Theme.text(Color.rgb(55, 65, 81)));
+        remove.setChecked(false);
+        LinearLayout.LayoutParams removeParams = new LinearLayout.LayoutParams(-1, -2);
+        removeParams.setMargins(0, dp(6), 0, 0);
+        panel.addView(remove, removeParams);
+        TextView note = new TextView(this);
+        note.setText("푼 게임은 목록에 따로 추가되고 세이브도 따로예요. " + kind + " 원본은 지우지 않으면 그대로 남아요.");
+        note.setTextSize(11.5f);
+        note.setTextColor(Theme.text(Color.rgb(146, 64, 14)));
+        note.setPadding(dp(12), dp(9), dp(12), dp(9));
+        note.setBackground(rounded(Color.rgb(255, 251, 235), dp(12)));
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.setMargins(0, dp(6), 0, 0);
+        panel.addView(note, noteParams);
+        addSaveWhereSection(panel, disc);
+        final CheckBox carry = addSaveCarryBox(panel, disc, true, "세이브도 같이 옮기기");
+        LinearLayout buttons = new LinearLayout(this);
+        TextView cancel = new TextView(this);
+        cancel.setText("취소");
+        cancel.setTextSize(15.0f);
+        cancel.setTypeface(Typeface.DEFAULT_BOLD);
+        cancel.setTextColor(Theme.text(Color.rgb(75, 85, 99)));
+        cancel.setGravity(17);
+        cancel.setBackground(rounded(Color.rgb(241, 242, 244), dp(14)));
+        cancel.setOnClickListener(view -> dialog.dismiss());
+        buttons.addView(cancel, new LinearLayout.LayoutParams(0, dp(48), 1.0f));
+        TextView go = new TextView(this);
+        go.setText(thenPatch ? "풀고 패치하기" : "ISO로 풀기");
+        go.setTextSize(15.0f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setTextColor(-1);
+        go.setGravity(17);
+        go.setBackground(rounded(color, dp(14)));
+        go.setOnClickListener(view -> {
+            if (!fits) {
+                showError("저장 공간이 부족해요. 풀려면 " + formatSize(bytes) + " 정도가 필요해요.");
+                return;
+            }
+            dialog.dismiss();
+            runGcUnpack(disc, thenPatch, remove.isChecked(), bytes, carry != null && carry.isChecked());
+        });
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(0, dp(48), 1.4f);
+        goParams.setMargins(dp(10), 0, 0, 0);
+        buttons.addView(go, goParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.setMargins(0, dp(14), 0, 0);
+        panel.addView(buttons, buttonsParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(panel);
+        dialog.setContentView(scroll);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(0));
+            window.setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - dp(36), dp(420)), -2);
+        }
+        dialog.show();
+    }
+
+    private void runGcUnpack(final File disc, final boolean thenPatch, final boolean removeOriginal, final long bytes, final boolean carrySaves) {
+        final File dir = outputDirFor(disc);
+        final String title = displayGameNameFor(disc);
+        final String name = freeGdiName(dir, sanitizeSaveBaseName(title));
+        final File iso = new File(dir, name + ".iso");
+        final String kind = extensionUpper(disc);
+        final StepDialog steps = new StepDialog("ISO로 푸는 중", title + " · " + formatSize(bytes), RoundIconView.FOLDER, MODE_COLORS[modeIndex(MODE_GC)],
+                thenPatch ? new String[]{kind + " 확인", "디스크 풀기", "ISO 저장", "패치 창 열기"} : new String[]{kind + " 확인", "디스크 풀기", "ISO 저장"},
+                thenPatch ? new String[]{formatSize(disc.length()), "", iso.getName(), "PPF · xdelta"} : new String[]{formatSize(disc.length()), "", iso.getName()});
+        steps.set(1, "0%", 0);
+        new Thread(() -> {
+            final long[] last = {0};
+            int result;
+            try {
+                result = NativeGba.dolphinToPlain(disc.getAbsolutePath(), iso.getAbsolutePath(), (done, total) -> {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - last[0] > 200) {
+                        last[0] = now;
+                        final int permille = (int) (done * 1000 / Math.max(1, total));
+                        runOnUiThread(() -> steps.set(1, formatSize(done) + " / " + formatSize(total) + " · " + permille / 10 + "%", permille));
+                    }
+                    return !steps.cancelled;
+                });
+            } catch (Throwable error) {
+                result = -1;
+            }
+            final int code = result;
+            runOnUiThread(() -> {
+                steps.dismiss();
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                if (code != 0) {
+                    iso.delete();
+                    if (code != 5) {
+                        showError(code == 1 ? "이 " + kind + " 파일을 디스크로 읽지 못했어요."
+                                : code == 2 ? "풀 파일을 만들지 못했어요. 폴더에 쓸 수 있는지 확인해 주세요."
+                                : code == 3 ? kind + " 파일을 읽다가 실패했어요. 파일이 덜 받아졌거나 깨졌을 수 있어요."
+                                : code == 4 ? "저장 공간이 모자라서 다 풀지 못했어요."
+                                : "이 APK의 게임큐브 · Wii 엔진은 ISO로 풀기를 지원하지 않아요.");
+                    }
+                    return;
+                }
+                romPrefs().edit().putString("title:" + iso.getName(), title).putBoolean("unpacked:" + iso.getName(), true).apply();
+                final File placed = finishNewGame(disc, iso, carrySaves);
+                if (removeOriginal) {
+                    deleteRomFiles(disc);
+                }
+                refreshLibrary();
+                Toast.makeText(this, "ISO로 풀었어요 · 목록에 추가됨", Toast.LENGTH_LONG).show();
+                if (thenPatch) {
+                    pickPatch(placed);
+                }
+            });
+        }, "gc-unpack").start();
     }
 
     // A dialog of numbered steps with a bar, for work that takes minutes.

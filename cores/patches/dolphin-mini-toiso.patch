@@ -1,0 +1,132 @@
+diff --git a/Source/Core/DiscIO/FileBlob.cpp b/Source/Core/DiscIO/FileBlob.cpp
+index 3a30e2a..35eb89f 100644
+--- a/Source/Core/DiscIO/FileBlob.cpp
++++ b/Source/Core/DiscIO/FileBlob.cpp
+@@ -8,6 +8,7 @@
+ #include <string>
+ #include <utility>
+ #include <vector>
++#include <cstdio>
+ 
+ #include "Common/Assert.h"
+ #include "Common/FileUtil.h"
+@@ -112,3 +113,119 @@ bool ConvertToPlain(BlobReader* infile, const std::string& infile_path,
+ }
+ 
+ }  // namespace DiscIO
++
++// Mini Emulator: 압축된 게임큐브 · Wii 디스크(RVZ · WIA · GCZ · CISO · WBFS)를 .iso로 풀기, for
++// patches made for the plain disc (like Dolphin's Convert to ISO). The size of a disc whose
++// container doesn't know it exactly is the standard size of its kind.
++static u64 MiniPlainSize(DiscIO::BlobReader* reader)
++{
++  const u64 size = reader->GetDataSize();
++  if (reader->GetDataSizeType() == DiscIO::DataSizeType::Accurate)
++    return size;
++  u8 magic[0x20] = {};
++  if (!reader->Read(0, sizeof(magic), magic))
++    return size;
++  const bool wii = magic[0x18] == 0x5D && magic[0x19] == 0x1C && magic[0x1A] == 0x9E && magic[0x1B] == 0xA3;
++  const bool gc = magic[0x1C] == 0xC2 && magic[0x1D] == 0x33 && magic[0x1E] == 0x9F && magic[0x1F] == 0x3D;
++  constexpr u64 GC_SIZE = 1459978240ULL;
++  constexpr u64 WII_SL = 4699979776ULL;
++  constexpr u64 WII_DL = 8511160320ULL;
++  if (gc)
++    return GC_SIZE;
++  if (wii)
++  {
++    // Where the last partition ends tells a one-layer disc from a two-layer one.
++    auto be32 = [&](u64 at, u32* value) {
++      u8 b[4];
++      if (!reader->Read(at, 4, b))
++        return false;
++      *value = (u32(b[0]) << 24) | (u32(b[1]) << 16) | (u32(b[2]) << 8) | b[3];
++      return true;
++    };
++    u64 end = 0;
++    for (u64 group = 0; group < 4; group++)
++    {
++      u32 count = 0, table = 0;
++      if (!be32(0x40000 + group * 8, &count) || !be32(0x40004 + group * 8, &table) || count > 64)
++        continue;
++      for (u32 k = 0; k < count; k++)
++      {
++        u32 offset = 0, data_offset = 0, data_size = 0;
++        if (!be32((u64(table) << 2) + k * 8, &offset))
++          continue;
++        const u64 part = u64(offset) << 2;
++        if (!be32(part + 0x2B8, &data_offset) || !be32(part + 0x2BC, &data_size))
++          continue;
++        end = std::max(end, part + (u64(data_offset) << 2) + (u64(data_size) << 2));
++      }
++    }
++    return end > WII_SL ? WII_DL : WII_SL;
++  }
++  return size;
++}
++
++// The size the .iso will have, or -1 when it isn't a disc Dolphin reads.
++extern "C" __attribute__((visibility("default"))) long long retro_mini_disc_plain_size(const char* in_path)
++{
++  std::unique_ptr<DiscIO::BlobReader> reader = DiscIO::CreateBlobReader(in_path);
++  if (!reader)
++    return -1;
++  return static_cast<long long>(MiniPlainSize(reader.get()));
++}
++
++// in_path to a plain disc image at out_path. progress gets (done, total) bytes and returns 0
++// to stop. Returns 0 done, 1 not a disc, 2 can't write, 3 read failed, 4 write failed (space),
++// 5 stopped. A failed or stopped .iso is removed.
++extern "C" __attribute__((visibility("default"))) int retro_mini_disc_to_plain(
++    const char* in_path, const char* out_path, int (*progress)(long long done, long long total, void* ctx), void* ctx)
++{
++  std::unique_ptr<DiscIO::BlobReader> reader = DiscIO::CreateBlobReader(in_path);
++  if (!reader)
++    return 1;
++  const u64 total = MiniPlainSize(reader.get());
++  std::FILE* out = std::fopen(out_path, "wb");
++  if (out == nullptr)
++    return 2;
++  constexpr u64 BUFFER = 0x200000;
++  std::vector<u8> buffer(BUFFER);
++  int result = 0;
++  u64 done = 0;
++  u64 last = 0;
++  while (done < total)
++  {
++    if (progress != nullptr && (done == 0 || done - last >= 16 * BUFFER))
++    {
++      last = done;
++      if (progress(static_cast<long long>(done), static_cast<long long>(total), ctx) == 0)
++      {
++        result = 5;
++        break;
++      }
++    }
++    const u64 size = std::min(BUFFER, total - done);
++    if (!reader->Read(done, size, buffer.data()))
++    {
++      // Past what the container holds (a WBFS's unused end): blank, as on the disc.
++      if (reader->GetDataSizeType() != DiscIO::DataSizeType::Accurate)
++        std::fill(buffer.begin(), buffer.begin() + size, 0);
++      else
++      {
++        result = 3;
++        break;
++      }
++    }
++    if (std::fwrite(buffer.data(), 1, size, out) != size)
++    {
++      result = 4;
++      break;
++    }
++    done += size;
++  }
++  if (std::fclose(out) != 0 && result == 0)
++    result = 4;
++  if (result != 0)
++    std::remove(out_path);
++  else if (progress != nullptr)
++    progress(static_cast<long long>(total), static_cast<long long>(total), ctx);
++  return result;
++}

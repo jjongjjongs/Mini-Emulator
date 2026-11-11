@@ -5474,6 +5474,71 @@ JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_wiiImportNand(
     return import(user.c_str(), sys.c_str(), nand.c_str(), keys.c_str(), nandImportProgress, &ctx);
 }
 
+namespace {
+void* dolphinToolLibrary() {
+    static void* library = nullptr;
+    static std::mutex libraryMutex;
+    std::lock_guard<std::mutex> lock(libraryMutex);
+    if (library == nullptr) {
+        library = dlopen("libdolphin_libretro_android.so", RTLD_NOW);
+        if (library == nullptr) LOGE("dlopen dolphin failed: %s", dlerror());
+    }
+    return library;
+}
+
+struct DiscProgressContext {
+    JNIEnv* env;
+    jobject callback;
+    jmethodID method;
+};
+
+int discProgress(long long done, long long total, void* opaque) {
+    auto* ctx = static_cast<DiscProgressContext*>(opaque);
+    if (ctx == nullptr || ctx->callback == nullptr || ctx->method == nullptr) return 1;
+    jboolean go = ctx->env->CallBooleanMethod(ctx->callback, ctx->method, static_cast<jlong>(done), static_cast<jlong>(total));
+    if (ctx->env->ExceptionCheck()) {
+        ctx->env->ExceptionClear();
+        return 1;
+    }
+    return go == JNI_TRUE ? 1 : 0;
+}
+}  // namespace
+
+// ISO로 풀기 (cores/patches/dolphin-mini-toiso.patch): the size the plain .iso will have.
+JNIEXPORT jlong JNICALL Java_com_example_minigba_NativeGba_dolphinPlainSize(JNIEnv* env, jclass /*cls*/, jstring inPath) {
+    void* library = dolphinToolLibrary();
+    if (library == nullptr) return -1;
+    using SizeFn = long long (*)(const char*);
+    auto size = reinterpret_cast<SizeFn>(dlsym(library, "retro_mini_disc_plain_size"));
+    if (size == nullptr) {
+        LOGE("retro_mini_disc_plain_size missing from the core");
+        return -1;
+    }
+    std::string in = jstringToString(env, inPath);
+    return static_cast<jlong>(size(in.c_str()));
+}
+
+// The disc unpacked to outPath, blocking (off the main thread).
+JNIEXPORT jint JNICALL Java_com_example_minigba_NativeGba_dolphinToPlain(JNIEnv* env, jclass /*cls*/, jstring inPath, jstring outPath, jobject callback) {
+    void* library = dolphinToolLibrary();
+    if (library == nullptr) return -1;
+    using UnpackFn = int (*)(const char*, const char*, int (*)(long long, long long, void*), void*);
+    auto unpack = reinterpret_cast<UnpackFn>(dlsym(library, "retro_mini_disc_to_plain"));
+    if (unpack == nullptr) {
+        LOGE("retro_mini_disc_to_plain missing from the core");
+        return -1;
+    }
+    DiscProgressContext ctx{env, callback, nullptr};
+    if (callback != nullptr) {
+        jclass cls = env->GetObjectClass(callback);
+        ctx.method = env->GetMethodID(cls, "onProgress", "(JJ)Z");
+        env->DeleteLocalRef(cls);
+    }
+    std::string in = jstringToString(env, inPath);
+    std::string out = jstringToString(env, outPath);
+    return unpack(in.c_str(), out.c_str(), discProgress, &ctx);
+}
+
 JNIEXPORT void JNICALL Java_com_example_minigba_NativeGba_setN3dsScale(JNIEnv* /*env*/, jclass /*cls*/, jint scale) {
     gN3dsScale.store(scale >= 1 && scale <= 3 ? scale : 1);
 }

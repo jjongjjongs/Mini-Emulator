@@ -90,6 +90,18 @@ final class NativeGba {
 
     static native int wiiImportNand(String userDir, String sysDir, String nandPath, String keysPath, NandProgress progress);
 
+    interface DiscProgress {
+        /** Bytes written so far of total. Returns false to stop. */
+        boolean onProgress(long done, long total);
+    }
+
+    // (0.0.406) A compressed GameCube / Wii disc (RVZ, WIA, GCZ, CISO, WBFS) as a plain .iso,
+    // through the Dolphin core. Size: -1 not a disc / no core. Unpack: 0 done, 1 not a disc,
+    // 2 can't write, 3 read failed, 4 write failed, 5 stopped, -1 no core.
+    static native long dolphinPlainSize(String inPath);
+
+    static native int dolphinToPlain(String inPath, String outPath, DiscProgress progress);
+
     // PSP ad-hoc over the LAN: 0 off, 1 host (built-in server), 2 guest; server is the address to join.
     static native void setPspAdhoc(int mode, String server);
 
