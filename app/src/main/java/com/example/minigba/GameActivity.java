@@ -18111,8 +18111,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             return;  // the keypad carries the gun's buttons; START is the keypad's START
         }
         android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        this.gunKeyPrefix.clear();
+        // (0.0.405) PS2 GunCon 2 in portrait has new places (gunbtn6): the four small buttons
+        // between the d-pad and △□○✕ under the speed button, the trigger below them. A button
+        // the player moved in 버튼·화면 배치 편집 keeps its old place, which the move is from.
+        boolean ps2Portrait = "pcee2".equals(this.coreId) && !this.landscapeMode;
+        java.util.Map<String, float[]> edits = ps2Portrait ? loadLayoutEdits() : null;
         for (int k = 0; k < gun.labels.length; k++) {
             int bit = gun.bits[k];
+            boolean moved = false;
+            if (edits != null) {
+                float[] edit = edits.get("TouchButton." + bit + "#0");
+                moved = edit != null && (Math.abs(edit[0]) > 0.5f || Math.abs(edit[1]) > 0.5f || Math.abs(edit[2] - 1f) > 0.01f);
+            }
+            String prefix = ps2Portrait && !moved ? "gunbtn6:" : "gunbtn5:";
             int style = bit == kGunTrigger ? TouchButton.STYLE_ARCADE_RED : bit == kGunReload ? TouchButton.STYLE_SNES_BLUE
                     : bit == kGunCalib ? TouchButton.STYLE_ARCADE_YELLOW : TouchButton.STYLE_PURPLE;
             TouchButton button = new TouchButton(this, gun.labels[k], bit, this::setButtonPressed, style);
@@ -18121,9 +18133,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             // (gunbtn5: from 0.0.385. 0.0.384's gunbtn4 places were measured before the keypad had
             // settled and are dropped; the 0.0.379 places, gunbtn3, are kept, but not for the PS2
             // trigger / reload / 보정 쏘기, whose places are new. gunbtn2 0.0.375, gunbtn 0.0.373.)
-            String saved = prefs.getString("gunbtn5:" + layoutKey() + ":" + bit, null);
+            String saved = prefs.getString(prefix + layoutKey() + ":" + bit, null);
             boolean ps2New = "pcee2".equals(this.coreId) && (bit == kGunTrigger || bit == kGunReload || bit == kGunCalib);
-            if (saved == null && !ps2New) {
+            if (saved == null && "gunbtn6:".equals(prefix)) {
+                // Not placed yet: keep the size it had, the place is worked out once laid out.
+                String before = prefs.getString("gunbtn5:" + layoutKey() + ":" + bit, null);
+                String[] parts = before == null ? new String[0] : before.split(",");
+                if (parts.length >= 3) {
+                    try {
+                        params.width = dp(Integer.parseInt(parts[2]));
+                        params.height = params.width;
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            } else if (saved == null && !ps2New) {
                 saved = prefs.getString("gunbtn3:" + layoutKey() + ":" + bit, null);
             }
             boolean placed = false;
@@ -18148,7 +18171,15 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
             root.addView(button, params);
             this.gunButtons.add(button);
+            this.gunKeyPrefix.put(button, prefix);
         }
+    }
+
+    private final java.util.Map<View, String> gunKeyPrefix = new java.util.HashMap<>();
+
+    private String gunPlaceKey(TouchButton button) {
+        String prefix = this.gunKeyPrefix.get(button);
+        return (prefix != null ? prefix : "gunbtn5:") + layoutKey() + ":" + button.bit();
     }
 
     private void scheduleSettleGun(int generation) {
@@ -18292,11 +18323,116 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             params.height = Math.round(size);
             button.setLayoutParams(params);
             button.setAlpha(1f);
-            editor.putString("gunbtn5:" + layoutKey() + ":" + bit,
+            editor.putString(gunPlaceKey(button),
                     Math.round(left / density) + "," + Math.round(top / density) + "," + Math.round(size / density));
             done.add(button);
         }
         return done;
+    }
+
+    // (0.0.405) PS2 GunCon 2 in portrait: 건콘 B · 건콘 A · 재장전 in a row just under the speed
+    // button, 재장전 as far right as △ and □ allow; 보정 쏘기 under 건콘 A, as far as the row's
+    // buttons are apart; the trigger under it, between the d-pad and □ · ✕. Sizes stay.
+    private java.util.Set<View> placePs2PortraitGunButtons(int[] origin, android.content.SharedPreferences.Editor editor, float density) {
+        java.util.Set<View> done = new java.util.HashSet<>();
+        TouchButton square = keypadButton(2048, null);
+        TouchButton triangle = keypadButton(1024, null);
+        TouchButton cross = keypadButton(2, null);
+        View dpad = null;
+        View speed = null;
+        for (View view : this.layoutControls) {
+            if (view.getVisibility() != View.VISIBLE || view.getWidth() == 0) continue;
+            if (view instanceof DPadView && dpad == null) dpad = view;
+            else if (view instanceof SpeedButtonView && speed == null) speed = view;
+        }
+        TouchButton fire = null;
+        TouchButton reload = null;
+        TouchButton auxA = null;
+        TouchButton auxB = null;
+        TouchButton calib = null;
+        for (TouchButton b : this.gunButtons) {
+            if (b.bit() == kGunTrigger) fire = b;
+            else if (b.bit() == kGunReload) reload = b;
+            else if (b.bit() == kGunAuxA) auxA = b;
+            else if (b.bit() == kGunAuxB) auxB = b;
+            else if (b.bit() == kGunCalib) calib = b;
+        }
+        if (square == null || triangle == null || dpad == null || fire == null || reload == null || auxA == null || auxB == null) {
+            return done;
+        }
+        android.graphics.RectF sq = windowBox(square);
+        android.graphics.RectF tri = windowBox(triangle);
+        android.graphics.RectF cr = cross != null ? windowBox(cross) : null;
+        android.graphics.RectF pad = windowBox(dpad);
+        float small = auxA.getLayoutParams().width;
+        float big = fire.getLayoutParams().width;
+        float gap = small * 0.34f;
+        float clear = dp(6);
+        float armHalf = Math.min(pad.width(), pad.height()) * 0.16f;
+        android.graphics.RectF sp = speed != null ? windowBox(speed) : null;
+        boolean speedNear = sp != null && sp.bottom > tri.top - small * 3f && sp.bottom < tri.centerY();
+        float rowY = speedNear ? sp.bottom + clear * 2f + small / 2f : tri.top - clear - small / 2f;
+        if (this.screenArea != null && this.screenArea.getWidth() > 0) {
+            rowY = Math.max(rowY, windowBox(this.screenArea).bottom + clear + small / 2f);
+        }
+        float rx = tri.left - clear - small / 2f;
+        for (int k = 0; k < 200 && (gunTooClose(rx, rowY, small, tri, clear) || gunTooClose(rx, rowY, small, sq, clear)); k++) rx -= dp(2);
+        // 건콘 B clear of the d-pad (its upper arm only, when the row is above the side arms).
+        float leftLimit = rowY + small / 2f + clear > pad.centerY() - armHalf ? pad.right : pad.centerX() + armHalf;
+        float ax = rx - small - gap;
+        float bx = ax - small - gap;
+        if (bx - small / 2f < leftLimit + clear) {
+            gap = Math.max(dp(4), (rx - (leftLimit + clear + small / 2f)) / 2f - small);
+            ax = rx - small - gap;
+            bx = ax - small - gap;
+        }
+        putGunPlace(reload, rx, rowY, small, origin, editor, density, done);
+        putGunPlace(auxA, ax, rowY, small, origin, editor, density, done);
+        putGunPlace(auxB, bx, rowY, small, origin, editor, density, done);
+        float under = rowY + small / 2f;
+        float fx = ax;
+        if (calib != null) {
+            float cx = ax;
+            float cy = rowY + small + gap;
+            for (int k = 0; k < 200 && gunTooClose(cx, cy, small, sq, clear) && cx - small / 2f > pad.right + clear; k++) cx -= dp(2);
+            putGunPlace(calib, cx, cy, small, origin, editor, density, done);
+            under = cy + small / 2f;
+            fx = cx;
+        }
+        float fy = under + gap + big / 2f;
+        for (int k = 0; k < 200; k++) {
+            boolean beside = fy - big / 2f < pad.centerY() + armHalf;
+            float limit = (beside ? pad.right : pad.centerX() + armHalf) + clear + big / 2f;
+            fx = Math.max(fx, limit);
+            if (!gunTooClose(fx, fy, big, sq, clear) && (cr == null || !gunTooClose(fx, fy, big, cr, clear))) break;
+            if (fx - dp(2) >= limit) fx -= dp(2); else fy += dp(2);
+        }
+        putGunPlace(fire, fx, fy, big, origin, editor, density, done);
+        return done;
+    }
+
+    // Whether a round button of [size] at (cx, cy) comes nearer than [clear] to the round key in [box].
+    private static boolean gunTooClose(float cx, float cy, float size, android.graphics.RectF box, float clear) {
+        return Math.hypot(cx - box.centerX(), cy - box.centerY()) < size / 2f + box.width() / 2f + clear;
+    }
+
+    private void putGunPlace(TouchButton button, float cx, float cy, float size, int[] origin,
+                             android.content.SharedPreferences.Editor editor, float density, java.util.Set<View> done) {
+        if (!this.gunUnplaced.contains(button)) {
+            return;
+        }
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) button.getLayoutParams();
+        View root = (View) button.getParent();
+        float left = Math.max(0f, Math.min(cx - size / 2f - origin[0], (root == null ? 0 : root.getWidth()) - size));
+        float top = Math.max(0f, Math.min(cy - size / 2f - origin[1], (root == null ? 0 : root.getHeight()) - size));
+        params.leftMargin = Math.round(left);
+        params.topMargin = Math.round(top);
+        params.width = Math.round(size);
+        params.height = Math.round(size);
+        button.setLayoutParams(params);
+        button.setAlpha(1f);
+        editor.putString(gunPlaceKey(button), Math.round(left / density) + "," + Math.round(top / density) + "," + Math.round(size / density));
+        done.add(button);
     }
 
     // First time in this layout: each unplaced gun button into the free spot nearest to where
@@ -18313,10 +18449,10 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         }
         android.content.SharedPreferences.Editor editor = MainActivity.sharedSettings(this).edit();
         java.util.List<android.graphics.RectF> obstaclesPlaced = new java.util.ArrayList<>();
-        if ("pcee2".equals(this.coreId) && this.landscapeMode && !this.gunButtons.isEmpty() && this.gunButtons.get(0).getParent() != null) {
+        if ("pcee2".equals(this.coreId) && !this.gunButtons.isEmpty() && this.gunButtons.get(0).getParent() != null) {
             int[] at = new int[2];
             ((View) this.gunButtons.get(0).getParent()).getLocationInWindow(at);
-            java.util.Set<View> placed = placePs2GunButtons(at, editor, density);
+            java.util.Set<View> placed = this.landscapeMode ? placePs2GunButtons(at, editor, density) : placePs2PortraitGunButtons(at, editor, density);
             for (View view : placed) {
                 this.gunUnplaced.remove(view);
                 unplaced.remove(view);
@@ -18476,7 +18612,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             unplaced.remove(button);
             // This button now counts as an obstacle for the next ones.
             obstaclesPlaced.add(new android.graphics.RectF(spot[0] + origin[0], spot[1] + origin[1], spot[0] + origin[0] + size, spot[1] + origin[1] + size));
-            editor.putString("gunbtn5:" + layoutKey() + ":" + button.bit(),
+            editor.putString(gunPlaceKey(button),
                     Math.round(spot[0] / density) + "," + Math.round(spot[1] / density) + "," + Math.round(size / density));
             if (isTrigger) {
                 trigger = new float[]{spot[0] + origin[0] + size / 2f, spot[1] + origin[1] + size / 2f};
