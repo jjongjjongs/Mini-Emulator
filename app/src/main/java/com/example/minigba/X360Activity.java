@@ -1524,6 +1524,79 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         return moved;
     }
 
+    // (0.0.420) The path the engine is given has ASCII letters only. A game whose file name has
+    // Korean in it (a 한글 patch's "(한글)") ended the start with utf8::not_enough_room right
+    // after the disc was opened, every time; the engine gets a link to the file under an
+    // ASCII name instead (a hard link, else a symbolic one; a game folder's .xex: a link to
+    // the folder). The file itself and everything kept by its name stay as they are.
+    static String enginePath(Context context, String path) {
+        if (path == null) return null;
+        boolean ascii = true;
+        for (int k = 0; k < path.length(); k++) {
+            if (path.charAt(k) > 0x7E) {
+                ascii = false;
+                break;
+            }
+        }
+        if (ascii) return path;
+        File game = new File(path);
+        String lower = game.getName().toLowerCase(java.util.Locale.ROOT);
+        int dot = lower.lastIndexOf('.');
+        String ext = dot >= 0 ? lower.substring(dot) : "";
+        File dir = new File(context.getFilesDir(), "x360_links");
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        String key = "game_" + Integer.toHexString(path.hashCode());
+        clearLinks(context, key);
+        try {
+            if (".xex".equals(ext)) {
+                File folder = new File(dir, key);
+                replaceLink(folder, game.getParentFile(), false);
+                return new File(folder, game.getName()).getAbsolutePath();
+            }
+            File link = new File(dir, key + ext);
+            replaceLink(link, game, true);
+            return link.getAbsolutePath();
+        } catch (Exception e) {
+            return path;
+        }
+    }
+
+    // The links of other games go (a hard link keeps a deleted game's space): one at most, and
+    // none once the game is left.
+    static void clearLinks(Context context, String keep) {
+        File[] links = new File(context.getFilesDir(), "x360_links").listFiles();
+        if (links == null) return;
+        for (File link : links) {
+            if (keep != null && link.getName().startsWith(keep)) continue;
+            //noinspection ResultOfMethodCallIgnored
+            link.delete();
+        }
+    }
+
+    private static void replaceLink(File link, File target, boolean hard) throws Exception {
+        try {
+            android.system.StructStat a = android.system.Os.lstat(link.getPath());
+            android.system.StructStat b = android.system.Os.stat(target.getPath());
+            if (a.st_ino == b.st_ino && a.st_dev == b.st_dev) return;  // already this file's hard link
+            String to = android.system.Os.readlink(link.getPath());
+            if (to.equals(target.getAbsolutePath())) return;          // already this symbolic link
+        } catch (Exception ignored) {
+            // no link yet, or not a symbolic one
+        }
+        //noinspection ResultOfMethodCallIgnored
+        link.delete();
+        if (hard) {
+            try {
+                android.system.Os.link(target.getAbsolutePath(), link.getPath());
+                return;
+            } catch (Exception ignored) {
+                // another file system, or not allowed: a symbolic link
+            }
+        }
+        android.system.Os.symlink(target.getAbsolutePath(), link.getPath());
+    }
+
     // A profile (게이머태그) to sign in with: games save under it. Made once, kept.
     private static String ensureProfile(Context context) {
         xendroid.compose.Emulator emu = engine();
@@ -1598,7 +1671,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         File root = rootDir(this);
         try {
             emu.setup_context(this);
-            emu.setup_game_path(this.gamePath);
+            emu.setup_game_path(enginePath(this, this.gamePath));
             emu.setup_launch_args(new String[]{
                     "--storage_root=" + root.getAbsolutePath(),
                     "--config=" + configFile(this).getAbsolutePath(),
@@ -2322,6 +2395,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
     private void leave() {
         this.leaving = true;
         EngineLog.markEnded(this, EngineLog.X360);
+        clearLinks(this, null);
         main.removeCallbacks(this.guestPrompts);
         try {
             if (this.booted) {
