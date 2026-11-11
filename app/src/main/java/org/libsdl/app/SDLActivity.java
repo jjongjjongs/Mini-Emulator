@@ -922,8 +922,9 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
                 if (context instanceof Activity) {
                     Window window = ((Activity) context).getWindow();
                     if (window != null) {
-                        if (((msg.obj instanceof Integer) && ((Integer) msg.obj != 0)) ||
-                            (context instanceof SDLActivity && ((SDLActivity) context).keepFullscreen())) {
+                        boolean allowed = !(context instanceof SDLActivity) || ((SDLActivity) context).allowFullscreen();
+                        if (allowed && (((msg.obj instanceof Integer) && ((Integer) msg.obj != 0)) ||
+                            (context instanceof SDLActivity && ((SDLActivity) context).keepFullscreen()))) {
                             int flags = View.SYSTEM_UI_FLAG_FULLSCREEN |
                                     View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
                                     View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
@@ -1124,6 +1125,14 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
      */
     protected boolean keepFullscreen() {
         return false;
+    }
+
+    /**
+     * Mini Emulator (0.0.416): false keeps the window as the app's other game screens have it
+     * (the status bar shown), whatever style the game asks for.
+     */
+    protected boolean allowFullscreen() {
+        return true;
     }
 
     /**

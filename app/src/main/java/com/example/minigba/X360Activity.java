@@ -77,8 +77,32 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         return MainActivity.sharedSettings(this).getInt("shell_style", ClearShellView.STYLE_CLEAR);
     }
 
+    // (0.0.416) The buttons gathered (portrait: in one block in the middle of the space under
+    // the screen; landscape: in the middle of each side column), scaled down on a small screen.
+    // A layout the player edited before keeps the old places (its edits are moves from them).
+    private boolean legacyLayout;
+    private float padScale = 1f;
+    private int landCol = 178;
+    private static final int PAD_BLOCK_DP = 384;
+
+    private boolean legacyLayoutFor() {
+        android.content.SharedPreferences prefs = MainActivity.sharedSettings(this);
+        return !prefs.getString(layoutKey(), "").isEmpty() && !prefs.getBoolean(layoutKey() + ":v2", false);
+    }
+
+    private int u(float value) {
+        return Math.round(value * this.padScale);
+    }
+
+    private int statusBarDp() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        float density = getResources().getDisplayMetrics().density;
+        return id > 0 ? Math.round(getResources().getDimensionPixelSize(id) / density) : 24;
+    }
+
     private void buildGameScreen() {
         this.layoutEditor = null;
+        this.legacyLayout = legacyLayoutFor();
         setRequestedOrientation(landscape() ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         boolean wide = getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
@@ -131,13 +155,13 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
             android.util.DisplayMetrics metrics = getResources().getDisplayMetrics();
             int heightDp = Math.round(metrics.heightPixels / metrics.density);
             int widthDp = Math.round(metrics.widthPixels / metrics.density);
-            int screenW = Math.min(widthDp - 2 * 178, (heightDp - 70) * 16 / 9);
-            int screenH = screenW * 9 / 16;
-            if (four) {
-                screenW = screenH * 4 / 3;
-            }
+            int[] fit = landscapeScreen(widthDp, heightDp - statusBarDp(), four);
+            int screenW = fit[0];
+            int screenH = fit[1];
+            this.landCol = (widthDp - screenW) / 2;
+            this.padScale = this.legacyLayout ? 1f : Math.min(1f, (heightDp - statusBarDp()) / 384f);
             FrameLayout.LayoutParams screenParams = new FrameLayout.LayoutParams(dp(screenW), dp(screenH), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-            screenParams.topMargin = dp(10);
+            screenParams.topMargin = dp(fit[2]);
             controls.addView(holder, screenParams);
             this.screenBaseW = dp(screenW);
             this.screenBaseH = dp(screenH);
@@ -204,15 +228,29 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         this.layoutGuards.clear();
         this.layoutGuards.add(top);
 
-        // 16:9 screen, the width of the phone with a small margin (4:3: as tall, narrower).
-        int width = getResources().getDisplayMetrics().widthPixels - dp(16);
+        // 16:9 screen, the width of the phone with a small margin (4:3: as wide, taller; before
+        // 0.0.416 and for an edited layout: as tall, narrower), kept short enough for the buttons.
+        android.util.DisplayMetrics pm = getResources().getDisplayMetrics();
+        int width = pm.widthPixels - dp(16);
         int height = width * 9 / 16;
         if (four) {
-            width = height * 4 / 3;
+            if (this.legacyLayout) {
+                width = height * 4 / 3;
+            } else {
+                height = width * 3 / 4;
+            }
+        }
+        if (!this.legacyLayout) {
+            this.padScale = Math.min(1f, pm.widthPixels / pm.density / 412f);
+            int room = pm.heightPixels - dp(statusBarDp()) - dp(64) - dp(24) - dp(u(PAD_BLOCK_DP)) - dp(8);
+            if (height > room && room > dp(120)) {
+                height = room;
+                width = four ? height * 4 / 3 : height * 16 / 9;
+            }
         }
         LinearLayout.LayoutParams screenParams = new LinearLayout.LayoutParams(width, height);
         screenParams.gravity = Gravity.CENTER_HORIZONTAL;
-        screenParams.setMargins(0, dp(10), 0, dp(30));
+        screenParams.setMargins(0, dp(10), 0, dp(this.legacyLayout ? 30 : 14));
         column.addView(holder, screenParams);
         this.screenBaseW = width;
         this.screenBaseH = height;
@@ -262,7 +300,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
             sb.append(this.layoutIds.get(k)).append('=').append(Math.round(edit[0])).append(',').append(Math.round(edit[1])).append(',')
                     .append(Math.round(edit[2] * 100) / 100.0f).append(',').append(Math.round(edit[3] * 100) / 100.0f).append(';');
         }
-        MainActivity.sharedSettings(this).edit().putString(layoutKey(), sb.toString()).commit();
+        MainActivity.sharedSettings(this).edit().putString(layoutKey(), sb.toString()).putBoolean(layoutKey() + ":v2", !this.legacyLayout).commit();
     }
 
     private static final String SCREEN_ID = "screen#0";
@@ -1693,7 +1731,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
 
     // Landscape: LT LB, D-pad, left stick, BACK under it on the left; RB RT, A B X Y, right stick,
     // START under it on the right; L3 · R3 under the screen.
-    private void buildPadLandscape(FrameLayout pad) {
+    private void buildPadLandscapeLegacy(FrameLayout pad) {
         TouchButton.Listener buttons = this::onButton;
         addAt(pad, new TouchButton(this, "LT", B_LT, buttons, TouchButton.STYLE_SHOULDER), 12, 68, 74, 38, Gravity.TOP | Gravity.START);
         addAt(pad, new TouchButton(this, "LB", B_LB, buttons, TouchButton.STYLE_SHOULDER), 92, 68, 74, 38, Gravity.TOP | Gravity.START);
@@ -1717,9 +1755,107 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         }
     }
 
-    // Portrait: LT LB · RB RT on top, D-pad and A B X Y, the sticks, L3 · R3 under their inner
-    // sides, BACK · START apart at the bottom.
-    private void buildPad(FrameLayout pad) {
+    // ---- (0.0.416) The buttons gathered ----
+
+    // The landscape screen {width, height, top margin} in dp: 16:9 (4:3) between two columns,
+    // room under it for L3 · R3.
+    private int[] landscapeScreen(int widthDp, int heightDp, boolean four) {
+        int w = Math.min(widthDp - 2 * 178, (this.legacyLayout ? heightDp + statusBarDp() - 70 : heightDp - 46) * 16 / 9);
+        int h = w * 9 / 16;
+        if (four) {
+            w = h * 4 / 3;
+        }
+        return new int[]{w, h, 10};
+    }
+
+    private void buildPadLandscape(FrameLayout pad) {
+        if (this.legacyLayout) {
+            buildPadLandscapeLegacy(pad);
+            return;
+        }
+        // Each side's buttons in the middle of its column, the screen between.
+        TouchButton.Listener buttons = this::onButton;
+        int col = this.landCol;
+        int shoulder = Math.max(54, (col - 32) / 2);
+        addAt(pad, new TouchButton(this, "LT", B_LT, buttons, TouchButton.STYLE_SHOULDER), 12, u(66), shoulder, u(34), Gravity.TOP | Gravity.START);
+        addAt(pad, new TouchButton(this, "LB", B_LB, buttons, TouchButton.STYLE_SHOULDER), 20 + shoulder, u(66), shoulder, u(34), Gravity.TOP | Gravity.START);
+        addAt(pad, new TouchButton(this, "RB", B_RB, buttons, TouchButton.STYLE_SHOULDER), 20 + shoulder, u(66), shoulder, u(34), Gravity.TOP | Gravity.END);
+        addAt(pad, new TouchButton(this, "RT", B_RT, buttons, TouchButton.STYLE_SHOULDER), 12, u(66), shoulder, u(34), Gravity.TOP | Gravity.END);
+        addAt(pad, new DPadView(this, this::onDirections), Math.max(4, (col - u(120)) / 2), u(108), u(120), u(120), Gravity.TOP | Gravity.START);
+        addFaceCluster(pad, col / 2, u(168), u(46));
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), Math.max(4, (col - u(104)) / 2), u(46), u(104), u(104), Gravity.BOTTOM | Gravity.START);
+        addAt(pad, rightStickView(), Math.max(4, (col - u(104)) / 2), u(46), u(104), u(104), Gravity.BOTTOM | Gravity.END);
+        addAt(pad, new TouchButton(this, "BACK", B_BACK, buttons), 10, 10, 64, 30, Gravity.BOTTOM | Gravity.START);
+        addAt(pad, new TouchButton(this, "START", B_START, buttons), 10, 10, 64, 30, Gravity.BOTTOM | Gravity.END);
+        int[] xs = {-60, 60};
+        String[] names = {"L3", "R3"};
+        int[] ids = {B_L3, B_R3};
+        for (int k = 0; k < 2; k++) {
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            params.bottomMargin = dp(6);
+            TouchButton button = new TouchButton(this, names[k], ids[k], buttons, TouchButton.STYLE_DARK);
+            button.setTranslationX(dp(xs[k]));
+            pad.addView(button, params);
+        }
+    }
+
+    // Portrait: one block in the middle of the space under the screen — LT LB · RB RT, the
+    // D-pad and A B X Y, the sticks with L3 · R3 between them, BACK · START.
+    private void buildPad(FrameLayout outer) {
+        if (this.legacyLayout) {
+            buildPadLegacy(outer);
+            return;
+        }
+        FrameLayout pad = new FrameLayout(this);
+        pad.setClipChildren(false);
+        outer.addView(pad, new FrameLayout.LayoutParams(-1, dp(u(PAD_BLOCK_DP)), Gravity.CENTER_VERTICAL));
+        TouchButton.Listener buttons = this::onButton;
+        addAt(pad, new TouchButton(this, "LT", B_LT, buttons, TouchButton.STYLE_SHOULDER), u(16), 0, u(80), u(40), Gravity.TOP | Gravity.START);
+        addAt(pad, new TouchButton(this, "LB", B_LB, buttons, TouchButton.STYLE_SHOULDER), u(104), 0, u(80), u(40), Gravity.TOP | Gravity.START);
+        addAt(pad, new TouchButton(this, "RB", B_RB, buttons, TouchButton.STYLE_SHOULDER), u(104), 0, u(80), u(40), Gravity.TOP | Gravity.END);
+        addAt(pad, new TouchButton(this, "RT", B_RT, buttons, TouchButton.STYLE_SHOULDER), u(16), 0, u(80), u(40), Gravity.TOP | Gravity.END);
+        addPortraitBody(pad, buttons);
+    }
+
+    // The part under the shoulder row, the same on both Xbox screens.
+    private void addPortraitBody(FrameLayout pad, TouchButton.Listener buttons) {
+        addAt(pad, new DPadView(this, this::onDirections), u(20), u(52), u(150), u(150), Gravity.TOP | Gravity.START);
+        addFaceCluster(pad, u(104), u(127), u(56));
+        addAt(pad, new AnalogStickView(this, (x, y) -> onStick(true, x, y)), u(30), u(216), u(124), u(124), Gravity.TOP | Gravity.START);
+        addAt(pad, rightStickView(), u(30), u(216), u(124), u(124), Gravity.TOP | Gravity.END);
+        addAt(pad, new TouchButton(this, "L3", B_L3, buttons, TouchButton.STYLE_DARK), u(166), u(258), u(38), u(38), Gravity.TOP | Gravity.START);
+        addAt(pad, new TouchButton(this, "R3", B_R3, buttons, TouchButton.STYLE_DARK), u(166), u(258), u(38), u(38), Gravity.TOP | Gravity.END);
+        FrameLayout.LayoutParams back = new FrameLayout.LayoutParams(dp(u(92)), dp(u(34)), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        back.topMargin = dp(u(350));
+        TouchButton backButton = new TouchButton(this, "BACK", B_BACK, buttons);
+        backButton.setTranslationX(-dp(u(64)));
+        pad.addView(backButton, back);
+        FrameLayout.LayoutParams start = new FrameLayout.LayoutParams(dp(u(92)), dp(u(34)), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        start.topMargin = dp(u(350));
+        TouchButton startButton = new TouchButton(this, "START", B_START, buttons);
+        startButton.setTranslationX(dp(u(64)));
+        pad.addView(startButton, start);
+    }
+
+    // A B X Y around a centre rightDp from the right edge and topDp from the top.
+    private void addFaceCluster(FrameLayout pad, int rightDp, int topDp, int size) {
+        int[] bits = {B_Y, B_B, B_A, B_X};
+        String[] labels = {"Y", "B", "A", "X"};
+        int[] colors = {Color.rgb(234, 179, 8), Color.rgb(220, 38, 38), Color.rgb(22, 163, 74), Color.rgb(37, 99, 235)};
+        int[][] at = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+        float step = size * 0.92f;
+        for (int k = 0; k < 4; k++) {
+            TouchButton face = new TouchButton(this, labels[k], bits[k], this::onButton, TouchButton.STYLE_ACTION);
+            face.setLabelColor(colors[k]);
+            int right = Math.round(rightDp - at[k][0] * step - size / 2f);
+            int top = Math.round(topDp + at[k][1] * step - size / 2f);
+            addAt(pad, face, Math.max(2, right), Math.max(0, top), size, size, Gravity.TOP | Gravity.END);
+        }
+    }
+
+    // Portrait before 0.0.416: LT LB · RB RT on top, D-pad and A B X Y, the sticks, L3 · R3
+    // under their inner sides, BACK · START apart at the bottom.
+    private void buildPadLegacy(FrameLayout pad) {
         TouchButton.Listener buttons = this::onButton;
         addAt(pad, new TouchButton(this, "LT", B_LT, buttons, TouchButton.STYLE_SHOULDER), 12, 6, 72, 40, Gravity.TOP | Gravity.START);
         addAt(pad, new TouchButton(this, "LB", B_LB, buttons, TouchButton.STYLE_SHOULDER), 90, 6, 72, 40, Gravity.TOP | Gravity.START);
