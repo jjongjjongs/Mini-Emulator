@@ -629,7 +629,16 @@ jobs:
 
       - name: Native bridge host test
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq lld llvm libvulkan-dev > /dev/null
+          # The runner's Ubuntu mirror is sometimes unreachable for a while: tried again, a
+          # minute apart, before the test (which still has to pass) runs.
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get update -qq -o Acquire::Retries=3 && sudo apt-get install -y -qq -o Acquire::Retries=3 lld llvm libvulkan-dev > /dev/null; then
+              break
+            fi
+            if [ "$attempt" = 5 ]; then echo "::error::apt could not install lld llvm libvulkan-dev"; exit 1; fi
+            echo "apt failed (attempt $attempt), trying again in 60 s"
+            sleep 60
+          done
           ./native-test/run.sh
 
       # Release signing needs these repository secrets:
