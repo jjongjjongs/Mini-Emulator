@@ -52,4 +52,13 @@ app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
 app/src/main/jniLibs/arm64-v8a/libarmsx3-core.so
 app/src/main/jniLibs/arm64-v8a/libarmsx3-jni.so
 app/src/main/assets/ps3/
+# Xbox 360 engine: cores/fetch-xendroid.sh takes it from a XenDroid release
+app/src/main/jniLibs/arm64-v8a/libe.so
+app/src/main/jniLibs/arm64-v8a/libhardware_ProcessorInfo.so
+app/src/main/jniLibs/arm64-v8a/libSPIRV-Tools-shared.so
+app/src/main/jniLibs/arm64-v8a/libhook_impl.so
+app/src/main/jniLibs/arm64-v8a/libmain_hook.so
+app/src/main/jniLibs/arm64-v8a/libgsl_alloc_hook.so
+app/src/main/jniLibs/arm64-v8a/libfile_redirect_hook.so
+app/src/main/assets/x360/
 app/src/main/jniLibs/arm64-v8a/libmednafen_saturn_libretro_android.so

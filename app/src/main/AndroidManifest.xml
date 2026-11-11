@@ -41,6 +41,12 @@
             android:process=":ps3"
             android:exported="false"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
+        <!-- Xbox 360 (0.0.412): XenDroid's engine boots once per process. -->
+        <activity
+            android:name="com.example.minigba.X360Activity"
+            android:process=":x360"
+            android:exported="false"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|density|orientation|keyboardHidden|keyboard"/>
         <activity
             android:name="com.example.minigba.BgEditorActivity"
             android:process=":game"

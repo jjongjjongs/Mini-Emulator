@@ -89,6 +89,8 @@ public final class MainActivity extends Activity {
     private static final String MODE_PS1 = "ps1";
     private static final String MODE_PS2 = "ps2";
     private static final String MODE_PS3 = "ps3";
+    // (0.0.412) Xbox 360 on XenDroid (Xenia), run by X360Activity in its own process.
+    private static final String MODE_X360 = "x360";
     private static final int REQUEST_IMPORT_PS3_FIRMWARE = 1041;
     private static final String MODE_NDS = "nds";
     private static final String MODE_N3DS = "3ds";
@@ -114,6 +116,8 @@ public final class MainActivity extends Activity {
             // (0.0.392) .ps3game: a PSN game installed from a .pkg (its folder on the PS3 hard disk);
             // a game folder (PS3_GAME/PARAM.SFO inside) is listed too, see isRomFile.
             {MODE_PS3, "rpcs3", ".iso,.ps3game", ".iso / .pkg / 폴더", "roms_ps3", "1040"},
+            // Xbox 360 discs (.iso), packed discs (.zar) and a game folder's default.xex on XenDroid (0.0.412).
+            {MODE_X360, "xenia", ".iso,.zar,.xex", ".iso / .zar / .xex", "roms_x360", "1091"},
             // GameCube and Wii discs on Dolphin (plain images, RVZ/WIA/GCZ/CISO, WBFS).
             {MODE_GC, "dolphin", ".iso,.gcm,.rvz,.wia,.gcz,.ciso,.wbfs,.m3u", ".iso / .rvz / .wbfs", "roms_gc", "1045"},
             // Saturn discs on YabaSanshiro (it needs the real BIOS).
@@ -202,13 +206,13 @@ public final class MainActivity extends Activity {
     // BIOS archives MAME 2003-Plus and FBNeo look for, recognised during a folder import.
     private static final String[] KNOWN_ARCADE_BIOS = {"pgm.zip", "skns.zip", "stvbios.zip", "cpzn1.zip", "cpzn2.zip", "tps.zip", "taitofx1.zip", "decocass.zip", "konamigv.zip", "konamigx.zip", "playch10.zip", "nss.zip", "megaplay.zip", "megatech.zip", "cvs.zip", "neocdz.zip", "isgsm.zip", "midssio.zip", "coh1000c.zip", "coh1002m.zip", "coh3002c.zip", "hng64.zip", "naomi.zip", "awbios.zip"};
     // Game modes shown on the picker. Only GBA ships an engine so far.
-    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_PS3, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
-    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "PS3", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
-    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "ARMSX3 1.6.7 (시험판)", "Dolphin (시험판)", "YabaSanshiro · Beetle Saturn", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
-    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".iso · 펌웨어 필요", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
+    private static final String[] MODE_IDS = {MODE_GBA, MODE_NDS, MODE_N3DS, MODE_WIIU, MODE_SNES, MODE_NES, MODE_MD, MODE_MCD, MODE_SMS, MODE_PCE, MODE_N64, MODE_PSP, MODE_VITA, MODE_PS1, MODE_PS2, MODE_PS3, MODE_X360, MODE_GC, MODE_SS, MODE_DC, MODE_NAOMI, MODE_WS, MODE_NGP, MODE_MSX, MODE_PC98, MODE_DOS, "neogeo", "arcade"};
+    private static final String[] MODE_NAMES = {"GBA · GBC", "닌텐도 DS", "닌텐도 3DS", "Wii U", "슈퍼패미컴", "패미컴", "메가드라이브", "메가CD · 32X", "마스터시스템 · 게임기어", "PC엔진", "닌텐도 64", "PSP", "PS Vita", "PS1", "PS2", "PS3", "Xbox 360", "게임큐브 · Wii", "세가 새턴", "드림캐스트", "Naomi · Atomiswave", "원더스완 · 컬러", "네오지오 포켓 · 컬러", "MSX · 재믹스", "PC-98", "DOS (고전 PC)", "Neo Geo", "아케이드"};
+    private static final String[] MODE_ENGINES = {"Game Boy Advance", "melonDS DS", "Citra (시험판)", "Cemu (실험적)", "Snes9x", "FCEUmm", "Genesis Plus GX", "PicoDrive", "Genesis Plus GX", "Beetle PCE Fast", "Mupen64Plus-Next", "PPSSPP", "Vita3K (실험적)", "PCSX ReARMed", "Play! (시험판)", "ARMSX3 1.6.7 (시험판)", "XenDroid (시험판)", "Dolphin (시험판)", "YabaSanshiro · Beetle Saturn", "Flycast", "Flycast (아케이드)", "Beetle Cygne", "Beetle NeoPop", "blueMSX", "NP2kai", "DOSBox Pure", "FinalBurn Neo", "MAME 2003-Plus · FBNeo · MAME 2010/2015"};
+    private static final String[] MODE_FILES = {".gba · .gbc · .gb · .zip", ".nds · .zip", ".3ds · .cci · .cxi", ".wua · .wud · .wux", ".sfc · .smc · .zip", ".nes · .zip", ".md · .gen · .bin · .zip", ".cue+.bin · .chd · .32x", ".sms · .gg · .sg · .zip", ".pce · .zip (HuCard)", ".z64 · .n64 · .v64 · .zip", ".iso · .cso · .pbp", ".vpk · .pkg(+라이선스) · 게임 폴더 · 펌웨어 필요", ".cue+.bin · .chd · .pbp", ".iso · .chd · .cso · .cue+.bin", ".iso · 펌웨어 필요", ".iso · .zar · .xex · 고사양 폰", ".rvz · .iso · .wbfs · .gcz", ".cue+.bin · .chd · .iso", ".gdi · .cue + 트랙 · .chd · .cdi", "ROM .zip (+ .chd) · naomi.zip 등 BIOS 필요", ".ws · .wsc · .zip", ".ngp · .ngc · .zip", ".rom · .dsk · .cas · .zip", ".hdm · .fdi · .d88 · .hdi", "게임 폴더 .zip · .iso · .img", "ROM .zip · neogeo.zip BIOS 필요", "ROM .zip"};
     // Console pictures on the mode picker cards, in MODE_IDS order.
-    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ps3, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
-    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(79, 70, 229), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
+    private static final int[] MODE_DRAWABLES = {R.drawable.console_gba, R.drawable.console_nds, R.drawable.console_3ds, R.drawable.console_wiiu, R.drawable.console_sfc, R.drawable.console_fc, R.drawable.console_md, R.drawable.console_mcd, R.drawable.console_sms, R.drawable.console_pce, R.drawable.console_n64, R.drawable.console_psp, R.drawable.console_vita, R.drawable.console_ps1, R.drawable.console_ps2, R.drawable.console_ps3, R.drawable.console_x360, R.drawable.console_gc, R.drawable.console_ss, R.drawable.console_dc, R.drawable.console_naomi, R.drawable.console_ws, R.drawable.console_ngp, R.drawable.console_msx, R.drawable.console_pc98, R.drawable.console_dos, R.drawable.console_neo, R.drawable.console_mame};
+    private static final int[] MODE_COLORS = {Color.rgb(22, 185, 207), Color.rgb(219, 39, 119), Color.rgb(225, 29, 72), Color.rgb(14, 165, 233), Color.rgb(84, 92, 168), Color.rgb(196, 42, 52), Color.rgb(15, 118, 110), Color.rgb(159, 18, 57), Color.rgb(162, 28, 175), Color.rgb(232, 96, 44), Color.rgb(22, 163, 74), Color.rgb(28, 30, 36), Color.rgb(29, 78, 216), Color.rgb(120, 126, 138), Color.rgb(36, 84, 168), Color.rgb(79, 70, 229), Color.rgb(16, 124, 16), Color.rgb(99, 102, 241), Color.rgb(71, 85, 105), Color.rgb(202, 138, 4), Color.rgb(13, 148, 136), Color.rgb(101, 163, 13), Color.rgb(3, 105, 161), Color.rgb(159, 18, 57), Color.rgb(15, 118, 110), Color.rgb(51, 65, 85), Color.rgb(124, 58, 237), Color.rgb(154, 91, 46)};
     private static final String PREF_TITLE_PREFIX = "title:";
     private static final int REQUEST_EXPORT_SAVE = 1002;
     private static final int REQUEST_IMPORT_BIOS = 1004;
@@ -284,6 +288,7 @@ public final class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         relaunchGameIfAsked(intent);
+        relaunchX360IfAsked(intent);
         importPresetIfOpened(intent);
     }
 
@@ -1948,6 +1953,9 @@ public final class MainActivity extends Activity {
         if ("neogeo".equals(mode) && !neoGeoBiosFile().exists()) {
             return "BIOS 필요";
         }
+        if (MODE_X360.equals(mode) && X360Activity.unsupportedReason(this) != null) {
+            return "지원 안 됨";
+        }
         if (MODE_PS3.equals(mode)) {
             if (Ps3Activity.unsupportedReason(this) != null) {
                 return "지원 안 됨";
@@ -3480,7 +3488,7 @@ public final class MainActivity extends Activity {
             startPs2BinImport(intent);
             return;
         }
-        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PS3.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
+        if (MODE_PSP.equals(mode) || MODE_PS1.equals(mode) || MODE_PS2.equals(mode) || MODE_PS3.equals(mode) || MODE_X360.equals(mode) || MODE_PCE.equals(mode) || MODE_WIIU.equals(mode) || MODE_DOS.equals(mode)) {
             // Disc images run to gigabytes; copy them off the UI thread.
             final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
             progress.setTitle(MODE_NAMES[modeIndex(mode)] + " 게임 가져오기");
@@ -16305,6 +16313,37 @@ public final class MainActivity extends Activity {
         startActivity(intent);
     }
 
+    // ---- Xbox 360 (0.0.412) ----
+    // X360Activity's 재시작: the engine boots once per process, so the game is opened again
+    // from here, in a new one.
+    static final String EXTRA_RELAUNCH_X360 = "com.example.minigba.RELAUNCH_X360";
+    static final String EXTRA_RELAUNCH_X360_TITLE = "com.example.minigba.RELAUNCH_X360_TITLE";
+
+    private void launchX360Game(String path, String title) {
+        String unsupported = X360Activity.unsupportedReason(this);
+        if (unsupported != null) {
+            showError(unsupported);
+            return;
+        }
+        Intent intent = new Intent(this, X360Activity.class);
+        intent.putExtra(X360Activity.EXTRA_PATH, path);
+        intent.putExtra(X360Activity.EXTRA_TITLE, title);
+        startActivity(intent);
+    }
+
+    private void relaunchX360IfAsked(Intent intent) {
+        String path = intent == null ? null : intent.getStringExtra(EXTRA_RELAUNCH_X360);
+        if (path == null) {
+            return;
+        }
+        String title = intent.getStringExtra(EXTRA_RELAUNCH_X360_TITLE);
+        intent.removeExtra(EXTRA_RELAUNCH_X360);
+        // A moment for the old engine process to end.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (!isFinishing() && !isDestroyed()) launchX360Game(path, title);
+        }, 700);
+    }
+
     // A sheet taller than the screen (landscape) scrolls (0.0.398).
     private View scrollWrap(View panel) {
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
@@ -16835,6 +16874,11 @@ public final class MainActivity extends Activity {
     private void launchGame(File file) {
         if (MODE_PS3.equals(modeForFile(file))) {
             launchPs3Game(file);
+            return;
+        }
+        if (MODE_X360.equals(modeForFile(file))) {
+            launchX360Game(file.getAbsolutePath(), displayGameNameFor(file));
+            markRecentlyPlayed(file);
             return;
         }
         if (MODE_PC98.equals(modeForFile(file)) && Pc98Flux.isFluxImage(file.getName().toLowerCase(Locale.ROOT))) {

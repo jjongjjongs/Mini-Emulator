@@ -528,6 +528,42 @@ jobs:
             app/src/main/assets/ps3
           key: armsx3-${{ hashFiles('cores/fetch-armsx3.sh') }}
 
+      - name: Restore Xbox 360 engine
+        id: xendroid-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libe.so
+            app/src/main/jniLibs/arm64-v8a/libhardware_ProcessorInfo.so
+            app/src/main/jniLibs/arm64-v8a/libSPIRV-Tools-shared.so
+            app/src/main/jniLibs/arm64-v8a/libhook_impl.so
+            app/src/main/jniLibs/arm64-v8a/libmain_hook.so
+            app/src/main/jniLibs/arm64-v8a/libgsl_alloc_hook.so
+            app/src/main/jniLibs/arm64-v8a/libfile_redirect_hook.so
+            app/src/main/assets/x360
+          key: xendroid-${{ hashFiles('cores/fetch-xendroid.sh') }}
+
+      - name: Fetch Xbox 360 engine (XenDroid release)
+        if: steps.xendroid-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./cores/fetch-xendroid.sh
+
+      - name: Save Xbox 360 engine
+        if: steps.xendroid-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libe.so
+            app/src/main/jniLibs/arm64-v8a/libhardware_ProcessorInfo.so
+            app/src/main/jniLibs/arm64-v8a/libSPIRV-Tools-shared.so
+            app/src/main/jniLibs/arm64-v8a/libhook_impl.so
+            app/src/main/jniLibs/arm64-v8a/libmain_hook.so
+            app/src/main/jniLibs/arm64-v8a/libgsl_alloc_hook.so
+            app/src/main/jniLibs/arm64-v8a/libfile_redirect_hook.so
+            app/src/main/assets/x360
+          key: xendroid-${{ hashFiles('cores/fetch-xendroid.sh') }}
+
       - name: Report PCEE2 core
         run: |
           if [ -f app/src/main/jniLibs/arm64-v8a/libpcee2_libretro_android.so ]; then
@@ -606,7 +642,7 @@ jobs:
       - name: Check APK contents
         run: |
           for apk in app/build/outputs/apk/*/*.apk; do
-            for entry in assets/romsets.bin assets/titles.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so lib/arm64-v8a/libmame2015_libretro_android.so lib/arm64-v8a/libsnes9x_libretro_android.so lib/arm64-v8a/libdosbox_pure_libretro_android.so assets/dos/TimGM6mb.sf2 lib/arm64-v8a/libbluemsx_libretro_android.so assets/msx_system.zip assets/msx_xbios.zip lib/arm64-v8a/libfceumm_libretro_android.so lib/arm64-v8a/libgenesis_plus_gx_libretro_android.so lib/arm64-v8a/libmednafen_pce_fast_libretro_android.so lib/arm64-v8a/libmednafen_wswan_libretro_android.so lib/arm64-v8a/libmednafen_ngp_libretro_android.so lib/arm64-v8a/libpicodrive_libretro_android.so lib/arm64-v8a/libyabasanshiro_libretro_android.so lib/arm64-v8a/libppsspp_libretro_android.so assets/ppsspp_system.zip lib/arm64-v8a/libpcsx_rearmed_libretro_android.so lib/arm64-v8a/libplay_libretro_android.so lib/arm64-v8a/libarmsx3-core.so lib/arm64-v8a/libarmsx3-jni.so; do
+            for entry in assets/romsets.bin assets/titles.bin lib/arm64-v8a/libfbneo_libretro_android.so lib/arm64-v8a/libmame2003_plus_libretro_android.so lib/arm64-v8a/libmame2010_libretro_android.so lib/arm64-v8a/libmame2015_libretro_android.so lib/arm64-v8a/libsnes9x_libretro_android.so lib/arm64-v8a/libdosbox_pure_libretro_android.so assets/dos/TimGM6mb.sf2 lib/arm64-v8a/libbluemsx_libretro_android.so assets/msx_system.zip assets/msx_xbios.zip lib/arm64-v8a/libfceumm_libretro_android.so lib/arm64-v8a/libgenesis_plus_gx_libretro_android.so lib/arm64-v8a/libmednafen_pce_fast_libretro_android.so lib/arm64-v8a/libmednafen_wswan_libretro_android.so lib/arm64-v8a/libmednafen_ngp_libretro_android.so lib/arm64-v8a/libpicodrive_libretro_android.so lib/arm64-v8a/libyabasanshiro_libretro_android.so lib/arm64-v8a/libppsspp_libretro_android.so assets/ppsspp_system.zip lib/arm64-v8a/libpcsx_rearmed_libretro_android.so lib/arm64-v8a/libplay_libretro_android.so lib/arm64-v8a/libarmsx3-core.so lib/arm64-v8a/libarmsx3-jni.so lib/arm64-v8a/libe.so lib/arm64-v8a/libhardware_ProcessorInfo.so assets/x360/default_config.toml; do
               unzip -l "$apk" | grep -q " $entry\$" || { echo "::error::$apk is missing $entry"; exit 1; }
             done
           done
