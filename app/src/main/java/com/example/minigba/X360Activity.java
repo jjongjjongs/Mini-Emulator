@@ -1597,31 +1597,52 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         android.system.Os.symlink(target.getAbsolutePath(), link.getPath());
     }
 
-    // (0.0.421) The engine reads every name under content/ (the hard disk's Content folder)
-    // as it starts a game; a name that isn't plain ASCII (a 한글 patched game's save, written
-    // with Korean bytes in its name) ended every start after the first with
-    // utf8::not_enough_room (the crash's stack: HostPathDevice populating the Content
-    // device). Such files and folders are moved, as they are, to content_aside/<time>/ (the
-    // shell moves them byte for byte; Java can't name them). Returns how many.
+    // (0.0.421 · 0.0.422) The engine reads every name under content/ (the hard disk's Content
+    // folder) as it starts a game; a name that isn't plain ASCII ended every start after the
+    // first with utf8::not_enough_room (the crash's stack: HostPathDevice populating the
+    // Content device). Ghost Recon AW names its save with bytes that aren't text at all
+    // ("\u8A04\u0000GRAW" as Android reads it), which neither Java nor the shell's patterns can
+    // name; so the folder holding such a name (its own name is plain: 00000001 and the like)
+    // is moved whole to content_aside/<time>/ with the same path. Returns how many folders.
     static int setAsideOddNames(Context context) {
         File root = contentRoot(context);
         if (!root.isDirectory()) return 0;
         File aside = new File(rootDir(context), "content_aside/" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.ROOT).format(new java.util.Date()));
-        String script = "export LC_ALL=C; find \"$1\" -mindepth 1 -name \"*[! -~]*\" -prune -exec sh -c "
-                + "'rel=${0#\"$1\"/}; d=\"$2/$(dirname \"$rel\")\"; mkdir -p \"$d\" && mv \"$0\" \"$d/\" && echo moved' {} \"$1\" \"$2\" \\; | wc -l";
-        try {
-            Process process = new ProcessBuilder("sh", "-c", script, "sh", root.getAbsolutePath(), aside.getAbsolutePath()).redirectErrorStream(true).start();
-            String out;
-            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
-                StringBuilder all = new StringBuilder();
-                for (String line; (line = reader.readLine()) != null; ) all.append(line).append('\n');
-                out = all.toString().trim();
+        java.util.List<File> odd = new java.util.ArrayList<>();
+        findOddFolders(root, 8, odd);
+        int moved = 0;
+        String base = root.getAbsolutePath() + "/";
+        for (File folder : odd) {
+            String rel = folder.getAbsolutePath().startsWith(base) ? folder.getAbsolutePath().substring(base.length()) : folder.getName();
+            File target = new File(aside, rel);
+            //noinspection ResultOfMethodCallIgnored
+            target.getParentFile().mkdirs();
+            if (folder.renameTo(target)) moved++;
+        }
+        return moved;
+    }
+
+    private static boolean oddName(File f) {
+        String name = f.getName();
+        for (int k = 0; k < name.length(); k++) {
+            char c = name.charAt(k);
+            if (c < 0x20 || c > 0x7E) return true;
+        }
+        return !f.exists();  // a name Java read lossily: it can't be opened by it
+    }
+
+    private static void findOddFolders(File dir, int depth, java.util.List<File> out) {
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File kid : kids) {
+            if (oddName(kid)) {
+                if (!dir.getName().isEmpty() && !out.contains(dir)) out.add(dir);
+                return;  // this folder goes whole
             }
-            process.waitFor();
-            String last = out.contains("\n") ? out.substring(out.lastIndexOf('\n') + 1) : out;
-            return Integer.parseInt(last.trim());
-        } catch (Exception e) {
-            return 0;
+        }
+        if (depth <= 0) return;
+        for (File kid : kids) {
+            if (kid.isDirectory()) findOddFolders(kid, depth - 1, out);
         }
     }
 
@@ -1674,7 +1695,7 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
                 }
                 final int moved = setAsideOddNames(app);
                 if (moved > 0) {
-                    main.post(() -> toast("엔진이 읽지 못하는 이름의 파일 " + moved + "개를 content_aside로 옮겨 뒀어요 (한글패치 게임의 세이브일 수 있어요)"));
+                    main.post(() -> toast("엔진이 읽지 못하는 이름이 든 세이브 폴더 " + moved + "개를 content_aside로 옮겨 뒀어요"));
                 }
                 String xuid = ensureProfile(app);
                 writeConfig(app, xuid);
