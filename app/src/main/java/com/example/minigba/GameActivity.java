@@ -4586,6 +4586,19 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         TextView close = dialogButton("닫기", Color.rgb(241, 242, 244), Color.rgb(75, 85, 99));
         close.setOnClickListener(view -> dialog.dismiss());
         panel.addView(close, marginTop(-1, dp(46), 10));
+        View notFoundBox = panel.findViewWithTag("cheat_box");
+        if (notFoundBox != null && ShortScreen.twoColumns(this) && panel.indexOfChild(notFoundBox) + 1 < panel.indexOfChild(close)) {
+            // (0.0.411) Landscape, not in the collection: the notice and 닫기 left (always in
+            // reach), 다른 판 · 직접 입력 · 파일 right.
+            LinearLayout right = ShortScreen.takeChildren(this, panel, panel.getChildAt(panel.indexOfChild(notFoundBox) + 1), close);
+            if (right.getChildCount() > 0 && right.getChildAt(0).getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                ((LinearLayout.LayoutParams) right.getChildAt(0).getLayoutParams()).topMargin = 0;
+            }
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, close), right, card, 330);
+        }
         dialog.setOnDismissListener(d -> {
             if (this.cheatDialog == dialog) {
                 this.cheatDialog = null;
@@ -4682,6 +4695,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         detail.setGravity(1);
         detail.setPadding(0, dp(6), 0, 0);
         box.addView(detail);
+        box.setTag("cheat_box");
         panel.addView(box, marginTop(-1, -2, 14));
         if (collection) {
             panel.addView(createSettingRow(RoundIconView.SWAP, CHEAT_GREEN, "다른 판 고르기", "", view -> showCheatVersionPicker()), marginTop(-1, dp(52), 12));
@@ -7985,13 +7999,14 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             this.holdPause = false;
             resumeUnlessExiting();
         });
-        fillLoadList(dialog, false, new java.util.HashSet<>());
         android.view.Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(32), dp(400));
             window.setLayout(width, Math.min(getResources().getDisplayMetrics().heightPixels - dp(40), dp(640)));
         }
+        // After the size: on a landscape screen the list sizes the window itself (two columns).
+        fillLoadList(dialog, false, new java.util.HashSet<>());
         dialog.show();
     }
 
@@ -8086,6 +8101,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         for (int n = 1; n <= FIXED_SLOTS && !isMame139(); n++) {
             entries.add(slotFile(n).isFile() ? slotFile(n) : Integer.valueOf(n));
         }
+        // (0.0.411) Landscape: 자동 저장 left, 빠른 저장 and 내 칸 right (from the first of them).
+        View rightStart = null;
         for (final Object entry : entries) {
             if (entry instanceof String) {
                 TextView section = new TextView(this);
@@ -8095,6 +8112,7 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
                 section.setTextColor(Theme.text(Color.rgb(85, 95, 110)));
                 section.setPadding(dp(2), dp(12), 0, 0);
                 panel.addView(section, new LinearLayout.LayoutParams(-1, -2));
+                if (rightStart == null && !((String) entry).startsWith("자동")) rightStart = section;
                 continue;
             }
             if (entry instanceof Integer) {
@@ -8257,6 +8275,18 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         buttonsParams.setMargins(0, dp(12), 0, 0);
         panel.addView(buttons, buttonsParams);
 
+        if (ShortScreen.twoColumns(this) && rightStart != null) {
+            View stop = panel.getChildAt(panel.indexOfChild(buttons) - 1);
+            stop = stop instanceof TextView && !(stop instanceof android.widget.Button) && panel.indexOfChild(stop) > panel.indexOfChild(rightStart)
+                    && ((TextView) stop).getText().toString().startsWith("누르면") ? stop : buttons;
+            LinearLayout right = ShortScreen.takeChildren(this, panel, rightStart, stop);
+            if (right.getChildCount() > 0) right.getChildAt(0).setPadding(dp(2), 0, 0, 0);
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), right, card, 330);
+            return;
+        }
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(panel);
@@ -11044,6 +11074,20 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
         buttonsParams.setMargins(0, dp(14), 0, 0);
         panel.addView(buttons, buttonsParams);
 
+        if (ShortScreen.twoColumns(this) && options.length > 0 && options[0] != null) {
+            // (0.0.411) Landscape: the title, note and buttons left, the choices right (every
+            // sheet built on this one).
+            LinearLayout right = ShortScreen.takeChildren(this, panel, options[0], warning);
+            if (right.getChildCount() > 0 && right.getChildAt(0).getLayoutParams() instanceof LinearLayout.LayoutParams) {
+                ((LinearLayout.LayoutParams) right.getChildAt(0).getLayoutParams()).topMargin = 0;
+            }
+            android.graphics.drawable.Drawable card = panel.getBackground();
+            panel.setBackground(null);
+            panel.setPadding(0, 0, 0, 0);
+            ShortScreen.showColumns(dialog, ShortScreen.leftWithBottom(this, panel, buttons), right, card, 300);
+            dialog.show();
+            return;
+        }
         // Long lists (the 7 backgrounds) scroll on a landscape screen.
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(panel);
