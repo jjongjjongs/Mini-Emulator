@@ -41,6 +41,28 @@ final class TouchStick {
     private int pointer = -1;
     private float downX;
     private float downY;
+    // (0.0.402) 마우스식: the speed of the drag tilts the stick; 반응 곡선 보정.
+    private boolean mouse;
+    private float curve = 1f;
+    private float speedFull;
+    private float lastX;
+    private float lastY;
+    private long lastTime;
+    private float smoothX;
+    private float smoothY;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable stop = this::stopTurn;
+
+    private void stopTurn() {
+        if (this.pointer >= 0 && this.mouse) {
+            this.smoothX = 0;
+            this.smoothY = 0;
+            this.output.stick(0, 0);
+        }
+    }
+    static final String[] MODE_NAMES = {"스틱식", "마우스식"};
+    static final String[] CURVE_NAMES = {"그대로", "약하게", "강하게"};
+    private static final float[] CURVE_POWER = {1f, 1.7f, 2.6f};
 
     TouchStick(Context context, Output output) {
         this.density = context.getResources().getDisplayMetrics().density;
@@ -65,7 +87,7 @@ final class TouchStick {
 
     static String summary(SharedPreferences prefs, String game) {
         int area = area(prefs, game);
-        return area == OFF ? "꺼짐" : "켜짐 · " + AREA_SHORT[area];
+        return area == OFF ? "꺼짐" : AREA_SHORT[area] + " · " + MODE_NAMES[mode(prefs, game)];
     }
 
     void configure(SharedPreferences prefs, String game) {
@@ -73,6 +95,34 @@ final class TouchStick {
         // A drag of 64dp is full tilt at 보통.
         this.radius = 64 * this.density / SENS[sens(prefs, game)];
         this.invert = inverted(prefs, game);
+        this.mouse = mode(prefs, game) == 1;
+        this.curve = CURVE_POWER[curve(prefs, game)];
+        // 마우스식: a drag of 900dp a second is full tilt at 보통.
+        this.speedFull = 900 * this.density / SENS[sens(prefs, game)];
+    }
+
+    static int mode(SharedPreferences prefs, String game) {
+        return Math.max(0, Math.min(1, prefs.getInt("touch_rstick_mode:" + game, 0)));
+    }
+
+    static int curve(SharedPreferences prefs, String game) {
+        return Math.max(0, Math.min(2, prefs.getInt("touch_rstick_curve:" + game, 0)));
+    }
+
+    // 반응 곡선 보정: small tilts made bigger (magnitude^(1/p)), so a game's slow start is skipped.
+    private void send(float x, float y) {
+        float length = (float) Math.hypot(x, y);
+        if (length > 1f) {
+            x /= length;
+            y /= length;
+            length = 1f;
+        }
+        if (this.curve != 1f && length > 0.0001f) {
+            float shaped = (float) Math.pow(length, 1.0 / this.curve);
+            x = x / length * shaped;
+            y = y / length * shaped;
+        }
+        this.output.stick(x, this.invert ? -y : y);
     }
 
     int area() {
@@ -88,26 +138,41 @@ final class TouchStick {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
             this.pointer = event.getPointerId(0);
-            this.downX = event.getX();
-            this.downY = event.getY();
+            this.downX = this.lastX = event.getX();
+            this.downY = this.lastY = event.getY();
+            this.lastTime = event.getEventTime();
+            this.smoothX = 0;
+            this.smoothY = 0;
             return true;
         }
         int index = this.pointer < 0 ? -1 : event.findPointerIndex(this.pointer);
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL
                 || (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.getActionIndex()) == this.pointer)) {
             this.pointer = -1;
+            this.handler.removeCallbacks(this.stop);
             this.output.stick(0, 0);
             return true;
         }
         if (action == MotionEvent.ACTION_MOVE && index >= 0) {
-            float x = (event.getX(index) - this.downX) / this.radius;
-            float y = (event.getY(index) - this.downY) / this.radius;
-            float length = (float) Math.hypot(x, y);
-            if (length > 1f) {
-                x /= length;
-                y /= length;
+            float ex = event.getX(index);
+            float ey = event.getY(index);
+            if (!this.mouse) {
+                send((ex - this.downX) / this.radius, (ey - this.downY) / this.radius);
+                return true;
             }
-            this.output.stick(x, this.invert ? -y : y);
+            // 마우스식: the drag's speed, smoothed a little; a still finger stops the turn.
+            long now = event.getEventTime();
+            float dt = Math.max(4, now - this.lastTime) / 1000f;
+            float vx = (ex - this.lastX) / dt / this.speedFull;
+            float vy = (ey - this.lastY) / dt / this.speedFull;
+            this.lastX = ex;
+            this.lastY = ey;
+            this.lastTime = now;
+            this.smoothX = this.smoothX * 0.5f + vx * 0.5f;
+            this.smoothY = this.smoothY * 0.5f + vy * 0.5f;
+            send(this.smoothX, this.smoothY);
+            this.handler.removeCallbacks(this.stop);
+            this.handler.postDelayed(this.stop, 60);
         }
         return true;
     }
@@ -142,12 +207,26 @@ final class TouchStick {
                 fill[0].run();
                 onChanged.run();
             }));
+            body.addView(label(context, "움직이는 방식"));
+            body.addView(segment(context, MODE_NAMES, mode(prefs, game), choice -> {
+                prefs.edit().putInt("touch_rstick_mode:" + game, choice).commit();
+                fill[0].run();
+                onChanged.run();
+            }));
+            body.addView(hint(context, "스틱식: 민 거리만큼 기울고, 손을 멈춰도 계속 돌아요.\n마우스식: 미는 속도만큼 기울어요. 빨리 밀면 빨리 돌고, 멈추면 바로 멈춰요."));
             body.addView(label(context, "감도"));
             body.addView(segment(context, SENS_NAMES, sens(prefs, game), choice -> {
                 prefs.edit().putInt("touch_rstick_sens:" + game, choice).commit();
                 fill[0].run();
                 onChanged.run();
             }));
+            body.addView(label(context, "반응 곡선 보정"));
+            body.addView(segment(context, CURVE_NAMES, curve(prefs, game), choice -> {
+                prefs.edit().putInt("touch_rstick_curve:" + game, choice).commit();
+                fill[0].run();
+                onChanged.run();
+            }));
+            body.addView(hint(context, "게임의 \"살짝 기울이면 느리게\" 구간을 건너뛰어요. 강하게일수록 조금만 밀어도 바로 돌아요. 너무 휙휙 돌면 낮추세요."));
             body.addView(label(context, "위아래"));
             body.addView(segment(context, new String[]{"그대로", "반전 (비행기식)"}, inverted(prefs, game) ? 1 : 0, choice -> {
                 prefs.edit().putBoolean("touch_rstick_inv:" + game, choice == 1).commit();
@@ -163,7 +242,7 @@ final class TouchStick {
             body.addView(note, noteParams);
         };
         fill[0].run();
-        TextView close = text(context, "닫기", 14, Color.rgb(75, 85, 99), true);
+        TextView close = text(context, "닫고 게임에서 바로 밀어 보기", 14, Color.rgb(75, 85, 99), true);
         close.setGravity(Gravity.CENTER);
         close.setBackground(round(Color.rgb(241, 242, 244), dp(d, 14)));
         close.setOnClickListener(v -> dialog.dismiss());
@@ -206,6 +285,13 @@ final class TouchStick {
         rowParams.setMargins(0, dp(d, 6), 0, 0);
         row.setLayoutParams(rowParams);
         return row;
+    }
+
+    private static TextView hint(Context context, String value) {
+        float d = context.getResources().getDisplayMetrics().density;
+        TextView view = text(context, value, 11, Color.rgb(107, 114, 128), false);
+        view.setPadding(dp(d, 2), dp(d, 6), 0, 0);
+        return view;
     }
 
     private static TextView label(Context context, String value) {
