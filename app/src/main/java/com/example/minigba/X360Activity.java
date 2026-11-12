@@ -1898,13 +1898,26 @@ public final class X360Activity extends Activity implements SurfaceHolder.Callba
         final android.widget.EditText field = new android.widget.EditText(this);
         field.setText(request.defaultText == null ? "" : request.defaultText);
         field.setSingleLine(true);
+        // (0.0.423) The dialog is white: the text dark (it was white, so nothing showed).
+        field.setTextColor(Color.rgb(31, 41, 51));
+        field.setHintTextColor(Color.rgb(156, 163, 175));
+        field.setSelection(field.getText().length());
         if (request.maxLength > 0) {
             field.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(request.maxLength)});
         }
+        // A name the game saves under (a save's or a profile's) with Korean in it can come back
+        // as bytes the engine can't read on the next start (Ghost Recon AW): said here.
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(field, new LinearLayout.LayoutParams(-1, -2));
+        TextView tip = text("세이브 이름처럼 게임이 저장하는 이름은 영문 · 숫자로 적어 주세요. 한글 이름은 다음 실행 때 엔진이 못 읽어 게임이 안 켜질 수 있어요.",
+                11.5f, Color.rgb(146, 64, 14), false);
+        tip.setPadding(dp(4), dp(6), dp(4), 0);
+        box.addView(tip);
         final boolean[] answered = {false};
         Dialog dialog = new AppDialog.Builder(this).setTitle(request.title == null || request.title.isEmpty() ? "글자 입력" : request.title)
                 .setMessage(request.description == null ? "" : request.description)
-                .setView(field)
+                .setView(box)
                 .setPositiveButton("확인", (d, w) -> {
                     answered[0] = true;
                     engine().keyboard_submit(request.id, true, field.getText().toString());
