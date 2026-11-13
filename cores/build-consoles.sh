@@ -10,7 +10,7 @@ set -euo pipefail
 FCEUMM_REPO=https://github.com/libretro/libretro-fceumm.git
 FCEUMM_COMMIT=e0f3086a8104f8fbbe49a2615b10401504a9533f  # 2026-11-02
 GPGX_REPO=https://github.com/libretro/Genesis-Plus-GX.git
-GPGX_COMMIT=f27655b592ef43f317272d79883bcaa10d3ac8ad  # 2026-10-30
+GPGX_COMMIT=b9c2316441978d4015ba30e9a95d9b0e6f8ee981  # 2026-11-09
 PCE_REPO=https://github.com/libretro/beetle-pce-fast-libretro.git
 PCE_COMMIT=2de1ce1c3f237b161c126c54ba407990bb86d1e9  # 2026-10-30
 

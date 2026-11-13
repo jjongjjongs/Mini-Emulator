@@ -10,7 +10,7 @@
 set -euo pipefail
 
 DOLPHIN_REPO=https://github.com/libretro/dolphin.git
-DOLPHIN_COMMIT=32c61f9d0e933331bb7087ba57e96883241b4960  # 2026-11-04
+DOLPHIN_COMMIT=0863ee3700978e826b0d95b72d4742e537a7325b  # 2026-11-11
 NDK_URL=https://dl.google.com/android/repository/android-ndk-r29-linux.zip
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
