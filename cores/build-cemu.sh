@@ -11,7 +11,7 @@
 set -euo pipefail
 
 CEMU_REPO=https://github.com/WizzardSK/cemu-libretro.git
-CEMU_COMMIT=6d38ee8dd0a66d70f14381a9dc7ed4de77ba7fe0  # Cemu 2.6-372, 2026-10-30
+CEMU_COMMIT=444c585202302a7f4b319bafb4cf72156a8cac8b  # Cemu 2.6-411, 2026-11-11
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
