@@ -7,7 +7,7 @@
 set -euo pipefail
 
 PLAY_REPO=https://github.com/jpd002/Play-.git
-PLAY_COMMIT=fa75cea31a33f5ab7a2008ed0d90dc74353e9cef  # 0.77
+PLAY_COMMIT=1f27232772e484bfb79364b751b84f41f4c87481  # 0.77 + 17 (2026-10-24)
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
