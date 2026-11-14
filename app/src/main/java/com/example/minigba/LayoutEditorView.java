@@ -48,10 +48,172 @@ final class LayoutEditorView extends FrameLayout {
     private void onHoldFired() {
         int index = holdIndex;
         holdIndex = -1;
-        if (index >= 0 && listenerRef != null) {
+        if (index < 0 || listenerRef == null) return;
+        if (listenerRef.onHold(index, holdX, holdY)) {
             performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
-            listenerRef.onHold(index, holdX, holdY);
+            return;
         }
+        // (0.0.428) A button of the group, held: that one alone until the next tap elsewhere.
+        if (inGroup(index)) {
+            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+            single = index;
+            groupMode = false;
+            selected = index;
+            updateSizeText();
+            invalidate();
+        }
+    }
+
+    // ---- (0.0.428) 격자 · 오른쪽 버튼 묶음 ----
+    // The grid: a guide drawn over the editor (24 dp squares, a stronger line every 96 dp),
+    // on or off with "격자" (kept for every console and both directions).
+    private boolean showGrid;
+    private final Paint gridMinor = new Paint();
+    private final Paint gridMajor = new Paint();
+    private TextView gridButton;
+    // The group: the face buttons on the right (A B X Y, △ ○ × □, A B C X Y Z ...), moved
+    // and sized together; a held one goes on its own (single) until a tap elsewhere.
+    private boolean grouping = true;
+    private List<Integer> group;
+    private boolean groupMode;
+    private int single = -1;
+    private final Paint groupLine = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint groupDash = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private float[][] pinchStart;
+    private static final java.util.Set<String> FACE_LABELS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "A", "B", "C", "D", "E", "F", "X", "Y", "Z", "I", "II", "Ⅰ", "Ⅱ", "△", "○", "×", "✕", "□"));
+
+    /** Off for screens whose keys aren't a console's buttons (DOS keyboards). */
+    void setGrouping(boolean on) {
+        grouping = on;
+        group = null;
+    }
+
+    private List<Integer> group() {
+        if (group != null) return group;
+        List<Integer> found = new java.util.ArrayList<>();
+        if (grouping && getWidth() > 0) {
+            for (int k = 0; k < controls.size(); k++) {
+                View view = controls.get(k);
+                if (k == screenIndex || !(view instanceof TouchButton) || view.getVisibility() != VISIBLE || !view.isAttachedToWindow()) continue;
+                TouchButton button = (TouchButton) view;
+                if (button.isShoulder() || !FACE_LABELS.contains(button.label())) continue;
+                RectF box = boxOf(view);
+                // Round or square buttons on the right half (not keyboard keys, not the left side).
+                if (box.width() > box.height() * 1.3f || box.height() > box.width() * 1.3f) continue;
+                if (box.centerX() < getWidth() / 2f) continue;
+                found.add(k);
+            }
+        }
+        group = found.size() >= 2 ? found : new java.util.ArrayList<>();
+        return group;
+    }
+
+    private boolean inGroup(int index) {
+        return index >= 0 && group().contains(index);
+    }
+
+    private RectF groupBox() {
+        RectF union = null;
+        for (int k : group()) {
+            RectF box = boxOf(controls.get(k));
+            if (union == null) union = box;
+            else union.union(box);
+        }
+        if (union != null) union.inset(-dp(7), -dp(7));
+        return union;
+    }
+
+    // Whether the group runs into the top bar, a corner or the game screen.
+    private boolean groupBlocked() {
+        RectF screen = screenIndex >= 0 ? boxOf(controls.get(screenIndex)) : null;
+        if (screen != null) screen.inset(dp(1), dp(1));
+        for (int k : group()) {
+            if (hitsGuard(k)) return true;
+            if (screen != null) {
+                RectF box = boxOf(controls.get(k));
+                box.inset(dp(1), dp(1));
+                if (RectF.intersects(box, screen)) return true;
+            }
+        }
+        return false;
+    }
+
+    // Moves the whole group; a direction that would put it on the top bar, a corner or the
+    // game screen is dropped (unless it was already there).
+    private void moveGroup(float dx, float dy) {
+        List<Integer> members = group();
+        float[][] before = new float[members.size()][];
+        for (int m = 0; m < members.size(); m++) before[m] = edits[members.get(m)].clone();
+        boolean wasClear = !groupBlocked();
+        float[][] tries = wasClear ? new float[][]{{dx, dy}, {dx, 0}, {0, dy}, {0, 0}} : new float[][]{{dx, dy}};
+        for (float[] step : tries) {
+            for (int m = 0; m < members.size(); m++) {
+                int k = members.get(m);
+                System.arraycopy(before[m], 0, edits[k], 0, 4);
+                edits[k][0] += step[0];
+                edits[k][1] += step[1];
+                listener.apply(k, edits[k][0], edits[k][1], edits[k][2], edits[k][3]);
+            }
+            if (!wasClear || !groupBlocked()) break;
+        }
+        updateSizeText();
+        invalidate();
+    }
+
+    // Sizes the whole group by ratio around its centre: each button's size and its distance
+    // from the centre.
+    private void scaleGroup(float[][] from, float ratio) {
+        List<Integer> members = group();
+        RectF centre = groupBox();
+        if (centre == null) return;
+        // Back to where the gesture began, then the ratio from there.
+        for (int m = 0; m < members.size(); m++) {
+            int k = members.get(m);
+            System.arraycopy(from[m], 0, edits[k], 0, 4);
+            listener.apply(k, edits[k][0], edits[k][1], edits[k][2], edits[k][3]);
+        }
+        RectF start = groupBox();
+        if (start == null) return;
+        float minRatio = 0;
+        float maxRatio = Float.MAX_VALUE;
+        for (int m = 0; m < members.size(); m++) {
+            minRatio = Math.max(minRatio, MIN_SCALE / from[m][2]);
+            maxRatio = Math.min(maxRatio, MAX_SCALE / from[m][2]);
+        }
+        float r = Math.max(minRatio, Math.min(maxRatio, ratio));
+        for (int m = 0; m < members.size(); m++) {
+            int k = members.get(m);
+            RectF box = boxOf(controls.get(k));
+            float cx = box.centerX() - start.centerX();
+            float cy = box.centerY() - start.centerY();
+            // The control grows around its own top left as its scale changes (pivot 0, 0) or
+            // its centre: the centre moves by the size change times the pivot's share.
+            View view = controls.get(k);
+            float pivotShiftX = view.getPivotX() == 0 ? -view.getWidth() * from[m][2] * (r - 1) / 2f : 0;
+            float pivotShiftY = view.getPivotY() == 0 ? -view.getHeight() * from[m][3] * (r - 1) / 2f : 0;
+            edits[k][2] = from[m][2] * r;
+            edits[k][3] = from[m][3] * r;
+            edits[k][0] = from[m][0] + (cx * (r - 1) + pivotShiftX) / density;
+            edits[k][1] = from[m][1] + (cy * (r - 1) + pivotShiftY) / density;
+            listener.apply(k, edits[k][0], edits[k][1], edits[k][2], edits[k][3]);
+        }
+        updateSizeText();
+        invalidate();
+    }
+
+    private float[][] groupEdits() {
+        List<Integer> members = group();
+        float[][] copy = new float[members.size()][];
+        for (int m = 0; m < members.size(); m++) copy[m] = edits[members.get(m)].clone();
+        return copy;
+    }
+
+    private void toggleGrid() {
+        showGrid = !showGrid;
+        MainActivity.sharedSettings(getContext()).edit().putBoolean("layout_grid", showGrid).apply();
+        gridButton.setBackground(rounded(showGrid ? Color.rgb(124, 58, 237) : Color.rgb(75, 85, 99), dp(10)));
+        invalidate();
     }
 
     /** The edits as they stand (dx dp, dy dp, scale x, scale y per control). */
@@ -135,6 +297,18 @@ final class LayoutEditorView extends FrameLayout {
         guardLine.setStrokeWidth(dp(2));
         guardLine.setColor(Color.rgb(245, 158, 11));
         guardLine.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(6), dp(5)}, 0));
+        gridMinor.setColor(Color.argb(30, 255, 255, 255));
+        gridMinor.setStrokeWidth(Math.max(1, dp(0.5f)));
+        gridMajor.setColor(Color.argb(70, 255, 255, 255));
+        gridMajor.setStrokeWidth(Math.max(1, dp(1)));
+        groupLine.setStyle(Paint.Style.STROKE);
+        groupLine.setStrokeWidth(dp(2.5f));
+        groupLine.setColor(Color.rgb(250, 204, 21));
+        groupDash.setStyle(Paint.Style.STROKE);
+        groupDash.setStrokeWidth(dp(1.5f));
+        groupDash.setColor(Color.argb(150, 250, 204, 21));
+        groupDash.setPathEffect(new android.graphics.DashPathEffect(new float[]{dp(6), dp(5)}, 0));
+        showGrid = MainActivity.sharedSettings(context).getBoolean("layout_grid", true);
 
         LinearLayout card = new LinearLayout(context);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -155,6 +329,8 @@ final class LayoutEditorView extends FrameLayout {
         row.addView(sizeText);
         row.addView(button("−", Color.rgb(55, 65, 81), view -> stepScale(-0.1f, true, true)), buttonParams(40));
         row.addView(button("＋", Color.rgb(55, 65, 81), view -> stepScale(0.1f, true, true)), buttonParams(40));
+        gridButton = button("격자", showGrid ? Color.rgb(124, 58, 237) : Color.rgb(75, 85, 99), view -> toggleGrid());
+        row.addView(gridButton, buttonParams(46));
         row.addView(button("초기화", Color.rgb(75, 85, 99), view -> askReset()), buttonParams(62));
         row.addView(button("취소", Color.rgb(75, 85, 99), view -> cancel()), buttonParams(52));
         row.addView(button("저장", Color.rgb(22, 185, 207), view -> listener.onSave(this.edits)), buttonParams(52));
@@ -298,6 +474,10 @@ final class LayoutEditorView extends FrameLayout {
             float sx = edits[selected][2];
             float sy = edits[selected][3];
             sizeText.setText(Math.abs(sx - sy) < 0.005f ? "화면 " + Math.round(sx * 100) + "%" : "화면 " + Math.round(sx * 100) + "×" + Math.round(sy * 100) + "%");
+        } else if (groupMode) {
+            sizeText.setText("묶음 " + Math.round(edits[selected][2] * 100) + "%");
+        } else if (single == selected && controls.get(selected) instanceof TouchButton) {
+            sizeText.setText(((TouchButton) controls.get(selected)).label() + " " + Math.round(edits[selected][2] * 100) + "%");
         } else {
             sizeText.setText("크기 " + Math.round(edits[selected][2] * 100) + "%");
         }
@@ -305,6 +485,12 @@ final class LayoutEditorView extends FrameLayout {
 
     private void stepScale(float step, boolean x, boolean y) {
         if (selected < 0) {
+            return;
+        }
+        if (groupMode) {
+            float now = edits[selected][2];
+            float target = Math.round((now + step) * 20) / 20.0f;
+            scaleGroup(groupEdits(), target / now);
             return;
         }
         float sx = edits[selected][2];
@@ -428,6 +614,7 @@ final class LayoutEditorView extends FrameLayout {
     }
 
     private void resetAll(boolean buttons, boolean screen) {
+        single = -1;
         for (int k = 0; k < edits.length; k++) {
             if (k == screenIndex ? !screen : !buttons) continue;
             edits[k][0] = 0;
@@ -479,6 +666,17 @@ final class LayoutEditorView extends FrameLayout {
 
     @Override
     protected void dispatchDraw(Canvas canvas) {
+        if (showGrid) {
+            float step = dp(24);
+            int n = 0;
+            for (float x = 0; x <= getWidth(); x += step, n++) {
+                canvas.drawLine(x, 0, x, getHeight(), n % 4 == 0 ? gridMajor : gridMinor);
+            }
+            n = 0;
+            for (float y = 0; y <= getHeight(); y += step, n++) {
+                canvas.drawLine(0, y, getWidth(), y, n % 4 == 0 ? gridMajor : gridMinor);
+            }
+        }
         // The top bar / corner buttons: shaded, with the line the controls stop at.
         for (RectF guard : guardBoxes()) {
             canvas.drawRect(guard, guardFill);
@@ -503,8 +701,13 @@ final class LayoutEditorView extends FrameLayout {
                     }
                 }
             } else {
-                canvas.drawRoundRect(box, dp(8), dp(8), k == selected ? outline : frame);
+                boolean lit = k == selected && !groupMode;
+                canvas.drawRoundRect(box, dp(8), dp(8), lit ? outline : frame);
             }
+        }
+        if (groupMode || (single >= 0 && single == selected)) {
+            RectF union = groupBox();
+            if (union != null) canvas.drawRoundRect(union, dp(14), dp(14), groupMode ? groupLine : groupDash);
         }
         if (snapped && screenSelected()) {
             canvas.drawLine(getWidth() / 2f, 0, getWidth() / 2f, getHeight(), snapLine);
@@ -517,6 +720,13 @@ final class LayoutEditorView extends FrameLayout {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 selected = controlAt(event.getX(), event.getY());
+                // A group button: the whole group, unless it is the one taken out by a hold.
+                if (selected >= 0 && selected == single) {
+                    groupMode = false;
+                } else {
+                    single = -1;
+                    groupMode = inGroup(selected);
+                }
                 lastX = event.getX();
                 lastY = event.getY();
                 downX = event.getX();
@@ -540,6 +750,7 @@ final class LayoutEditorView extends FrameLayout {
                     startDistance = distance(event);
                     startScaleX = edits[selected][2];
                     startScaleY = edits[selected][3];
+                    pinchStart = groupMode ? groupEdits() : null;
                 }
                 return true;
             case MotionEvent.ACTION_MOVE:
@@ -551,7 +762,17 @@ final class LayoutEditorView extends FrameLayout {
                 }
                 if (event.getPointerCount() >= 2 && startDistance > dp(10)) {
                     float factor = distance(event) / startDistance;
-                    setScale(selected, startScaleX * factor, startScaleY * factor);
+                    if (groupMode && pinchStart != null) {
+                        scaleGroup(pinchStart, factor);
+                    } else {
+                        setScale(selected, startScaleX * factor, startScaleY * factor);
+                    }
+                } else if (event.getPointerCount() == 1 && groupMode) {
+                    float dx = (event.getX() - lastX) / density;
+                    float dy = (event.getY() - lastY) / density;
+                    lastX = event.getX();
+                    lastY = event.getY();
+                    moveGroup(dx, dy);
                 } else if (event.getPointerCount() == 1) {
                     float[] before = edits[selected].clone();
                     boolean wasClear = !hitsGuard(selected);

@@ -3935,6 +3935,8 @@ public final class GameActivity extends Activity implements SurfaceHolder.Callba
             }
         });
         editor.setGuards(new java.util.ArrayList<>(this.layoutGuards));
+        // (0.0.428) The right face buttons move as one group; DOS keys are a keyboard, not a group.
+        editor.setGrouping(!isDos());
         addContentView(editor, new FrameLayout.LayoutParams(-1, -1));
         this.layoutEditor = editor;
         if (this.vmuView != null) {
