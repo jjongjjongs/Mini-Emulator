@@ -1,0 +1,126 @@
+diff --git a/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp b/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
+index 62eac33..e9d346a 100644
+--- a/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
++++ b/src/video_core/renderer_vulkan/vk_pipeline_cache.cpp
+@@ -125,7 +125,11 @@ PipelineCache::~PipelineCache() {
+ }
+ 
+ void PipelineCache::LoadDiskCache() {
++    if (pipeline_cache) {
++        return;
++    }
+     if (!Settings::values.use_disk_shader_cache || !EnsureDirectories()) {
++        pipeline_cache = instance.GetDevice().createPipelineCacheUnique({});
+         return;
+     }
+ 
+@@ -177,17 +181,28 @@ void PipelineCache::SaveDiskCache() {
+     const u32 device_id = instance.GetDeviceID();
+     const auto cache_file_path = fmt::format("{}{:x}{:x}.bin", cache_dir, vendor_id, device_id);
+ 
+-    FileUtil::IOFile cache_file{cache_file_path, "wb"};
+-    if (!cache_file.IsOpen()) {
+-        LOG_ERROR(Render_Vulkan, "Unable to open pipeline cache for writing");
+-        return;
+-    }
++    // Written beside it and then put in its place, so a stop halfway leaves the old one.
++    const auto temp_path = cache_file_path + ".tmp";
++    {
++        FileUtil::IOFile cache_file{temp_path, "wb"};
++        if (!cache_file.IsOpen()) {
++            LOG_ERROR(Render_Vulkan, "Unable to open pipeline cache for writing");
++            return;
++        }
+ 
+-    const vk::Device device = instance.GetDevice();
+-    const auto cache_data = device.getPipelineCacheData(*pipeline_cache);
+-    if (cache_file.WriteBytes(cache_data.data(), cache_data.size()) != cache_data.size()) {
+-        LOG_ERROR(Render_Vulkan, "Error during pipeline cache write");
+-        return;
++        const vk::Device device = instance.GetDevice();
++        const auto cache_data = device.getPipelineCacheData(*pipeline_cache);
++        if (cache_data.empty() ||
++            cache_file.WriteBytes(cache_data.data(), cache_data.size()) != cache_data.size()) {
++            LOG_ERROR(Render_Vulkan, "Error during pipeline cache write");
++            cache_file.Close();
++            FileUtil::Delete(temp_path);
++            return;
++        }
++    }
++    FileUtil::Delete(cache_file_path);
++    if (!FileUtil::Rename(temp_path, cache_file_path)) {
++        LOG_ERROR(Render_Vulkan, "Unable to replace the pipeline cache");
+     }
+ }
+ 
+@@ -202,11 +217,21 @@ bool PipelineCache::BindPipeline(const PipelineInfo& info, bool wait_built) {
+     const u64 info_hash = info.Hash(instance);
+     const u64 pipeline_hash = Common::HashCombine(shader_hash, info_hash);
+ 
++    if (!pipeline_cache) {
++        LoadDiskCache();
++    }
+     auto [it, new_pipeline] = graphics_pipelines.try_emplace(pipeline_hash);
+     if (new_pipeline) {
+         it.value() =
+             std::make_unique<GraphicsPipeline>(instance, renderpass_cache, info, *pipeline_cache,
+                                                *pipeline_layout, current_shaders, &workers);
++        // Saved every so often while new ones keep coming (at least 20 s apart).
++        const auto now = std::chrono::steady_clock::now();
++        if (++built_since_save >= 24 && now - last_save > std::chrono::seconds(20)) {
++            built_since_save = 0;
++            last_save = now;
++            SaveDiskCache();
++        }
+     }
+ 
+     GraphicsPipeline* const pipeline{it->second.get()};
+diff --git a/src/video_core/renderer_vulkan/vk_pipeline_cache.h b/src/video_core/renderer_vulkan/vk_pipeline_cache.h
+index 4ef5814..981f51d 100644
+--- a/src/video_core/renderer_vulkan/vk_pipeline_cache.h
++++ b/src/video_core/renderer_vulkan/vk_pipeline_cache.h
+@@ -4,6 +4,8 @@
+ 
+ #pragma once
+ 
++#include <chrono>
++
+ #include <bitset>
+ #include <tsl/robin_map.h>
+ 
+@@ -105,6 +107,10 @@ private:
+ 
+     Pica::Shader::Profile profile{};
+     vk::UniquePipelineCache pipeline_cache;
++    // Saved now and then while new pipelines are made, not only when the game ends (an
++    // Android app may be stopped before that).
++    u32 built_since_save = 0;
++    std::chrono::steady_clock::time_point last_save = std::chrono::steady_clock::now();
+     vk::UniquePipelineLayout pipeline_layout;
+     std::size_t num_worker_threads;
+     Common::ThreadWorker workers;
+diff --git a/src/video_core/video_core.cpp b/src/video_core/video_core.cpp
+index 14003b7..df84a5a 100644
+--- a/src/video_core/video_core.cpp
++++ b/src/video_core/video_core.cpp
+@@ -2,6 +2,7 @@
+ // Licensed under GPLv2 or any later version
+ // Refer to the license.txt file included.
+ 
++#include <atomic>
+ #include <memory>
+ #include "common/archives.h"
+ #include "common/logging/log.h"
+@@ -43,6 +44,12 @@ void Init(Frontend::EmuWindow& emu_window, Frontend::EmuWindow* secondary_window
+         auto renderer = std::make_unique<Vulkan::RendererVulkan>(
+             system, emu_window, Vulkan::RendererVulkan::LibretroInstance());
+         renderer->CreateMainWindow();
++        // The pipeline cache on disk, as at the start (without it the new renderer has none:
++        // every pipeline is built from scratch and nothing is saved when it goes).
++        if (Settings::values.use_disk_shader_cache) {
++            const std::atomic_bool stop{false};
++            renderer->Rasterizer()->LoadDiskResources(stop, {});
++        }
+         g_renderer = std::move(renderer);
+         return;
+     }

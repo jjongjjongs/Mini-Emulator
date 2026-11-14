@@ -1,0 +1,26 @@
+diff --git a/externals/CMakeLists.txt b/externals/CMakeLists.txt
+index e2a4402..b8f537f 100644
+--- a/externals/CMakeLists.txt
++++ b/externals/CMakeLists.txt
+@@ -353,7 +353,7 @@ if(ANDROID)
+     target_link_libraries(httplib INTERFACE ifaddrs)
+ endif()
+ 
+-if (UNIX AND NOT APPLE)
++if (UNIX AND NOT APPLE AND NOT ANDROID)
+     add_subdirectory(gamemode)
+ endif()
+ 
+diff --git a/src/common/CMakeLists.txt b/src/common/CMakeLists.txt
+index cba0945..396dca1 100644
+--- a/src/common/CMakeLists.txt
++++ b/src/common/CMakeLists.txt
+@@ -154,7 +154,7 @@ add_library(citra_common STATIC
+     zstd_compression.h
+ )
+ 
+-if (UNIX AND NOT APPLE)
++if (UNIX AND NOT APPLE AND NOT ANDROID)
+   target_sources(citra_common PRIVATE
+     linux/gamemode.cpp
+     linux/gamemode.h

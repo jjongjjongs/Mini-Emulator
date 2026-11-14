@@ -1,0 +1,62 @@
+diff --git a/src/Cafe/OS/libs/vpad/vpad.cpp b/src/Cafe/OS/libs/vpad/vpad.cpp
+index 84da022..7e81139 100644
+--- a/src/Cafe/OS/libs/vpad/vpad.cpp
++++ b/src/Cafe/OS/libs/vpad/vpad.cpp
+@@ -1,4 +1,5 @@
+ #include "input/motion/MotionSample.h"
++#include <chrono>
+ #include "Cafe/OS/common/OSCommon.h"
+ #include "Cafe/HW/Espresso/PPCCallback.h"
+ #include "Cafe/OS/libs/vpad/vpad.h"
+@@ -315,6 +316,51 @@ namespace vpad
+ 			status->rightStick.x = rx;
+ 			status->rightStick.y = ry;
+ 
++			// The stick directions as buttons, the button repeat, and which buttons were
++			// pressed or let go since the last read (trig / release), as
++			// VPADController::VPADRead does for the standalone build. Without trig and
++			// release, games that act on a press (jumping, menus) saw nothing; only
++			// held buttons such as walking with the D-pad worked (Mini Emulator).
++			{
++				constexpr uint32 LR_STICK_L_UP = 0x10000000, LR_STICK_L_DOWN = 0x08000000;
++				constexpr uint32 LR_STICK_L_LEFT = 0x40000000, LR_STICK_L_RIGHT = 0x20000000;
++				constexpr uint32 LR_STICK_R_UP = 0x01000000, LR_STICK_R_DOWN = 0x00800000;
++				constexpr uint32 LR_STICK_R_LEFT = 0x04000000, LR_STICK_R_RIGHT = 0x02000000;
++				constexpr uint32 LR_REPEAT = 0x80000000;
++				constexpr float kAxisThreshold = 0.5f;
++				constexpr float kHoldAxisThreshold = 0.1f;
++				static uint32 s_last_hold = 0;
++				static std::chrono::steady_clock::time_point s_last_change{};
++				static std::chrono::steady_clock::time_point s_last_pulse{};
++				uint32 hold = status->hold;
++				const uint32 last = s_last_hold;
++				auto direction = [&](float v, uint32 negative, uint32 positive) {
++					if (v <= -kAxisThreshold || ((last & negative) != 0 && v <= -kHoldAxisThreshold))
++						hold |= negative;
++					else if (v >= kAxisThreshold || ((last & positive) != 0 && v >= kHoldAxisThreshold))
++						hold |= positive;
++				};
++				direction(lx, LR_STICK_L_LEFT, LR_STICK_L_RIGHT);
++				direction(ly, LR_STICK_L_DOWN, LR_STICK_L_UP);
++				direction(rx, LR_STICK_R_LEFT, LR_STICK_R_RIGHT);
++				direction(ry, LR_STICK_R_DOWN, LR_STICK_R_UP);
++				const auto now = std::chrono::steady_clock::now();
++				const uint32 current = hold;
++				if (current != s_last_hold)
++					s_last_change = s_last_pulse = now;
++				const auto& repeat = g_vpad.controller_data[0].btn_repeat;
++				if (repeat.pulse > 0 && current != 0 && s_last_change + std::chrono::milliseconds(repeat.delay) <= now &&
++					s_last_pulse + std::chrono::milliseconds(repeat.pulse) < now)
++				{
++					s_last_pulse = now;
++					hold |= LR_REPEAT;
++				}
++				status->hold = hold;
++				status->release = s_last_hold & ~current;
++				status->trig = ~s_last_hold & current;
++				s_last_hold = current;
++			}
++
+ 			// GamePad Motion, filled as VPADController::update_motion does
+ 			MotionSample motion;
+ 			if (libretro_get_gamepad_motion(motion))

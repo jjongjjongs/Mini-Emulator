@@ -1,0 +1,167 @@
+diff --git a/vita3k/audio/src/impl/libretro_audio.cpp b/vita3k/audio/src/impl/libretro_audio.cpp
+index 0df3c81..84ade47 100644
+--- a/vita3k/audio/src/impl/libretro_audio.cpp
++++ b/vita3k/audio/src/impl/libretro_audio.cpp
+@@ -23,6 +23,8 @@
+ 
+ #include <algorithm>
+ #include <cstring>
++#include <chrono>
++#include <unordered_map>
+ 
+ static constexpr int NUM_AUDIO_BUFFERS = 8;
+ 
+@@ -85,51 +87,123 @@ int LibretroAudioAdapter::get_rest_sample(AudioOutPort &out_port) {
+     return port.nb_buffers_ready * port.len;
+ }
+ 
++// Mini Emulator: the game's ports mixed into one 48 kHz stream, one video frame (800 stereo
++// frames at 60 fps) per retro_run. Each port's chunks go to a queue of its own (so its ring
++// frees and the game keeps writing), are resampled from the port's rate and added up. A port
++// starts after a short buffer (about 50 ms) and waits again after it runs dry. Chunks are
++// taken only as needed, so the game waits on a full ring as on the console. The upstream
++// drain appended the ports one after another and ignored their rates: sound played fast
++// and broken.
++namespace {
++struct PortMix {
++    std::vector<int16_t> fifo; // stereo, at the port's rate
++    size_t head = 0; // first unread sample (index into fifo)
++    double pos = 0.0; // fractional read position, in frames past head
++    bool primed = false;
++};
++std::unordered_map<const void *, PortMix> g_port_mix;
++} // namespace
++
+ int libretro_audio_drain(AudioState &audio, std::vector<int16_t> &out_buffer) {
+-    out_buffer.clear();
++    constexpr int kOutRate = 48000;
++    // The audio of the real time since the last call, at least one 60 fps frame's worth: when
++    // the engine runs slower than 60 frames a second, a fixed 800 left gaps the player hears
++    // as crackles (the game's audio threads keep their own time). At most three frames' worth.
++    static std::chrono::steady_clock::time_point last;
++    static double carry = 0.0;
++    const auto now = std::chrono::steady_clock::now();
++    double want = 800.0;
++    if (last.time_since_epoch().count() != 0) {
++        const double elapsed = std::chrono::duration<double>(now - last).count();
++        want = std::clamp(elapsed * kOutRate + carry, 800.0, 2400.0);
++    }
++    last = now;
++    const int kOutFrames = static_cast<int>(want);
++    carry = std::min(want - kOutFrames, 1.0);
++    std::vector<int32_t> acc(kOutFrames * 2, 0);
+ 
+     const std::lock_guard<std::mutex> lock(audio.mutex);
++    std::unordered_map<const void *, bool> seen;
+ 
+     for (auto it = audio.out_ports.begin(); it != audio.out_ports.end(); ++it) {
+         LibretroAudioOutPort *port = static_cast<LibretroAudioOutPort *>(it->second.get());
+         if (!port)
+             continue;
+-
+-        std::unique_lock<std::mutex> plock(port->mutex);
+-        while (port->nb_buffers_ready > 0) {
+-            const std::vector<uint8_t> &buf = port->audio_buffers[port->next_read_buffer];
+-            const int num_samples = port->len_bytes / static_cast<int>(sizeof(int16_t));
+-            const int16_t *samples = reinterpret_cast<const int16_t *>(buf.data());
+-
+-            // Apply volume scaling
++        PortMix &mix = g_port_mix[port];
++        seen[port] = true;
++
++        const int rate = port->freq > 0 ? port->freq : kOutRate;
++        const double step = static_cast<double>(rate) / kOutRate;
++        // Take chunks from the game only until this call's audio and a little more (40 ms) are
++        // here: the ring then stays full and the game's audio thread waits on it, which is
++        // what keeps movies and music at their speed. (Emptying it every frame let the game
++        // run ahead: movies too fast, and the audio dropped for running ahead crackled.)
++        const size_t target_frames = static_cast<size_t>(kOutFrames * step) + static_cast<size_t>(rate / 25) + 2;
++        {
++            std::unique_lock<std::mutex> plock(port->mutex);
+             const float vol_l = static_cast<float>(port->left_channel_volume) / static_cast<float>(SCE_AUDIO_OUT_MAX_VOL);
+             const float vol_r = static_cast<float>(port->right_channel_volume) / static_cast<float>(SCE_AUDIO_OUT_MAX_VOL);
+             const float vol = port->volume * audio.global_volume;
+-
+-            if (port->channels == 2) {
+-                // Stereo — already in the format libretro expects
+-                for (int i = 0; i < num_samples; i += 2) {
+-                    int16_t l = static_cast<int16_t>(std::clamp(static_cast<int>(samples[i] * vol_l * vol), -32768, 32767));
+-                    int16_t r = static_cast<int16_t>(std::clamp(static_cast<int>(samples[i + 1] * vol_r * vol), -32768, 32767));
+-                    out_buffer.push_back(l);
+-                    out_buffer.push_back(r);
+-                }
+-            } else {
+-                // Mono — duplicate to stereo
+-                for (int i = 0; i < num_samples; i++) {
+-                    int16_t s = static_cast<int16_t>(std::clamp(static_cast<int>(samples[i] * vol_l * vol), -32768, 32767));
+-                    out_buffer.push_back(s);
+-                    out_buffer.push_back(s);
++            while (port->nb_buffers_ready > 0 && (mix.fifo.size() - mix.head) / 2 < target_frames) {
++                const std::vector<uint8_t> &buf = port->audio_buffers[port->next_read_buffer];
++                const int num_samples = port->len_bytes / static_cast<int>(sizeof(int16_t));
++                const int16_t *samples = reinterpret_cast<const int16_t *>(buf.data());
++                if (port->channels == 2) {
++                    for (int i = 0; i + 1 < num_samples; i += 2) {
++                        mix.fifo.push_back(static_cast<int16_t>(std::clamp(static_cast<int>(samples[i] * vol_l * vol), -32768, 32767)));
++                        mix.fifo.push_back(static_cast<int16_t>(std::clamp(static_cast<int>(samples[i + 1] * vol_r * vol), -32768, 32767)));
++                    }
++                } else {
++                    for (int i = 0; i < num_samples; i++) {
++                        const int16_t v = static_cast<int16_t>(std::clamp(static_cast<int>(samples[i] * vol_l * vol), -32768, 32767));
++                        mix.fifo.push_back(v);
++                        mix.fifo.push_back(v);
++                    }
+                 }
++                port->next_read_buffer = (port->next_read_buffer + 1) % port->audio_buffers.size();
++                port->nb_buffers_ready--;
+             }
+-
+-            port->next_read_buffer = (port->next_read_buffer + 1) % port->audio_buffers.size();
+-            port->nb_buffers_ready--;
+         }
+-        plock.unlock();
+         port->cond_var.notify_all();
++
++        size_t avail = (mix.fifo.size() - mix.head) / 2;
++        if (!mix.primed) {
++            if (avail < static_cast<size_t>(rate / 20))
++                continue;
++            mix.primed = true;
++        }
++
++        for (int i = 0; i < kOutFrames; i++) {
++            const size_t idx = static_cast<size_t>(mix.pos);
++            if (idx + 1 >= avail) {
++                mix.primed = false; // ran dry: wait for a little audio again
++                break;
++            }
++            const double frac = mix.pos - static_cast<double>(idx);
++            const int16_t *a = &mix.fifo[mix.head + idx * 2];
++            acc[i * 2] += static_cast<int32_t>(a[0] + (a[2] - a[0]) * frac);
++            acc[i * 2 + 1] += static_cast<int32_t>(a[1] + (a[3] - a[1]) * frac);
++            mix.pos += step;
++        }
++        const size_t used = std::min(static_cast<size_t>(mix.pos), avail);
++        mix.head += used * 2;
++        mix.pos -= static_cast<double>(used);
++        if (mix.head > 1 << 16) {
++            mix.fifo.erase(mix.fifo.begin(), mix.fifo.begin() + static_cast<std::ptrdiff_t>(mix.head));
++            mix.head = 0;
++        }
++    }
++
++    // Ports that closed.
++    for (auto it = g_port_mix.begin(); it != g_port_mix.end();) {
++        if (seen.count(it->first) == 0)
++            it = g_port_mix.erase(it);
++        else
++            ++it;
+     }
+ 
+-    // Return number of stereo frames
+-    return static_cast<int>(out_buffer.size() / 2);
++    out_buffer.resize(kOutFrames * 2);
++    for (int i = 0; i < kOutFrames * 2; i++)
++        out_buffer[i] = static_cast<int16_t>(std::clamp(acc[i], -32768, 32767));
++    return kOutFrames;
+ }

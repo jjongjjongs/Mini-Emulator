@@ -1,0 +1,67 @@
+# Gradle / Android Studio
+.gradle/
+build/
+/local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 서명 키 — 절대 커밋하지 마세요
+keystore.properties
+release/
+*.jks
+*.keystore
+
+# 빌드 결과물
+*.apk
+*.aab
+
+# native-test 빌드 결과물
+native-test/build/
+
+# 아케이드 엔진: cores/build-cores.sh, build-mame2010.sh, build-mame2015.sh가 빌드해서 넣음
+cores/build/
+app/src/main/jniLibs/arm64-v8a/libfbneo_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libmame2003_plus_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libmame2010_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libmame2015_libretro_android.so
+__pycache__/
+app/src/main/jniLibs/arm64-v8a/libppsspp_libretro_android.so
+app/src/main/assets/ppsspp_system.zip
+app/src/main/jniLibs/arm64-v8a/libpcsx_rearmed_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libplay_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
+app/src/main/assets/wiilink_wfc.txt
+app/src/main/assets/wfc_room.zip
+app/src/main/assets/wfc_room_codes.txt
+app/src/main/jniLibs/arm64-v8a/libwfcserver.so
+
+# Built from docs/overview by docs/overview/render.py (the release build runs it)
+app/src/main/assets/help/
+app/src/main/jniLibs/arm64-v8a/libmgba_libretro_android.so
+app/src/main/jniLibs/arm64-v8a/libdosbox_pure_libretro_android.so
+app/src/main/assets/dos/
+app/src/main/jniLibs/arm64-v8a/libbluemsx_libretro_android.so
+app/src/main/assets/msx_system.zip
+app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+
+# PS3 engine: cores/fetch-armsx3.sh takes it from an ARMSX3 release
+app/src/main/jniLibs/arm64-v8a/libarmsx3-core.so
+app/src/main/jniLibs/arm64-v8a/libarmsx3-jni.so
+app/src/main/assets/ps3/
+# Xbox 360 engine: cores/fetch-xendroid.sh takes it from a XenDroid release
+app/src/main/jniLibs/arm64-v8a/libe.so
+app/src/main/jniLibs/arm64-v8a/libhardware_ProcessorInfo.so
+app/src/main/jniLibs/arm64-v8a/libSPIRV-Tools-shared.so
+app/src/main/jniLibs/arm64-v8a/libhook_impl.so
+app/src/main/jniLibs/arm64-v8a/libmain_hook.so
+app/src/main/jniLibs/arm64-v8a/libgsl_alloc_hook.so
+app/src/main/jniLibs/arm64-v8a/libfile_redirect_hook.so
+app/src/main/assets/x360/
+app/src/main/jniLibs/arm64-v8a/libmednafen_saturn_libretro_android.so
+# Original Xbox engine: cores/fetch-hakux.sh takes it from a HakuX release
+app/src/main/jniLibs/arm64-v8a/libhakuxcore.so
+app/src/main/jniLibs/arm64-v8a/libSDL3.so

@@ -1,0 +1,40 @@
+diff --git a/Source/iop/Iop_SifManPs2.cpp b/Source/iop/Iop_SifManPs2.cpp
+index e1b065c..18d2773 100644
+--- a/Source/iop/Iop_SifManPs2.cpp
++++ b/Source/iop/Iop_SifManPs2.cpp
+@@ -1,3 +1,4 @@
++#include <algorithm>
+ #include <cstring>
+ #include "Iop_SifManPs2.h"
+ #include "../Ps2Const.h"
+@@ -71,21 +72,27 @@ void CSifManPs2::ExecuteSifDma(uint32 structAddr, uint32 count)
+ 		return;
+ 	}
+ 
++	//Keep the descriptors and every copy inside IOP and EE RAM: a transfer running past
++	//the end of either faulted outside the protected EE RAM and killed the process.
++	structAddr &= (PS2::IOP_RAM_SIZE - 1);
++	count = std::min<uint32>(count, (PS2::IOP_RAM_SIZE - structAddr) / sizeof(SIFDMAREG));
+ 	auto dmaRegs = reinterpret_cast<const SIFDMAREG*>(m_iopRam + structAddr);
+ 	for(unsigned int i = 0; i < count; i++)
+ 	{
+ 		const auto& dmaReg = dmaRegs[i];
+ 		uint32 dstAddr = dmaReg.dstAddr & (PS2::EE_RAM_SIZE - 1);
+ 		assert(dstAddr != 0);
+-		const uint8* src = m_iopRam + (dmaReg.srcAddr & (PS2::IOP_RAM_SIZE - 1));
++		uint32 srcAddr = dmaReg.srcAddr & (PS2::IOP_RAM_SIZE - 1);
++		uint32 size = std::min<uint32>(dmaReg.size, std::min<uint32>(PS2::IOP_RAM_SIZE - srcAddr, PS2::EE_RAM_SIZE - dstAddr));
++		const uint8* src = m_iopRam + srcAddr;
+ 		if(dmaReg.flags & SIFDMAREG_FLAG_INT_O)
+ 		{
+-			m_sif.SendPacketToAddress(src, dmaReg.size, dstAddr);
++			m_sif.SendPacketToAddress(src, size, dstAddr);
+ 		}
+ 		else
+ 		{
+ 			uint8* dst = m_eeRam + dstAddr;
+-			memcpy(dst, src, dmaReg.size);
++			memcpy(dst, src, size);
+ 		}
+ 	}
+ }

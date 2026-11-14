@@ -1,0 +1,53 @@
+name: Build Citra core
+
+# Citra (Nintendo 3DS) takes far longer to build than the rest of the app, so
+# it is built here and kept in the Actions cache; the APK build only restores it.
+# Run this (or push a change to the script) before a release that needs a new core.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - cores/build-citra.sh
+      - cores/patches/citra-*.patch
+      - .github/workflows/citra.yml
+  workflow_dispatch:
+
+jobs:
+  citra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Citra core
+        id: citra-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
+          key: citra-${{ hashFiles('cores/build-citra.sh', 'cores/patches/citra-*.patch') }}
+
+      - name: Install build tools
+        if: steps.citra-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          df -h .
+
+      - name: Build Citra core
+        if: steps.citra-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./cores/build-citra.sh
+
+      - name: Save Citra core
+        if: steps.citra-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libcitra_libretro_android.so
+          key: citra-${{ hashFiles('cores/build-citra.sh', 'cores/patches/citra-*.patch') }}
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: citra-logs
+          path: cores/build/*.log

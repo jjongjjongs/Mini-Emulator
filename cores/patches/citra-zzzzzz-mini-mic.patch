@@ -1,0 +1,283 @@
+diff --git a/src/audio_core/CMakeLists.txt b/src/audio_core/CMakeLists.txt
+index 14c9068..38fcae0 100644
+--- a/src/audio_core/CMakeLists.txt
++++ b/src/audio_core/CMakeLists.txt
+@@ -38,7 +38,7 @@ add_library(audio_core STATIC
+ 
+     $<$<BOOL:${ENABLE_SDL2}>:sdl2_sink.cpp sdl2_sink.h>
+     $<$<BOOL:${ENABLE_CUBEB}>:cubeb_sink.cpp cubeb_sink.h cubeb_input.cpp cubeb_input.h>
+-    $<$<BOOL:${ENABLE_LIBRETRO}>:libretro_sink.cpp libretro_sink.h>
++    $<$<BOOL:${ENABLE_LIBRETRO}>:libretro_sink.cpp libretro_sink.h libretro_input.cpp libretro_input.h>
+     $<$<BOOL:${ENABLE_OPENAL}>:openal_input.cpp openal_input.h openal_sink.cpp openal_sink.h>
+ )
+ 
+diff --git a/src/audio_core/input_details.cpp b/src/audio_core/input_details.cpp
+index d6b2dc5..37719ca 100644
+--- a/src/audio_core/input_details.cpp
++++ b/src/audio_core/input_details.cpp
+@@ -15,6 +15,9 @@
+ #ifdef HAVE_OPENAL
+ #include "audio_core/openal_input.h"
+ #endif
++#ifdef HAVE_LIBRETRO
++#include "audio_core/libretro_input.h"
++#endif
+ #include "common/logging/log.h"
+ #include "core/core.h"
+ 
+@@ -22,6 +25,14 @@ namespace AudioCore {
+ namespace {
+ // input_details is ordered in terms of desirability, with the best choice at the top.
+ constexpr std::array input_details = {
++#ifdef HAVE_LIBRETRO
++    // The frontend's microphone (its own permission and recording), first so Auto takes it.
++    InputDetails{InputType::LibRetro, "Frontend (libretro)", true,
++                 [](std::string_view device_id) -> std::unique_ptr<Input> {
++                     return std::make_unique<LibRetroInput>();
++                 },
++                 [] { return std::vector<std::string>{"Frontend"}; }},
++#endif
+ #ifdef HAVE_CUBEB
+     InputDetails{InputType::Cubeb, "Real Device (Cubeb)", true,
+                  [](std::string_view device_id) -> std::unique_ptr<Input> {
+diff --git a/src/audio_core/input_details.h b/src/audio_core/input_details.h
+index f1be875..edee8d5 100644
+--- a/src/audio_core/input_details.h
++++ b/src/audio_core/input_details.h
+@@ -20,6 +20,7 @@ enum class InputType : u32 {
+     Static = 2,
+     Cubeb = 3,
+     OpenAL = 4,
++    LibRetro = 5,
+ };
+ 
+ struct InputDetails {
+diff --git a/src/audio_core/libretro_input.cpp b/src/audio_core/libretro_input.cpp
+new file mode 100644
+index 0000000..c3d3f8e
+--- /dev/null
++++ b/src/audio_core/libretro_input.cpp
+@@ -0,0 +1,156 @@
++// Copyright 2026 Mini Emulator
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++#include "audio_core/libretro_input.h"
++#include "common/logging/log.h"
++
++// The libretro microphone interface (libretro.h API 1.x, 2023); the libretro.h in externals
++// predates it, so the parts used here are declared as the newer header has them.
++#ifndef RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE
++#define RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE (75 | 0x10000)
++typedef struct retro_microphone retro_microphone_t;
++typedef struct retro_microphone_params {
++    unsigned rate;
++} retro_microphone_params_t;
++typedef retro_microphone_t* (*retro_open_mic_t)(const retro_microphone_params_t* params);
++typedef void (*retro_close_mic_t)(retro_microphone_t* microphone);
++typedef bool (*retro_get_mic_params_t)(const retro_microphone_t* microphone, retro_microphone_params_t* params);
++typedef bool (*retro_set_mic_state_t)(retro_microphone_t* microphone, bool state);
++typedef bool (*retro_get_mic_state_t)(const retro_microphone_t* microphone);
++typedef int (*retro_read_mic_t)(retro_microphone_t* microphone, int16_t* samples, size_t num_samples);
++#define RETRO_MICROPHONE_INTERFACE_VERSION 1
++struct retro_microphone_interface {
++    unsigned interface_version;
++    retro_open_mic_t open_mic;
++    retro_close_mic_t close_mic;
++    retro_get_mic_params_t get_params;
++    retro_set_mic_state_t set_mic_state;
++    retro_get_mic_state_t get_mic_state;
++    retro_read_mic_t read_mic;
++};
++#endif
++
++namespace LibRetro {
++/// Passes an environment call to the frontend (citra_libretro/environment.cpp).
++bool CallEnvironment(unsigned cmd, void* data);
++} // namespace LibRetro
++
++namespace AudioCore {
++
++namespace {
++// The 3DS writes the microphone's shared memory every 15 samples, whatever the rate.
++constexpr std::size_t SamplesPerUpdate = 15;
++} // namespace
++
++struct LibRetroInput::Impl {
++    retro_microphone_interface mic_interface{};
++    bool have_interface = false;
++    retro_microphone_t* mic = nullptr;
++    bool sampling = false;
++    unsigned frontend_rate = 0;
++    double owed = 0.0;
++    std::vector<int16_t> buffer;
++};
++
++LibRetroInput::LibRetroInput() : impl(std::make_unique<Impl>()) {
++    impl->mic_interface.interface_version = RETRO_MICROPHONE_INTERFACE_VERSION;
++    impl->have_interface =
++        LibRetro::CallEnvironment(RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE, &impl->mic_interface) &&
++        impl->mic_interface.open_mic != nullptr && impl->mic_interface.read_mic != nullptr;
++    if (!impl->have_interface) {
++        LOG_WARNING(Audio, "The frontend has no microphone; the game hears silence.");
++    }
++}
++
++LibRetroInput::~LibRetroInput() {
++    StopSampling();
++}
++
++void LibRetroInput::StartSampling(const InputParameters& params) {
++    if (IsSampling()) {
++        return;
++    }
++    parameters = params;
++    impl->owed = 0.0;
++    impl->frontend_rate = params.sample_rate;
++    if (impl->have_interface) {
++        retro_microphone_params_t want{params.sample_rate};
++        impl->mic = impl->mic_interface.open_mic(&want);
++        if (impl->mic != nullptr) {
++            retro_microphone_params_t got{0};
++            if (impl->mic_interface.get_params != nullptr && impl->mic_interface.get_params(impl->mic, &got) && got.rate != 0) {
++                impl->frontend_rate = got.rate;
++            }
++            if (impl->mic_interface.set_mic_state != nullptr) {
++                impl->mic_interface.set_mic_state(impl->mic, true);
++            }
++        }
++    }
++    impl->sampling = true;
++}
++
++void LibRetroInput::StopSampling() {
++    if (impl->mic != nullptr) {
++        if (impl->mic_interface.set_mic_state != nullptr) {
++            impl->mic_interface.set_mic_state(impl->mic, false);
++        }
++        if (impl->mic_interface.close_mic != nullptr) {
++            impl->mic_interface.close_mic(impl->mic);
++        }
++        impl->mic = nullptr;
++    }
++    impl->sampling = false;
++}
++
++bool LibRetroInput::IsSampling() {
++    return impl->sampling;
++}
++
++void LibRetroInput::AdjustSampleRate(u32 sample_rate) {
++    parameters.sample_rate = sample_rate;
++    impl->owed = 0.0;
++}
++
++Samples LibRetroInput::Read() {
++    if (!impl->sampling || parameters.sample_rate == 0) {
++        return {};
++    }
++    // The frontend's samples that span these 15 at the game's rate.
++    impl->owed += static_cast<double>(SamplesPerUpdate) * impl->frontend_rate / parameters.sample_rate;
++    std::size_t count = static_cast<std::size_t>(impl->owed);
++    impl->owed -= static_cast<double>(count);
++    count = std::max<std::size_t>(count, 1);
++    impl->buffer.assign(count, 0);
++    if (impl->mic != nullptr && impl->mic_interface.read_mic(impl->mic, impl->buffer.data(), count) < 0) {
++        std::fill(impl->buffer.begin(), impl->buffer.end(), static_cast<int16_t>(0));
++    }
++    const std::size_t bytes = parameters.sample_size == 16 ? 2 : 1;
++    Samples out(SamplesPerUpdate * bytes);
++    for (std::size_t i = 0; i < SamplesPerUpdate; ++i) {
++        // Each output sample is the average of its share of the frontend's samples.
++        std::size_t from = i * count / SamplesPerUpdate;
++        std::size_t to = std::max(from + 1, (i + 1) * count / SamplesPerUpdate);
++        int sum = 0;
++        for (std::size_t k = from; k < to && k < count; ++k) {
++            sum += impl->buffer[k];
++        }
++        int value = sum / static_cast<int>(std::min(to, count) - from);
++        if (bytes == 2) {
++            u16 word = parameters.sign == Signedness::Signed ? static_cast<u16>(static_cast<s16>(value))
++                                                             : static_cast<u16>(value + 32768);
++            out[i * 2] = static_cast<u8>(word & 0xFF);
++            out[i * 2 + 1] = static_cast<u8>(word >> 8);
++        } else {
++            out[i] = parameters.sign == Signedness::Signed ? static_cast<u8>(static_cast<s8>(value >> 8))
++                                                          : static_cast<u8>((value >> 8) + 128);
++        }
++    }
++    return out;
++}
++
++} // namespace AudioCore
+diff --git a/src/audio_core/libretro_input.h b/src/audio_core/libretro_input.h
+new file mode 100644
+index 0000000..1482624
+--- /dev/null
++++ b/src/audio_core/libretro_input.h
+@@ -0,0 +1,31 @@
++// Copyright 2026 Mini Emulator
++// Licensed under GPLv2 or any later version
++// Refer to the license.txt file included.
++
++#pragma once
++
++#include <memory>
++#include "audio_core/input.h"
++
++namespace AudioCore {
++
++/// The 3DS microphone from the frontend's libretro microphone interface: what the frontend
++/// hands over is resampled to the rate the game asked for, 15 samples per update as the
++/// hardware writes them; silence while the frontend has nothing (or no microphone).
++class LibRetroInput final : public Input {
++public:
++    LibRetroInput();
++    ~LibRetroInput() override;
++
++    void StartSampling(const InputParameters& params) override;
++    void StopSampling() override;
++    bool IsSampling() override;
++    void AdjustSampleRate(u32 sample_rate) override;
++    Samples Read() override;
++
++private:
++    struct Impl;
++    std::unique_ptr<Impl> impl;
++};
++
++} // namespace AudioCore
+diff --git a/src/citra_libretro/environment.cpp b/src/citra_libretro/environment.cpp
+index d431e95..b4bbf94 100644
+--- a/src/citra_libretro/environment.cpp
++++ b/src/citra_libretro/environment.cpp
+@@ -32,6 +32,10 @@ void UploadVideoFrame(const void* data, unsigned width, unsigned height, size_t
+     return video_cb(data, width, height, pitch);
+ }
+ 
++bool CallEnvironment(unsigned cmd, void* data) {
++    return environ_cb != nullptr && environ_cb(cmd, data);
++}
++
+ bool SetHWSharedContext() {
+     return environ_cb(RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT, NULL);
+ }
+diff --git a/src/citra_libretro/environment.h b/src/citra_libretro/environment.h
+index 7a9c65f..65f1ff2 100644
+--- a/src/citra_libretro/environment.h
++++ b/src/citra_libretro/environment.h
+@@ -29,6 +29,10 @@ bool SetVariables(const retro_variable vars[]);
+ 
+ bool SetHWSharedContext(void);
+ 
++/// Passes an environment call to the frontend (audio_core's microphone asks for the
++/// frontend's microphone interface this way).
++bool CallEnvironment(unsigned cmd, void* data);
++
+ /// Returns the LibRetro save directory, or a empty string if one doesn't exist.
+ std::string GetSaveDir();
+ 

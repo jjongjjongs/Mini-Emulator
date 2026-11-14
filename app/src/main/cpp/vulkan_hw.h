@@ -1,0 +1,45 @@
+// Vulkan hardware rendering for libretro cores (PPSSPP): the device the core draws with,
+// the libretro Vulkan interface it talks to, and a swapchain on the game's window that
+// shows the images the core hands over.
+#pragma once
+
+#include "libretro.h"
+
+struct ANativeWindow;
+
+namespace vkhw {
+
+// Whether this device can run a Vulkan core: the loader, a GPU with a graphics queue and
+// swapchain support. Checked once, on first use.
+bool available();
+
+class Host;
+
+// Takes the core's SET_HW_RENDER (context_type RETRO_HW_CONTEXT_VULKAN); null if Vulkan is
+// not available.
+Host* create(const retro_hw_render_callback& hw);
+// The core's SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE, if it sends one.
+void setNegotiation(Host* host, const retro_hw_render_context_negotiation_interface* iface);
+// Vita3K: make the device with the extensions and features it uses (it reads what the GPU
+// supports and uses them as if enabled; 0.0.325).
+void setFullDevice(Host* host, bool full);
+// Makes the device (through the core's create_device when it negotiates). On the
+// emulation thread, before context_reset.
+bool init(Host* host);
+// The interface GET_HW_RENDER_INTERFACE returns; valid after init.
+const retro_hw_render_interface* renderInterface(Host* host);
+// Follows the window Java hands over (null while there is none). Emulation thread.
+void setWindow(Host* host, ANativeWindow* window);
+// Shows the image last passed to set_image, stretched over the window and turned by turn
+// quarters counter-clockwise (SET_ROTATION, 0.0.366; -1 keeps the last turn). Emulation thread.
+void present(Host* host, int turn = -1);
+// "FSR 업스케일": the picture is enlarged with AMD FSR 1.0 (EASU) instead of bilinear.
+void setFsr(bool on);
+// 3D 다듬기 (0.0.369): FXAA, sharpening 0..100 (0 off) and colour (0 as drawn, 1 자연스러운,
+// 2 또렷한) on the shown picture.
+void setFx(bool fxaa, int sharp, int grade);
+// Waits for the GPU and frees the swapchain and surfaces. The device stays: the core
+// created it and the game process ends right after.
+void shutdown(Host* host);
+
+}  // namespace vkhw
