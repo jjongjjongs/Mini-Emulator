@@ -1,0 +1,128 @@
+diff --git a/Source/Core/Core/IOS/Network/IP/Top.cpp b/Source/Core/Core/IOS/Network/IP/Top.cpp
+index 58935b5..680b9d6 100644
+--- a/Source/Core/Core/IOS/Network/IP/Top.cpp
++++ b/Source/Core/Core/IOS/Network/IP/Top.cpp
+@@ -822,7 +822,7 @@ IPCReply NetIPTopDevice::HandleInetAToNRequest(const IOCtlRequest& request)
+   auto& system = GetSystem();
+   auto& memory = system.GetMemory();
+ 
+-  const std::string hostname = memory.GetString(request.buffer_in);
++  const std::string hostname = WiiSockMan::MiniWfcRewriteName(memory.GetString(request.buffer_in));
+   hostent* remoteHost = gethostbyname(hostname.c_str());
+ 
+   if (remoteHost == nullptr || remoteHost->h_addr_list == nullptr ||
+@@ -942,7 +942,7 @@ IPCReply NetIPTopDevice::HandleGetHostByNameRequest(const IOCtlRequest& request)
+   auto& system = GetSystem();
+   auto& memory = system.GetMemory();
+ 
+-  const std::string hostname = memory.GetString(request.buffer_in);
++  const std::string hostname = WiiSockMan::MiniWfcRewriteName(memory.GetString(request.buffer_in));
+   hostent* remoteHost = gethostbyname(hostname.c_str());
+ 
+   INFO_LOG_FMT(IOS_NET,
+@@ -1307,6 +1307,13 @@ IPCReply NetIPTopDevice::HandleGetAddressInfoRequest(const IOCtlVRequest& reques
+     pServiceName = serviceNameStr.c_str();
+   }
+ 
++  std::string miniWfcName;
++  if (pNodeName != nullptr)
++  {
++    miniWfcName = WiiSockMan::MiniWfcRewriteName(pNodeName);
++    pNodeName = miniWfcName.c_str();
++  }
++
+   addrinfo* result = nullptr;
+   int ret = getaddrinfo(pNodeName, pServiceName, hints_valid ? &hints : nullptr, &result);
+   if (ret == 0)
+diff --git a/Source/Core/Core/IOS/Network/Socket.cpp b/Source/Core/Core/IOS/Network/Socket.cpp
+index feb2579..daf8665 100644
+--- a/Source/Core/Core/IOS/Network/Socket.cpp
++++ b/Source/Core/Core/IOS/Network/Socket.cpp
+@@ -4,6 +4,9 @@
+ // No Wii socket support while using NetPlay or TAS
+ #include "Core/IOS/Network/Socket.h"
+ 
++#include <cctype>
++#include <cstdlib>
++
+ #include <algorithm>
+ #include <numeric>
+ 
+@@ -1122,6 +1125,47 @@ void WiiSockMan::UpdatePollCommands()
+   });
+ }
+ 
++// Mini Emulator, Wii 친구끼리 (see Socket.h).
++static bool MiniWfcHost(in_addr* host, u16* http_port)
++{
++  const char* value = std::getenv("MINI_EMULATOR_WFC");
++  if (value == nullptr || *value == '\0')
++    return false;
++  const std::string text(value);
++  const size_t colon = text.rfind(':');
++  const std::string ip = colon == std::string::npos ? text : text.substr(0, colon);
++  if (inet_pton(AF_INET, ip.c_str(), host) != 1)
++    return false;
++  *http_port = colon == std::string::npos ? 80 : static_cast<u16>(std::atoi(text.c_str() + colon + 1));
++  return true;
++}
++
++static bool MiniWfcEndsWith(const std::string& name, const std::string& suffix)
++{
++  return name.size() >= suffix.size() &&
++         name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
++}
++
++std::string WiiSockMan::MiniWfcRewriteName(const std::string& name)
++{
++  in_addr host;
++  u16 http_port;
++  if (!MiniWfcHost(&host, &http_port))
++    return name;
++  std::string lower = name;
++  for (char& c : lower)
++    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
++  if (MiniWfcEndsWith(lower, "nintendowifi.net") || MiniWfcEndsWith(lower, "gamespy.com") ||
++      MiniWfcEndsWith(lower, "mini.wfc"))
++  {
++    char text[INET_ADDRSTRLEN] = {};
++    inet_ntop(AF_INET, &host, text, sizeof(text));
++    INFO_LOG_FMT(IOS_NET, "Mini WFC: {} -> {}", name, text);
++    return text;
++  }
++  return name;
++}
++
+ sockaddr_in WiiSockMan::ToNativeAddrIn(WiiSockAddrIn from)
+ {
+   sockaddr_in result;
+@@ -1130,6 +1174,14 @@ sockaddr_in WiiSockMan::ToNativeAddrIn(WiiSockAddrIn from)
+   result.sin_family = from.family;
+   result.sin_port = from.port;
+ 
++  in_addr host;
++  u16 http_port;
++  if (MiniWfcHost(&host, &http_port) && result.sin_addr.s_addr == host.s_addr &&
++      result.sin_port == htons(80))
++  {
++    result.sin_port = htons(http_port);
++  }
++
+   return result;
+ }
+ 
+diff --git a/Source/Core/Core/IOS/Network/Socket.h b/Source/Core/Core/IOS/Network/Socket.h
+index 3617e24..420aaa1 100644
+--- a/Source/Core/Core/IOS/Network/Socket.h
++++ b/Source/Core/Core/IOS/Network/Socket.h
+@@ -256,6 +256,10 @@ public:
+ 
+   void Update();
+   static sockaddr_in ToNativeAddrIn(WiiSockAddrIn from);
++  // Mini Emulator, Wii 친구끼리: with MINI_EMULATOR_WFC set to "<host ip>:<http port>", the
++  // Nintendo Wi-Fi Connection names (and the room's own domain) resolve to the host phone,
++  // and its port 80 is the room server's HTTP port.
++  static std::string MiniWfcRewriteName(const std::string& name);
+   static WiiSockAddrIn ToWiiAddrIn(const sockaddr_in& from,
+                                    socklen_t addrlen = sizeof(WiiSockAddrIn));
+   static s32 ConvertEvents(s32 events, ConvertDirection dir);

@@ -1,0 +1,49 @@
+diff --git a/Source/Core/DolphinLibretro/Boot.cpp b/Source/Core/DolphinLibretro/Boot.cpp
+index 2d8a59a..ced280e 100644
+--- a/Source/Core/DolphinLibretro/Boot.cpp
++++ b/Source/Core/DolphinLibretro/Boot.cpp
+@@ -12,6 +12,9 @@
+ #include "Common/StringUtil.h"
+ #include "Common/Version.h"
+ #include "Core/Boot/Boot.h"
++#include "Core/WiiUtils.h"
++#include "DiscIO/NANDImporter.h"
++#include "Common/MsgHandler.h"
+ #include "Core/BootManager.h"
+ #include "Core/Config/GraphicsSettings.h"
+ #include "Core/Config/MainSettings.h"
+@@ -992,3 +995,34 @@ static void InitDiskControlInterface()
+   environ_cb(RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE, &disk_control);
+ }
+ }  // namespace Libretro
++
++// Mini Emulator: the Wii system update and the SSL certificates, from the app's GameCube /
++// Wii screen with no game running (a process of its own: Dolphin's global state is set up
++// here and torn down again). user_dir and sys_dir are the ones a game gets (<saves>/User and
++// <system>/dolphin-emu/Sys). region is KOR, JPN, USA or EUR. progress gets (done, total,
++// title id) and returns 0 to stop. Returns the WiiUtils::UpdateResult, plus 100 when the
++// update went through but the certificates could not be taken from IOS13.
++extern "C" __attribute__((visibility("default"))) int retro_mini_wii_update(
++    const char* user_dir, const char* sys_dir, const char* region,
++    int (*progress)(unsigned long done, unsigned long total, unsigned long long title_id, void* ctx),
++    void* ctx)
++{
++  File::SetSysDirectory(sys_dir);
++  UICommon::SetUserDirectory(user_dir);
++  UICommon::CreateDirectories();
++  UICommon::Init();
++  Common::SetEnableAlert(false);
++  const WiiUtils::UpdateResult result = WiiUtils::DoOnlineUpdate(
++      [progress, ctx](size_t done, size_t total, u64 title_id) {
++        return progress == nullptr || progress(done, total, title_id, ctx) != 0;
++      },
++      region == nullptr ? "" : region);
++  int code = static_cast<int>(result);
++  if (result == WiiUtils::UpdateResult::Succeeded || result == WiiUtils::UpdateResult::AlreadyUpToDate)
++  {
++    if (!DiscIO::NANDImporter().ExtractCertificates())
++      code += 100;
++  }
++  UICommon::Shutdown();
++  return code;
++}

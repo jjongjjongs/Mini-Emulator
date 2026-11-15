@@ -1,0 +1,182 @@
+diff --git a/vita3k/libretro/libretro_vita3k.cpp b/vita3k/libretro/libretro_vita3k.cpp
+index fb69501..7657937 100644
+--- a/vita3k/libretro/libretro_vita3k.cpp
++++ b/vita3k/libretro/libretro_vita3k.cpp
+@@ -42,6 +42,10 @@
+ #include <util/fs.h>
+ #include <util/log.h>
+ #include <util/string_utils.h>
++#include <ime/state.h>
++#include <ime/types.h>
++
++#include <cstdio>
+ 
+ #include <glad/glad.h>
+ 
+@@ -1281,8 +1285,143 @@ RETRO_API void retro_unload_game(void) {
+ // frame, as a player most likely would: trophy setup done, a message's first button
+ // (OK / YES), save data YES / OK or the first slot, text input as the game filled it in.
+ // Dialogs without buttons (progress, "saving...") are left for the game to close.
++// Mini Emulator: text the game asks for (a name, a password …) typed on the phone's keyboard.
++// The app polls mini_vita_text_request() while a game runs; when the game opens the system
++// text dialog (sceImeDialog) or the system keyboard (sceIme) it shows its own text box and
++// hands the text back with mini_vita_text_answer(). Applied here in retro_run, on the
++// emulator's side.
++namespace mini_text {
++std::mutex mutex;
++int kind = 0;               // 1: text dialog, 2: system keyboard, 0: nothing asked
++std::string title;
++std::string text;           // what the game put in the box to start with
++uint32_t max_length = 0;
++bool answered = false;
++bool ok = false;
++std::string answer;
++int stage = 0;              // system keyboard: 1 = text sent, enter next
++bool keyboard_done = false; // system keyboard answered; wait until the game closes it
++} // namespace mini_text
++
++extern "C" __attribute__((visibility("default"))) int mini_vita_text_request(char *title, int title_size, char *text, int text_size) {
++    std::lock_guard<std::mutex> lock(mini_text::mutex);
++    if (mini_text::kind == 0 || mini_text::answered)
++        return 0;
++    snprintf(title, title_size, "%s", mini_text::title.c_str());
++    snprintf(text, text_size, "%s", mini_text::text.c_str());
++    return mini_text::kind | (int)(std::min<uint32_t>(mini_text::max_length, 0xFFFF) << 8);
++}
++
++extern "C" __attribute__((visibility("default"))) void mini_vita_text_answer(const char *utf8, int ok) {
++    std::lock_guard<std::mutex> lock(mini_text::mutex);
++    if (mini_text::kind == 0)
++        return;
++    mini_text::answer = utf8 ? utf8 : "";
++    mini_text::ok = ok != 0;
++    mini_text::answered = true;
++}
++
++static std::u16string mini_text_limited(const std::string &utf8, uint32_t max_length) {
++    std::u16string text = string_utils::utf8_to_utf16(utf8);
++    if (max_length > 0 && text.length() > max_length)
++        text.resize(max_length);
++    return text;
++}
++
++static void answer_text_dialog(DialogState &d) {
++    std::lock_guard<std::mutex> lock(mini_text::mutex);
++    if (mini_text::kind != 1) {
++        mini_text::kind = 1;
++        mini_text::title = d.ime.title;
++        mini_text::text = d.ime.text;
++        mini_text::max_length = d.ime.max_length;
++        mini_text::answered = false;
++        lr_log(RETRO_LOG_INFO, "Dialog: text input \"%s\" asked of the player\n", d.ime.title);
++        return;
++    }
++    if (!mini_text::answered)
++        return;
++    if (mini_text::ok || !d.ime.cancelable) {
++        const std::u16string text = mini_text_limited(mini_text::ok ? mini_text::answer : std::string(d.ime.text), d.ime.max_length);
++        if (d.ime.result)
++            memcpy(d.ime.result, text.c_str(), (text.length() + 1) * sizeof(uint16_t));
++        d.ime.status = SCE_IME_DIALOG_BUTTON_ENTER;
++        d.result = SCE_COMMON_DIALOG_RESULT_OK;
++    } else {
++        d.ime.status = SCE_IME_DIALOG_BUTTON_CLOSE;
++        d.result = SCE_COMMON_DIALOG_RESULT_USER_CANCELED;
++    }
++    d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
++    mini_text::kind = 0;
++    mini_text::answered = false;
++    lr_log(RETRO_LOG_INFO, "Dialog: text input answered\n");
++}
++
++// The system keyboard (sceIme): the game reads its text and Enter / Close through events.
++static void answer_text_keyboard(EmuEnvState &emuenv) {
++    Ime &ime = emuenv.ime;
++    std::lock_guard<std::mutex> lock(mini_text::mutex);
++    if (!ime.state) {
++        if (mini_text::kind == 2)
++            mini_text::kind = 0;
++        mini_text::stage = 0;
++        mini_text::keyboard_done = false;
++        return;
++    }
++    if (mini_text::kind == 1)
++        return;
++    if (mini_text::stage == 1) {
++        if (ime.event_id == SCE_IME_EVENT_OPEN) {  // the text was taken: now Enter
++            ime.event_id = SCE_IME_EVENT_PRESS_ENTER;
++            mini_text::stage = 0;
++        }
++        return;
++    }
++    if (mini_text::keyboard_done)
++        return;
++    if (mini_text::kind == 0) {
++        mini_text::kind = 2;
++        mini_text::title.clear();
++        mini_text::text = string_utils::utf16_to_utf8(ime.str);
++        mini_text::max_length = ime.param.maxTextLength;
++        mini_text::answered = false;
++        lr_log(RETRO_LOG_INFO, "IME: keyboard asked of the player\n");
++        return;
++    }
++    if (!mini_text::answered || ime.event_id != SCE_IME_EVENT_OPEN)
++        return;
++    if (mini_text::ok) {
++        ime.str = mini_text_limited(mini_text::answer, ime.param.maxTextLength);
++        const uint32_t length = (uint32_t)ime.str.length();
++        // sceImeUpdate copies the text without its ending zero: clear the game's buffer first.
++        if (SceWChar16 *buffer = ime.edit_text.str.get(emuenv.mem))
++            memset(buffer, 0, (ime.param.maxTextLength + 1) * sizeof(SceWChar16));
++        ime.edit_text.caretIndex = length;
++        ime.edit_text.editIndex = 0;
++        ime.edit_text.preeditIndex = length;
++        ime.edit_text.preeditLength = 0;
++        ime.edit_text.editLengthChange = 0;
++        ime.caretIndex = length;
++        ime.event_id = SCE_IME_EVENT_UPDATE_TEXT;
++        mini_text::stage = 1;
++    } else {
++        ime.event_id = SCE_IME_EVENT_PRESS_CLOSE;
++    }
++    mini_text::kind = 0;
++    mini_text::answered = false;
++    mini_text::keyboard_done = true;
++    lr_log(RETRO_LOG_INFO, "IME: keyboard answered\n");
++}
++
+ static void answer_common_dialogs(EmuEnvState &emuenv) {
+     auto &d = emuenv.common_dialog;
++    {
++        std::lock_guard<std::mutex> lock(mini_text::mutex);
++        if (mini_text::kind == 1 && (d.type != IME_DIALOG || d.status != SCE_COMMON_DIALOG_STATUS_RUNNING)) {
++            mini_text::kind = 0;  // closed by the game itself
++            mini_text::answered = false;
++        }
++    }
+     switch (d.type) {
+     case TROPHY_SETUP_DIALOG:
+         if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+@@ -1300,12 +1439,8 @@ static void answer_common_dialogs(EmuEnvState &emuenv) {
+         }
+         break;
+     case IME_DIALOG:
+-        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+-            d.ime.status = SCE_IME_DIALOG_BUTTON_ENTER;
+-            d.result = SCE_COMMON_DIALOG_RESULT_OK;
+-            d.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
+-            lr_log(RETRO_LOG_INFO, "Dialog: text input entered as given\n");
+-        }
++        if (d.status == SCE_COMMON_DIALOG_STATUS_RUNNING)
++            answer_text_dialog(d);
+         break;
+     case SAVEDATA_DIALOG:
+         if (d.substatus != SCE_COMMON_DIALOG_STATUS_RUNNING)
+@@ -1350,6 +1485,7 @@ RETRO_API void retro_run(void) {
+     }
+ 
+     answer_common_dialogs(*libretro.emuenv);
++    answer_text_keyboard(*libretro.emuenv);
+ 
+     if (libretro.reset_requested.exchange(false)) {
+         lr_log(RETRO_LOG_INFO, "retro_run: processing deferred reset request\n");

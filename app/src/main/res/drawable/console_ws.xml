@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: WS -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M7,14H41A4,4 0,0 1,45,18V30A4,4 0,0 1,41,34H7A4,4 0,0 1,3,30V18A4,4 0,0 1,7,14Z" android:fillColor="#FFF"/>
+    <path android:pathData="M15,17H33A1,1 0,0 1,34,18V29.5A1,1 0,0 1,33,30.5H15A1,1 0,0 1,14,29.5V18A1,1 0,0 1,15,17Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M7.6,18.3a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M7.6,22.1a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M5.7,20.2a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M9.5,20.2a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M7.6,25.8a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M7.6,29.6a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M5.7,27.7a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M9.5,27.7a0.9,0.9 0,1 0,1.8,0a0.9,0.9 0,1 0,-1.8,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M36.2,27.5a1.8,1.8 0,1 0,3.6,0a1.8,1.8 0,1 0,-3.6,0Z" android:fillColor="#65A30D"/>
+    <path android:pathData="M39.6,24.5a1.8,1.8 0,1 0,3.6,0a1.8,1.8 0,1 0,-3.6,0Z" android:fillColor="#65A30D"/>
+</vector>

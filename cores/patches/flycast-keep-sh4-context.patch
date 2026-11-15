@@ -1,0 +1,44 @@
+diff --git a/core/hw/mem/addrspace.cpp b/core/hw/mem/addrspace.cpp
+index c08cb8e..c123ea6 100644
+--- a/core/hw/mem/addrspace.cpp
++++ b/core/hw/mem/addrspace.cpp
+@@ -387,12 +387,18 @@ bool reserve()
+ 	return true;
+ }
+ 
+-static void termMappings()
++static void termMappings(bool keepContext = false)
+ {
+ 	if (ram_base == nullptr)
+ 	{
+-		free_pages(p_sh4rcb);
+-		p_sh4rcb = nullptr;
++		// The SH4 interpreter and recompiler keep the address of p_sh4rcb's context from their
++		// Init(), so a platform change (initMappings, on every game load) keeps the block:
++		// freeing it left them writing to unmapped memory and crashed the game's start.
++		if (!keepContext)
++		{
++			free_pages(p_sh4rcb);
++			p_sh4rcb = nullptr;
++		}
+ 		mem_b.free();
+ 		vram.free();
+ 		aica::aica_ram.free();
+@@ -403,14 +409,15 @@ static void termMappings()
+ 
+ void initMappings()
+ {
+-	termMappings();
++	termMappings(true);
+ 	// Fallback to statically allocated buffers, this results in slow-ops being generated.
+ 	if (ram_base == nullptr)
+ 	{
+ 		WARN_LOG(VMEM, "Warning! nvmem is DISABLED (due to failure or not being built-in");
+ 
+ 		// Allocate it all and initialize it.
+-		p_sh4rcb = (Sh4RCB*)malloc_pages(sizeof(Sh4RCB));
++		if (p_sh4rcb == nullptr)
++			p_sh4rcb = (Sh4RCB*)malloc_pages(sizeof(Sh4RCB));
+ #if FEAT_SHREC != DYNAREC_NONE
+ 		bm_vmem_pagefill((void**)p_sh4rcb->fpcb, sizeof(p_sh4rcb->fpcb));
+ #endif

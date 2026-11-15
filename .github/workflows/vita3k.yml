@@ -1,0 +1,65 @@
+name: Build Vita3K core
+
+# Vita3K (PS Vita) builds Boost, OpenSSL and zlib with vcpkg for Android, so
+# it is built here and kept in the Actions cache; the APK build only restores it.
+# Run this (or push a change to the script) before a release that needs a new core.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - cores/build-vita3k.sh
+      - cores/patches/vita3k-*.patch
+      - .github/workflows/vita3k.yml
+  workflow_dispatch:
+
+jobs:
+  vita3k:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Vita3K core
+        id: vita3k-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+          key: vita3k-${{ hashFiles('cores/build-vita3k.sh', 'cores/patches/vita3k-*.patch') }}
+
+      - name: Install build tools
+        if: steps.vita3k-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build zip nasm autoconf automake libtool pkg-config
+          df -h .
+
+      - name: Build Vita3K core
+        if: steps.vita3k-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" VCPKG_ROOT="$VCPKG_INSTALLATION_ROOT" ./cores/build-vita3k.sh
+
+      - name: Save Vita3K core
+        if: steps.vita3k-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+          key: vita3k-${{ hashFiles('cores/build-vita3k.sh', 'cores/patches/vita3k-*.patch') }}
+
+      # The core with its symbol table (the APK packaging strips it), to name crash offsets.
+      - name: Upload core with symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: vita3k-core-symbols
+          path: app/src/main/jniLibs/arm64-v8a/libvita3k_libretro_android.so
+          retention-days: 30
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vita3k-logs
+          path: |
+            cores/build/*.log
+            /usr/local/share/vcpkg/buildtrees/*/*.log

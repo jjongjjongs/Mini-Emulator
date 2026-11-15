@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: an MSX home computer (keyboard unit) with a cartridge in its slot -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M19,9H29V19H19Z" android:fillColor="#FFF"/>
+    <path android:pathData="M21,11H27V15H21Z" android:fillColor="#9F1239"/>
+    <path android:pathData="M6,19H42A3,3 0,0 1,45,22V36A3,3 0,0 1,42,39H6A3,3 0,0 1,3,36V22A3,3 0,0 1,6,19Z" android:fillColor="#FFF"/>
+    <path android:pathData="M7,24H11V27H7ZM13,24H17V27H13ZM19,24H23V27H19ZM25,24H29V27H25ZM31,24H35V27H31ZM37,24H41V27H37Z" android:fillColor="#9F1239"/>
+    <path android:pathData="M7,29H11V32H7ZM13,29H17V32H13ZM19,29H23V32H19ZM25,29H29V32H25ZM31,29H35V32H31ZM37,29H41V32H37Z" android:fillColor="#9F1239"/>
+    <path android:pathData="M14,34H34V36.5H14Z" android:fillColor="#9F1239"/>
+</vector>

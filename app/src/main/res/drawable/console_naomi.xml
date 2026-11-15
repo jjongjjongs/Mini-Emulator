@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: Naomi · Atomiswave (an arcade cabinet with a stick and six buttons) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M10,6H38A3,3 0,0 1,41,9V39A3,3 0,0 1,38,42H10A3,3 0,0 1,7,39V9A3,3 0,0 1,10,6Z" android:fillColor="#FFF"/>
+    <path android:pathData="M12,10H36A1,1 0,0 1,37,11V24A1,1 0,0 1,36,25H12A1,1 0,0 1,11,24V11A1,1 0,0 1,12,10Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M14,12H34V17H14Z" android:fillColor="#FFF" android:fillAlpha="0.35"/>
+    <path android:pathData="M13.5,34a3,3 0,1 0,6,0a3,3 0,1 0,-6,0Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M15.5,28h2v4h-2Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M23.2,30.5a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M27.7,30.5a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M32.2,30.5a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M23.2,35.5a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M27.7,35.5a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#0D9488"/>
+    <path android:pathData="M32.2,35.5a1.4,1.4 0,1 0,2.8,0a1.4,1.4 0,1 0,-2.8,0Z" android:fillColor="#0D9488"/>
+</vector>
