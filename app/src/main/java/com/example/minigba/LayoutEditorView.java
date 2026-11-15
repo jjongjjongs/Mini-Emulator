@@ -331,12 +331,26 @@ final class LayoutEditorView extends FrameLayout {
         row.addView(button("＋", Color.rgb(55, 65, 81), view -> stepScale(0.1f, true, true)), buttonParams(40));
         gridButton = button("격자", showGrid ? Color.rgb(124, 58, 237) : Color.rgb(75, 85, 99), view -> toggleGrid());
         row.addView(gridButton, buttonParams(46));
-        row.addView(button("초기화", Color.rgb(75, 85, 99), view -> askReset()), buttonParams(62));
-        row.addView(button("취소", Color.rgb(75, 85, 99), view -> cancel()), buttonParams(52));
-        row.addView(button("저장", Color.rgb(22, 185, 207), view -> listener.onSave(this.edits)), buttonParams(52));
+        // (0.0.429) 초기화 · 취소 · 저장 go to a second line when the one line is wider than the
+        // phone (a narrow phone in portrait lost 저장 off the edge).
+        int screenDp = Math.round(context.getResources().getDisplayMetrics().widthPixels / density);
+        int oneLineDp = 20 + 78 + (40 + 6) * 2 + (46 + 6) + (62 + 6) + (52 + 6) * 2 + 16;
+        LinearLayout endRow = row;
+        if (oneLineDp > screenDp) {
+            endRow = new LinearLayout(context);
+            endRow.setGravity(Gravity.CENTER_VERTICAL);
+        }
+        endRow.addView(button("초기화", Color.rgb(75, 85, 99), view -> askReset()), buttonParams(62));
+        endRow.addView(button("취소", Color.rgb(75, 85, 99), view -> cancel()), buttonParams(52));
+        endRow.addView(button("저장", Color.rgb(22, 185, 207), view -> listener.onSave(this.edits)), buttonParams(52));
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-2, -2);
         rowParams.setMargins(0, dp(6), 0, 0);
         card.addView(row, rowParams);
+        if (endRow != row) {
+            LinearLayout.LayoutParams endParams = new LinearLayout.LayoutParams(-2, -2);
+            endParams.setMargins(0, dp(6), 0, 0);
+            card.addView(endRow, endParams);
+        }
 
         // The game screen's own row: aspect lock, each axis alone, ratio presets, centring.
         screenRow = new LinearLayout(context);
