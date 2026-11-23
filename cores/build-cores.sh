@@ -7,7 +7,7 @@
 set -euo pipefail
 
 FBNEO_REPO=https://github.com/libretro/FBNeo.git
-FBNEO_COMMIT=a836e52198aa5ce1f54be7b050e44872a1223797  # 2026-11-10
+FBNEO_COMMIT=3f0de7fefbb7cc4b46e832647215cbe41eaf37b0  # 2026-11-22
 MAME2003P_REPO=https://github.com/libretro/mame2003-plus-libretro.git
 MAME2003P_COMMIT=1bfe3c273ac2bb5ee3ca37e589127b83a8341305  # 2026-11-21
 
