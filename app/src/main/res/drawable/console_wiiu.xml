@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: Wii U GamePad (a wide body with the screen in the middle, a stick each side) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M8,12H40A6,6 0,0 1,46,18V31A6,6 0,0 1,40,37H8A6,6 0,0 1,2,31V18A6,6 0,0 1,8,12Z" android:fillColor="#FFF"/>
+    <path android:pathData="M15,16H33A1.5,1.5 0,0 1,34.5,17.5V31.5A1.5,1.5 0,0 1,33,33H15A1.5,1.5 0,0 1,13.5,31.5V17.5A1.5,1.5 0,0 1,15,16Z" android:fillColor="#0EA5E9"/>
+    <path android:pathData="M8,20m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" android:fillColor="#0EA5E9"/>
+    <path android:pathData="M40,20m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" android:fillColor="#0EA5E9"/>
+    <path android:pathData="M7,28H9V26H10V28H12V29H10V31H9V29H7Z" android:fillColor="#0EA5E9"/>
+    <path android:pathData="M39.5,28.5m-1.2,0a1.2,1.2 0,1 1,2.4 0a1.2,1.2 0,1 1,-2.4 0" android:fillColor="#0EA5E9"/>
+</vector>

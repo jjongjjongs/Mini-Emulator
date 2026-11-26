@@ -1,0 +1,48 @@
+diff --git a/Source/Core/DolphinLibretro/Boot.cpp b/Source/Core/DolphinLibretro/Boot.cpp
+index ced280e..4c6c4c7 100644
+--- a/Source/Core/DolphinLibretro/Boot.cpp
++++ b/Source/Core/DolphinLibretro/Boot.cpp
+@@ -1026,3 +1026,43 @@ extern "C" __attribute__((visibility("default"))) int retro_mini_wii_update(
+   UICommon::Shutdown();
+   return code;
+ }
++
++// Mini Emulator: 내 Wii NAND 가져오기, like Dolphin's Tools > Manage NAND > Import BootMii
++// NAND Backup: a BootMii nand.bin (with its keys at the end, or keys.bin beside it) extracted
++// into <user_dir>/Wii, with no game running. keys_path may be empty when the keys are inside.
++// progress gets (step: 0 loading, 1 extracting; done; total) and returns 0 to stop.
++// Returns 0 done, 1 not a BootMii backup (size), 2 keys missing, 3 no Wii file system in it
++// or nothing extracted, 4 stopped.
++extern "C" __attribute__((visibility("default"))) int retro_mini_import_nand(
++    const char* user_dir, const char* sys_dir, const char* nand_path, const char* keys_path,
++    int (*progress)(int step, int done, int total, void* ctx), void* ctx)
++{
++  constexpr u64 NAND_BIN_SIZE = 0x21000000;
++  const u64 size = File::GetSize(nand_path);
++  if (size != NAND_BIN_SIZE && size != NAND_BIN_SIZE + 0x400)
++    return 1;
++  const std::string keys = keys_path == nullptr ? "" : keys_path;
++  if (size == NAND_BIN_SIZE && (keys.empty() || File::GetSize(keys) < 0x400))
++    return 2;
++  File::SetSysDirectory(sys_dir);
++  UICommon::SetUserDirectory(user_dir);
++  UICommon::CreateDirectories();
++  UICommon::Init();
++  Common::SetEnableAlert(false);
++  bool stopped = false;
++  DiscIO::NANDImporter().ImportNANDBin(
++      nand_path,
++      [progress, ctx, &stopped](DiscIO::NANDImporter::Step step, int done, int total) {
++        if (progress != nullptr &&
++            progress(step == DiscIO::NANDImporter::Step::Loading ? 0 : 1, done, total, ctx) == 0)
++          stopped = true;
++        return stopped;
++      },
++      [keys] { return keys; });
++  const std::string root = File::GetUserPath(D_WIIROOT_IDX);
++  const bool extracted = File::Exists(root + "/keys.bin") && File::IsDirectory(root + "/title/00000001/00000002");
++  UICommon::Shutdown();
++  if (stopped)
++    return 4;
++  return extracted ? 0 : 3;
++}

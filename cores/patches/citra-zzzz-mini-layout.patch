@@ -1,0 +1,188 @@
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+index e1dbec3..9e95d1b 100644
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -2,6 +2,7 @@
+ // Licensed under GPLv2 or any later version
+ // Refer to the license.txt file included.
+ 
++#include <algorithm>
+ #include <list>
+ #include <numeric>
+ #include <vector>
+@@ -347,6 +348,47 @@ void UpdateSettings() {
+         Settings::values.layout_option = Settings::LayoutOption::Default;
+     }
+ 
++    // Mini Emulator: "W,H,top l,t,r,b,bottom l,t,r,b" in pixels of a W x H frame; a screen of
++    // zero size is not shown.
++    {
++        auto mini = LibRetro::FetchVariable("citra_mini_layout", "");
++        unsigned v[10];
++        int n = 0;
++        size_t at = 0;
++        while (n < 10 && at <= mini.size() && !mini.empty()) {
++            size_t comma = mini.find(',', at);
++            std::string part = mini.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
++            if (part.empty() || part.find_first_not_of("0123456789") != std::string::npos || part.size() > 5) {
++                break;
++            }
++            v[n++] = static_cast<unsigned>(std::stoul(part));
++            if (comma == std::string::npos) {
++                break;
++            }
++            at = comma + 1;
++        }
++        if (n == 10 && v[0] >= 16 && v[1] >= 16 && v[0] <= 8192 && v[1] <= 8192) {
++            for (int k = 2; k < 10; k++) {
++                v[k] = std::min(v[k], (k % 2 == 0) ? v[0] : v[1]);
++            }
++            Settings::values.custom_layout = true;
++            Settings::values.custom_top_left = static_cast<u16>(v[2]);
++            Settings::values.custom_top_top = static_cast<u16>(v[3]);
++            Settings::values.custom_top_right = static_cast<u16>(std::max(v[4], v[2]));
++            Settings::values.custom_top_bottom = static_cast<u16>(std::max(v[5], v[3]));
++            Settings::values.custom_bottom_left = static_cast<u16>(v[6]);
++            Settings::values.custom_bottom_top = static_cast<u16>(v[7]);
++            Settings::values.custom_bottom_right = static_cast<u16>(std::max(v[8], v[6]));
++            Settings::values.custom_bottom_bottom = static_cast<u16>(std::max(v[9], v[7]));
++            LibRetro::settings.mini_frame_width = v[0];
++            LibRetro::settings.mini_frame_height = v[1];
++        } else {
++            Settings::values.custom_layout = false;
++            LibRetro::settings.mini_frame_width = 0;
++            LibRetro::settings.mini_frame_height = 0;
++        }
++    }
++
+     auto deadzone = LibRetro::FetchVariable("citra_deadzone", "15");
+     LibRetro::settings.deadzone = (float)std::stoi(deadzone) / 100;
+ 
+diff --git a/src/citra_libretro/core_settings.h b/src/citra_libretro/core_settings.h
+index 22d6799..ff04f98 100644
+--- a/src/citra_libretro/core_settings.h
++++ b/src/citra_libretro/core_settings.h
+@@ -29,6 +29,11 @@ struct CoreSettings {
+ 
+     bool toggle_swap_screen;
+ 
++    // Mini Emulator: a frame of this size (in pixels) with the screens where the frontend
++    // put them (custom_top_* / custom_bottom_*); 0 when the usual layouts are used.
++    unsigned mini_frame_width = 0;
++    unsigned mini_frame_height = 0;
++
+ } extern settings;
+ 
+ } // namespace LibRetro
+diff --git a/src/citra_libretro/emu_window/libretro_window.cpp b/src/citra_libretro/emu_window/libretro_window.cpp
+index cdd7fb8..0f7777a 100644
+--- a/src/citra_libretro/emu_window/libretro_window.cpp
++++ b/src/citra_libretro/emu_window/libretro_window.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include "audio_core/audio_types.h"
+ #include "citra_libretro/citra_libretro.h"
++#include "citra_libretro/core_settings.h"
+ #include "citra_libretro/environment.h"
+ #include "citra_libretro/input/input_factory.h"
+ #include "common/settings.h"
+@@ -65,7 +66,7 @@ void EmuWindow_LibRetro::SwapBuffers() {
+     if (useOpenGL) {
+         auto current_state = OpenGL::OpenGLState::GetCurState();
+         ResetGLState();
+-        if (enableEmulatedPointer) {
++        if (enableEmulatedPointer && useOpenGL && tracker != nullptr) {
+             tracker->Render(width, height);
+         }
+         LibRetro::UploadVideoFrame(RETRO_HW_FRAME_BUFFER_VALID, static_cast<unsigned>(width),
+@@ -96,7 +97,7 @@ void EmuWindow_LibRetro::PollEvents() {
+ 
+     // TODO: Poll for right click for motion emu
+ 
+-    if (enableEmulatedPointer) {
++    if (enableEmulatedPointer && tracker != nullptr && GetFramebufferLayout().bottom_screen_enabled) {
+         tracker->Update(width, height, GetFramebufferLayout().bottom_screen);
+ 
+         if (tracker->IsPressed()) {
+@@ -136,9 +137,15 @@ void EmuWindow_LibRetro::UpdateLayout() {
+ 
+     bool swapped = Settings::values.swap_screen.GetValue();
+ 
+-    enableEmulatedPointer = useOpenGL;
++    // The touch screen is read with either renderer (only the drawn pointer needs OpenGL).
++    enableEmulatedPointer = true;
+ 
+-    switch (Settings::values.layout_option.GetValue()) {
++    if (LibRetro::settings.mini_frame_width > 0 && Settings::values.custom_layout.GetValue()) {
++        // Mini Emulator's own layout: a frame as large as the view it is shown in, so the
++        // screens are drawn once, at their size on the phone.
++        baseX = LibRetro::settings.mini_frame_width;
++        baseY = LibRetro::settings.mini_frame_height;
++    } else switch (Settings::values.layout_option.GetValue()) {
+     case Settings::LayoutOption::SingleScreen:
+         if (swapped) { // Bottom screen visible
+             baseX = Core::kScreenBottomWidth;
+@@ -227,9 +234,8 @@ bool EmuWindow_LibRetro::HasSubmittedFrame() {
+ }
+ 
+ void EmuWindow_LibRetro::CreateContext() {
+-    if (useOpenGL) {
+-        tracker = std::make_unique<LibRetro::Input::MouseTracker>();
+-    }
++    // The touch screen is read with Vulkan too; only OpenGL draws the pointer.
++    tracker = std::make_unique<LibRetro::Input::MouseTracker>(useOpenGL);
+ 
+     doCleanFrame = true;
+ }
+diff --git a/src/citra_libretro/input/mouse_tracker.cpp b/src/citra_libretro/input/mouse_tracker.cpp
+index 22cd834..2f8af90 100644
+--- a/src/citra_libretro/input/mouse_tracker.cpp
++++ b/src/citra_libretro/input/mouse_tracker.cpp
+@@ -17,7 +17,19 @@ namespace LibRetro {
+ 
+ namespace Input {
+ 
+-MouseTracker::MouseTracker() {
++MouseTracker::MouseTracker(bool gl) {
++    x = 0;
++    y = 0;
++    lastMouseX = -1;
++    lastMouseY = -1;
++    projectedX = 0;
++    projectedY = 0;
++    renderRatio = 1;
++    isPressed = false;
++    if (!gl) {
++        // Vulkan: only the input side (no shader to draw the pointer with).
++        return;
++    }
+     // Could potentially also use Citra's built-in shaders, if they can be
+     //  wrangled to cooperate.
+ 
+diff --git a/src/citra_libretro/input/mouse_tracker.h b/src/citra_libretro/input/mouse_tracker.h
+index eaecf0e..ba6b3f2 100644
+--- a/src/citra_libretro/input/mouse_tracker.h
++++ b/src/citra_libretro/input/mouse_tracker.h
+@@ -16,7 +16,7 @@ namespace Input {
+ ///  for a touch-screen device.
+ class MouseTracker {
+ public:
+-    MouseTracker();
++    explicit MouseTracker(bool gl = true);
+     ~MouseTracker();
+ 
+     /// Called whenever a mouse moves.
+diff --git a/src/core/frontend/framebuffer_layout.cpp b/src/core/frontend/framebuffer_layout.cpp
+index 40b86fb..bf4f3f6 100644
+--- a/src/core/frontend/framebuffer_layout.cpp
++++ b/src/core/frontend/framebuffer_layout.cpp
+@@ -450,6 +450,9 @@ FramebufferLayout CustomFrameLayout(u32 width, u32 height, bool is_swapped) {
+         res.top_screen = top_screen;
+         res.bottom_screen = bot_screen;
+     }
++    // A screen given no room is not drawn (one screen only).
++    res.top_screen_enabled = res.top_screen.GetWidth() > 0 && res.top_screen.GetHeight() > 0;
++    res.bottom_screen_enabled = res.bottom_screen.GetWidth() > 0 && res.bottom_screen.GetHeight() > 0;
+     return res;
+ }
+ 

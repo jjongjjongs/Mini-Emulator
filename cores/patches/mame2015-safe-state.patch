@@ -1,0 +1,49 @@
+diff --git a/src/emu/mame.c b/src/emu/mame.c
+index 65b980e..3d0ab79 100644
+--- a/src/emu/mame.c
++++ b/src/emu/mame.c
+@@ -346,6 +346,13 @@ void retro_save_state(retro_buffer_writer &buf)
+ 	retro_global_machine->save().retro_write_file(buf);
+ }
+ 
++/* Whether a state taken or restored now is whole: MAME itself waits while temporary
++   (anonymous) timers are pending, since their callbacks are not part of the state */
++bool retro_state_safe()
++{
++	return retro_global_machine != NULL && retro_global_machine->scheduler().can_save();
++}
++
+ /* Called by libretro to load a state from a buffer */
+ bool retro_load_state(retro_buffer_reader &buf)
+ {
+diff --git a/src/osd/retro/libretro.c b/src/osd/retro/libretro.c
+index 43ac8f1..be33042 100755
+--- a/src/osd/retro/libretro.c
++++ b/src/osd/retro/libretro.c
+@@ -544,6 +544,7 @@ extern void retro_main_loop();
+ // save state functions defined in mame.c
+ extern void retro_save_state(retro_buffer_writer &buf);
+ extern bool retro_load_state(retro_buffer_reader &buf);
++extern bool retro_state_safe();
+ 
+ void retro_run (void)
+ {
+@@ -675,6 +676,9 @@ size_t retro_serialize_size(void)
+ }
+ bool retro_serialize(void *data, size_t size) 
+ {
++	// the frontend runs another frame and tries again
++	if (!retro_state_safe())
++		return false;
+ 	retro_buffer_writer saveBuffer;
+ 	retro_save_state(saveBuffer);
+ 	log_cb(RETRO_LOG_INFO, "RETRO_SERIALIZE ACTUAL SIZE IS: %d\n",saveBuffer.size());
+@@ -689,6 +693,8 @@ bool retro_serialize(void *data, size_t size)
+ }
+ bool retro_unserialize(const void * data, size_t size) 
+ { 
++	if (!retro_state_safe())
++		return false;
+ 	log_cb(RETRO_LOG_INFO, "RETRO_UNSERIALIZE. SIZE: %d\n",size);
+ 	retro_buffer_reader readBuffer(data, size);
+ 	bool ret = retro_load_state(readBuffer);

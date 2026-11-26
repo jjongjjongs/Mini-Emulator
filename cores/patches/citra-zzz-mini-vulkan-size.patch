@@ -1,0 +1,44 @@
+diff --git a/src/citra_libretro/vulkan/vk_swapchain.cpp b/src/citra_libretro/vulkan/vk_swapchain.cpp
+index 03e1c06..41f2b8f 100644
+--- a/src/citra_libretro/vulkan/vk_swapchain.cpp
++++ b/src/citra_libretro/vulkan/vk_swapchain.cpp
+@@ -263,13 +263,10 @@ void Swapchain::SetSurfaceProperties() {
+     const vk::SurfaceCapabilitiesKHR capabilities =
+         instance.GetPhysicalDevice().getSurfaceCapabilitiesKHR(surface);
+ 
+-    extent = capabilities.currentExtent;
+-    if (capabilities.currentExtent.width == std::numeric_limits<u32>::max()) {
+-        extent.width = std::max(capabilities.minImageExtent.width,
+-                                std::min(capabilities.maxImageExtent.width, width));
+-        extent.height = std::max(capabilities.minImageExtent.height,
+-                                 std::min(capabilities.maxImageExtent.height, height));
+-    }
++    // libretro: these images are the core's own, shown by the frontend (set_image); the
++    // surface it passed is only a stand-in (an Android frontend may hand over a 64x64 one),
++    // so the images are the size of the frame, not of that surface.
++    extent = vk::Extent2D{std::max(width, 1u), std::max(height, 1u)};
+ 
+     // Select number of images in swap chain, we prefer one buffer in the background to work on
+     image_count = capabilities.minImageCount + 1;
+diff --git a/src/video_core/renderer_vulkan/vk_present_window.cpp b/src/video_core/renderer_vulkan/vk_present_window.cpp
+index d81cab5..4a4a853 100644
+--- a/src/video_core/renderer_vulkan/vk_present_window.cpp
++++ b/src/video_core/renderer_vulkan/vk_present_window.cpp
+@@ -364,7 +364,16 @@ void PresentWindow::CopyToSwapchain(Frame* frame) {
+         swapchain.Create(frame->width, frame->height, surface);
+     };
+ 
+-#ifndef ANDROID
++#ifdef HAVE_LIBRETRO
++    // libretro: the images follow the frame's size (resolution or layout changed); there is
++    // no window surface to wait for, and frames are handed over on this (the only) thread.
++    if (swapchain.GetWidth() != frame->width || swapchain.GetHeight() != frame->height) [[unlikely]] {
++        std::scoped_lock submit_lock{scheduler.submit_mutex};
++        graphics_queue.waitIdle();
++        swapchain.Create(frame->width, frame->height, surface);
++    }
++#endif
++#if !defined(ANDROID) && !defined(HAVE_LIBRETRO)
+     const bool use_vsync = Settings::values.use_vsync_new.GetValue();
+     const bool size_changed =
+         swapchain.GetWidth() != frame->width || swapchain.GetHeight() != frame->height;

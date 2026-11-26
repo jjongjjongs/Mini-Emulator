@@ -1,0 +1,14 @@
+diff --git a/pcee2-libretro/Libretro.cpp b/pcee2-libretro/Libretro.cpp
+index 2d7f95db6..1f1424ea3 100644
+--- a/pcee2-libretro/Libretro.cpp
++++ b/pcee2-libretro/Libretro.cpp
+@@ -612,6 +612,9 @@ void LibretroHost::SettingsOverride()
+ 	// that case.
+ 	s_settings_interface.SetBoolValue("EmuCore/GS", "FrameLimitEnable", s_internal_limiter.load(std::memory_order_acquire));
+ 	s_settings_interface.SetIntValue("EmuCore/GS", "VsyncEnable", false);
++	// No PCSX2 notices drawn over the game (missing patches.zip, the blending level a
++	// game recommends): the frontend has no way to act on them.
++	s_settings_interface.SetIntValue("EmuCore/GS", "OsdMessagesPos", static_cast<int>(OsdOverlayPos::None));
+ 
+ 	// Renderer comes from the core options (Vulkan or SW-on-Vulkan); Vulkan is
+ 	// the only Linux backend that supports a Surfaceless (swapchain-less)

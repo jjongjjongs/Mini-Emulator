@@ -1,0 +1,374 @@
+package com.example.minigba;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Color;
+
+/**
+ * How the on-screen buttons look: a colour theme, the shape of the round buttons, whether
+ * they carry their letter, how big each group is and what happens when one is pressed.
+ *
+ * Saved per console (or per game when "이 게임에만" is on) and per screen direction under
+ * "btnstyle:&lt;scope&gt;:&lt;P|L&gt;" as one comma list, so a missing entry means the defaults.
+ */
+final class ButtonStyle {
+    static final int THEME_DEFAULT = 0;
+    static final int THEME_PRIMARY = 1;
+    static final int THEME_WHITE = 2;
+    static final int THEME_BLACK = 3;
+    static final int THEME_OUTLINE = 4;
+    static final int THEME_NEON = 5;
+    static final int THEME_PASTEL = 6;
+    static final int THEME_CUSTOM = 7;
+    // The first Mini GBA's colours: plum round buttons, grey pills, black pad (N64 C yellow).
+    static final int THEME_RETRO = 8;
+    // The pastel glass case's buttons: white glass pills, a lavender pad, candy A · B.
+    static final int THEME_GLASS = 9;
+    // The space case's buttons: dark slate glass, a pink A and a blue B.
+    static final int THEME_SPACE = 10;
+    // Colours that suit the material / retro case (ClearShellView.SKIN_*), set in `skin`.
+    static final int THEME_SKIN = 11;
+    static final String[] THEME_NAMES = {"기본 (케이스 색)", "원색 4색", "화이트", "블랙", "윤곽선만", "네온", "파스텔", "내 색 고르기", "원조 (Mini GBA)", "파스텔 글라스", "우주", "배경 맞춤"};
+    // Which material / retro case the 배경 맞춤 colours follow. Not saved.
+    int skin;
+    // pill, pad, A, B for walnut, leather, ink, CRT, pixel
+    private static final int[][] SKIN_COLORS = {
+            {Color.rgb(232, 222, 200), Color.rgb(58, 40, 28), Color.rgb(240, 228, 204), Color.rgb(240, 228, 204)},
+            {Color.rgb(196, 160, 116), Color.rgb(48, 30, 20), Color.rgb(192, 139, 82), Color.rgb(192, 139, 82)},
+            {Color.rgb(238, 229, 210), Color.rgb(44, 43, 40), Color.rgb(179, 38, 30), Color.rgb(60, 59, 55)},
+            {Color.rgb(214, 206, 190), Color.rgb(40, 36, 30), Color.rgb(226, 83, 45), Color.rgb(240, 138, 36)},
+            {Color.rgb(214, 192, 240), Color.rgb(70, 44, 110), Color.rgb(244, 162, 122), Color.rgb(222, 127, 126)},
+    };
+    // Which pastel glass the case is (ClearShellView.GLASS_*): it tints A · B. Not saved.
+    int glass;
+
+    static final int SHAPE_CIRCLE = 0;
+    static final int SHAPE_ROUNDED = 1;
+    static final int SHAPE_SQUARE = 2;
+    static final String[] SHAPE_NAMES = {"● 원", "▢ 둥근 네모", "■ 네모"};
+
+    static final int LABEL_SHOW = 0;
+    static final int LABEL_HIDE = 1;
+    static final int LABEL_SMALL = 2;
+    static final String[] LABEL_NAMES = {"글자 보임", "글자 숨김", "글자 작게"};
+
+    /** Button groups whose size is set separately. */
+    static final int GROUP_NONE = -1;
+    static final int GROUP_DPAD = 0;
+    static final int GROUP_ACTION = 1;
+    static final int GROUP_STICK = 2;
+    static final int GROUP_SHOULDER = 3;
+    static final String[] GROUP_NAMES = {"방향키", "A · B (X · Y)", "스틱", "L · R · 시작"};
+
+    /** Roles a colour theme gives a colour to. */
+    static final int ROLE_DPAD = 0;
+    static final int ROLE_A = 1;
+    static final int ROLE_B = 2;
+    static final int ROLE_X = 3;
+    static final int ROLE_Y = 4;
+    static final int ROLE_OTHER = 5;
+    static final int ROLE_PILL = 6;
+    static final int ROLE_C = 7;  // N64 C buttons (▲▶▼◀)
+
+    static final int MIN_SIZE = 50;
+    static final int MAX_SIZE = 150;
+
+    int theme = THEME_DEFAULT;
+    int shape = SHAPE_CIRCLE;
+    int label = LABEL_SHOW;
+    /** Percent: everything, then one per group. */
+    int sizeAll = 100;
+    final int[] sizes = {100, 100, 100, 100};
+    boolean glow = true;
+    boolean bounce = false;
+    /** "내 색 고르기": 방향키, A·B·X·Y, L·R·시작. */
+    final int[] custom = {Color.rgb(255, 255, 255), Color.rgb(255, 122, 0), Color.rgb(107, 77, 230)};
+    /** "버튼마다 따로 고르기": colours by control id (the layout editor's "kind#n"). */
+    boolean perButton = false;
+    final java.util.Map<String, Integer> colors = new java.util.HashMap<>();
+    /** "버튼 사이 간격" percent: how far the A·B·X·Y and SELECT·START groups spread. */
+    int gap = 100;
+    static final int MIN_GAP = 70;
+    static final int MAX_GAP = 140;
+
+    ButtonStyle copy() {
+        ButtonStyle out = new ButtonStyle();
+        out.theme = theme;
+        out.shape = shape;
+        out.label = label;
+        out.sizeAll = sizeAll;
+        System.arraycopy(sizes, 0, out.sizes, 0, sizes.length);
+        out.glow = glow;
+        out.bounce = bounce;
+        System.arraycopy(custom, 0, out.custom, 0, custom.length);
+        out.perButton = perButton;
+        out.colors.putAll(colors);
+        out.gap = gap;
+        return out;
+    }
+
+    boolean isDefault() {
+        return serialize().equals(new ButtonStyle().serialize());
+    }
+
+    /** Whether the drawing differs from the built-in look (sizes alone do not count). */
+    boolean themed() {
+        return theme != THEME_DEFAULT || shape != SHAPE_CIRCLE || label != LABEL_SHOW || bounce || !glow;
+    }
+
+    /** The scale a control in this group gets, 1 for the groups that have none. */
+    float scale(int group) {
+        if (group < 0) {
+            return 1.0f;
+        }
+        return sizeAll / 100.0f * sizes[group] / 100.0f;
+    }
+
+    // ---- colours ----
+
+    boolean outline() {
+        return theme == THEME_OUTLINE;
+    }
+
+    boolean neon() {
+        return theme == THEME_NEON;
+    }
+
+    /** The body colour for a role, or 0 when the theme keeps the built-in colour. */
+    int color(int role) {
+        if (theme == THEME_RETRO) {
+            switch (role) {
+                case ROLE_PILL: return Color.rgb(214, 211, 204);
+                case ROLE_DPAD: return Color.rgb(34, 35, 38);
+                case ROLE_C: return Color.rgb(192, 138, 18);
+                default: return Color.rgb(151, 21, 94);
+            }
+        }
+        if (theme == THEME_GLASS) {
+            int candy = glass == 1 ? Color.rgb(139, 92, 246) : glass == 2 ? Color.rgb(225, 29, 72) : Color.rgb(236, 72, 153);
+            switch (role) {
+                case ROLE_PILL: return Color.rgb(246, 245, 252);
+                case ROLE_DPAD: return Color.rgb(201, 192, 240);
+                case ROLE_C: return Color.rgb(168, 154, 226);
+                case ROLE_A: case ROLE_B: return candy;
+                default: return lighter(candy, 0.3f);
+            }
+        }
+        if (theme == THEME_SKIN) {
+            int[] c = SKIN_COLORS[Math.max(0, Math.min(SKIN_COLORS.length - 1, skin))];
+            switch (role) {
+                case ROLE_PILL: return c[0];
+                case ROLE_DPAD: return c[1];
+                case ROLE_A: case ROLE_X: return c[2];
+                case ROLE_B: case ROLE_Y: return c[3];
+                default: return c[0];
+            }
+        }
+        if (theme == THEME_SPACE) {
+            switch (role) {
+                case ROLE_A: return Color.rgb(219, 39, 119);
+                case ROLE_B: return Color.rgb(59, 130, 246);
+                case ROLE_X: return Color.rgb(168, 85, 247);
+                case ROLE_Y: return Color.rgb(20, 184, 166);
+                case ROLE_DPAD: return Color.rgb(74, 82, 104);
+                case ROLE_PILL: return Color.rgb(62, 68, 88);
+                default: return Color.rgb(84, 92, 116);
+            }
+        }
+        if (role == ROLE_C) {
+            role = ROLE_OTHER;
+        }
+        switch (theme) {
+            case THEME_PRIMARY:
+                switch (role) {
+                    case ROLE_A: return Color.rgb(227, 38, 58);
+                    case ROLE_B: return Color.rgb(248, 179, 26);
+                    case ROLE_X: return Color.rgb(47, 111, 224);
+                    case ROLE_Y: return Color.rgb(34, 179, 90);
+                    case ROLE_OTHER: return Color.rgb(58, 58, 63);
+                    default: return Color.rgb(42, 44, 51);
+                }
+            case THEME_WHITE:
+                return role == ROLE_DPAD ? Color.rgb(228, 230, 236) : Color.rgb(242, 243, 247);
+            case THEME_BLACK:
+                return role == ROLE_DPAD ? Color.rgb(26, 27, 31) : Color.rgb(16, 17, 20);
+            case THEME_OUTLINE:
+                return Color.argb(217, 255, 255, 255);
+            case THEME_NEON:
+                switch (role) {
+                    case ROLE_A: return Color.rgb(255, 43, 214);
+                    case ROLE_B: return Color.rgb(43, 240, 255);
+                    case ROLE_X: return Color.rgb(182, 255, 43);
+                    case ROLE_Y: return Color.rgb(255, 170, 43);
+                    case ROLE_OTHER: return Color.rgb(43, 240, 255);
+                    case ROLE_DPAD: return Color.rgb(182, 255, 43);
+                    default: return Color.rgb(43, 240, 255);
+                }
+            case THEME_PASTEL:
+                switch (role) {
+                    case ROLE_A: return Color.rgb(255, 198, 211);
+                    case ROLE_B: return Color.rgb(255, 241, 184);
+                    case ROLE_X: return Color.rgb(198, 227, 255);
+                    case ROLE_Y: return Color.rgb(205, 245, 212);
+                    case ROLE_OTHER: return Color.rgb(226, 214, 255);
+                    case ROLE_DPAD: return Color.rgb(205, 245, 212);
+                    default: return Color.rgb(198, 227, 255);
+                }
+            case THEME_CUSTOM:
+                return role == ROLE_DPAD ? custom[0] : role == ROLE_PILL ? custom[2] : custom[1];
+            default:
+                return 0;
+        }
+    }
+
+    /** The colour for one control: its own when "버튼마다 따로" gave it one, else the role's. */
+    int colorFor(String key, int role) {
+        if (theme == THEME_CUSTOM && perButton && key != null) {
+            Integer own = colors.get(key);
+            if (own != null) {
+                return own;
+            }
+        }
+        return color(role);
+    }
+
+    /** The role a round button's letter stands for. */
+    static int roleOf(String label) {
+        if (label == null) return ROLE_OTHER;
+        switch (label) {
+            case "A": case "○": return ROLE_A;
+            case "B": case "×": return ROLE_B;
+            case "X": case "△": return ROLE_X;
+            case "Y": case "□": return ROLE_Y;
+            case "▲": case "▶": case "▼": case "◀": return ROLE_C;
+            default: return ROLE_OTHER;
+        }
+    }
+
+    // The label colour on a body: dark or white, the first Mini GBA's navy or pink in its theme.
+    static int labelOn(int body, ButtonStyle look) {
+        boolean light = isLight(body);
+        if (look != null && look.theme == THEME_RETRO) {
+            return light ? Color.rgb(42, 41, 101) : Color.rgb(255, 215, 238);
+        }
+        if (look != null && look.theme == THEME_GLASS) {
+            return light ? Color.rgb(91, 84, 134) : Color.WHITE;
+        }
+        return light ? Color.rgb(40, 44, 52) : Color.WHITE;
+    }
+
+    static boolean isLight(int color) {
+        return Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114 > 150 * 1000;
+    }
+
+    static int lighter(int color, float amount) {
+        return Color.rgb(mix(Color.red(color), 255, amount), mix(Color.green(color), 255, amount), mix(Color.blue(color), 255, amount));
+    }
+
+    static int darker(int color, float amount) {
+        return Color.rgb(mix(Color.red(color), 0, amount), mix(Color.green(color), 0, amount), mix(Color.blue(color), 0, amount));
+    }
+
+    private static int mix(int from, int to, float amount) {
+        return Math.round(from + (to - from) * amount);
+    }
+
+    static int withAlpha(int color, int alpha) {
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    /** Light, middle and edge colour for a see-through plastic body of this colour. */
+    static int[] palette(int color) {
+        return isLight(color)
+                ? new int[]{lighter(color, 0.35f), color, darker(color, 0.22f)}
+                : new int[]{lighter(color, 0.12f), darker(color, 0.25f), darker(color, 0.55f)};
+    }
+
+    // ---- storage ----
+
+    static String gameScope(String saveBaseName) {
+        return "game:" + saveBaseName;
+    }
+
+    private static String key(String scope, boolean landscape) {
+        return "btnstyle:" + scope + ":" + (landscape ? "L" : "P");
+    }
+
+    static boolean exists(Context context, String scope, boolean landscape) {
+        return MainActivity.sharedSettings(context).contains(key(scope, landscape));
+    }
+
+    /** The style in force: the game's own when it has one, else the console's, else defaults. */
+    static ButtonStyle load(Context context, String mode, String saveBaseName, boolean landscape) {
+        SharedPreferences prefs = MainActivity.sharedSettings(context);
+        String saved = saveBaseName != null ? prefs.getString(key(gameScope(saveBaseName), landscape), null) : null;
+        if (saved == null) {
+            saved = prefs.getString(key(mode, landscape), null);
+        }
+        return parse(saved);
+    }
+
+    static void save(Context context, String scope, boolean landscape, ButtonStyle style) {
+        MainActivity.sharedSettings(context).edit().putString(key(scope, landscape), style.serialize()).apply();
+    }
+
+    static void clear(Context context, String scope, boolean landscape) {
+        MainActivity.sharedSettings(context).edit().remove(key(scope, landscape)).apply();
+    }
+
+    String serialize() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(theme).append(',').append(shape).append(',').append(label).append(',').append(sizeAll);
+        for (int size : sizes) sb.append(',').append(size);
+        sb.append(',').append(glow ? 1 : 0).append(',').append(bounce ? 1 : 0);
+        for (int color : custom) sb.append(',').append(color);
+        sb.append(',').append(gap).append(',').append(perButton ? 1 : 0);
+        StringBuilder own = new StringBuilder();
+        for (java.util.Map.Entry<String, Integer> entry : colors.entrySet()) {
+            if (own.length() > 0) own.append('|');
+            own.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        sb.append(',').append(own);
+        return sb.toString();
+    }
+
+    static ButtonStyle parse(String text) {
+        ButtonStyle style = new ButtonStyle();
+        if (text == null || text.isEmpty()) {
+            return style;
+        }
+        try {
+            String[] parts = text.split(",");
+            int k = 0;
+            style.theme = clamp(Integer.parseInt(parts[k++]), 0, THEME_NAMES.length - 1);
+            style.shape = clamp(Integer.parseInt(parts[k++]), 0, SHAPE_NAMES.length - 1);
+            style.label = clamp(Integer.parseInt(parts[k++]), 0, LABEL_NAMES.length - 1);
+            style.sizeAll = clamp(Integer.parseInt(parts[k++]), MIN_SIZE, MAX_SIZE);
+            for (int i = 0; i < style.sizes.length; i++) {
+                style.sizes[i] = clamp(Integer.parseInt(parts[k++]), MIN_SIZE, MAX_SIZE);
+            }
+            style.glow = !"0".equals(parts[k++]);
+            style.bounce = "1".equals(parts[k++]);
+            for (int i = 0; i < style.custom.length; i++) {
+                style.custom[i] = Integer.parseInt(parts[k++]) | 0xFF000000;
+            }
+            style.gap = clamp(Integer.parseInt(parts[k++]), MIN_GAP, MAX_GAP);
+            style.perButton = "1".equals(parts[k++]);
+            if (k < parts.length) {
+                for (String entry : parts[k].split("\\|")) {
+                    int eq = entry.indexOf('=');
+                    if (eq > 0) {
+                        style.colors.put(entry.substring(0, eq), Integer.parseInt(entry.substring(eq + 1)) | 0xFF000000);
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // A damaged or older entry keeps whatever was read before it broke.
+        }
+        return style;
+    }
+
+    static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+}

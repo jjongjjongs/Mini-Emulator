@@ -1,0 +1,25 @@
+diff --git a/Source/Core/Core/IOS/Network/IP/Top.cpp b/Source/Core/Core/IOS/Network/IP/Top.cpp
+index 501eb4e..58935b5 100644
+--- a/Source/Core/Core/IOS/Network/IP/Top.cpp
++++ b/Source/Core/Core/IOS/Network/IP/Top.cpp
+@@ -404,7 +404,9 @@ static std::optional<DefaultInterface> GetSystemDefaultInterface()
+       }
+     }
+   }
+-#elif defined(__ANDROID__)
++#elif defined(__ANDROID__) && !defined(__LIBRETRO__)
++  // Mini Emulator: a libretro core has no Dolphin Java side to ask (the JNI call crashed when a
++  // Wii game first went online); it takes the plain socket / getifaddrs path below instead.
+   const u32 addr = GetNetworkIpAddress();
+   const u32 prefix_length = GetNetworkPrefixLength();
+   const u32 netmask = (1 << prefix_length) - 1;
+@@ -437,7 +439,8 @@ static std::optional<DefaultInterface> GetSystemDefaultInterface()
+   };
+ 
+   auto get_addr = [](const sockaddr* addr) {
+-    return reinterpret_cast<const sockaddr_in*>(addr)->sin_addr;
++    // Android leaves the broadcast / destination address of some interfaces empty.
++    return addr ? reinterpret_cast<const sockaddr_in*>(addr)->sin_addr : in_addr{};
+   };
+ 
+   const auto default_interface_address = get_default_address();

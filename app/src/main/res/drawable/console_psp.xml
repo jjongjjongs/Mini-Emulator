@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: PSP -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M10.5,15H37.5A9,9 0,0 1,46.5,24V24A9,9 0,0 1,37.5,33H10.5A9,9 0,0 1,1.5,24V24A9,9 0,0 1,10.5,15Z" android:fillColor="#FFF"/>
+    <path android:pathData="M13,17.5H35A1,1 0,0 1,36,18.5V29.5A1,1 0,0 1,35,30.5H13A1,1 0,0 1,12,29.5V18.5A1,1 0,0 1,13,17.5Z" android:fillColor="#1C1E24"/>
+    <path android:pathData="M4,23.2h6v1.8h-6Z" android:fillColor="#1C1E24"/>
+    <path android:pathData="M6.1,21.1h1.8v6h-1.8Z" android:fillColor="#1C1E24"/>
+    <path android:pathData="M39.9,21.4a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#1C1E24"/>
+    <path android:pathData="M39.9,26.8a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#1C1E24"/>
+    <path android:pathData="M37.2,24.1a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#1C1E24"/>
+    <path android:pathData="M42.6,24.1a1.1,1.1 0,1 0,2.2,0a1.1,1.1 0,1 0,-2.2,0Z" android:fillColor="#1C1E24"/>
+</vector>

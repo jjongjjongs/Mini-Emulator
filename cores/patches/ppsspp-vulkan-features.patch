@@ -1,0 +1,39 @@
+diff --git a/libretro/libretro_vulkan.cpp b/libretro/libretro_vulkan.cpp
+index 8fb6700..486556d 100644
+--- a/libretro/libretro_vulkan.cpp
++++ b/libretro/libretro_vulkan.cpp
+@@ -115,22 +115,29 @@ static VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice_libretro(VkPhysicalDevice p
+    // VK_KHR_get_physical_device_properties2 usage so we'll always try both paths.
+    std::unordered_map<VkPhysicalDeviceFeatures *, VkPhysicalDeviceFeatures> originalFeaturePointers;
+    VkPhysicalDeviceFeatures placeholderEnabledFeatures{};
++   bool hasFeatures2 = false;
+ 
+    for (const VkBaseOutStructure *next = (const VkBaseOutStructure *)pCreateInfo->pNext; next != nullptr;) {
+       if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2) {
+          VkPhysicalDeviceFeatures *enabledFeatures = &((VkPhysicalDeviceFeatures2 *)next)->features;
+          originalFeaturePointers.try_emplace(enabledFeatures, *enabledFeatures);
++         hasFeatures2 = true;
+       }
+ 
+       next = (const VkBaseOutStructure *)next->pNext;
+    }
+ 
+-   if (newInfo.pEnabledFeatures) {
+-      placeholderEnabledFeatures = *newInfo.pEnabledFeatures;
+-   }
++   // pEnabledFeatures must stay NULL when VkPhysicalDeviceFeatures2 is chained: with both,
++   // drivers may take the (empty) pEnabledFeatures and leave depth clamp, clip distances
++   // and the rest of what PPSSPP asked for off.
++   if (!hasFeatures2) {
++      if (newInfo.pEnabledFeatures) {
++         placeholderEnabledFeatures = *newInfo.pEnabledFeatures;
++      }
+ 
+-   newInfo.pEnabledFeatures = &placeholderEnabledFeatures;
+-   originalFeaturePointers.try_emplace((VkPhysicalDeviceFeatures *)newInfo.pEnabledFeatures, *newInfo.pEnabledFeatures);
++      newInfo.pEnabledFeatures = &placeholderEnabledFeatures;
++      originalFeaturePointers.try_emplace((VkPhysicalDeviceFeatures *)newInfo.pEnabledFeatures, *newInfo.pEnabledFeatures);
++   }
+ 
+    for (const auto& pair : originalFeaturePointers) {
+       for (uint32_t i = 0; i < sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32); i++) {

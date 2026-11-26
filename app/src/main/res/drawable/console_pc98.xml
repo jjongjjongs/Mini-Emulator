@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode picker icon: a PC-98 desktop (monitor on a main unit with two floppy drives) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:pathData="M11,5H37A2,2 0,0 1,39,7V23A2,2 0,0 1,37,25H11A2,2 0,0 1,9,23V7A2,2 0,0 1,11,5Z" android:fillColor="#FFF"/>
+    <path android:pathData="M12.5,8.5H35.5V21.5H12.5Z" android:fillColor="#0F766E"/>
+    <path android:pathData="M15,12H27V13.5H15ZM15,15.5H31V17H15Z" android:fillColor="#FFF"/>
+    <path android:pathData="M20,25H28V28H20Z" android:fillColor="#FFF"/>
+    <path android:pathData="M6,28H42A2,2 0,0 1,44,30V40A2,2 0,0 1,42,42H6A2,2 0,0 1,4,40V30A2,2 0,0 1,6,28Z" android:fillColor="#FFF"/>
+    <path android:pathData="M8,32H21V34.5H8ZM27,32H40V34.5H27Z" android:fillColor="#0F766E"/>
+    <path android:pathData="M8,37.5H11V39H8Z" android:fillColor="#0F766E"/>
+</vector>

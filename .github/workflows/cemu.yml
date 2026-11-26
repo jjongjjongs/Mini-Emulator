@@ -1,0 +1,59 @@
+name: Build Cemu core
+
+# Cemu (Wii U) builds its whole vcpkg dependency set for Android, so
+# it is built here and kept in the Actions cache; the APK build only restores it.
+# Run this (or push a change to the script) before a release that needs a new core.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - cores/build-cemu.sh
+      - cores/patches/cemu-*.patch
+      - .github/workflows/cemu.yml
+  workflow_dispatch:
+
+jobs:
+  cemu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Cemu core
+        id: cemu-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so
+            app/src/main/assets/cemu_resources.zip
+          key: cemu-${{ hashFiles('cores/build-cemu.sh', 'cores/patches/cemu-*.patch') }}
+
+      - name: Install build tools
+        if: steps.cemu-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build zip nasm autoconf automake libtool pkg-config
+          df -h .
+
+      - name: Build Cemu core
+        if: steps.cemu-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./cores/build-cemu.sh
+
+      - name: Save Cemu core
+        if: steps.cemu-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs/arm64-v8a/libcemu_libretro_android.so
+            app/src/main/assets/cemu_resources.zip
+          key: cemu-${{ hashFiles('cores/build-cemu.sh', 'cores/patches/cemu-*.patch') }}
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cemu-logs
+          path: |
+            cores/build/*.log
+            cores/build/cemu/dependencies/vcpkg/buildtrees/*/*.log

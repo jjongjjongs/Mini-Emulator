@@ -1,0 +1,11 @@
+XBIOS 1.0 — an MSX system ROM (BIOS) with Python (XPY) in place of MSX-BASIC.
+Included unchanged: the blueMSX machine descriptions "XBIOS 1 XPY", "XBIOS 2 XPY" and
+"XBIOS 2+ XPY" with their ROM images, and the example disk (examples.dsk).
+
+XBIOS
+Copyright (c) 2026 GHOST
+
+ROM images, example programs and documents: CC BY-NC-ND 4.0
+https://creativecommons.org/licenses/by-nc-nd/4.0/
+
+MSX is a trademark of MSX Licensing Corporation.
