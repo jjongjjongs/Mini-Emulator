@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO_URL=https://github.com/libretro/blueMSX-libretro.git
-COMMIT=e3086eb5d36d77fa11704cf53dc176686e70127d
+COMMIT=75de53a3c851e1e951f09add6b59314cdf06b46b
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"

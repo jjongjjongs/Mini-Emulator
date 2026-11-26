@@ -6,7 +6,7 @@
 set -euo pipefail
 
 YABA_REPO=https://github.com/libretro/yabause.git
-YABA_COMMIT=09ed8e5b2e97e7a848ea2514545c34c7b809e399   # branch yabasanshiro
+YABA_COMMIT=10f50efbbfed745757ce20d34ced7c80f06c68dd   # branch yabasanshiro
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"

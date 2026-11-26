@@ -19,8 +19,8 @@ android {
         applicationId 'com.example.minigba.gbaonly'
         minSdk 24
         targetSdk 34
-        versionCode 433
-        versionName '0.0.433'
+        versionCode 434
+        versionName '0.0.434'
 
         ndk {
             abiFilters 'arm64-v8a'
