@@ -6,7 +6,9 @@
 #   libarmsx3-core.so  the engine (dlopen()ed by the glue below)
 #   libarmsx3-jni.so   its JNI glue, bound to com.armsx3.core.ARMSX3 (app/src/main/java/com/armsx3/core)
 #   assets/Icons       pictures the engine's save-data list and dialogs draw with
-# The source for this exact build is tag 1.7.1 (commit 58d33fa).
+# The source for this exact build is tag 1.7.2.
+# (0.0.433: from 1.7.1 to 1.7.2; the JNI glue adds one function, zeroFgUnavailable, and the
+# core one _armsx3_* function to go with it; the other 151 and the Java callbacks are the same.)
 # (0.0.430: from 1.6.7 to 1.7.1; libarmsx3-jni.so is byte for byte the same and the core's
 # _armsx3_* functions are the same 148, so the Java side stays as it is.)
 # (0.0.391: from 1.3.2 to 1.6.7; the JNI class moved from net.rpcsx.RPCSX to com.armsx3.core.ARMSX3.)
@@ -14,9 +16,9 @@
 # Usage: GH_TOKEN=... ./cores/fetch-armsx3.sh
 set -euo pipefail
 
-TAG=1.7.1
-APK=ARMSX3-1.7.1-a11-armv8.2-sdk30.apk
-SHA256=a00f0e168666abf50a0e31166dce4fb38df3f68ca4e1906f5678e3cb9e984ca6
+TAG=1.7.2
+APK=ARMSX3-1.7.2-a11-armv8.2-sdk30.apk
+SHA256=407ea9ec451e094d079e84d98e40d2fa6a11a6ad1a9086f4493ac757bc49424e
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
